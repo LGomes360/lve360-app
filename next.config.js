@@ -1,7 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
-  // DO NOT set: output: 'export'  (that breaks API routes)
+  reactStrictMode: true
+  // IMPORTANT: do NOT set `output: 'export'`
 };
-
 module.exports = nextConfig;
