@@ -10,7 +10,7 @@ export default function Results() {
 
   async function readLatestStack() {
     const q = new URLSearchParams({ select: '*', order: 'created_at.desc', limit: '1' });
-    const res = await fetch(`/api/stacks-latest?${q.toString()}`, { cache: 'no-store' });
+    const res = await fetch(`/api/stacks?${q.toString()}`, { cache: 'no-store' });
     if (!res.ok) throw new Error(`read failed: ${res.status}`);
     const rows = await res.json();
     return rows?.[0]?.stack || null; // <- stack column payload
@@ -64,7 +64,7 @@ export default function Results() {
       )}
 
       <div style={{ marginTop: 16 }}>
-        <a href="/api/stacks-latest?select=*&order=created_at.desc&limit=1" target="_blank" rel="noreferrer">
+        <a href="/api/stacks?select=*&order=created_at.desc&limit=1" target="_blank" rel="noreferrer">
           Open raw stack JSON
         </a>
       </div>
