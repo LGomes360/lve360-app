@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 export async function POST() {
-  // fetch latest submission
+  // 1) Get latest submission (REST query)
   const q = new URLSearchParams({ select: '*', order: 'created_at.desc', limit: '1' });
   const subResp = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/submissions?${q}`, {
     headers: {
@@ -9,11 +9,11 @@ export async function POST() {
       'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!}`
     }
   });
-
   if (!subResp.ok) return NextResponse.json({ ok:false, error:'no submission' }, { status:400 });
   const [sub] = await subResp.json();
   if (!sub) return NextResponse.json({ ok:false, error:'no submission' }, { status:400 });
 
+  // 2) Build placeholder stack (replace with real AI soon)
   const fakeStack = {
     recommendations: [
       { name:'Creatine Monohydrate', dose:'5g daily', rationale:'Strength & cognition' },
@@ -23,6 +23,7 @@ export async function POST() {
     meta: { version: 1 }
   };
 
+  // 3) Insert into stacks
   const ins = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/stacks`, {
     method: 'POST',
     headers: {
