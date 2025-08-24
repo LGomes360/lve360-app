@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const qp = url.searchParams; // pass-through order/limit if present
+  // pass-through any query params like order/limit
+  const qp = url.searchParams;
   const resp = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/stacks?${qp.toString()}`, {
     headers: {
       'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
