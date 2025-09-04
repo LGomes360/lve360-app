@@ -1,3 +1,9 @@
+// at top of /app/pricing/page.tsx, useEffect to read query and set input value
+useEffect(() => {
+  const e = new URLSearchParams(window.location.search).get('email') || '';
+  if (e) setEmail(e);
+}, []);
+
 'use client';
 import { useState } from 'react';
 
