@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       customer_email: email,
       line_items: [
         {
-          price: process.env.STRIPE_PRICE_ID!, // your premium Price ID
+          price: process.env.STRIPE_PRICE_ID!, // your Premium price
           quantity: 1,
         },
       ],
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ url: session.url });
   } catch (err: any) {
-    console.error('❌ Stripe checkout error:', err.message);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error('❌ Stripe checkout error:', err.message || err);
+    return NextResponse.json({ error: err.message || 'checkout-error' }, { status: 500 });
   }
 }
