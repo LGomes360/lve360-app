@@ -3,21 +3,35 @@ import { useState, useEffect } from 'react';
 
 export default function Pricing() {
   const [email, setEmail] = useState('');
+  const [err, setErr] = useState<string|undefined>(undefined);
+  const [loading, setLoading] = useState(false);
 
-  // pre-fill from ?email=
   useEffect(() => {
     const e = new URLSearchParams(window.location.search).get('email') || '';
     if (e) setEmail(e);
   }, []);
 
   const subscribe = async () => {
-    const res = await fetch('/api/stripe/checkout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
-    });
-    const data = await res.json();
-    if (data?.url) window.location.href = data.url;
+    setErr(undefined);
+    setLoading(true);
+    try {
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data?.url) {
+        setErr(data?.error || 'Checkout failed.');
+        return;
+      }
+      window.location.href = data.url; // redirect to Stripe
+    } catch (e: any) {
+      setErr(e?.message || 'Network error.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -33,9 +47,12 @@ export default function Pricing() {
         style={{ width: '100%', padding: 8, marginTop: 12 }}
       />
 
-      <button onClick={subscribe} style={{ marginTop: 16, padding: '10px 16px' }}>
-        Subscribe
+      <button onClick={subscribe} disabled={loading}
+        style={{ marginTop: 16, padding: '10px 16px' }}>
+        {loading ? 'Redirecting…' : 'Subscribe'}
       </button>
+
+      {err && <div style={{ color: 'crimson', marginTop: 12 }}>{err}</div>}
     </main>
   );
 }
