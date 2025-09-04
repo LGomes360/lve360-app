@@ -1,11 +1,10 @@
 'use client';
-
 import { useState, useEffect } from 'react';
 
 export default function Pricing() {
   const [email, setEmail] = useState('');
 
-  // Pre-fill email from ?email= query string
+  // pre-fill from ?email=
   useEffect(() => {
     const e = new URLSearchParams(window.location.search).get('email') || '';
     if (e) setEmail(e);
@@ -15,10 +14,10 @@ export default function Pricing() {
     const res = await fetch('/api/stripe/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
+      body: JSON.stringify({ email }),
     });
-    const { url } = await res.json();
-    window.location.href = url;
+    const data = await res.json();
+    if (data?.url) window.location.href = data.url;
   };
 
   return (
@@ -34,10 +33,7 @@ export default function Pricing() {
         style={{ width: '100%', padding: 8, marginTop: 12 }}
       />
 
-      <button
-        onClick={subscribe}
-        style={{ marginTop: 16, padding: '10px 16px' }}
-      >
+      <button onClick={subscribe} style={{ marginTop: 16, padding: '10px 16px' }}>
         Subscribe
       </button>
     </main>
