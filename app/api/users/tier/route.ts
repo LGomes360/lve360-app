@@ -1,4 +1,3 @@
-// app/api/users/tier/route.ts
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -22,9 +21,10 @@ export async function GET(req: NextRequest) {
 
   const r = await fetch(url, {
     headers: {
-      'apikey': SUPA_SERVICE,
-      'Authorization': `Bearer ${SUPA_SERVICE}`
-    }
+      apikey: SUPA_SERVICE,
+      Authorization: `Bearer ${SUPA_SERVICE}`,
+    },
+    cache: 'no-store',
   });
 
   if (!r.ok) {
@@ -36,10 +36,9 @@ export async function GET(req: NextRequest) {
   const rows = await r.json();
   const row = Array.isArray(rows) ? rows[0] : null;
 
-  // Default to free if not found yet
   return NextResponse.json({
     email,
-    tier: row?.tier ?? 'free',
-    stripe_subscription_status: row?.stripe_subscription_status ?? null
+    tier: (row?.tier as 'free' | 'premium') ?? 'free',
+    stripe_subscription_status: row?.stripe_subscription_status ?? null,
   });
 }
