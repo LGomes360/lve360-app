@@ -17,6 +17,7 @@ function normalize(email: string | null | undefined): string {
 }
 
 // Upsert a user by email into Supabase (sets tier + stripe fields)
+// Upsert a user by email into Supabase (sets tier + stripe fields)
 async function upsertUser(row: {
   email: string;
   tier: 'free' | 'premium';
@@ -24,14 +25,15 @@ async function upsertUser(row: {
   stripe_subscription_status?: string | null;
 }) {
   const payload = [{
-    email: normalize(row.email),
+    email: (row.email ?? '').trim().toLowerCase(),
     tier: row.tier,
     stripe_customer_id: row.stripe_customer_id ?? null,
     stripe_subscription_status: row.stripe_subscription_status ?? null,
     updated_at: new Date().toISOString(),
   }];
 
-  const resp = await fetch(`${SUPA_URL}/rest/v1/users`, {
+  // NOTE: on_conflict=email is required for PostgREST to upsert on the email column
+  const resp = await fetch(`${SUPA_URL}/rest/v1/users?on_conflict=email`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
