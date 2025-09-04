@@ -1,14 +1,15 @@
-// at top of /app/pricing/page.tsx, useEffect to read query and set input value
-useEffect(() => {
-  const e = new URLSearchParams(window.location.search).get('email') || '';
-  if (e) setEmail(e);
-}, []);
-
 'use client';
-import { useState } from 'react';
+
+import { useState, useEffect } from 'react';
 
 export default function Pricing() {
   const [email, setEmail] = useState('');
+
+  // Pre-fill email from ?email= query string
+  useEffect(() => {
+    const e = new URLSearchParams(window.location.search).get('email') || '';
+    if (e) setEmail(e);
+  }, []);
 
   const subscribe = async () => {
     const res = await fetch('/api/stripe/checkout', {
@@ -21,7 +22,7 @@ export default function Pricing() {
   };
 
   return (
-    <main style={{maxWidth:600, margin:'40px auto', padding:'0 16px'}}>
+    <main style={{ maxWidth: 600, margin: '40px auto', padding: '0 16px' }}>
       <h1>LVE360 Premium</h1>
       <p>$9/month • Unlock exact dosing, med spacing, and weekly tweaks.</p>
 
@@ -29,10 +30,16 @@ export default function Pricing() {
         type="email"
         placeholder="Your email"
         value={email}
-        onChange={e=>setEmail(e.target.value)}
-        style={{width:'100%', padding:8, marginTop:12}}
+        onChange={(e) => setEmail(e.target.value)}
+        style={{ width: '100%', padding: 8, marginTop: 12 }}
       />
-      <button onClick={subscribe} style={{marginTop:16, padding:'10px 16px'}}>Subscribe</button>
+
+      <button
+        onClick={subscribe}
+        style={{ marginTop: 16, padding: '10px 16px' }}
+      >
+        Subscribe
+      </button>
     </main>
   );
 }
