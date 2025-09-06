@@ -4,14 +4,13 @@ import { createClient } from '@supabase/supabase-js';
 import { assertEnv } from '../../../src/lib/env';
 import { generateStack } from '../../../src/lib/generateStack';
 
-// Optional: mark route dynamic so it never gets cached at build time
 export const dynamic = 'force-dynamic';
 
 type Submission = {
   id: string;
   email?: string | null;
   created_at: string;
-  // ... add any fields your generateStack needs (answers, goals, meds, etc.)
+  // add any fields your generateStack relies on
 };
 
 type GeneratedStack = {
@@ -53,13 +52,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2) Generate stack from submission
+    // 2) Generate the stack
     const generated: GeneratedStack = await generateStack(submission as any);
 
-    // 3) Ensure we have a user row to associate the stack (optional)
+    // 3) Ensure user row (optional)
     const userId = await findOrCreateUserIdForEmail(supabase, submission.email ?? email);
 
-    // 4) Upsert stack idempotently on submission_id
+    // 4) Upsert idempotently on submission_id
     const stackRow = {
       submission_id: submission.id,
       user_id: userId ?? null,
@@ -94,11 +93,12 @@ export async function POST(request: Request) {
   }
 }
 
-// ---------- helpers ----------
+// -------- helpers --------
 
 async function safeJson(req: Request): Promise<{ email?: string }> {
   try {
-    if (!req.headers.get('content-length') || req.headers.get('content-length') === '0') return {};
+    const len = req.headers.get('content-length');
+    if (!len || len === '0') return {};
     return (await req.json()) as { email?: string };
   } catch {
     return {};
@@ -122,21 +122,4 @@ async function findOrCreateUserIdForEmail(
 
   const { data: user, error } = await supabase
     .from('users')
-    .select('id')
-    .eq('email', email)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw new Error(`Failed to query users: ${error.message}`);
-  if (user?.id) return user.id as string;
-
-  const { data: created, error: insertErr } = await supabase
-    .from('users')
-    .insert({ email, tier: 'free' })
-    .select('id')
-    .limit(1)
-    .maybeSingle();
-
-  if (insertErr) throw new Error(`Failed to create user: ${insertErr.message}`);
-  return created?.id ?? null;
-}
+    .sel
