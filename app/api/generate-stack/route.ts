@@ -12,7 +12,6 @@ type Submission = {
   created_at: string;
   // add any fields your generateStack relies on
 };
-
 type GeneratedStack = {
   items: Array<{
     name: string;
