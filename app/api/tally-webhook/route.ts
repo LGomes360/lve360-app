@@ -65,7 +65,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, received: submission.email });
+    return NextResponse.json({ ok: true, received: submission.user_email });
   } catch (err: any) {
     console.error('[Webhook Error]', err);
     return NextResponse.json({ ok: false, error: err.message || 'Unknown error' }, { status: 500 });
