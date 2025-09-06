@@ -1,4 +1,3 @@
-// app/api/generate-stack/route.ts
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { assertEnv } from '../../../src/lib/env';
@@ -6,46 +5,34 @@ import { generateStack } from '../../../src/lib/generateStack';
 
 export const dynamic = 'force-dynamic';
 
-// —— Types (align with your schema as needed)
-type Submission = {
-  id: string;
-  email?: string | null;
-  created_at: string;
-  // include any fields your generateStack reads
-  // answers?: Record<string, unknown>;
-};
-
+// --- Types
+type Submission = { id: string; email?: string | null; created_at: string };
 type GeneratedStack = {
   items: Array<{
-    name: string;
-    dose?: string;
-    schedule?: string;
-    rationale?: string;
-    affiliateUrl?: string;
-    monthlyCost?: number;
+    name: string; dose?: string; schedule?: string; rationale?: string;
+    affiliateUrl?: string; monthlyCost?: number;
   }>;
-  summary?: string;
-  version?: string;
-  totalMonthlyCost?: number;
-  notes?: string;
+  summary?: string; version?: string; totalMonthlyCost?: number; notes?: string;
 };
 
-// —— Supabase admin client (server-only key)
+// --- Supabase (server-only)
 function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!; // never expose to client
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
   return createClient(url, key);
 }
 
-/**
- * POST /api/generate-stack
- * Body (optional): { "email": "user@example.com" }
- *
- * Flow:
- * 1) Fetch latest submission (global or by email)
- * 2) generateStack(submission)
- * 3) Upsert into stacks on conflict submission_id (idempotent)
- */
+// Browser-friendly status (GET)
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    endpoint: '/api/generate-stack',
+    usage: 'POST { email?: string }',
+    note: 'This route generates a stack from the latest submission and upserts it.'
+  });
+}
+
+// Full generator (POST)
 export async function POST(request: Request) {
   try {
     assertEnv();
@@ -53,7 +40,6 @@ export async function POST(request: Request) {
     const { email } = await safeJson<{ email?: string }>(request);
     const supabase = supabaseAdmin();
 
-    // 1) Latest submission
     const submission = await getLatestSubmission(supabase, email);
     if (!submission) {
       return NextResponse.json(
@@ -62,13 +48,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2) Generate stack
     const generated: GeneratedStack = await generateStack(submission as any);
 
-    // 3) Ensure user row (optional convenience)
     const userId = await findOrCreateUserIdForEmail(supabase, submission.email ?? email);
 
-    // 4) Upsert by submission_id
     const stackRow = {
       submission_id: submission.id,
       user_id: userId ?? null,
@@ -87,9 +70,7 @@ export async function POST(request: Request) {
       .limit(1)
       .maybeSingle();
 
-    if (upsertErr) {
-      return NextResponse.json({ ok: false, error: upsertErr.message }, { status: 500 });
-    }
+    if (upsertErr) return NextResponse.json({ ok: false, error: upsertErr.message }, { status: 500 });
 
     return NextResponse.json({
       ok: true,
@@ -103,52 +84,35 @@ export async function POST(request: Request) {
   }
 }
 
-// —— Helpers
-
+// --- helpers
 async function safeJson<T = unknown>(req: Request): Promise<T | Record<string, never>> {
   try {
     const len = req.headers.get('content-length');
     if (!len || len === '0') return {};
     return (await req.json()) as T;
-  } catch {
-    return {};
-  }
+  } catch { return {}; }
 }
 
-async function getLatestSubmission(
-  supabase: ReturnType<typeof supabaseAdmin>,
-  email?: string
-): Promise<Submission | null> {
-  let query = supabase.from('submissions').select('*').order('created_at', { ascending: false }).limit(1);
-  if (email) query = query.eq('email', email);
-  const { data, error } = await query;
+async function getLatestSubmission(sb: ReturnType<typeof supabaseAdmin>, email?: string) {
+  let q = sb.from('submissions').select('*').order('created_at', { ascending: false }).limit(1);
+  if (email) q = q.eq('email', email);
+  const { data, error } = await q;
   if (error) throw new Error(`Failed to fetch latest submission: ${error.message}`);
   return (data?.[0] ?? null) as Submission | null;
 }
 
-async function findOrCreateUserIdForEmail(
-  supabase: ReturnType<typeof supabaseAdmin>,
-  email?: string | null
-): Promise<string | null> {
+async function findOrCreateUserIdForEmail(sb: ReturnType<typeof supabaseAdmin>, email?: string | null) {
   if (!email) return null;
-
-  const { data: user, error } = await supabase
-    .from('users')
-    .select('id')
-    .eq('email', email)
-    .limit(1)
-    .maybeSingle();
-
+  const { data: user, error } = await sb.from('users').select('id').eq('email', email).limit(1).maybeSingle();
   if (error) throw new Error(`Failed to query users: ${error.message}`);
   if (user?.id) return user.id as string;
 
-  const { data: created, error: insertErr } = await supabase
+  const { data: created, error: insErr } = await sb
     .from('users')
     .insert({ email, tier: 'free' })
     .select('id')
     .limit(1)
     .maybeSingle();
-
-  if (insertErr) throw new Error(`Failed to create user: ${insertErr.message}`);
+  if (insErr) throw new Error(`Failed to create user: ${insErr.message}`);
   return created?.id ?? null;
 }
