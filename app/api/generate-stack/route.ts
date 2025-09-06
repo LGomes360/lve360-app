@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 
+import { assertEnv } from '@/lib/env';
+
 export async function POST() {
+    assertEnv();
   // 1) Get latest submission (REST query)
   const q = new URLSearchParams({ select: '*', order: 'created_at.desc', limit: '1' });
   const subResp = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/submissions?${q}`, {
