@@ -1,4 +1,5 @@
 // app/api/generate-stack/route.ts
+
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { assertEnv } from '../../../src/lib/env';
@@ -6,7 +7,7 @@ import { generateStack } from '../../../src/lib/generateStack';
 
 export const dynamic = 'force-dynamic';
 
-// ---- Types (adjust to your schema if needed)
+// ---- Types
 type Submission = {
   id: string;
   email?: string | null;
@@ -38,7 +39,7 @@ function supabaseAdmin() {
   return createClient(url, key);
 }
 
-// ---- GET: human-friendly status so you can hit in a browser
+// ---- GET: human-friendly status
 export async function GET() {
   return NextResponse.json({
     ok: true,
@@ -151,16 +152,18 @@ async function findOrCreateUserIdForEmail(
     .limit(1)
     .maybeSingle();
 
-  if (error) throw new Error(`Failed to query users: ${error.message}`);
-  if (user?.id) return user.id as string;
+  if (error) throw new Error(`Failed to lookup user: ${error.message}`);
 
-  const { data: created, error: insertErr } = await supabase
+  if (user) return user.id;
+
+  const { data: created, error: createErr } = await supabase
     .from('users')
-    .insert({ email, tier: 'free' })
+    .insert({ email })
     .select('id')
     .limit(1)
     .maybeSingle();
 
-  if (insertErr) throw new Error(`Failed to create user: ${insertErr.message}`);
+  if (createErr) throw new Error(`Failed to create user: ${createErr.message}`);
+
   return created?.id ?? null;
 }
