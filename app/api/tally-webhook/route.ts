@@ -1,90 +1,62 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { generateStack } from '../../../src/lib/generateStack';
+// app/api/tally-webhook/route.ts
 
-export function GET() {
-  return NextResponse.json({ ok: true, msg: 'tally-webhook ready' });
-}
+import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
 
-export async function POST(req: NextRequest) {
-  // Bearer token check
-  const auth = req.headers.get('authorization') || '';
-  const token = auth.replace('Bearer ', '').trim();
-  if (token !== process.env.TALLY_WEBHOOK_SECRET) {
-    return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
-  }
-
+export async function POST(req: Request) {
   try {
-    const submission = await req.json();
-    const userEmail = submission?.userEmail;
-    if (!userEmail) {
-      return NextResponse.json({ ok: false, error: 'Missing user email' }, { status: 400 });
+    const body = await req.json();
+    const answers = body?.form_response?.answers ?? [];
+
+    const extract = (label: string) => {
+      const a = answers.find((x) => x?.field?.label?.toLowerCase() === label.toLowerCase());
+      if (!a) return null;
+      if (a.type === 'choices') return a.choices?.labels ?? [];
+      if (a.type === 'choice') return a.choice?.label ?? null;
+      if (a.type === 'email') return a.email;
+      if (a.type === 'text') return a.text;
+      if (a.type === 'number') return a.number;
+      if (a.type === 'date') return a.date;
+      return a[a.type] ?? null;
+    };
+
+    const submission = {
+      email: extract('Email Address'),
+      name: extract('Name or Nickname'),
+      dob: extract('Date of Birth'),
+      height: extract('Height'),
+      weight: extract('Weight (lbs)'),
+      sex: extract('Sex at Birth'),
+      gender: extract('Gender Identity (Optional)'),
+      pregnant: extract('Pregnancy/Breastfeeding'),
+      goals: extract('What are your top health goals'),
+      skip_meals: extract('Do you skip meals?'),
+      energy_rating: extract('How would you rate your energy on a typical day?'),
+      sleep_rating: extract('How would you rate your sleep?'),
+      allergies: extract('Do you have any allergies or sensitivities?'),
+      allergy_details: extract('What are you allergic to?'),
+      conditions: extract('Do you have any current health conditions?'),
+      meds_flag: extract('Do you take any medications?'),
+      medications: extract('List Medication'),
+      supplements_flag: extract('Do you take any supplements?'),
+      supplements: extract('List Supplements'),
+      hormones_flag: extract('Do you take any compounded hormones?'),
+      hormones: extract('List Hormones'),
+      dosing_pref: extract('What is realistic for your lifestyle?'),
+      brand_pref: extract('When it comes to supplements, do you prefer...'),
+      raw_payload: body
+    };
+
+    const { error } = await supabase.from('submissions').insert(submission);
+
+    if (error) {
+      console.error('[Supabase]', error);
+      return NextResponse.json({ ok: false, error }, { status: 500 });
     }
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL as string,
-      process.env.SUPABASE_SERVICE_ROLE_KEY as string,
-      { auth: { persistSession: false } }
-    );
-
-    // Persist raw submission
-    const { data: submissionRow, error: submissionError } = await supabase
-      .from('submissions')
-      .insert({ user_email: userEmail, payload: submission })
-      .select('id')
-      .single();
-
-    if (submissionError || !submissionRow) {
-      console.error(submissionError);
-      return NextResponse.json({ ok: false, error: 'Failed to persist submission' }, { status: 500 });
-    }
-
-    // Generate personalized stack
-    const stackItems = await generateStack({
-      goals: submission.goals,
-      healthConditions: submission.healthConditions,
-      medications: submission.medications,
-      tier: submission.tier,
-    });
-
-    // Insert stack row
-    const { data: stackRow, error: stackError } = await supabase
-      .from('stacks')
-      .insert({
-        user_email: userEmail,
-        submission_id: submissionRow.id,
-      })
-      .select('id')
-      .single();
-
-    if (stackError || !stackRow) {
-      console.error(stackError);
-      return NextResponse.json({ ok: false, error: 'Failed to create stack' }, { status: 500 });
-    }
-
-    // Prepare rows for stacks_items
-    const stackItemsData = stackItems.map((item: any) => ({
-      stack_id: stackRow.id,
-      supplement_id: item.supplement_id,
-      dose: item.dose,
-      note: item.notes,
-    }));
-
-    // Insert the items if any exist
-    if (stackItemsData.length > 0) {
-      const { error: itemsError } = await supabase
-        .from('stacks_items')
-        .insert(stackItemsData);
-
-      if (itemsError) {
-        console.error(itemsError);
-        return NextResponse.json({ ok: false, error: 'Failed to save stack items' }, { status: 500 });
-      }
-    }
-
-    return NextResponse.json({ ok: true, status: 'success' });
-  } catch (err: any) {
-    console.error(err);
-    return NextResponse.json({ ok: false, error: 'Internal error' }, { status: 500 });
+    return NextResponse.json({ ok: true, received: submission.email });
+  } catch (err) {
+    console.error('[Webhook Error]', err);
+    return NextResponse.json({ ok: false, error: err }, { status: 500 });
   }
 }
