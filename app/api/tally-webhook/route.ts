@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import generateStack from '../../../src/lib/generateStack';
+import { generateStack } from '../../../src/lib/generateStack';
 
 export function GET() {
   return NextResponse.json({ ok: true, msg: 'tally-webhook ready' });
