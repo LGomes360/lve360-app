@@ -18,16 +18,22 @@ export async function POST(req: Request) {
     console.log('[Raw Payload]', JSON.stringify(body, null, 2));
     const answers = body?.data?.fields ?? body?.form_response?.answers ?? [];
         // Extract by field key instead of label
+    
 const extract = (key: string) => {
-  const a = answers.find((x: any) => x?.key === key); // <- FIXED HERE
+  const a = answers.find((x: any) => x?.key === key);
   if (!a) return null;
-  if (a.type === 'choices') return a.choices?.labels ?? [];
-  if (a.type === 'choice') return a.choice?.label ?? null;
-  if (a.type === 'email') return a.email;
-  if (a.type === 'text') return a.text;
-  if (a.type === 'number') return a.number;
-  if (a.type === 'date') return a.date;
-  return a[a.type] ?? null;
+
+  const type = a?.type?.toLowerCase() ?? '';
+
+  if (type.includes('choice') && Array.isArray(a.value)) return a.value;
+  if (type.includes('choice')) return a.value?.[0] ?? null;
+  if (type.includes('checkbox') && Array.isArray(a.value)) return a.value;
+  if (type.includes('email')) return a.value;
+  if (type.includes('text')) return a.value;
+  if (type.includes('date')) return a.value;
+  if (type.includes('number')) return a.value;
+
+  return a.value ?? null;
 };
 
     const submission = {
