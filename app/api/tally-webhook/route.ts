@@ -18,18 +18,17 @@ export async function POST(req: Request) {
     console.log('[Raw Payload]', JSON.stringify(body, null, 2));
     const answers = body?.data?.fields ?? body?.form_response?.answers ?? [];
         // Extract by field key instead of label
-    const extract = (key: string) => {
-      const a = answers.find((x: any) => x?.field?.key === key);
-      console.log('[Answers]', JSON.stringify(answers, null, 2));
-      if (!a) return null;
-      if (a.type === 'choices') return a.choices?.labels ?? [];
-      if (a.type === 'choice') return a.choice?.label ?? null;
-      if (a.type === 'email') return a.email;
-      if (a.type === 'text') return a.text;
-      if (a.type === 'number') return a.number;
-      if (a.type === 'date') return a.date;
-      return a[a.type] ?? null;
-    };
+const extract = (key: string) => {
+  const a = answers.find((x: any) => x?.field?.key === key); // <- FIXED HERE
+  if (!a) return null;
+  if (a.type === 'choices') return a.choices?.labels ?? [];
+  if (a.type === 'choice') return a.choice?.label ?? null;
+  if (a.type === 'email') return a.email;
+  if (a.type === 'text') return a.text;
+  if (a.type === 'number') return a.number;
+  if (a.type === 'date') return a.date;
+  return a[a.type] ?? null;
+};
 
     const submission = {
       user_email: extract('question_7K5g10'),
