@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     console.log('[Raw Payload]', JSON.stringify(body, null, 2));
-    const answers = body?.form_response?.answers ?? [];
+    const answers = body?.data?.fields ?? body?.form_response?.answers ?? [];
         // Extract by field key instead of label
     const extract = (key: string) => {
       const a = answers.find((x: any) => x?.field?.key === key);
