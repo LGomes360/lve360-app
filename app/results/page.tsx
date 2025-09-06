@@ -1,69 +1,94 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
 
-type UserTier = { email: string; tier: 'free' | 'premium'; stripe_subscription_status: string | null };
-type StackRow = {
-  id: string;
-  user_email: string;
-  created_at: string;
-  stack: any;
-};
+interface StackItem {
+  supplement_id: string;
+  name: string;
+  dose: string;
+  link: string | null;
+  notes: string | null;
+}
 
 export default function Results() {
   const [email, setEmail] = useState('');
-  const [tier, setTier]   = useState<UserTier | null>(null);
+  const [tier, setTier] = useState<'free' | 'premium' | null>(null);
+  const [stack, setStack] = useState<StackItem[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [stack, setStack] = useState<StackRow | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // read ?email=… from the URL (fallback to empty string)
+  // Read email from query parameter or local storage
   useEffect(() => {
-    const e = new URLSearchParams(window.location.search).get('email') || '';
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const e = params.get('email') || window.localStorage.getItem('userEmail') || '';
     setEmail(e);
   }, []);
 
-  // fetch user tier, then latest stack if premium
+  // Fetch user tier and the latest stack if premium
   useEffect(() => {
-    let active = true;
-    async function go() {
-      if (!email) { setLoading(false); return; }
-
+    async function fetchData() {
+      if (!email) {
+        setLoading(false);
+        return;
+      }
       try {
         setLoading(true);
         setError(null);
+        // 1) fetch user tier
+        const tierResp = await fetch(`/api/users/tier?email=${encodeURIComponent(email)}`);
+        const userTier = await tierResp.json() as { email: string; tier: 'free' | 'premium' };
+        setTier(userTier.tier);
 
-        // 1) who is this user?
-        const ut = await fetch(`/api/users/tier?email=${encodeURIComponent(email)}`);
-        const userTier = (await ut.json()) as UserTier;
-
-        if (!active) return;
-        setTier(userTier);
-
-        // 2) if premium, load their latest stack
+        // 2) if premium, load the latest stack
         if (userTier.tier === 'premium') {
-          const resp = await fetch('/api/stacks?limit=1'); // your existing route
-          const rows = (await resp.json()) as StackRow[];  // expect an array
-          if (!active) return;
-
-          setStack(rows?.[0] || null);
+          const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL as string,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
+          );
+          const { data: rows, error: supaError } = await supabase
+            .from('stacks')
+            .select(
+              `id, created_at, items:stacks_items(
+                supplement_id,
+                dose,
+                note,
+                supplement:supplements(ingredient, link, notes)
+              )`
+            )
+            .eq('user_email', email)
+            .order('created_at', { ascending: false })
+            .limit(1);
+          if (supaError) {
+            throw supaError;
+          }
+          if (rows && rows.length > 0) {
+            const latest = rows[0];
+            const items: StackItem[] = latest.items.map((item: any) => ({
+              supplement_id: item.supplement_id,
+              name: item.supplement.ingredient,
+              dose: item.dose,
+              link: item.supplement.link,
+              notes: item.supplement.notes ?? item.note ?? null
+            }));
+            setStack(items);
+          } else {
+            setStack([]);
+          }
+        } else {
+          setStack(null);
         }
-      } catch (e: any) {
-        if (!active) return;
-        setError(e?.message || 'Unexpected error');
+      } catch (err: any) {
+        setError(err.message || 'Unexpected error');
       } finally {
-        if (active) setLoading(false);
+        setLoading(false);
       }
     }
-    go();
-    return () => { active = false; };
+    fetchData();
   }, [email]);
 
-  const pricingUrl = useMemo(
-    () => `/pricing?email=${encodeURIComponent(email || '')}`,
-    [email]
-  );
-
+  // Various states handling
   if (loading) {
     return (
       <main style={{ maxWidth: 700, margin: '40px auto', padding: '0 16px' }}>
@@ -79,8 +104,8 @@ export default function Results() {
         <h1>Your Personalized Stack</h1>
         <p>We couldn’t find your email in the URL.</p>
         <p>
-          Tip: after checkout we add <code>?email=you@domain.com</code> to the link.  
-          Or <a href="/pricing">start at the pricing page</a>.
+          Tip: after checkout we add <code>?email=you@domain.com</code> to the link. Or{' '}
+          <a href="/pricing">start at the pricing page</a>.
         </p>
       </main>
     );
@@ -95,17 +120,17 @@ export default function Results() {
     );
   }
 
-  if (tier && tier.tier !== 'premium') {
+  if (tier && tier !== 'premium') {
     return (
       <main style={{ maxWidth: 700, margin: '40px auto', padding: '0 16px' }}>
         <h1>Your Personalized Stack</h1>
         <p>
-          Hi <b>{email}</b> — your account is <b>Free</b>.  
-          Upgrade to Premium to view and update your personalized stack.
+          Hi <b>{email}</b>, your account is <b>Free</b>.<br />
+          Upgrade to Premium to view your personalized stack.
         </p>
         <a
-          href={pricingUrl}
-          style={{ display: 'inline-block', marginTop: 12, padding: '10px 16px', background: '#111', color: '#fff' }}
+          href={`/pricing?email=${encodeURIComponent(email)}`}
+          style={{ display: 'inline-block', marginTop: 12, padding: '10px 16px', background: '#111', color: '#fff', textDecoration: 'none' }}
         >
           Upgrade to Premium
         </a>
@@ -115,40 +140,31 @@ export default function Results() {
 
   // Premium view
   return (
-    <main style={{ maxWidth: 900, margin: '40px auto', padding: '0 16px' }}>
-      <h1>Your Personalized Stack</h1>
-      <p>Signed in as <b>{email}</b> • <span style={{ color: 'green' }}>Premium</span></p>
-
-      {!stack ? (
-        <>
-          <p>No stack found yet.</p>
-          <form method="post" action="/api/generate-stack">
-            <button type="submit" style={{ marginTop: 8, padding: '10px 16px' }}>
-              Generate a placeholder stack
-            </button>
-          </form>
-        </>
+    <div className="container mx-auto px-4 py-8">
+      <h1 className="text-2xl font-bold mb-4">Your Personalized Supplement Stack</h1>
+      {!stack || stack.length === 0 ? (
+        <p>No stack found yet.</p>
       ) : (
-        <>
-          <p style={{ marginTop: 16, opacity: 0.7 }}>
-            Latest generated at {new Date(stack.created_at).toLocaleString()}
-          </p>
-          <pre
-            style={{
-              background: '#f7f8fa',
-              padding: 16,
-              borderRadius: 8,
-              overflowX: 'auto',
-              marginTop: 12,
-            }}
-          >
-{JSON.stringify(stack.stack, null, 2)}
-          </pre>
-          <p style={{ marginTop: 12 }}>
-            <a href="/api/stacks?limit=1" target="_blank" rel="noreferrer">Open raw stack JSON</a>
-          </p>
-        </>
+        <ul className="space-y-4">
+          {stack.map((item) => (
+            <li key={item.supplement_id} className="border rounded p-4">
+              <h2 className="text-xl font-semibold">{item.name}</h2>
+              <p className="mt-1">Dose: {item.dose}</p>
+              {item.notes && <p className="mt-1 text-sm text-gray-600">{item.notes}</p>}
+              {item.link && (
+                <a
+                  className="mt-2 inline-block text-blue-600 underline"
+                  href={item.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Buy now
+                </a>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
-    </main>
+    </div>
   );
 }

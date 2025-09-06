@@ -7,6 +7,9 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "skipLibCheck": true
