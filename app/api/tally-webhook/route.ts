@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     };
 
     const submission = {
-      email: extract('Email Address'),
+      user_email: extract('Email Address'),
       name: extract('Name or Nickname'),
       dob: extract('Date of Birth'),
       height: extract('Height'),
