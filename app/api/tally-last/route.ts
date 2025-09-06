@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { assertEnv } from '@/lib/env';
+import { assertEnv from '../../../src/lib/env';
 
 export async function GET() {
   // Ensure required environment variables are set
