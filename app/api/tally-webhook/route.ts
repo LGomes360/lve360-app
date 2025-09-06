@@ -1,51 +1,62 @@
-import { NextRequest, NextResponse } from 'next/server';
+// app/api/tally-webhook/route.ts
 
-export function GET() {
-  return NextResponse.json({ ok: true, msg: 'tally-webhook ready' });
-}
+import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase'; // adjust if needed
 
-export async function POST(req: NextRequest) {
-  // Bearer token check
-  const auth = req.headers.get('authorization') || '';
-  const token = auth.replace('Bearer ', '').trim();
-  if (token !== process.env.TALLY_WEBHOOK_SECRET) {
-    return NextResponse.json({ ok:false, error:'unauthorized' }, { status:401 });
-  }
-
+export async function POST(req: Request) {
   try {
-    const payload = await req.json();
+    const body = await req.json();
 
-    // normalize common Tally shapes
-    const answers: any = payload?.answers ?? payload?.data ?? payload ?? {};
-    const pick = (k: string) =>
-      answers?.[k] ??
-      answers?.[k?.toLowerCase?.() ?? k] ??
-      answers?.fields?.find?.((f: any) => (f.key||'').toLowerCase() === k)?.value;
+    const answers = body?.form_response?.answers ?? [];
 
-    const email = String(pick('email') || 'unknown@unknown.com').toLowerCase();
-    const utm = {
-      source: pick('utm_source') || null,
-      medium: pick('utm_medium') || null,
-      campaign: pick('utm_campaign') || null
+    const getAnswer = (ref: string) => {
+      const match = answers.find((a) => a.field?.ref === ref);
+      if (!match) return null;
+      if (match.type === 'choices') return match.choices?.labels ?? [];
+      if (match.type === 'choice') return match.choice?.label ?? null;
+      if (match.type === 'email') return match.email;
+      if (match.type === 'text') return match.text;
+      if (match.type === 'number') return match.number;
+      if (match.type === 'date') return match.date;
+      return match[match.type] ?? null;
     };
 
-    // Write via Supabase REST (no SDK)
-    const resp = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/submissions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!}`,
-        'Prefer': 'return=representation'
-      },
-      body: JSON.stringify([{ user_email: email, utm, answers }])
-    });
+    const submission = {
+      email: getAnswer('email') || 'missing@example.com',
+      name: getAnswer('name') || null,
+      dob: getAnswer('dob') || null,
+      height: getAnswer('height') || null,
+      weight: getAnswer('weight') || null,
+      sex: getAnswer('sex') || null,
+      gender: getAnswer('gender') || null,
+      goals: getAnswer('goals'),
+      skip_meals: getAnswer('skip_meals'),
+      energy_rating: getAnswer('energy_rating'),
+      sleep_rating: getAnswer('sleep_rating'),
+      allergies: getAnswer('allergies'),
+      allergy_details: getAnswer('allergy_details'),
+      health_conditions: getAnswer('conditions'),
+      medications: getAnswer('medications'),
+      supplements: getAnswer('supplements'),
+      hormones: getAnswer('hormones'),
+      dose_pref: getAnswer('dosing_pref'),
+      brand_pref: getAnswer('brand_pref'),
+      raw_payload: body
+    };
 
-    if (!resp.ok) {
-      return NextResponse.json({ ok:false, error: await resp.text() }, { status:500 });
+    const { error } = await supabase
+      .from('submissions')
+      .insert(submission);
+
+    if (error) {
+      console.error('[Supabase error]', error);
+      return NextResponse.json({ ok: false, error }, { status: 500 });
     }
-    return NextResponse.json({ ok:true });
-  } catch (e: any) {
-    return NextResponse.json({ ok:false, error: e?.message || 'parse error' }, { status:400 });
+
+    return NextResponse.json({ ok: true, received: submission.email });
+
+  } catch (err) {
+    console.error('[Webhook error]', err);
+    return NextResponse.json({ ok: false, error: err }, { status: 500 });
   }
 }
