@@ -20,6 +20,7 @@ export async function POST(req: Request) {
     // Extract by field key instead of label
     const extract = (key: string) => {
       const a = answers.find((x: any) => x?.field?.key === key);
+      console.log('[Answers]', JSON.stringify(answers, null, 2));
       if (!a) return null;
       if (a.type === 'choices') return a.choices?.labels ?? [];
       if (a.type === 'choice') return a.choice?.label ?? null;
