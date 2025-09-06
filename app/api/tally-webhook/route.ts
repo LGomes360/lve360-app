@@ -1,7 +1,16 @@
 // app/api/tally-webhook/route.ts
 
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
+
+export const dynamic = 'force-dynamic';
+
+// Supabase Admin Client (server-only)
+function supabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createClient(url, key);
+}
 
 export async function POST(req: Request) {
   try {
@@ -44,19 +53,20 @@ export async function POST(req: Request) {
       hormones: extract('List Hormones'),
       dosing_pref: extract('What is realistic for your lifestyle?'),
       brand_pref: extract('When it comes to supplements, do you prefer...'),
-      raw_payload: body
+      raw_payload: body,
     };
 
+    const supabase = supabaseAdmin();
     const { error } = await supabase.from('submissions').insert(submission);
 
     if (error) {
-      console.error('[Supabase]', error);
+      console.error('[Supabase Insert Error]', error);
       return NextResponse.json({ ok: false, error }, { status: 500 });
     }
 
     return NextResponse.json({ ok: true, received: submission.email });
-  } catch (err) {
+  } catch (err: any) {
     console.error('[Webhook Error]', err);
-    return NextResponse.json({ ok: false, error: err }, { status: 500 });
+    return NextResponse.json({ ok: false, error: err.message || 'Unknown error' }, { status: 500 });
   }
 }
