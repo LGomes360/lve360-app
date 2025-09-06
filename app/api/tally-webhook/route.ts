@@ -17,21 +17,20 @@ export async function POST(req: Request) {
     const body = await req.json();
     const answers = body?.form_response?.answers ?? [];
 
-const extract = (label: string) => {
-  const lowerLabel = label.toLowerCase();
-  const a = answers.find((x: any) =>
-    x?.field?.label?.toLowerCase()?.includes(lowerLabel)
-  );
-  if (!a) return null;
-  if (a.type === 'choices') return a.choices?.labels ?? [];
-  if (a.type === 'choice') return a.choice?.label ?? null;
-  if (a.type === 'email') return a.email;
-  if (a.type === 'text') return a.text;
-  if (a.type === 'number') return a.number;
-  if (a.type === 'date') return a.date;
-  return a[a.type] ?? null;
-};
-
+    const extract = (label: string) => {
+      const lowerLabel = label.toLowerCase();
+      const a = answers.find((x: any) =>
+        x?.field?.label?.toLowerCase()?.includes(lowerLabel)
+      );
+      if (!a) return null;
+      if (a.type === 'choices') return a.choices?.labels ?? [];
+      if (a.type === 'choice') return a.choice?.label ?? null;
+      if (a.type === 'email') return a.email;
+      if (a.type === 'text') return a.text;
+      if (a.type === 'number') return a.number;
+      if (a.type === 'date') return a.date;
+      return a[a.type] ?? null;
+    };
 
     const submission = {
       user_email: extract('Email Address'),
@@ -61,6 +60,10 @@ const extract = (label: string) => {
       raw_payload: body,
     };
 
+    // 🔍 Add logs here
+    console.log('[Extracted Email]', submission.user_email);
+    console.log('[Submission]', submission);
+
     const supabase = supabaseAdmin();
     const { error } = await supabase.from('submissions').insert(submission);
 
@@ -75,3 +78,4 @@ const extract = (label: string) => {
     return NextResponse.json({ ok: false, error: err.message || 'Unknown error' }, { status: 500 });
   }
 }
+
