@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
-// Server-side Supabase Admin Client
+// Supabase Admin Client
 function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -15,21 +15,27 @@ function supabaseAdmin() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const answers = body?.form_response?.answers ?? [];
 
+    const fields = body?.data?.fields ?? [];
     const extract = (label: string) => {
-      const lowerLabel = label.toLowerCase();
-      const a = answers.find((x: any) =>
-        x?.field?.label?.toLowerCase()?.includes(lowerLabel)
+      const entry = fields.find(
+        (f: any) => f?.label?.toLowerCase()?.includes(label.toLowerCase())
       );
-      if (!a) return null;
-      if (a.type === 'choices') return a.choices?.labels ?? [];
-      if (a.type === 'choice') return a.choice?.label ?? null;
-      if (a.type === 'email') return a.email;
-      if (a.type === 'text') return a.text;
-      if (a.type === 'number') return a.number;
-      if (a.type === 'date') return a.date;
-      return a[a.type] ?? null;
+      if (!entry) return null;
+
+      if (Array.isArray(entry.value)) {
+        // Handle dropdowns or checkboxes
+        if (entry.options) {
+          return entry.value.map((val: string) => {
+            const match = entry.options.find((opt: any) => opt.id === val);
+            return match?.text ?? val;
+          });
+        }
+        return entry.value;
+      }
+
+      if (entry.type === 'INPUT_EMAIL') return entry.value?.toLowerCase() ?? null;
+      return entry.value ?? null;
     };
 
     const submission = {
@@ -39,30 +45,35 @@ export async function POST(req: Request) {
       height: extract('Height'),
       weight: extract('Weight (lbs)'),
       sex: extract('Sex at Birth'),
-      gender: extract('Gender Identity (Optional)'),
+      gender: extract('Gender Identity'),
       pregnant: extract('Pregnancy/Breastfeeding'),
       goals: extract('What are your top health goals'),
-      skip_meals: extract('Do you skip meals?'),
-      energy_rating: extract('How would you rate your energy on a typical day?'),
-      sleep_rating: extract('How would you rate your sleep?'),
-      allergies: extract('Do you have any allergies or sensitivities?'),
-      allergy_details: extract('What are you allergic to?'),
-      conditions: extract('Do you have any current health conditions?'),
-      meds_flag: extract('Do you take any medications?'),
+      skip_meals: extract('Do you skip meals'),
+      energy_rating: extract('rate your energy'),
+      sleep_rating: extract('rate your sleep'),
+      allergies: extract('allergies or sensitivities'),
+      allergy_details: extract('What are you allergic to'),
+      conditions: extract('current health conditions'),
+      meds_flag: extract('take any medications'),
       medications: extract('List Medication'),
-      supplements_flag: extract('Do you take any supplements?'),
+      supplements_flag: extract('take any supplements'),
       supplements: extract('List Supplements'),
-      hormones_flag: extract('Do you take any compounded hormones?'),
+      hormones_flag: extract('compounded hormones'),
       hormones: extract('List Hormones'),
-      dosing_pref: extract('What is realistic for your lifestyle?'),
-      brand_pref: extract('When it comes to supplements, do you prefer...'),
-      answers: JSON.stringify(answers ?? []),
+      dosing_pref: extract('realistic for your lifestyle'),
+      brand_pref: extract('supplements, do you prefer'),
+      answers: JSON.stringify(fields),
       raw_payload: body,
     };
 
-    // 🔍 Add logs here
-    console.log('[Extracted Email]', submission.user_email);
-    console.log('[Submission]', submission);
+    // Validate required fields
+    if (!submission.user_email) {
+      console.error('[Validation Error] Missing user_email');
+      return NextResponse.json(
+        { ok: false, error: 'Missing required field: user_email' },
+        { status: 400 }
+      );
+    }
 
     const supabase = supabaseAdmin();
     const { error } = await supabase.from('submissions').insert(submission);
@@ -75,7 +86,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, received: submission.user_email });
   } catch (err: any) {
     console.error('[Webhook Error]', err);
-    return NextResponse.json({ ok: false, error: err.message || 'Unknown error' }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: err.message ?? 'Unknown error' },
+      { status: 500 }
+    );
   }
 }
-
