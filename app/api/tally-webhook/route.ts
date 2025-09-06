@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     const answers = body?.form_response?.answers ?? [];
 
     const extract = (label: string) => {
-      const a = answers.find((x) => x?.field?.label?.toLowerCase() === label.toLowerCase());
+      const a = answers.find((x: any) => x?.field?.label?.toLowerCase() === label.toLowerCase());
       if (!a) return null;
       if (a.type === 'choices') return a.choices?.labels ?? [];
       if (a.type === 'choice') return a.choice?.label ?? null;
