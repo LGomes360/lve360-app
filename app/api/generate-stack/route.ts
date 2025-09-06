@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
+import { assertEnv } from '../../../src/lib/env';
 
-export async function POST() {
+export async function POST(req: Request) {
+  assertEnv();
   // 1) Get latest submission (REST query)
   const q = new URLSearchParams({ select: '*', order: 'created_at.desc', limit: '1' });
+
+  // ...rest of your handler...
+}
   const subResp = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/submissions?${q}`, {
     headers: {
       'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
