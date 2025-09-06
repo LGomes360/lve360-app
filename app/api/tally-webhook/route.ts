@@ -19,7 +19,7 @@ export async function POST(req: Request) {
     const answers = body?.data?.fields ?? body?.form_response?.answers ?? [];
         // Extract by field key instead of label
 const extract = (key: string) => {
-  const a = answers.find((x: any) => x?.field?.key === key); // <- FIXED HERE
+  const a = answers.find((x: any) => x?.key === key); // <- FIXED HERE
   if (!a) return null;
   if (a.type === 'choices') return a.choices?.labels ?? [];
   if (a.type === 'choice') return a.choice?.label ?? null;
