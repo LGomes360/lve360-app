@@ -18,7 +18,9 @@ export async function POST(req: Request) {
     const answers = body?.form_response?.answers ?? [];
 
     const extract = (label: string) => {
-      const a = answers.find((x: any) => x?.field?.label?.toLowerCase() === label.toLowerCase());
+      const a = answers.find(
+        (x: any) => x?.field?.label?.toLowerCase().includes(label.toLowerCase())
+      );
       if (!a) return null;
       if (a.type === 'choices') return a.choices?.labels ?? [];
       if (a.type === 'choice') return a.choice?.label ?? null;
@@ -29,30 +31,31 @@ export async function POST(req: Request) {
       return a[a.type] ?? null;
     };
 
+    // Map incoming answers to Supabase columns
     const submission = {
-      email: extract('Email Address'),
-      name: extract('Name or Nickname'),
-      dob: extract('Date of Birth'),
+      user_email: extract('Email'), // 🟢 maps to NOT NULL column in Supabase
+      name: extract('Name'),
+      dob: extract('Birth'),
       height: extract('Height'),
-      weight: extract('Weight (lbs)'),
-      sex: extract('Sex at Birth'),
-      gender: extract('Gender Identity (Optional)'),
-      pregnant: extract('Pregnancy/Breastfeeding'),
-      goals: extract('What are your top health goals'),
-      skip_meals: extract('Do you skip meals?'),
-      energy_rating: extract('How would you rate your energy on a typical day?'),
-      sleep_rating: extract('How would you rate your sleep?'),
-      allergies: extract('Do you have any allergies or sensitivities?'),
-      allergy_details: extract('What are you allergic to?'),
-      conditions: extract('Do you have any current health conditions?'),
-      meds_flag: extract('Do you take any medications?'),
+      weight: extract('Weight'),
+      sex: extract('Sex'),
+      gender: extract('Gender'),
+      pregnant: extract('Pregnancy'),
+      goals: extract('goals'),
+      skip_meals: extract('skip meals'),
+      energy_rating: extract('energy'),
+      sleep_rating: extract('sleep'),
+      allergies: extract('allergies'),
+      allergy_details: extract('allergic to'),
+      conditions: extract('conditions'),
+      meds_flag: extract('medications?'),
       medications: extract('List Medication'),
-      supplements_flag: extract('Do you take any supplements?'),
+      supplements_flag: extract('supplements?'),
       supplements: extract('List Supplements'),
-      hormones_flag: extract('Do you take any compounded hormones?'),
+      hormones_flag: extract('compounded hormones?'),
       hormones: extract('List Hormones'),
-      dosing_pref: extract('What is realistic for your lifestyle?'),
-      brand_pref: extract('When it comes to supplements, do you prefer...'),
+      dosing_pref: extract('realistic for your lifestyle'),
+      brand_pref: extract('prefer'),
       raw_payload: body,
     };
 
@@ -64,7 +67,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, received: submission.email });
+    return NextResponse.json({ ok: true, received: submission.user_email });
   } catch (err: any) {
     console.error('[Webhook Error]', err);
     return NextResponse.json({ ok: false, error: err.message || 'Unknown error' }, { status: 500 });
