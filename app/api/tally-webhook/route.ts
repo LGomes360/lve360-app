@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
-// ✅ Supabase Admin Client (server-only)
+// Server-side Supabase Admin Client
 function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -15,9 +15,6 @@ function supabaseAdmin() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-
-    console.log('[Webhook] Raw Body:', JSON.stringify(body, null, 2));
-
     const answers = body?.form_response?.answers ?? [];
 
     const extract = (label: string) => {
@@ -33,7 +30,7 @@ export async function POST(req: Request) {
     };
 
     const submission = {
-      user_email: extract('Email Address (your goes report here)') || extract('Email Address'),
+      email: extract('Email Address'),
       name: extract('Name or Nickname'),
       dob: extract('Date of Birth'),
       height: extract('Height'),
@@ -56,11 +53,9 @@ export async function POST(req: Request) {
       hormones: extract('List Hormones'),
       dosing_pref: extract('What is realistic for your lifestyle?'),
       brand_pref: extract('When it comes to supplements, do you prefer...'),
-      answers: answers,
+      answers: JSON.stringify(answers ?? []),
       raw_payload: body,
     };
-
-    console.log('[Webhook] Final Submission:', JSON.stringify(submission, null, 2));
 
     const supabase = supabaseAdmin();
     const { error } = await supabase.from('submissions').insert(submission);
@@ -70,7 +65,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, received: submission.user_email });
+    return NextResponse.json({ ok: true, received: submission.email });
   } catch (err: any) {
     console.error('[Webhook Error]', err);
     return NextResponse.json({ ok: false, error: err.message || 'Unknown error' }, { status: 500 });
