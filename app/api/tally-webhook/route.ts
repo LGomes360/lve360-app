@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
-// Supabase Admin Client (server-only)
+// Supabase Admin Client
 function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -18,9 +18,7 @@ export async function POST(req: Request) {
     const answers = body?.form_response?.answers ?? [];
 
     const extract = (label: string) => {
-      const a = answers.find(
-        (x: any) => x?.field?.label?.toLowerCase().includes(label.toLowerCase())
-      );
+      const a = answers.find((x: any) => x?.field?.label?.toLowerCase() === label.toLowerCase());
       if (!a) return null;
       if (a.type === 'choices') return a.choices?.labels ?? [];
       if (a.type === 'choice') return a.choice?.label ?? null;
@@ -31,31 +29,31 @@ export async function POST(req: Request) {
       return a[a.type] ?? null;
     };
 
-    // Map incoming answers to Supabase columns
     const submission = {
-      user_email: extract('Email'), // 🟢 maps to NOT NULL column in Supabase
-      name: extract('Name'),
-      dob: extract('Birth'),
+      user_email: extract('Email Address'), // or just 'Email' depending on Tally label
+      name: extract('Name or Nickname'),
+      dob: extract('Date of Birth'),
       height: extract('Height'),
-      weight: extract('Weight'),
-      sex: extract('Sex'),
-      gender: extract('Gender'),
-      pregnant: extract('Pregnancy'),
-      goals: extract('goals'),
-      skip_meals: extract('skip meals'),
-      energy_rating: extract('energy'),
-      sleep_rating: extract('sleep'),
-      allergies: extract('allergies'),
-      allergy_details: extract('allergic to'),
-      conditions: extract('conditions'),
-      meds_flag: extract('medications?'),
+      weight: extract('Weight (lbs)'),
+      sex: extract('Sex at Birth'),
+      gender: extract('Gender Identity (Optional)'),
+      pregnant: extract('Pregnancy/Breastfeeding'),
+      goals: extract('What are your top health goals'),
+      skip_meals: extract('Do you skip meals?'),
+      energy_rating: extract('How would you rate your energy on a typical day?'),
+      sleep_rating: extract('How would you rate your sleep?'),
+      allergies: extract('Do you have any allergies or sensitivities?'),
+      allergy_details: extract('What are you allergic to?'),
+      conditions: extract('Do you have any current health conditions?'),
+      meds_flag: extract('Do you take any medications?'),
       medications: extract('List Medication'),
-      supplements_flag: extract('supplements?'),
+      supplements_flag: extract('Do you take any supplements?'),
       supplements: extract('List Supplements'),
-      hormones_flag: extract('compounded hormones?'),
+      hormones_flag: extract('Do you take any compounded hormones?'),
       hormones: extract('List Hormones'),
-      dosing_pref: extract('realistic for your lifestyle'),
-      brand_pref: extract('prefer'),
+      dosing_pref: extract('What is realistic for your lifestyle?'),
+      brand_pref: extract('When it comes to supplements, do you prefer...'),
+      answers: answers, // ✅ FIX: prevents NOT NULL constraint failure
       raw_payload: body,
     };
 
