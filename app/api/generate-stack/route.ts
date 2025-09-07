@@ -2,44 +2,23 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { assertEnv } from '../../../src/lib/env';
-import { generateStack } from '../../../src/lib/generateStack';
+import { generateStack } from '@/lib/generateStack';
+
+// Utility to check env vars (optional, but good for safety!)
+function assertEnv() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('Missing Supabase env variables');
+  }
+}
+
+function supabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
 export const dynamic = 'force-dynamic';
 
-// ---- Types
-type Submission = {
-  id: string;
-  email?: string | null;
-  created_at: string;
-  // add other fields generateStack reads
-};
-
-type StackItem = {
-  name: string;
-  dose?: string;
-  schedule?: string;
-  rationale?: string;
-  affiliateUrl?: string;
-  monthlyCost?: number;
-};
-
-type GeneratedStack = {
-  items: StackItem[];
-  summary?: string | null;
-  version?: string | null;
-  totalMonthlyCost?: number | null;
-  notes?: string | null;
-};
-
-// ---- Supabase admin client (server-only key)
-function supabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!; // server-only, never expose to client
-  return createClient(url, key);
-}
-
-// ---- GET: human-friendly status
 export async function GET() {
   return NextResponse.json({
     ok: true,
@@ -50,7 +29,6 @@ export async function GET() {
   });
 }
 
-// ---- POST: main generator
 export async function POST(request: Request) {
   try {
     assertEnv();
@@ -58,7 +36,7 @@ export async function POST(request: Request) {
     const { email } = await safeJson<{ email?: string }>(request);
     const supabase = supabaseAdmin();
 
-    // 1) Fetch latest submission (optionally by email)
+    // Fetch latest submission for this user
     const submission = await getLatestSubmission(supabase, email);
     if (!submission) {
       return NextResponse.json(
@@ -67,11 +45,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2) Generate items (generateStack currently returns StackItem[])
-    const items: StackItem[] = await generateStack(submission as any);
+    // Generate the stack (your business logic)
+    const items = await generateStack(submission);
 
-    // Wrap into our canonical payload shape
-    const generated: GeneratedStack = {
+    const generated = {
       items: items ?? [],
       summary: null,
       version: 'v1',
@@ -79,10 +56,10 @@ export async function POST(request: Request) {
       notes: null,
     };
 
-    // 3) Ensure a user row (optional convenience)
+    // Ensure user row exists
     const userId = await findOrCreateUserIdForEmail(supabase, submission.email ?? email);
 
-    // 4) Upsert idempotently on submission_id
+    // Upsert the stack (idempotent)
     const stackRow = {
       submission_id: submission.id,
       user_id: userId ?? null,
@@ -117,7 +94,7 @@ export async function POST(request: Request) {
   }
 }
 
-// ---- Helpers
+// Helpers (keep as in your original!)
 async function safeJson<T = unknown>(req: Request): Promise<T | Record<string, never>> {
   try {
     const len = req.headers.get('content-length');
@@ -131,12 +108,12 @@ async function safeJson<T = unknown>(req: Request): Promise<T | Record<string, n
 async function getLatestSubmission(
   supabase: ReturnType<typeof supabaseAdmin>,
   email?: string
-): Promise<Submission | null> {
+): Promise<any | null> {
   let query = supabase.from('submissions').select('*').order('created_at', { ascending: false }).limit(1);
   if (email) query = query.eq('email', email);
   const { data, error } = await query;
   if (error) throw new Error(`Failed to fetch latest submission: ${error.message}`);
-  return (data?.[0] ?? null) as Submission | null;
+  return (data?.[0] ?? null);
 }
 
 async function findOrCreateUserIdForEmail(
@@ -144,7 +121,6 @@ async function findOrCreateUserIdForEmail(
   email?: string | null
 ): Promise<string | null> {
   if (!email) return null;
-
   const { data: user, error } = await supabase
     .from('users')
     .select('id')
@@ -153,7 +129,6 @@ async function findOrCreateUserIdForEmail(
     .maybeSingle();
 
   if (error) throw new Error(`Failed to lookup user: ${error.message}`);
-
   if (user) return user.id;
 
   const { data: created, error: createErr } = await supabase
@@ -164,6 +139,5 @@ async function findOrCreateUserIdForEmail(
     .maybeSingle();
 
   if (createErr) throw new Error(`Failed to create user: ${createErr.message}`);
-
   return created?.id ?? null;
 }
