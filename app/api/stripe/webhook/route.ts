@@ -1,23 +1,23 @@
-// app/api/stripe/webhook/route.ts
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
-// --- Stripe client (no version pin needed) ---
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-
-// --- Supabase REST details (server-only) ---
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPA_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-// Normalize emails to avoid duplicates like "User@Gmail.com"
+/**
+ * Normalize email for deduplication.
+ */
 function normalize(email: string | null | undefined): string {
   return (email ?? '').toString().trim().toLowerCase();
 }
 
-// Upsert a user by email into Supabase (sets tier + stripe fields)
-// Upsert a user by email into Supabase (sets tier + stripe fields)
+/**
+ * Upsert a user into Supabase by email.
+ * Always keeps tier and Stripe info up-to-date.
+ */
 async function upsertUser(row: {
   email: string;
   tier: 'free' | 'premium';
@@ -32,7 +32,7 @@ async function upsertUser(row: {
     updated_at: new Date().toISOString(),
   }];
 
-  // NOTE: on_conflict=email is required for PostgREST to upsert on the email column
+  // Upsert by email
   const resp = await fetch(`${SUPA_URL}/rest/v1/users?on_conflict=email`, {
     method: 'POST',
     headers: {
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // 1) Checkout completed → mark as premium/active
+    // 1. Checkout session completed
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session;
       const email = normalize(session.customer_email);
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2) Subscription status changed → sync tier
+    // 2. Subscription updated
     if (event.type === 'customer.subscription.updated') {
       const sub = event.data.object as Stripe.Subscription;
       const customerId =
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
         email = normalize((cust as Stripe.Customer).email);
       }
 
-      const status = sub.status; // active, past_due, canceled, incomplete, etc.
+      const status = sub.status; // e.g., 'active', 'past_due', 'canceled'
       const tier = status === 'active' ? 'premium' : 'free';
       console.log('ℹ️ Subscription updated:', sub.id, email, '→', status);
 
@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3) Subscription deleted → mark as free/canceled
+    // 3. Subscription deleted
     if (event.type === 'customer.subscription.deleted') {
       const sub = event.data.object as Stripe.Subscription;
       const customerId =
