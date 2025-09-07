@@ -155,7 +155,35 @@ export async function POST(req: NextRequest) {
     }
     const data = parsed.data;
 
-    console.log('[Webhook DEBUG] Final DB insert payload:', JSON.stringify(data, null, 2));
+    // -- FIND OR CREATE USER_ID --
+    let userId: string | undefined = undefined;
+    if (data.user_email) {
+      // 1. Try to find existing user
+      const { data: userRow, error: userErr } = await admin
+        .from('users')
+        .select('id')
+        .eq('email', data.user_email)
+        .maybeSingle();
+
+      if (userErr) {
+        console.error('[Webhook DEBUG] User lookup error:', userErr);
+      }
+
+      if (userRow && userRow.id) {
+        userId = userRow.id;
+      } else {
+        // 2. If not found, create new user
+        const { data: newUser, error: newUserErr } = await admin
+          .from('users')
+          .insert({ email: data.user_email })
+          .select('id')
+          .single();
+        if (newUser && newUser.id) userId = newUser.id;
+        if (newUserErr) {
+          console.error('[Webhook DEBUG] User creation error:', newUserErr);
+        }
+      }
+    }
 
     // Future-proofed answers: always insert valid value (array or object)
     const answersPayload =
@@ -163,9 +191,11 @@ export async function POST(req: NextRequest) {
       body?.form_response?.answers && Array.isArray(body.form_response.answers) ? body.form_response.answers :
       [];
 
+    // -- INSERT SUBMISSION WITH USER_ID --
     const { data: subRow, error: subErr } = await admin
       .from('submissions')
       .insert({
+        user_id: userId ?? null,     // <-- ADDED LINE
         user_email: data.user_email,
         name: data.name,
         dob: data.dob,
@@ -186,7 +216,7 @@ export async function POST(req: NextRequest) {
         dosing_pref: data.dosing_pref,
         brand_pref: data.brand_pref,
         payload_json: body,
-        answers: answersPayload, // <-- Future-proof: always present, never null
+        answers: answersPayload,
       })
       .select('id')
       .single();
