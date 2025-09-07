@@ -59,7 +59,9 @@ function getByKeyOrLabel(src: Record<string, unknown>, key: string, labelCandida
 export async function POST(req: NextRequest) {
   const admin = getAdmin();
   let body: any;
-  try { body = await req.json(); } catch (e) {
+  try {
+    body = await req.json();
+  } catch {
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 });
   }
 
@@ -70,15 +72,15 @@ export async function POST(req: NextRequest) {
 
   // Build normalized record using keys, then labels as fallback
   const normalized = {
-    user_email: String(getByKeyOrLabel(src, TALLY_KEYS.user_email, ['email','user email','your email']) ?? ''),
-    name: getByKeyOrLabel(src, TALLY_KEYS.name, ['name','nickname']) as string | undefined,
-    dob: getByKeyOrLabel(src, TALLY_KEYS.dob, ['dob','date of birth']) as string | undefined,
+    user_email: String(getByKeyOrLabel(src, TALLY_KEYS.user_email, ['email', 'user email', 'your email']) ?? ''),
+    name: getByKeyOrLabel(src, TALLY_KEYS.name, ['name', 'nickname']) as string | undefined,
+    dob: getByKeyOrLabel(src, TALLY_KEYS.dob, ['dob', 'date of birth']) as string | undefined,
     height: getByKeyOrLabel(src, TALLY_KEYS.height, ['height']) as string | undefined,
-    weight: getByKeyOrLabel(src, TALLY_KEYS.weight, ['weight','weight (lb)','weight (lbs)']) as string | number | undefined,
-    sex: getByKeyOrLabel(src, TALLY_KEYS.sex, ['sex at birth','sex']) as string | undefined,
+    weight: getByKeyOrLabel(src, TALLY_KEYS.weight, ['weight', 'weight (lb)', 'weight (lbs)']) as string | number | undefined,
+    sex: getByKeyOrLabel(src, TALLY_KEYS.sex, ['sex at birth', 'sex']) as string | undefined,
     gender: getByKeyOrLabel(src, TALLY_KEYS.gender, ['gender']) as string | undefined,
     pregnant: getByKeyOrLabel(src, TALLY_KEYS.pregnant, ['pregnant']) as string | boolean | undefined,
-    goals: parseList(getByKeyOrLabel(src, TALLY_KEYS.goals, ['goals','primary goals'])),
+    goals: parseList(getByKeyOrLabel(src, TALLY_KEYS.goals, ['goals', 'primary goals'])),
     skip_meals: getByKeyOrLabel(src, TALLY_KEYS.skip_meals, ['skip meals']) as string | boolean | undefined,
     energy_rating: getByKeyOrLabel(src, TALLY_KEYS.energy_rating, ['energy rating']) as string | number | undefined,
     sleep_rating: getByKeyOrLabel(src, TALLY_KEYS.sleep_rating, ['sleep rating']) as string | number | undefined,
@@ -142,12 +144,18 @@ export async function POST(req: NextRequest) {
       name: data.name,
       dob: data.dob,
       height: data.height,
-      weight: typeof data.weight === 'number' ? data.weight : data.weight ? Number(String(data.weight).replace(/[^0-9.]/g, '')) : null,
+      weight:
+        typeof data.weight === 'number'
+          ? data.weight
+          : data.weight
+          ? Number(String(data.weight).replace(/[^0-9.]/g, ''))
+          : null,
       sex: data.sex,
       gender: data.gender,
       pregnant: typeof data.pregnant === 'boolean' ? data.pregnant : String(data.pregnant ?? '').toLowerCase() === 'yes',
       goals: data.goals,
-      skip_meals: typeof data.skip_meals === 'boolean' ? data.skip_meals : String(data.skip_meals ?? '').toLowerCase() === 'yes',
+      skip_meals:
+        typeof data.skip_meals === 'boolean' ? data.skip_meals : String(data.skip_meals ?? '').toLowerCase() === 'yes',
       energy_rating: data.energy_rating,
       sleep_rating: data.sleep_rating,
       allergies: data.allergies,
@@ -184,12 +192,12 @@ export async function POST(req: NextRequest) {
 
   if (data.medications?.length) {
     const medsRows = data.medications.map((name) => ({ submission_id: submissionId, name }));
-    tasks.push(admin.from('submission_medications').insert(medsRows));
+    tasks.push(admin.from('submission_medications').insert(medsRows).select('id'));
   }
 
   if (data.hormones?.length) {
     const hormoneRows = data.hormones.map((name) => ({ submission_id: submissionId, name }));
-    tasks.push(admin.from('submission_hormones').insert(hormoneRows));
+    tasks.push(admin.from('submission_hormones').insert(hormoneRows).select('id'));
   }
 
   if (data.supplements?.length) {
@@ -201,7 +209,7 @@ export async function POST(req: NextRequest) {
       timing: s.timing ?? null,
       source: 'intake',
     }));
-    tasks.push(admin.from('submission_supplements').insert(suppRows));
+    tasks.push(admin.from('submission_supplements').insert(suppRows).select('id'));
   }
 
   const results = await Promise.allSettled(tasks);
@@ -211,7 +219,10 @@ export async function POST(req: NextRequest) {
         source: 'tally',
         event_type: body?.eventType ?? body?.event_type ?? null,
         event_id: body?.eventId ?? body?.event_id ?? null,
-        error_message: `child_insert_error: ${r.status === 'rejected' ? (r.reason?.message ?? r.reason) : (r as any).value.error.message}`,
+        error_message:
+          r.status === 'rejected'
+            ? `child_insert_error: ${r.reason?.message ?? r.reason}`
+            : `child_insert_error: ${(r as any).value.error.message}`,
         severity: 'error',
         payload_json: body,
       });
