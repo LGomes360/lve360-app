@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { z } from 'zod';
 import { TALLY_KEYS, NormalizedSubmissionSchema } from '@/types/tally-normalized';
 import { parseList, parseSupplements } from '@/lib/parseLists';
 
@@ -51,6 +52,19 @@ function getByKeyOrLabel(src: Record<string, unknown>, key: string, labelCandida
   return undefined;
 }
 
+// --- KEY: filter out all null/empty values (including empty objects from Tally) ---
+function filterNullish(arr: any) {
+  return (Array.isArray(arr) ? arr : [])
+    .filter(
+      (x) =>
+        !!x &&
+        (typeof x === 'string' ? x.trim() : true) &&
+        (typeof x === 'object'
+          ? Object.values(x).some((v) => v !== null && v !== undefined && v !== '')
+          : true)
+    );
+}
+
 export async function POST(req: NextRequest) {
   const admin = getAdmin();
   let body: any;
@@ -66,57 +80,69 @@ export async function POST(req: NextRequest) {
     const answersMap = body?.form_response?.answers ? answersToMap(body.form_response.answers) : {};
     const src = { ...fieldsMap, ...answersMap };
 
-    console.log('[Webhook] Tally incoming fields map:', JSON.stringify(src, null, 2));
-
-    // Map IDs to string if array (Tally dropdown returns array of IDs)
-    const firstOrString = (v: any) => Array.isArray(v) && v.length === 1 ? v[0] : v;
-
+    // Normalization with null/empty filter for all repeatable fields
     const normalized = {
       user_email: String(getByKeyOrLabel(src, TALLY_KEYS.user_email, ['email', 'user email', 'your email']) ?? ''),
       name: getByKeyOrLabel(src, TALLY_KEYS.name, ['name', 'nickname']) as string | undefined,
       dob: getByKeyOrLabel(src, TALLY_KEYS.dob, ['dob', 'date of birth']) as string | undefined,
       height: getByKeyOrLabel(src, TALLY_KEYS.height, ['height']) as string | undefined,
       weight: getByKeyOrLabel(src, TALLY_KEYS.weight, ['weight', 'weight (lb)', 'weight (lbs)']) as string | number | undefined,
-      sex: firstOrString(getByKeyOrLabel(src, TALLY_KEYS.sex, ['sex at birth', 'sex'])),
-      gender: firstOrString(getByKeyOrLabel(src, TALLY_KEYS.gender, ['gender'])),
-      pregnant: firstOrString(getByKeyOrLabel(src, TALLY_KEYS.pregnant, ['pregnant'])),
-      goals: parseList(getByKeyOrLabel(src, TALLY_KEYS.goals, ['goals', 'primary goals'])),
-      skip_meals: firstOrString(getByKeyOrLabel(src, TALLY_KEYS.skip_meals, ['skip meals'])),
+      sex: (() => {
+        const v = getByKeyOrLabel(src, TALLY_KEYS.sex, ['sex at birth', 'sex']);
+        return Array.isArray(v) && v.length === 1 ? v[0] : v ?? undefined;
+      })(),
+      gender: (() => {
+        const v = getByKeyOrLabel(src, TALLY_KEYS.gender, ['gender']);
+        return Array.isArray(v) && v.length === 1 ? v[0] : v ?? undefined;
+      })(),
+      pregnant: (() => {
+        const v = getByKeyOrLabel(src, TALLY_KEYS.pregnant, ['pregnant']);
+        return typeof v === 'object' && v?.value !== undefined ? v.value : Array.isArray(v) && v.length === 1 ? v[0] : v ?? undefined;
+      })(),
+      goals: filterNullish(parseList(getByKeyOrLabel(src, TALLY_KEYS.goals, ['goals', 'primary goals']))),
+      skip_meals: (() => {
+        const v = getByKeyOrLabel(src, TALLY_KEYS.skip_meals, ['skip meals']);
+        return Array.isArray(v) && v.length === 1 ? v[0] : v ?? undefined;
+      })(),
       energy_rating: getByKeyOrLabel(src, TALLY_KEYS.energy_rating, ['energy rating']) as string | number | undefined,
       sleep_rating: getByKeyOrLabel(src, TALLY_KEYS.sleep_rating, ['sleep rating']) as string | number | undefined,
       allergies: (() => {
         const flag = String(getByKeyOrLabel(src, TALLY_KEYS.allergies_flag, ['allergies']) ?? '').toLowerCase();
         const details = getByKeyOrLabel(src, TALLY_KEYS.allergy_details, ['allergy details']);
-        return flag === 'yes' || flag === 'true' ? parseList(details) : [];
+        return flag === 'yes' || flag === 'true' ? filterNullish(parseList(details)) : [];
       })(),
-      conditions: parseList(getByKeyOrLabel(src, TALLY_KEYS.conditions, ['conditions'])),
+      conditions: filterNullish(parseList(getByKeyOrLabel(src, TALLY_KEYS.conditions, ['conditions']))),
       medications: (() => {
         const flag = String(getByKeyOrLabel(src, TALLY_KEYS.meds_flag, ['medications?']) ?? '').toLowerCase();
         const list = getByKeyOrLabel(src, TALLY_KEYS.medications, ['medications']);
-        return flag === 'yes' || flag === 'true' ? parseList(list) : parseList(list);
+        return filterNullish(parseList(list));
       })(),
       supplements: (() => {
         const flag = String(getByKeyOrLabel(src, TALLY_KEYS.supplements_flag, ['supplements?']) ?? '').toLowerCase();
         const list = getByKeyOrLabel(src, TALLY_KEYS.supplements, ['supplements']);
-        return flag === 'yes' || flag === 'true' ? parseSupplements(list) : parseSupplements(list);
+        return filterNullish(parseSupplements(list));
       })(),
       hormones: (() => {
         const flag = String(getByKeyOrLabel(src, TALLY_KEYS.hormones_flag, ['hormones?']) ?? '').toLowerCase();
         const list = getByKeyOrLabel(src, TALLY_KEYS.hormones, ['hormones']);
-        return flag === 'yes' || flag === 'true' ? parseList(list) : parseList(list);
+        return filterNullish(parseList(list));
       })(),
-      dosing_pref: firstOrString(getByKeyOrLabel(src, TALLY_KEYS.dosing_pref, ['dosing preference'])),
-      brand_pref: firstOrString(getByKeyOrLabel(src, TALLY_KEYS.brand_pref, ['brand preference'])),
+      dosing_pref: (() => {
+        const v = getByKeyOrLabel(src, TALLY_KEYS.dosing_pref, ['dosing preference']);
+        return Array.isArray(v) && v.length === 1 ? v[0] : v ?? undefined;
+      })(),
+      brand_pref: (() => {
+        const v = getByKeyOrLabel(src, TALLY_KEYS.brand_pref, ['brand preference']);
+        return Array.isArray(v) && v.length === 1 ? v[0] : v ?? undefined;
+      })(),
     };
 
-    console.log('[Webhook] Normalized for Zod:', JSON.stringify(normalized, null, 2));
+    // [Optional: log normalized if needed]
+    // console.log('[Webhook] Normalized for Zod:', JSON.stringify(normalized, null, 2));
 
+    // Zod validation as before
     const parsed = NormalizedSubmissionSchema.safeParse(normalized);
     if (!parsed.success) {
-      console.error('[Validation Error] Normalized submission failed Zod check:', {
-        error: parsed.error.flatten(),
-        tried: normalized,
-      });
       await admin.from('webhook_failures').insert({
         source: 'tally',
         event_type: body?.eventType ?? body?.event_type ?? null,
@@ -129,7 +155,6 @@ export async function POST(req: NextRequest) {
     }
 
     const data = parsed.data;
-    console.log('[Webhook] Final DB insert payload:', JSON.stringify(data, null, 2));
 
     if (!data.user_email) {
       await admin.from('webhook_failures').insert({
@@ -143,7 +168,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Missing user_email' }, { status: 400 });
     }
 
-    // 👇 **THIS IS THE FIX — Add `answers: {}`**
+    // DB insert & fanout logic unchanged...
+
     const { data: subRow, error: subErr } = await admin
       .from('submissions')
       .insert({
@@ -159,15 +185,10 @@ export async function POST(req: NextRequest) {
             : null,
         sex: data.sex,
         gender: data.gender,
-        pregnant:
-          typeof data.pregnant === 'boolean'
-            ? data.pregnant
-            : String(data.pregnant ?? '').toLowerCase() === 'yes',
+        pregnant: typeof data.pregnant === 'boolean' ? data.pregnant : String(data.pregnant ?? '').toLowerCase() === 'yes',
         goals: data.goals,
         skip_meals:
-          typeof data.skip_meals === 'boolean'
-            ? data.skip_meals
-            : String(data.skip_meals ?? '').toLowerCase() === 'yes',
+          typeof data.skip_meals === 'boolean' ? data.skip_meals : String(data.skip_meals ?? '').toLowerCase() === 'yes',
         energy_rating: data.energy_rating,
         sleep_rating: data.sleep_rating,
         allergies: data.allergies,
@@ -178,13 +199,11 @@ export async function POST(req: NextRequest) {
         dosing_pref: data.dosing_pref,
         brand_pref: data.brand_pref,
         payload_json: body,
-        answers: {}, // <-- FIX: add empty object for NOT NULL answers
       })
       .select('id')
       .single();
 
     if (subErr || !subRow) {
-      console.error('[DB Insert Error] submissions:', subErr);
       await admin.from('webhook_failures').insert({
         source: 'tally',
         event_type: body?.eventType ?? body?.event_type ?? null,
@@ -198,12 +217,9 @@ export async function POST(req: NextRequest) {
 
     const submissionId = subRow.id;
 
-    // ===== Fan-out child rows (with logging) =====
+    // Child inserts...
     if (data.medications?.length) {
-      const medsRows = data.medications.map((name) => ({
-        submission_id: submissionId,
-        name,
-      }));
+      const medsRows = data.medications.map((name) => ({ submission_id: submissionId, name }));
       const { error: medsErr } = await admin.from('submission_medications').insert(medsRows);
       if (medsErr) {
         await admin.from('webhook_failures').insert({
@@ -218,10 +234,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (data.hormones?.length) {
-      const hormoneRows = data.hormones.map((name) => ({
-        submission_id: submissionId,
-        name,
-      }));
+      const hormoneRows = data.hormones.map((name) => ({ submission_id: submissionId, name }));
       const { error: hormonesErr } = await admin.from('submission_hormones').insert(hormoneRows);
       if (hormonesErr) {
         await admin.from('webhook_failures').insert({
