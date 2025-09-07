@@ -1,5 +1,21 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js'
 
+/**
+ * A representation of a user submission from the intake form.
+ */
+export interface Submission {
+  id?: string; // Now supports submissionId for fetching child tables
+  goals: string[];
+  healthConditions?: string[];
+  medications?: string[];
+  supplements?: string[];
+  hormones?: string[];
+  tier?: 'budget' | 'mid' | 'premium';
+}
+
+/**
+ * A single item within a personalized supplement stack.
+ */
 export interface StackItem {
   supplement_id: string;
   name: string;
@@ -8,53 +24,63 @@ export interface StackItem {
   notes: string | null;
 }
 
+/**
+ * Create a Supabase client using environment variables.
+ */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL as string,
   process.env.SUPABASE_SERVICE_ROLE_KEY as string,
   { auth: { persistSession: false } }
 );
 
-export async function generateStack(submissionId: string): Promise<StackItem[]> {
-  // 1. Fetch submission and children
-  const { data: submission, error } = await supabase
-    .from('submissions')
-    .select('*')
-    .eq('id', submissionId)
-    .single();
+/**
+ * Generate a personalized supplement stack for a given submission.
+ * Now pulls child tables (meds, userSupps, hormones) if `id` is present.
+ */
+export async function generateStack(
+  submission: Submission
+): Promise<StackItem[]> {
+  const goals = submission.goals ?? [];
+  const tier = submission.tier ?? 'budget';
+  const health = submission.healthConditions ?? [];
 
-  if (error || !submission) {
-    console.error('Submission not found', error);
-    return [];
+  // --- NEW: If we have a submission.id, pull child tables. ---
+  let meds: any[] = [];
+  let userSupps: any[] = [];
+  let hormones: any[] = [];
+
+  if (submission.id) {
+    const [
+      { data: medsRaw },
+      { data: userSuppsRaw },
+      { data: hormonesRaw }
+    ] = await Promise.all([
+      supabase.from('submission_medications').select('*').eq('submission_id', submission.id),
+      supabase.from('submission_supplements').select('*').eq('submission_id', submission.id),
+      supabase.from('submission_hormones').select('*').eq('submission_id', submission.id),
+    ]);
+    meds = medsRaw ?? [];
+    userSupps = userSuppsRaw ?? [];
+    hormones = hormonesRaw ?? [];
   }
 
-  // 2. Fetch child tables (all rows for this submission)
-  const [{ data: meds = [] }, { data: userSupps = [] }, { data: hormones = [] }] = await Promise.all([
-    supabase.from('submission_medications').select('*').eq('submission_id', submissionId),
-    supabase.from('submission_supplements').select('*').eq('submission_id', submissionId),
-    supabase.from('submission_hormones').select('*').eq('submission_id', submissionId),
-  ]);
-
-  // 3. Normalize for stack logic
-  const goals = submission.goals || [];
-  const tier = submission.tier || 'budget';
   // prefer structured over fallback flat fields
-  const health = submission.conditions || []; // can merge with hormones if needed
-  const medsArr = meds.length > 0 ? meds.map(m => m.name) : (submission.medications || []);
-  const userSuppsArr = userSupps.length > 0 ? userSupps.map(s => s.name) : (submission.supplements || []);
+  const medsArr = meds.length > 0 ? meds.map(m => m.name) : (submission.medications ?? []);
+  const userSuppsArr = userSupps.length > 0 ? userSupps.map(s => s.name) : (submission.supplements ?? []);
   // For future: pull hormone names if used in stack logic
+  // const hormoneArr = hormones.length > 0 ? hormones.map(h => h.name) : (submission.hormones ?? []);
 
-  // 4. Find rules that match user goals
+  // Step 1: look up rules that match any of the user's goals.
   const { data: rules, error: rulesError } = await supabase
     .from('rules')
     .select('*')
     .in('entity_a_name', goals);
-
   if (rulesError) {
     console.error('Error fetching rules', rulesError);
     return [];
   }
 
-  // 5. Filter out non-stack rules
+  // Filter out UL, SPACING and AVOID rules; these are handled separately.
   const candidateIngredients =
     rules
       ?.filter(
@@ -94,9 +120,13 @@ export async function generateStack(submissionId: string): Promise<StackItem[]> 
       );
     }
 
-    // Block by medication or health condition
+    // Determine if this supplement should be excluded based on interactions
+    // with the user's health conditions or medications. We check a handful of
+    // common caution flags; additional flags can be added as needed.
     let blocked = false;
     if (interact) {
+      // Example: if the user is on anticoagulants and the supplement carries
+      // bleeding risk, skip it.
       if (
         medsArr.some((m: string) =>
           m.toLowerCase().includes('anticoagulant')
@@ -105,12 +135,15 @@ export async function generateStack(submissionId: string): Promise<StackItem[]> 
       ) {
         blocked = true;
       }
+      // Example: pregnancy caution – skip if the user flagged pregnancy.
       if (
         health.some((h: string) => h.toLowerCase().includes('pregnancy')) &&
         interact.pregnancy_caution === 'Y'
       ) {
         blocked = true;
       }
+      // Additional flags such as liver_disease_caution, kidney_disease_caution,
+      // or immunocompromised_caution could be checked here.
       if (
         health.some((h: string) => h.toLowerCase().includes('liver')) &&
         interact.liver_disease_caution === 'Y'
