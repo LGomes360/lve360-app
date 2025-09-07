@@ -5,6 +5,11 @@ import { NextRequest, NextResponse } from 'next/server';
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPA_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
+/**
+ * GET /api/users/tier?email=...
+ * Returns the user's current tier and Stripe subscription status.
+ * No writes or user_id logic needed — read-only.
+ */
 export async function GET(req: NextRequest) {
   const emailRaw = req.nextUrl.searchParams.get('email') || '';
   const email = emailRaw.trim().toLowerCase();
