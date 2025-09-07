@@ -10,40 +10,24 @@ function getAdmin() {
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 }
 
-function buildFieldLookups(fields: any[]) {
-  const keyMap: Record<string, any> = {};
-  const optionMaps: Record<string, Record<string, string>> = {};
-  for (const f of fields ?? []) {
-    if (!f || !f.key) continue;
-    keyMap[f.key] = f;
-    if (Array.isArray(f.options)) {
-      optionMaps[f.key] = {};
-      for (const opt of f.options) {
-        optionMaps[f.key][opt.id] = opt.text ?? opt.label ?? String(opt.id);
-      }
-    }
-  }
-  return { keyMap, optionMaps };
-}
-
-function idToLabel(val: any, fieldKey: string, optionMaps: Record<string, Record<string, string>>) {
-  if (!optionMaps[fieldKey]) return val;
-  if (Array.isArray(val)) return val.map((id) => optionMaps[fieldKey][id] || id);
-  if (typeof val === 'string') return optionMaps[fieldKey][val] || val;
+// Utility: Always return the single value if Tally gives an array for a field (dropdown, radio, etc)
+function extractSingle(val: any) {
+  if (Array.isArray(val)) return val[0] ?? null;
   return val;
 }
 
-function fieldsToMap(fields: any[], optionMaps: Record<string, Record<string, string>>): Record<string, unknown> {
+// Normalize Tally field arrays into a simple { key -> value } map
+function fieldsToMap(fields: any[]): Record<string, unknown> {
   const map: Record<string, unknown> = {};
   for (const f of fields ?? []) {
     if (!f) continue;
     const key = f.key ?? '';
     let val = f.value ?? f.text ?? f.answer ?? f;
-    if (optionMaps[key]) val = idToLabel(val, key, optionMaps);
     if (f.type === 'CHECKBOXES' && Array.isArray(f.value)) {
       val = f.value.map((v: any) => v?.label ?? v?.value ?? v);
     }
     map[key] = val;
+    // label fallback (lowercased)
     if (f.label) map[`label::${String(f.label).toLowerCase()}`] = val;
   }
   return map;
@@ -75,12 +59,6 @@ function getByKeyOrLabel(src: Record<string, unknown>, key: string, labelCandida
   return undefined;
 }
 
-// --- UNIVERSAL UNWRAP FUNCTION ---
-function unwrap(val: unknown): unknown {
-  if (Array.isArray(val)) return val[0];
-  return val;
-}
-
 export async function POST(req: NextRequest) {
   const admin = getAdmin();
   let body: any;
@@ -92,52 +70,54 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const rawFields = body?.data?.fields ?? [];
-    const { keyMap, optionMaps } = buildFieldLookups(rawFields);
-    const fieldsMap = rawFields.length ? fieldsToMap(rawFields, optionMaps) : {};
+    // Unify both Tally shapes
+    const fieldsMap = body?.data?.fields ? fieldsToMap(body.data.fields) : {};
     const answersMap = body?.form_response?.answers ? answersToMap(body.form_response.answers) : {};
     const src = { ...fieldsMap, ...answersMap };
 
-    // ---- Normalize + Unwrap array fields where Zod expects string ----
+    // Log incoming mapped data for debugging
+    console.log('[Webhook] Tally incoming fields map:', JSON.stringify(src, null, 2));
+
+    // Build normalized record using keys, then labels as fallback
     const normalized = {
-      user_email: String(unwrap(getByKeyOrLabel(src, TALLY_KEYS.user_email, ['email', 'user email', 'your email'])) ?? ''),
-      name: unwrap(getByKeyOrLabel(src, TALLY_KEYS.name, ['name', 'nickname'])) as string | undefined,
-      dob: unwrap(getByKeyOrLabel(src, TALLY_KEYS.dob, ['dob', 'date of birth'])) as string | undefined,
-      height: unwrap(getByKeyOrLabel(src, TALLY_KEYS.height, ['height'])) as string | undefined,
-      weight: unwrap(getByKeyOrLabel(src, TALLY_KEYS.weight, ['weight', 'weight (lb)', 'weight (lbs)'])) as string | number | undefined,
-      sex: unwrap(getByKeyOrLabel(src, TALLY_KEYS.sex, ['sex at birth', 'sex'])) as string | undefined,
-      gender: unwrap(getByKeyOrLabel(src, TALLY_KEYS.gender, ['gender'])) as string | undefined,
-      pregnant: unwrap(getByKeyOrLabel(src, TALLY_KEYS.pregnant, ['pregnant'])) as string | boolean | undefined,
-      goals: parseList(unwrap(getByKeyOrLabel(src, TALLY_KEYS.goals, ['goals', 'primary goals']))),
-      skip_meals: unwrap(getByKeyOrLabel(src, TALLY_KEYS.skip_meals, ['skip meals'])) as string | boolean | undefined,
-      energy_rating: unwrap(getByKeyOrLabel(src, TALLY_KEYS.energy_rating, ['energy rating'])) as string | number | undefined,
-      sleep_rating: unwrap(getByKeyOrLabel(src, TALLY_KEYS.sleep_rating, ['sleep rating'])) as string | number | undefined,
+      user_email: String(extractSingle(getByKeyOrLabel(src, TALLY_KEYS.user_email, ['email', 'user email', 'your email'])) ?? ''),
+      name: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.name, ['name', 'nickname'])),
+      dob: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.dob, ['dob', 'date of birth'])),
+      height: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.height, ['height'])),
+      weight: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.weight, ['weight', 'weight (lb)', 'weight (lbs)'])),
+      sex: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.sex, ['sex at birth', 'sex'])),
+      gender: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.gender, ['gender'])),
+      pregnant: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.pregnant, ['pregnant'])),
+      goals: parseList(getByKeyOrLabel(src, TALLY_KEYS.goals, ['goals', 'primary goals'])),
+      skip_meals: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.skip_meals, ['skip meals'])),
+      energy_rating: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.energy_rating, ['energy rating'])),
+      sleep_rating: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.sleep_rating, ['sleep rating'])),
       allergies: (() => {
-        const flag = String(unwrap(getByKeyOrLabel(src, TALLY_KEYS.allergies_flag, ['allergies'])) ?? '').toLowerCase();
-        const details = unwrap(getByKeyOrLabel(src, TALLY_KEYS.allergy_details, ['allergy details']));
+        const flag = String(extractSingle(getByKeyOrLabel(src, TALLY_KEYS.allergies_flag, ['allergies'])) ?? '').toLowerCase();
+        const details = getByKeyOrLabel(src, TALLY_KEYS.allergy_details, ['allergy details']);
         return flag === 'yes' || flag === 'true' ? parseList(details) : [];
       })(),
-      conditions: parseList(unwrap(getByKeyOrLabel(src, TALLY_KEYS.conditions, ['conditions']))),
+      conditions: parseList(getByKeyOrLabel(src, TALLY_KEYS.conditions, ['conditions'])),
       medications: (() => {
-        const flag = String(unwrap(getByKeyOrLabel(src, TALLY_KEYS.meds_flag, ['medications?'])) ?? '').toLowerCase();
-        const list = unwrap(getByKeyOrLabel(src, TALLY_KEYS.medications, ['medications']));
+        const flag = String(extractSingle(getByKeyOrLabel(src, TALLY_KEYS.meds_flag, ['medications?'])) ?? '').toLowerCase();
+        const list = getByKeyOrLabel(src, TALLY_KEYS.medications, ['medications']);
         return flag === 'yes' || flag === 'true' ? parseList(list) : parseList(list);
       })(),
       supplements: (() => {
-        const flag = String(unwrap(getByKeyOrLabel(src, TALLY_KEYS.supplements_flag, ['supplements?'])) ?? '').toLowerCase();
-        const list = unwrap(getByKeyOrLabel(src, TALLY_KEYS.supplements, ['supplements']));
+        const flag = String(extractSingle(getByKeyOrLabel(src, TALLY_KEYS.supplements_flag, ['supplements?'])) ?? '').toLowerCase();
+        const list = getByKeyOrLabel(src, TALLY_KEYS.supplements, ['supplements']);
         return flag === 'yes' || flag === 'true' ? parseSupplements(list) : parseSupplements(list);
       })(),
       hormones: (() => {
-        const flag = String(unwrap(getByKeyOrLabel(src, TALLY_KEYS.hormones_flag, ['hormones?'])) ?? '').toLowerCase();
-        const list = unwrap(getByKeyOrLabel(src, TALLY_KEYS.hormones, ['hormones']));
+        const flag = String(extractSingle(getByKeyOrLabel(src, TALLY_KEYS.hormones_flag, ['hormones?'])) ?? '').toLowerCase();
+        const list = getByKeyOrLabel(src, TALLY_KEYS.hormones, ['hormones']);
         return flag === 'yes' || flag === 'true' ? parseList(list) : parseList(list);
       })(),
-      dosing_pref: unwrap(getByKeyOrLabel(src, TALLY_KEYS.dosing_pref, ['dosing preference'])) as string | undefined,
-      brand_pref: unwrap(getByKeyOrLabel(src, TALLY_KEYS.brand_pref, ['brand preference'])) as string | undefined,
+      dosing_pref: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.dosing_pref, ['dosing preference'])),
+      brand_pref: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.brand_pref, ['brand preference'])),
     };
 
-    // DEBUG: Normalized shape
+    // Log the normalized shape before validation
     console.log('[Webhook] Normalized for Zod:', JSON.stringify(normalized, null, 2));
 
     // Validate
@@ -159,6 +139,9 @@ export async function POST(req: NextRequest) {
     }
 
     const data = parsed.data;
+
+    // Log before DB insert
+    console.log('[Webhook] Final DB insert payload:', JSON.stringify(data, null, 2));
 
     if (!data.user_email) {
       console.error('[Validation Error] Missing user_email after normalization.');
@@ -289,6 +272,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, submission_id: submissionId });
   } catch (err) {
+    // Top-level catch
     console.error('[Webhook Fatal Error]', err);
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
