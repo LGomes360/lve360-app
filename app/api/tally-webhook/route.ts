@@ -152,9 +152,12 @@ export async function POST(req: NextRequest) {
       sleep_rating: data.sleep_rating,
       allergies: data.allergies,
       conditions: data.conditions,
-      medications: data.medications, -- keep original list for audit
-      supplements: data.supplements, -- keep original list for audit
-      hormones: data.hormones,       -- keep original list for audit
+      // keep original list for audit
+      medications: data.medications,
+      // keep original list for audit
+      supplements: data.supplements,
+      // keep original list for audit
+      hormones: data.hormones,
       dosing_pref: data.dosing_pref,
       brand_pref: data.brand_pref,
       payload_json: body,
