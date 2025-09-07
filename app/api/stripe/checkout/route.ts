@@ -1,14 +1,14 @@
 // app/api/stripe/checkout/route.ts
+
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
-// Central place to map plan -> Stripe Price ID (from env)
+// Central place to map plan name → Stripe Price ID
 const PRICE_MAP: Record<string, string | undefined> = {
   premium: process.env.STRIPE_PRICE_PREMIUM, // e.g., price_123
-  pro: process.env.STRIPE_PRICE_PRO,         // optional, add later
-  // starter: process.env.STRIPE_PRICE_STARTER, // example if you add more
+  pro: process.env.STRIPE_PRICE_PRO,         // add more plans as needed
 };
 
 function getPriceId(plan: string): string {
@@ -18,8 +18,13 @@ function getPriceId(plan: string): string {
   return price;
 }
 
+/**
+ * POST /api/stripe/checkout
+ * Starts a Stripe Checkout session for a given plan/email.
+ * No user_id logic needed — handled on webhook.
+ */
 export async function POST(req: NextRequest) {
-  // Body can be { email, plan? }, we also allow ?plan=.. in the URL
+  // Allow plan from body or query string
   const { email, plan: planFromBody } = await req.json().catch(() => ({}));
   const planFromQuery = req.nextUrl.searchParams.get('plan') || undefined;
   const plan = (planFromBody || planFromQuery || 'premium').toLowerCase();
@@ -45,7 +50,6 @@ export async function POST(req: NextRequest) {
       mode: 'subscription',
       customer_email: email,
       line_items: [{ price: priceId, quantity: 1 }],
-      // you can add trial_period_days to the price in Stripe if you want trials
       success_url: `${APP_URL}/results?status=success&plan=${encodeURIComponent(plan)}&email=${encodeURIComponent(
         email
       )}&session_id={CHECKOUT_SESSION_ID}`,
