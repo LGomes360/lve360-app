@@ -1,5 +1,3 @@
-// app/api/generate-stack/route.ts
-
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateStack } from '@/lib/generateStack';
@@ -24,8 +22,8 @@ export async function GET() {
     ok: true,
     endpoint: '/api/generate-stack',
     method: 'POST',
-    body: '{ "email"?: string }',
-    note: 'Generates a stack from the latest submission (optionally filtered by email) and upserts into `stacks`.',
+    body: '{ "email"?: string, "user_id"?: string }',
+    note: 'Generates a stack from the latest submission (filtered by user_id or email) and upserts into `stacks`.',
   });
 }
 
@@ -33,16 +31,36 @@ export async function POST(request: Request) {
   try {
     assertEnv();
 
-    const { email } = await safeJson<{ email?: string }>(request);
+    const { email, user_id } = await safeJson<{ email?: string; user_id?: string }>(request);
     const supabase = supabaseAdmin();
 
-    // Fetch latest submission for this user
-    const submission = await getLatestSubmission(supabase, email);
-    if (!submission) {
-      return NextResponse.json(
-        { ok: false, error: email ? `No submissions found for ${email}` : 'No submissions found' },
-        { status: 404 }
-      );
+    let submission;
+
+    if (user_id) {
+      // Fetch submission by user_id
+      const { data, error } = await supabase
+        .from('submissions')
+        .select('*')
+        .eq('user_id', user_id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw new Error(`Failed to fetch submission for user_id ${user_id}: ${error.message}`);
+      if (!data) {
+        return NextResponse.json({ ok: false, error: `No submissions found for user_id ${user_id}` }, { status: 404 });
+      }
+
+      submission = data;
+    } else {
+      // Fallback to email
+      submission = await getLatestSubmission(supabase, email);
+      if (!submission) {
+        return NextResponse.json(
+          { ok: false, error: email ? `No submissions found for ${email}` : 'No submissions found' },
+          { status: 404 }
+        );
+      }
     }
 
     // Generate the stack (your business logic)
@@ -56,13 +74,12 @@ export async function POST(request: Request) {
       notes: null,
     };
 
-    // Ensure user row exists
-    const userId = await findOrCreateUserIdForEmail(supabase, submission.email ?? email);
+    const resolvedUserId = user_id ?? (await findOrCreateUserIdForEmail(supabase, submission.email ?? email));
 
     // Upsert the stack (idempotent)
     const stackRow = {
       submission_id: submission.id,
-      user_id: userId ?? null,
+      user_id: resolvedUserId ?? null,
       email: submission.email ?? email ?? null,
       items: generated.items,
       summary: generated.summary,
@@ -87,14 +104,18 @@ export async function POST(request: Request) {
       submission_id: submission.id,
       stack_id: upserted?.id ?? null,
       items_preview: generated.items.slice(0, 5),
-      meta: { email: submission.email ?? email ?? null, version: generated.version ?? 'v1' },
+      meta: {
+        email: submission.email ?? email ?? null,
+        version: generated.version ?? 'v1',
+        user_id: resolvedUserId ?? null,
+      },
     });
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message ?? 'Unknown server error' }, { status: 500 });
   }
 }
 
-// Helpers (keep as in your original!)
+// Helpers (unchanged)
 async function safeJson<T = unknown>(req: Request): Promise<T | Record<string, never>> {
   try {
     const len = req.headers.get('content-length');
