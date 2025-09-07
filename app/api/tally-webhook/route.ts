@@ -10,13 +10,6 @@ function getAdmin() {
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 }
 
-// Utility: Always return the single value if Tally gives an array for a field (dropdown, radio, etc)
-function extractSingle(val: any) {
-  if (Array.isArray(val)) return val[0] ?? null;
-  return val;
-}
-
-// Normalize Tally field arrays into a simple { key -> value } map
 function fieldsToMap(fields: any[]): Record<string, unknown> {
   const map: Record<string, unknown> = {};
   for (const f of fields ?? []) {
@@ -27,7 +20,6 @@ function fieldsToMap(fields: any[]): Record<string, unknown> {
       val = f.value.map((v: any) => v?.label ?? v?.value ?? v);
     }
     map[key] = val;
-    // label fallback (lowercased)
     if (f.label) map[`label::${String(f.label).toLowerCase()}`] = val;
   }
   return map;
@@ -70,57 +62,55 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Unify both Tally shapes
     const fieldsMap = body?.data?.fields ? fieldsToMap(body.data.fields) : {};
     const answersMap = body?.form_response?.answers ? answersToMap(body.form_response.answers) : {};
     const src = { ...fieldsMap, ...answersMap };
 
-    // Log incoming mapped data for debugging
     console.log('[Webhook] Tally incoming fields map:', JSON.stringify(src, null, 2));
 
-    // Build normalized record using keys, then labels as fallback
+    // Map IDs to string if array (Tally dropdown returns array of IDs)
+    const firstOrString = (v: any) => Array.isArray(v) && v.length === 1 ? v[0] : v;
+
     const normalized = {
-      user_email: String(extractSingle(getByKeyOrLabel(src, TALLY_KEYS.user_email, ['email', 'user email', 'your email'])) ?? ''),
-      name: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.name, ['name', 'nickname'])),
-      dob: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.dob, ['dob', 'date of birth'])),
-      height: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.height, ['height'])),
-      weight: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.weight, ['weight', 'weight (lb)', 'weight (lbs)'])),
-      sex: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.sex, ['sex at birth', 'sex'])),
-      gender: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.gender, ['gender'])),
-      pregnant: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.pregnant, ['pregnant'])),
+      user_email: String(getByKeyOrLabel(src, TALLY_KEYS.user_email, ['email', 'user email', 'your email']) ?? ''),
+      name: getByKeyOrLabel(src, TALLY_KEYS.name, ['name', 'nickname']) as string | undefined,
+      dob: getByKeyOrLabel(src, TALLY_KEYS.dob, ['dob', 'date of birth']) as string | undefined,
+      height: getByKeyOrLabel(src, TALLY_KEYS.height, ['height']) as string | undefined,
+      weight: getByKeyOrLabel(src, TALLY_KEYS.weight, ['weight', 'weight (lb)', 'weight (lbs)']) as string | number | undefined,
+      sex: firstOrString(getByKeyOrLabel(src, TALLY_KEYS.sex, ['sex at birth', 'sex'])),
+      gender: firstOrString(getByKeyOrLabel(src, TALLY_KEYS.gender, ['gender'])),
+      pregnant: firstOrString(getByKeyOrLabel(src, TALLY_KEYS.pregnant, ['pregnant'])),
       goals: parseList(getByKeyOrLabel(src, TALLY_KEYS.goals, ['goals', 'primary goals'])),
-      skip_meals: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.skip_meals, ['skip meals'])),
-      energy_rating: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.energy_rating, ['energy rating'])),
-      sleep_rating: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.sleep_rating, ['sleep rating'])),
+      skip_meals: firstOrString(getByKeyOrLabel(src, TALLY_KEYS.skip_meals, ['skip meals'])),
+      energy_rating: getByKeyOrLabel(src, TALLY_KEYS.energy_rating, ['energy rating']) as string | number | undefined,
+      sleep_rating: getByKeyOrLabel(src, TALLY_KEYS.sleep_rating, ['sleep rating']) as string | number | undefined,
       allergies: (() => {
-        const flag = String(extractSingle(getByKeyOrLabel(src, TALLY_KEYS.allergies_flag, ['allergies'])) ?? '').toLowerCase();
+        const flag = String(getByKeyOrLabel(src, TALLY_KEYS.allergies_flag, ['allergies']) ?? '').toLowerCase();
         const details = getByKeyOrLabel(src, TALLY_KEYS.allergy_details, ['allergy details']);
         return flag === 'yes' || flag === 'true' ? parseList(details) : [];
       })(),
       conditions: parseList(getByKeyOrLabel(src, TALLY_KEYS.conditions, ['conditions'])),
       medications: (() => {
-        const flag = String(extractSingle(getByKeyOrLabel(src, TALLY_KEYS.meds_flag, ['medications?'])) ?? '').toLowerCase();
+        const flag = String(getByKeyOrLabel(src, TALLY_KEYS.meds_flag, ['medications?']) ?? '').toLowerCase();
         const list = getByKeyOrLabel(src, TALLY_KEYS.medications, ['medications']);
         return flag === 'yes' || flag === 'true' ? parseList(list) : parseList(list);
       })(),
       supplements: (() => {
-        const flag = String(extractSingle(getByKeyOrLabel(src, TALLY_KEYS.supplements_flag, ['supplements?'])) ?? '').toLowerCase();
+        const flag = String(getByKeyOrLabel(src, TALLY_KEYS.supplements_flag, ['supplements?']) ?? '').toLowerCase();
         const list = getByKeyOrLabel(src, TALLY_KEYS.supplements, ['supplements']);
         return flag === 'yes' || flag === 'true' ? parseSupplements(list) : parseSupplements(list);
       })(),
       hormones: (() => {
-        const flag = String(extractSingle(getByKeyOrLabel(src, TALLY_KEYS.hormones_flag, ['hormones?'])) ?? '').toLowerCase();
+        const flag = String(getByKeyOrLabel(src, TALLY_KEYS.hormones_flag, ['hormones?']) ?? '').toLowerCase();
         const list = getByKeyOrLabel(src, TALLY_KEYS.hormones, ['hormones']);
         return flag === 'yes' || flag === 'true' ? parseList(list) : parseList(list);
       })(),
-      dosing_pref: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.dosing_pref, ['dosing preference'])),
-      brand_pref: extractSingle(getByKeyOrLabel(src, TALLY_KEYS.brand_pref, ['brand preference'])),
+      dosing_pref: firstOrString(getByKeyOrLabel(src, TALLY_KEYS.dosing_pref, ['dosing preference'])),
+      brand_pref: firstOrString(getByKeyOrLabel(src, TALLY_KEYS.brand_pref, ['brand preference'])),
     };
 
-    // Log the normalized shape before validation
     console.log('[Webhook] Normalized for Zod:', JSON.stringify(normalized, null, 2));
 
-    // Validate
     const parsed = NormalizedSubmissionSchema.safeParse(normalized);
     if (!parsed.success) {
       console.error('[Validation Error] Normalized submission failed Zod check:', {
@@ -139,12 +129,9 @@ export async function POST(req: NextRequest) {
     }
 
     const data = parsed.data;
-
-    // Log before DB insert
     console.log('[Webhook] Final DB insert payload:', JSON.stringify(data, null, 2));
 
     if (!data.user_email) {
-      console.error('[Validation Error] Missing user_email after normalization.');
       await admin.from('webhook_failures').insert({
         source: 'tally',
         event_type: body?.eventType ?? body?.event_type ?? null,
@@ -156,7 +143,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Missing user_email' }, { status: 400 });
     }
 
-    // Insert into submissions first
+    // 👇 **THIS IS THE FIX — Add `answers: {}`**
     const { data: subRow, error: subErr } = await admin
       .from('submissions')
       .insert({
@@ -172,10 +159,15 @@ export async function POST(req: NextRequest) {
             : null,
         sex: data.sex,
         gender: data.gender,
-        pregnant: typeof data.pregnant === 'boolean' ? data.pregnant : String(data.pregnant ?? '').toLowerCase() === 'yes',
+        pregnant:
+          typeof data.pregnant === 'boolean'
+            ? data.pregnant
+            : String(data.pregnant ?? '').toLowerCase() === 'yes',
         goals: data.goals,
         skip_meals:
-          typeof data.skip_meals === 'boolean' ? data.skip_meals : String(data.skip_meals ?? '').toLowerCase() === 'yes',
+          typeof data.skip_meals === 'boolean'
+            ? data.skip_meals
+            : String(data.skip_meals ?? '').toLowerCase() === 'yes',
         energy_rating: data.energy_rating,
         sleep_rating: data.sleep_rating,
         allergies: data.allergies,
@@ -186,6 +178,7 @@ export async function POST(req: NextRequest) {
         dosing_pref: data.dosing_pref,
         brand_pref: data.brand_pref,
         payload_json: body,
+        answers: {}, // <-- FIX: add empty object for NOT NULL answers
       })
       .select('id')
       .single();
@@ -207,14 +200,12 @@ export async function POST(req: NextRequest) {
 
     // ===== Fan-out child rows (with logging) =====
     if (data.medications?.length) {
-      console.log('[Webhook] Medications child insert:', JSON.stringify(data.medications, null, 2));
-      const medsRows = data.medications.map((name: string) => ({
+      const medsRows = data.medications.map((name) => ({
         submission_id: submissionId,
         name,
       }));
       const { error: medsErr } = await admin.from('submission_medications').insert(medsRows);
       if (medsErr) {
-        console.error('[DB Insert Error] submission_medications:', medsErr);
         await admin.from('webhook_failures').insert({
           source: 'tally',
           event_type: body?.eventType ?? body?.event_type ?? null,
@@ -227,14 +218,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (data.hormones?.length) {
-      console.log('[Webhook] Hormones child insert:', JSON.stringify(data.hormones, null, 2));
-      const hormoneRows = data.hormones.map((name: string) => ({
+      const hormoneRows = data.hormones.map((name) => ({
         submission_id: submissionId,
         name,
       }));
       const { error: hormonesErr } = await admin.from('submission_hormones').insert(hormoneRows);
       if (hormonesErr) {
-        console.error('[DB Insert Error] submission_hormones:', hormonesErr);
         await admin.from('webhook_failures').insert({
           source: 'tally',
           event_type: body?.eventType ?? body?.event_type ?? null,
@@ -247,8 +236,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (data.supplements?.length) {
-      console.log('[Webhook] Supplements child insert:', JSON.stringify(data.supplements, null, 2));
-      const suppRows = data.supplements.map((s: any) => ({
+      const suppRows = data.supplements.map((s) => ({
         submission_id: submissionId,
         name: s.name,
         brand: s.brand ?? null,
@@ -258,7 +246,6 @@ export async function POST(req: NextRequest) {
       }));
       const { error: suppErr } = await admin.from('submission_supplements').insert(suppRows);
       if (suppErr) {
-        console.error('[DB Insert Error] submission_supplements:', suppErr);
         await admin.from('webhook_failures').insert({
           source: 'tally',
           event_type: body?.eventType ?? body?.event_type ?? null,
@@ -272,7 +259,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, submission_id: submissionId });
   } catch (err) {
-    // Top-level catch
     console.error('[Webhook Fatal Error]', err);
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
