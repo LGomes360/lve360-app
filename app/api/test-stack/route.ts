@@ -8,7 +8,11 @@ function supabaseAdmin() {
   return createClient(url, key);
 }
 
-// /api/test-stack?id=<submission_id>
+/**
+ * GET /api/test-stack?id=<submission_id>
+ * Test-only endpoint: fetches a submission by id, runs stack generator, returns stack.
+ * No writes or user_id logic needed.
+ */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
