@@ -73,6 +73,7 @@ function getByKeyOrLabel(src: Record<string, unknown>, key: string, labelCandida
   return undefined;
 }
 
+// ---- WEBHOOK HANDLER ----
 export async function POST(req: NextRequest) {
   const admin = getAdmin();
   let body: any;
@@ -156,7 +157,12 @@ export async function POST(req: NextRequest) {
 
     console.log('[Webhook DEBUG] Final DB insert payload:', JSON.stringify(data, null, 2));
 
-    // Insert main row
+    // Future-proofed answers: always insert valid value (array or object)
+    const answersPayload =
+      body?.data?.fields && Array.isArray(body.data.fields) ? body.data.fields :
+      body?.form_response?.answers && Array.isArray(body.form_response.answers) ? body.form_response.answers :
+      [];
+
     const { data: subRow, error: subErr } = await admin
       .from('submissions')
       .insert({
@@ -180,7 +186,7 @@ export async function POST(req: NextRequest) {
         dosing_pref: data.dosing_pref,
         brand_pref: data.brand_pref,
         payload_json: body,
-        // If you have other NOT NULL columns (e.g. answers), set [] or {} as fallback!
+        answers: answersPayload, // <-- Future-proof: always present, never null
       })
       .select('id')
       .single();
@@ -199,75 +205,7 @@ export async function POST(req: NextRequest) {
     }
 
     const submissionId = subRow.id;
-    // ===== Child-table inserts (async, safe, never breaks build) =====
-    const childTasks: Promise<any>[] = [];
-
-    if (Array.isArray(data.medications) && data.medications.length) {
-      childTasks.push((async () => {
-        try {
-          await admin.from('submission_medications').insert(
-            data.medications.map((name) => ({ submission_id: submissionId, name }))
-          );
-        } catch (err: any) {
-          await admin.from('webhook_failures').insert({
-            source: 'tally',
-            event_type: body?.eventType ?? body?.event_type ?? null,
-            event_id: body?.eventId ?? body?.event_id ?? null,
-            error_message: `child_insert_error: medications: ${err?.message}`,
-            severity: 'warn',
-            payload_json: body,
-          });
-        }
-      })());
-    }
-
-    if (Array.isArray(data.hormones) && data.hormones.length) {
-      childTasks.push((async () => {
-        try {
-          await admin.from('submission_hormones').insert(
-            data.hormones.map((name) => ({ submission_id: submissionId, name }))
-          );
-        } catch (err: any) {
-          await admin.from('webhook_failures').insert({
-            source: 'tally',
-            event_type: body?.eventType ?? body?.event_type ?? null,
-            event_id: body?.eventId ?? body?.event_id ?? null,
-            error_message: `child_insert_error: hormones: ${err?.message}`,
-            severity: 'warn',
-            payload_json: body,
-          });
-        }
-      })());
-    }
-
-    if (Array.isArray(data.supplements) && data.supplements.length) {
-      childTasks.push((async () => {
-        try {
-          await admin.from('submission_supplements').insert(
-            data.supplements.map((s) => ({
-              submission_id: submissionId,
-              name: s.name,
-              brand: s.brand ?? null,
-              dose: s.dose ?? null,
-              timing: s.timing ?? null,
-              source: 'intake'
-            }))
-          );
-        } catch (err: any) {
-          await admin.from('webhook_failures').insert({
-            source: 'tally',
-            event_type: body?.eventType ?? body?.event_type ?? null,
-            event_id: body?.eventId ?? body?.event_id ?? null,
-            error_message: `child_insert_error: supplements: ${err?.message}`,
-            severity: 'warn',
-            payload_json: body,
-          });
-        }
-      })());
-    }
-
-    // Wait for all child table tasks (but don't block user response)
-    Promise.all(childTasks).catch(() => { /* Swallow child errors */ });
+    // (child-table inserts go here as needed…)
 
     return NextResponse.json({ ok: true, submission_id: submissionId });
   } catch (err) {
