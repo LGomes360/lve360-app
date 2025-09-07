@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateStack } from '@/lib/generateStack';
 
-// Utility to check env vars (optional, but good for safety!)
 function assertEnv() {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error('Missing Supabase env variables');
@@ -37,11 +36,11 @@ export async function POST(request: Request) {
     let submission;
 
     if (user_id) {
-      // Fetch submission by user_id
+      // ✅ FIXED: Use correct column name 'id', not 'user_id'
       const { data, error } = await supabase
         .from('submissions')
         .select('*')
-        .eq('user_id', user_id)
+        .eq('id', user_id) // ✅ ← THIS LINE is the fix
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -76,7 +75,6 @@ export async function POST(request: Request) {
 
     const resolvedUserId = user_id ?? (await findOrCreateUserIdForEmail(supabase, submission.email ?? email));
 
-    // Upsert the stack (idempotent)
     const stackRow = {
       submission_id: submission.id,
       user_id: resolvedUserId ?? null,
@@ -115,7 +113,7 @@ export async function POST(request: Request) {
   }
 }
 
-// Helpers (unchanged)
+// Helpers
 async function safeJson<T = unknown>(req: Request): Promise<T | Record<string, never>> {
   try {
     const len = req.headers.get('content-length');
