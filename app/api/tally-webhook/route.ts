@@ -1,80 +1,219 @@
-// app/api/tally-webhook/route.ts
-
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { z } from 'zod';
+import { TALLY_KEYS, NormalizedSubmissionSchema } from '@/types/tally-normalized';
+import { parseList, parseSupplements } from '@/lib/parseLists';
 
-export const dynamic = 'force-dynamic';
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-// Supabase Admin Client (server-only)
-function supabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key);
+function getAdmin() {
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 }
 
-export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    console.log('[Raw Payload]', JSON.stringify(body, null, 2));
-    const answers = body?.data?.fields ?? body?.form_response?.answers ?? [];
-        // Extract by field key instead of label
-    
-const extract = (key: string) => {
-  const a = answers.find((x: any) => x?.key === key);
-  if (!a) return null;
-
-  const type = a?.type?.toLowerCase() ?? '';
-
-  if (type.includes('choice') && Array.isArray(a.value)) return a.value;
-  if (type.includes('choice')) return a.value?.[0] ?? null;
-  if (type.includes('checkbox') && Array.isArray(a.value)) return a.value;
-  if (type.includes('email')) return a.value;
-  if (type.includes('text')) return a.value;
-  if (type.includes('date')) return a.value;
-  if (type.includes('number')) return a.value;
-
-  return a.value ?? null;
-};
-
-    const submission = {
-      user_email: extract('question_7K5g10'),
-      name: extract('question_a4oPKX'),
-      dob: extract('question_2KO5bg'),
-      height: extract('question_Pzk8r1'),
-      weight: extract('question_O7k8ka'),
-      sex: extract('question_vDbvEl'),
-      gender: extract('question_xJ9B0E'),
-      pregnant: extract('question_RD8lZQ'),
-      goals: extract('question_o2lQ0N'),
-      skip_meals: extract('question_ElYrZB'),
-      energy_rating: extract('question_GpyjqL'),
-      sleep_rating: extract('question_O78yjM'),
-      allergies: extract('question_KxyNWX'),
-      allergy_details: extract('question_o2l8rV'),
-      conditions: extract('question_7K5Yj6'),
-      meds_flag: extract('question_Vzoy96'),
-      medications: extract('question_Ex8YB2'),
-      supplements_flag: extract('question_Bx8JON'),
-      supplements: extract('question_kNO8DM'),
-      hormones_flag: extract('question_Ex87zN'),
-      hormones: extract('question_ro2Myv'),
-      dosing_pref: extract('question_vDbapX'),
-      brand_pref: extract('question_LKyjgz'),
-      answers: JSON.stringify(answers ?? []),
-      raw_payload: body,
-    };
-
-    const supabase = supabaseAdmin();
-    const { error } = await supabase.from('submissions').insert(submission);
-
-    if (error) {
-      console.error('[Supabase Insert Error]', error);
-      return NextResponse.json({ ok: false, error }, { status: 500 });
+// Normalize Tally field arrays into a simple { key -> value } map
+function fieldsToMap(fields: any[]): Record<string, unknown> {
+  const map: Record<string, unknown> = {};
+  for (const f of fields ?? []) {
+    if (!f) continue;
+    const key = f.key ?? '';
+    // Tally IDs often store values under .value; check common shapes
+    let val = f.value ?? f.text ?? f.answer ?? f;
+    if (f.type === 'CHECKBOXES' && Array.isArray(f.value)) {
+      val = f.value.map((v: any) => v?.label ?? v?.value ?? v);
     }
-
-    return NextResponse.json({ ok: true, received: submission.user_email });
-  } catch (err: any) {
-    console.error('[Webhook Error]', err);
-    return NextResponse.json({ ok: false, error: err.message || 'Unknown error' }, { status: 500 });
+    map[key] = val;
+    // Store by label as well for fallback (lowercased)
+    if (f.label) {
+      map[`label::${String(f.label).toLowerCase()}`] = val;
+    }
   }
+  return map;
+}
+
+// Legacy answers to map
+function answersToMap(answers: any[]): Record<string, unknown> {
+  const map: Record<string, unknown> = {};
+  for (const a of answers ?? []) {
+    const label = a?.field?.label ? String(a.field.label).toLowerCase() : undefined;
+    const key = a?.field?.id ?? a?.field?.key;
+    let val = a?.text ?? a?.email ?? a?.choice?.label ?? a?.choices?.labels ?? a?.value ?? a;
+    if (Array.isArray(val)) {
+      val = val.map((v: any) => (typeof v === 'string' ? v : v?.label ?? v?.value ?? String(v))).filter(Boolean);
+    }
+    if (key) map[key] = val;
+    if (label) map[`label::${label}`] = val;
+  }
+  return map;
+}
+
+function getByKeyOrLabel(src: Record<string, unknown>, key: string, labelCandidates: string[]): unknown {
+  if (key && key in src) return src[key];
+  for (const l of labelCandidates) {
+    const v = src[`label::${l.toLowerCase()}`];
+    if (v !== undefined) return v;
+  }
+  return undefined;
+}
+
+export async function POST(req: NextRequest) {
+  const admin = getAdmin();
+  let body: any;
+  try { body = await req.json(); } catch (e) {
+    return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  // Unify both Tally shapes
+  const fieldsMap = body?.data?.fields ? fieldsToMap(body.data.fields) : {};
+  const answersMap = body?.form_response?.answers ? answersToMap(body.form_response.answers) : {};
+  const src = { ...fieldsMap, ...answersMap };
+
+  // Build normalized record using keys, then labels as fallback
+  const normalized = {
+    user_email: String(getByKeyOrLabel(src, TALLY_KEYS.user_email, ['email','user email','your email']) ?? ''),
+    name: getByKeyOrLabel(src, TALLY_KEYS.name, ['name','nickname']) as string | undefined,
+    dob: getByKeyOrLabel(src, TALLY_KEYS.dob, ['dob','date of birth']) as string | undefined,
+    height: getByKeyOrLabel(src, TALLY_KEYS.height, ['height']) as string | undefined,
+    weight: getByKeyOrLabel(src, TALLY_KEYS.weight, ['weight','weight (lb)','weight (lbs)']) as string | number | undefined,
+    sex: getByKeyOrLabel(src, TALLY_KEYS.sex, ['sex at birth','sex']) as string | undefined,
+    gender: getByKeyOrLabel(src, TALLY_KEYS.gender, ['gender']) as string | undefined,
+    pregnant: getByKeyOrLabel(src, TALLY_KEYS.pregnant, ['pregnant']) as string | boolean | undefined,
+    goals: parseList(getByKeyOrLabel(src, TALLY_KEYS.goals, ['goals','primary goals'])),
+    skip_meals: getByKeyOrLabel(src, TALLY_KEYS.skip_meals, ['skip meals']) as string | boolean | undefined,
+    energy_rating: getByKeyOrLabel(src, TALLY_KEYS.energy_rating, ['energy rating']) as string | number | undefined,
+    sleep_rating: getByKeyOrLabel(src, TALLY_KEYS.sleep_rating, ['sleep rating']) as string | number | undefined,
+    allergies: (() => {
+      const flag = String(getByKeyOrLabel(src, TALLY_KEYS.allergies_flag, ['allergies']) ?? '').toLowerCase();
+      const details = getByKeyOrLabel(src, TALLY_KEYS.allergy_details, ['allergy details']);
+      return flag === 'yes' || flag === 'true' ? parseList(details) : [];
+    })(),
+    conditions: parseList(getByKeyOrLabel(src, TALLY_KEYS.conditions, ['conditions'])),
+    medications: (() => {
+      const flag = String(getByKeyOrLabel(src, TALLY_KEYS.meds_flag, ['medications?']) ?? '').toLowerCase();
+      const list = getByKeyOrLabel(src, TALLY_KEYS.medications, ['medications']);
+      return flag === 'yes' || flag === 'true' ? parseList(list) : parseList(list);
+    })(),
+    supplements: (() => {
+      const flag = String(getByKeyOrLabel(src, TALLY_KEYS.supplements_flag, ['supplements?']) ?? '').toLowerCase();
+      const list = getByKeyOrLabel(src, TALLY_KEYS.supplements, ['supplements']);
+      return flag === 'yes' || flag === 'true' ? parseSupplements(list) : parseSupplements(list);
+    })(),
+    hormones: (() => {
+      const flag = String(getByKeyOrLabel(src, TALLY_KEYS.hormones_flag, ['hormones?']) ?? '').toLowerCase();
+      const list = getByKeyOrLabel(src, TALLY_KEYS.hormones, ['hormones']);
+      return flag === 'yes' || flag === 'true' ? parseList(list) : parseList(list);
+    })(),
+    dosing_pref: getByKeyOrLabel(src, TALLY_KEYS.dosing_pref, ['dosing preference']) as string | undefined,
+    brand_pref: getByKeyOrLabel(src, TALLY_KEYS.brand_pref, ['brand preference']) as string | undefined,
+  };
+
+  // Validate
+  const parsed = NormalizedSubmissionSchema.safeParse(normalized);
+  if (!parsed.success) {
+    await admin.from('webhook_failures').insert({
+      source: 'tally',
+      event_type: body?.eventType ?? body?.event_type ?? null,
+      event_id: body?.eventId ?? body?.event_id ?? null,
+      error_message: `validation_error: ${parsed.error.flatten().formErrors.join('; ')}`,
+      severity: 'error',
+      payload_json: body,
+    });
+    return NextResponse.json({ ok: false, error: 'Validation failed' }, { status: 422 });
+  }
+
+  const data = parsed.data;
+  if (!data.user_email) {
+    await admin.from('webhook_failures').insert({
+      source: 'tally',
+      event_type: body?.eventType ?? body?.event_type ?? null,
+      event_id: body?.eventId ?? body?.event_id ?? null,
+      error_message: 'missing_user_email',
+      severity: 'warn',
+      payload_json: body,
+    });
+    return NextResponse.json({ ok: false, error: 'Missing user_email' }, { status: 400 });
+  }
+
+  // Insert into submissions first
+  const { data: subRow, error: subErr } = await admin
+    .from('submissions')
+    .insert({
+      user_email: data.user_email,
+      name: data.name,
+      dob: data.dob,
+      height: data.height,
+      weight: typeof data.weight === 'number' ? data.weight : data.weight ? Number(String(data.weight).replace(/[^0-9.]/g, '')) : null,
+      sex: data.sex,
+      gender: data.gender,
+      pregnant: typeof data.pregnant === 'boolean' ? data.pregnant : String(data.pregnant ?? '').toLowerCase() === 'yes',
+      goals: data.goals,
+      skip_meals: typeof data.skip_meals === 'boolean' ? data.skip_meals : String(data.skip_meals ?? '').toLowerCase() === 'yes',
+      energy_rating: data.energy_rating,
+      sleep_rating: data.sleep_rating,
+      allergies: data.allergies,
+      conditions: data.conditions,
+      medications: data.medications, -- keep original list for audit
+      supplements: data.supplements, -- keep original list for audit
+      hormones: data.hormones,       -- keep original list for audit
+      dosing_pref: data.dosing_pref,
+      brand_pref: data.brand_pref,
+      payload_json: body,
+    })
+    .select('id')
+    .single();
+
+  if (subErr || !subRow) {
+    await admin.from('webhook_failures').insert({
+      source: 'tally',
+      event_type: body?.eventType ?? body?.event_type ?? null,
+      event_id: body?.eventId ?? body?.event_id ?? null,
+      error_message: `insert_submission_error: ${subErr?.message}`,
+      severity: 'critical',
+      payload_json: body,
+    });
+    return NextResponse.json({ ok: false, error: 'DB insert failed' }, { status: 500 });
+  }
+
+  const submissionId = subRow.id;
+
+  // Fan-out child rows (best-effort; partial failures are logged but do not 500 the webhook)
+  const tasks: Promise<any>[] = [];
+
+  if (data.medications?.length) {
+    const medsRows = data.medications.map((name) => ({ submission_id: submissionId, name }));
+    tasks.push(admin.from('submission_medications').insert(medsRows));
+  }
+
+  if (data.hormones?.length) {
+    const hormoneRows = data.hormones.map((name) => ({ submission_id: submissionId, name }));
+    tasks.push(admin.from('submission_hormones').insert(hormoneRows));
+  }
+
+  if (data.supplements?.length) {
+    const suppRows = data.supplements.map((s) => ({
+      submission_id: submissionId,
+      name: s.name,
+      brand: s.brand ?? null,
+      dose: s.dose ?? null,
+      timing: s.timing ?? null,
+      source: 'intake',
+    }));
+    tasks.push(admin.from('submission_supplements').insert(suppRows));
+  }
+
+  const results = await Promise.allSettled(tasks);
+  for (const r of results) {
+    if (r.status === 'rejected' || (r as any)?.value?.error) {
+      await admin.from('webhook_failures').insert({
+        source: 'tally',
+        event_type: body?.eventType ?? body?.event_type ?? null,
+        event_id: body?.eventId ?? body?.event_id ?? null,
+        error_message: `child_insert_error: ${r.status === 'rejected' ? (r.reason?.message ?? r.reason) : (r as any).value.error.message}`,
+        severity: 'error',
+        payload_json: body,
+      });
+    }
+  }
+
+  return NextResponse.json({ ok: true, submission_id: submissionId });
 }
