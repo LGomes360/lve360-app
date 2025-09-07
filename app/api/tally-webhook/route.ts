@@ -134,6 +134,8 @@ export async function POST(req: NextRequest) {
       })(),
       dosing_pref: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.dosing_pref, ['dosing preference', 'what is realistic for your lifestyle?'])),
       brand_pref: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.brand_pref, ['brand preference', 'when it comes to supplements, do you prefer...'])),
+      // Add answers key for future proofing
+      answers: body?.data?.answers ?? body?.form_response?.answers ?? [],
     };
 
     console.log('[Webhook DEBUG] Normalized for Zod:', JSON.stringify(normalized, null, 2));
@@ -179,6 +181,7 @@ export async function POST(req: NextRequest) {
         dosing_pref: data.dosing_pref,
         brand_pref: data.brand_pref,
         payload_json: body,
+        answers: data.answers ?? [], // <- Always insert a value for NOT NULL columns!
       })
       .select('id')
       .single();
