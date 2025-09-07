@@ -10,7 +10,6 @@ function getAdmin() {
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 }
 
-// Utility: Accepts string, array, object — always returns string or undefined.
 function cleanSingle(val: any): string | undefined {
   if (val == null) return undefined;
   if (Array.isArray(val)) return val.length ? cleanSingle(val[0]) : undefined;
@@ -22,7 +21,6 @@ function cleanSingle(val: any): string | undefined {
   return String(val);
 }
 
-// Utility: Accepts array, string, object — always returns filtered array or [].
 function cleanArray(val: any): string[] {
   if (val == null) return [];
   if (Array.isArray(val)) return val.map(cleanSingle).filter(Boolean) as string[];
@@ -85,14 +83,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Unify both Tally shapes
     const fieldsMap = body?.data?.fields ? fieldsToMap(body.data.fields) : {};
     const answersMap = body?.form_response?.answers ? answersToMap(body.form_response.answers) : {};
     const src = { ...fieldsMap, ...answersMap };
 
     console.log('[Webhook DEBUG] Tally incoming fields map:', JSON.stringify(src, null, 2));
 
-    // Normalization: always flatten and clean
     const normalized = {
       user_email: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.user_email, ['email', 'user email', 'your email'])),
       name: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.name, ['name', 'nickname'])),
@@ -134,13 +130,11 @@ export async function POST(req: NextRequest) {
       })(),
       dosing_pref: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.dosing_pref, ['dosing preference', 'what is realistic for your lifestyle?'])),
       brand_pref: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.brand_pref, ['brand preference', 'when it comes to supplements, do you prefer...'])),
-      // Add answers key for future proofing
-      answers: body?.data?.answers ?? body?.form_response?.answers ?? [],
     };
 
     console.log('[Webhook DEBUG] Normalized for Zod:', JSON.stringify(normalized, null, 2));
 
-    // Validate & Insert
+    // Validate (as always)
     const parsed = NormalizedSubmissionSchema.safeParse(normalized);
     if (!parsed.success) {
       console.error('[Webhook DEBUG] Validation error:', JSON.stringify(parsed.error.flatten(), null, 2));
@@ -157,6 +151,10 @@ export async function POST(req: NextRequest) {
     const data = parsed.data;
 
     console.log('[Webhook DEBUG] Final DB insert payload:', JSON.stringify(data, null, 2));
+
+    // Always insert a value for NOT NULL "answers"
+    const answersVal = body?.data?.answers ?? body?.form_response?.answers ?? [];
+    // You can convert to JSON.stringify if your DB column is JSONB or TEXT.
 
     const { data: subRow, error: subErr } = await admin
       .from('submissions')
@@ -181,7 +179,7 @@ export async function POST(req: NextRequest) {
         dosing_pref: data.dosing_pref,
         brand_pref: data.brand_pref,
         payload_json: body,
-        answers: data.answers ?? [], // <- Always insert a value for NOT NULL columns!
+        answers: answersVal, // <---- Always insert a value for NOT NULL columns!
       })
       .select('id')
       .single();
