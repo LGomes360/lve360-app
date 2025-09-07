@@ -1,82 +1,169 @@
-export async function generateStack(submission: Submission): Promise<StackItem[]> {
-  const goals = submission.goals ?? [];
-  const tier = submission.tier ?? 'budget';
-  const health = submission.healthConditions ?? [];
-  const meds = submission.medications ?? [];
+// app/api/generate-stack/route.ts
 
-  console.log('Submission:', { goals, tier, health, meds });
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { assertEnv } from '../../../src/lib/env';
+import { generateStack } from '../../../src/lib/generateStack';
 
-  // 1. Rules
-  const { data: rules, error: rulesError } = await supabase
-    .from('rules')
-    .select('*')
-    .in('entity_a_name', goals);
-  if (rulesError) {
-    console.error('Error fetching rules', rulesError);
-    return [];
-  }
-  console.log('Matching rules:', rules);
+export const dynamic = 'force-dynamic';
 
-  const candidateIngredients =
-    rules
-      ?.filter(
-        (r: any) =>
-          r.rule_type !== 'UL' &&
-          r.rule_type !== 'SPACING' &&
-          r.rule_type !== 'AVOID'
-      )
-      .map((r: any) => r.counterparty_name)
-      .filter((name: any) => !!name) ?? [];
+// ---- Types
+type Submission = {
+  id: string;
+  email?: string | null;
+  created_at: string;
+  // add other fields generateStack reads
+};
 
-  console.log('Candidate ingredients:', candidateIngredients);
+type StackItem = {
+  name: string;
+  dose?: string;
+  schedule?: string;
+  rationale?: string;
+  affiliateUrl?: string;
+  monthlyCost?: number;
+};
 
-  const stack: StackItem[] = [];
+type GeneratedStack = {
+  items: StackItem[];
+  summary?: string | null;
+  version?: string | null;
+  totalMonthlyCost?: number | null;
+  notes?: string | null;
+};
 
-  for (const ingredient of candidateIngredients) {
-    // 2. Supplements
-    const { data: supp, error: suppError } = await supabase
-      .from('supplements')
-      .select('*')
-      .eq('ingredient', ingredient)
-      .eq('tier', tier)
-      .single();
+// ---- Supabase admin client (server-only key)
+function supabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!; // server-only, never expose to client
+  return createClient(url, key);
+}
 
-    if (suppError || !supp) {
-      console.warn(`No supplement found for ingredient ${ingredient}`, suppError);
-      continue;
+// ---- GET: human-friendly status
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    endpoint: '/api/generate-stack',
+    method: 'POST',
+    body: '{ "email"?: string }',
+    note: 'Generates a stack from the latest submission (optionally filtered by email) and upserts into `stacks`.',
+  });
+}
+
+// ---- POST: main generator
+export async function POST(request: Request) {
+  try {
+    assertEnv();
+
+    const { email } = await safeJson<{ email?: string }>(request);
+    const supabase = supabaseAdmin();
+
+    // 1) Fetch latest submission (optionally by email)
+    const submission = await getLatestSubmission(supabase, email);
+    if (!submission) {
+      return NextResponse.json(
+        { ok: false, error: email ? `No submissions found for ${email}` : 'No submissions found' },
+        { status: 404 }
+      );
     }
-    console.log('Found supplement:', supp);
 
-    // 3. Interactions
-    const { data: interact, error: interactError } = await supabase
-      .from('interactions')
-      .select('*')
-      .eq('ingredient', ingredient)
-      .single();
+    // 2) Generate items (generateStack currently returns StackItem[])
+    const items: StackItem[] = await generateStack(submission as any);
 
-    if (interactError) {
-      console.warn(`Failed to fetch interactions for ingredient ${ingredient}`, interactError);
+    // Wrap into our canonical payload shape
+    const generated: GeneratedStack = {
+      items: items ?? [],
+      summary: null,
+      version: 'v1',
+      totalMonthlyCost: null,
+      notes: null,
+    };
+
+    // 3) Ensure a user row (optional convenience)
+    const userId = await findOrCreateUserIdForEmail(supabase, submission.email ?? email);
+
+    // 4) Upsert idempotently on submission_id
+    const stackRow = {
+      submission_id: submission.id,
+      user_id: userId ?? null,
+      email: submission.email ?? email ?? null,
+      items: generated.items,
+      summary: generated.summary,
+      version: generated.version,
+      total_monthly_cost: generated.totalMonthlyCost,
+      notes: generated.notes,
+    };
+
+    const { data: upserted, error: upsertErr } = await supabase
+      .from('stacks')
+      .upsert(stackRow, { onConflict: 'submission_id' })
+      .select()
+      .limit(1)
+      .maybeSingle();
+
+    if (upsertErr) {
+      return NextResponse.json({ ok: false, error: upsertErr.message }, { status: 500 });
     }
 
-    let blocked = false;
-    if (interact) {
-      // ... (existing exclusion logic)
-    }
-
-    if (blocked) {
-      console.log(`Blocked by interaction: ${ingredient}`);
-      continue;
-    }
-
-    stack.push({
-      supplement_id: supp.id as string,
-      name: supp.ingredient as string,
-      dose: supp.dose as string,
-      link: (supp.link ?? null) as string | null,
-      notes: (supp.notes ?? null) as string | null,
+    return NextResponse.json({
+      ok: true,
+      submission_id: submission.id,
+      stack_id: upserted?.id ?? null,
+      items_preview: generated.items.slice(0, 5),
+      meta: { email: submission.email ?? email ?? null, version: generated.version ?? 'v1' },
     });
+  } catch (err: any) {
+    return NextResponse.json({ ok: false, error: err?.message ?? 'Unknown server error' }, { status: 500 });
   }
+}
 
-  console.log('Final stack:', stack);
-  return stack;
+// ---- Helpers
+async function safeJson<T = unknown>(req: Request): Promise<T | Record<string, never>> {
+  try {
+    const len = req.headers.get('content-length');
+    if (!len || len === '0') return {};
+    return (await req.json()) as T;
+  } catch {
+    return {};
+  }
+}
+
+async function getLatestSubmission(
+  supabase: ReturnType<typeof supabaseAdmin>,
+  email?: string
+): Promise<Submission | null> {
+  let query = supabase.from('submissions').select('*').order('created_at', { ascending: false }).limit(1);
+  if (email) query = query.eq('email', email);
+  const { data, error } = await query;
+  if (error) throw new Error(`Failed to fetch latest submission: ${error.message}`);
+  return (data?.[0] ?? null) as Submission | null;
+}
+
+async function findOrCreateUserIdForEmail(
+  supabase: ReturnType<typeof supabaseAdmin>,
+  email?: string | null
+): Promise<string | null> {
+  if (!email) return null;
+
+  const { data: user, error } = await supabase
+    .from('users')
+    .select('id')
+    .eq('email', email)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(`Failed to lookup user: ${error.message}`);
+
+  if (user) return user.id;
+
+  const { data: created, error: createErr } = await supabase
+    .from('users')
+    .insert({ email })
+    .select('id')
+    .limit(1)
+    .maybeSingle();
+
+  if (createErr) throw new Error(`Failed to create user: ${createErr.message}`);
+
+  return created?.id ?? null;
 }
