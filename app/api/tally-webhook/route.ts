@@ -17,16 +17,14 @@ function fieldsToMap(fields: any[]): Record<string, unknown> {
   for (const f of fields ?? []) {
     if (!f) continue;
     const key = f.key ?? '';
-    // Tally IDs often store values under .value; check common shapes
+    // Tally values are usually under .value; fall back to common shapes
     let val = f.value ?? f.text ?? f.answer ?? f;
     if (f.type === 'CHECKBOXES' && Array.isArray(f.value)) {
       val = f.value.map((v: any) => v?.label ?? v?.value ?? v);
     }
     map[key] = val;
-    // Store by label as well for fallback (lowercased)
-    if (f.label) {
-      map[`label::${String(f.label).toLowerCase()}`] = val;
-    }
+    // label fallback (lowercased)
+    if (f.label) map[`label::${String(f.label).toLowerCase()}`] = val;
   }
   return map;
 }
@@ -39,7 +37,9 @@ function answersToMap(answers: any[]): Record<string, unknown> {
     const key = a?.field?.id ?? a?.field?.key;
     let val = a?.text ?? a?.email ?? a?.choice?.label ?? a?.choices?.labels ?? a?.value ?? a;
     if (Array.isArray(val)) {
-      val = val.map((v: any) => (typeof v === 'string' ? v : v?.label ?? v?.value ?? String(v))).filter(Boolean);
+      val = val
+        .map((v: any) => (typeof v === 'string' ? v : v?.label ?? v?.value ?? String(v)))
+        .filter(Boolean);
     }
     if (key) map[key] = val;
     if (label) map[`label::${label}`] = val;
@@ -187,19 +187,47 @@ export async function POST(req: NextRequest) {
 
   const submissionId = subRow.id;
 
-  // Fan-out child rows (best-effort; partial failures are logged but do not 500 the webhook)
-  const tasks: Promise<any>[] = [];
+  // ===== Fan-out child rows (sequential, with individual error logging) =====
 
+  // 1) Medications
   if (data.medications?.length) {
-    const medsRows = data.medications.map((name) => ({ submission_id: submissionId, name }));
-    tasks.push(admin.from('submission_medications').insert(medsRows).select('id'));
+    const medsRows = data.medications.map((name) => ({
+      submission_id: submissionId,
+      name,
+    }));
+    const { error: medsErr } = await admin.from('submission_medications').insert(medsRows);
+    if (medsErr) {
+      await admin.from('webhook_failures').insert({
+        source: 'tally',
+        event_type: body?.eventType ?? body?.event_type ?? null,
+        event_id: body?.eventId ?? body?.event_id ?? null,
+        error_message: `child_insert_error: ${medsErr.message}`,
+        severity: 'error',
+        payload_json: body,
+      });
+    }
   }
 
+  // 2) Hormones
   if (data.hormones?.length) {
-    const hormoneRows = data.hormones.map((name) => ({ submission_id: submissionId, name }));
-    tasks.push(admin.from('submission_hormones').insert(hormoneRows).select('id'));
+    const hormoneRows = data.hormones.map((name) => ({
+      submission_id: submissionId,
+      name,
+    }));
+    const { error: hormonesErr } = await admin.from('submission_hormones').insert(hormoneRows);
+    if (hormonesErr) {
+      await admin.from('webhook_failures').insert({
+        source: 'tally',
+        event_type: body?.eventType ?? body?.event_type ?? null,
+        event_id: body?.eventId ?? body?.event_id ?? null,
+        error_message: `child_insert_error: ${hormonesErr.message}`,
+        severity: 'error',
+        payload_json: body,
+      });
+    }
   }
 
+  // 3) Supplements
   if (data.supplements?.length) {
     const suppRows = data.supplements.map((s) => ({
       submission_id: submissionId,
@@ -209,20 +237,13 @@ export async function POST(req: NextRequest) {
       timing: s.timing ?? null,
       source: 'intake',
     }));
-    tasks.push(admin.from('submission_supplements').insert(suppRows).select('id'));
-  }
-
-  const results = await Promise.allSettled(tasks);
-  for (const r of results) {
-    if (r.status === 'rejected' || (r as any)?.value?.error) {
+    const { error: suppErr } = await admin.from('submission_supplements').insert(suppRows);
+    if (suppErr) {
       await admin.from('webhook_failures').insert({
         source: 'tally',
         event_type: body?.eventType ?? body?.event_type ?? null,
         event_id: body?.eventId ?? body?.event_id ?? null,
-        error_message:
-          r.status === 'rejected'
-            ? `child_insert_error: ${r.reason?.message ?? r.reason}`
-            : `child_insert_error: ${(r as any).value.error.message}`,
+        error_message: `child_insert_error: ${suppErr.message}`,
         severity: 'error',
         payload_json: body,
       });
