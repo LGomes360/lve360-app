@@ -10,13 +10,41 @@ function getAdmin() {
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 }
 
-// Helper: Normalize Tally field arrays into a simple { key -> value } map
-function fieldsToMap(fields: any[]): Record<string, unknown> {
+// Build {key -> field object} and {key -> label map for options} for dropdown/MC
+function buildFieldLookups(fields: any[]) {
+  const keyMap: Record<string, any> = {};
+  const optionMaps: Record<string, Record<string, string>> = {};
+  for (const f of fields ?? []) {
+    if (!f || !f.key) continue;
+    keyMap[f.key] = f;
+    // Only build label maps for fields with .options
+    if (Array.isArray(f.options)) {
+      optionMaps[f.key] = {};
+      for (const opt of f.options) {
+        optionMaps[f.key][opt.id] = opt.text ?? opt.label ?? String(opt.id);
+      }
+    }
+  }
+  return { keyMap, optionMaps };
+}
+
+// Convert value that may be ID(s) to label(s) using lookup
+function idToLabel(val: any, fieldKey: string, optionMaps: Record<string, Record<string, string>>) {
+  if (!optionMaps[fieldKey]) return val;
+  if (Array.isArray(val)) return val.map((id) => optionMaps[fieldKey][id] || id);
+  if (typeof val === 'string') return optionMaps[fieldKey][val] || val;
+  return val;
+}
+
+// Normalize Tally fields into a { key -> value } map, **labels for dropdown/MC**
+function fieldsToMap(fields: any[], optionMaps: Record<string, Record<string, string>>): Record<string, unknown> {
   const map: Record<string, unknown> = {};
   for (const f of fields ?? []) {
     if (!f) continue;
     const key = f.key ?? '';
     let val = f.value ?? f.text ?? f.answer ?? f;
+    // Map IDs to labels for dropdown/MC
+    if (optionMaps[key]) val = idToLabel(val, key, optionMaps);
     if (f.type === 'CHECKBOXES' && Array.isArray(f.value)) {
       val = f.value.map((v: any) => v?.label ?? v?.value ?? v);
     }
@@ -25,6 +53,8 @@ function fieldsToMap(fields: any[]): Record<string, unknown> {
   }
   return map;
 }
+
+// --- Rest same as before ---
 
 function answersToMap(answers: any[]): Record<string, unknown> {
   const map: Record<string, unknown> = {};
@@ -43,7 +73,6 @@ function answersToMap(answers: any[]): Record<string, unknown> {
   return map;
 }
 
-// Helper: For single-value fields, always extract first if array
 function getSingleValue(val: unknown): unknown {
   if (Array.isArray(val)) return val[0];
   return val;
@@ -69,7 +98,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const fieldsMap = body?.data?.fields ? fieldsToMap(body.data.fields) : {};
+    // ---- New: build field and label lookups ----
+    const rawFields = body?.data?.fields ?? [];
+    const { keyMap, optionMaps } = buildFieldLookups(rawFields);
+    const fieldsMap = rawFields.length ? fieldsToMap(rawFields, optionMaps) : {};
     const answersMap = body?.form_response?.answers ? answersToMap(body.form_response.answers) : {};
     const src = { ...fieldsMap, ...answersMap };
 
