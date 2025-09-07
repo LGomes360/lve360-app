@@ -7,8 +7,8 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "baseUrl": ".",
-    "paths": { "@/*": ["src/*"]
-    "paths": { "@/*": ["./*"] }  
+    "paths": {
+      "@/*": ["src/*", "./*"]
     },
     "esModuleInterop": true,
     "resolveJsonModule": true,
