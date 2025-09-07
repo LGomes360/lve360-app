@@ -1,21 +1,37 @@
-import { createClient } from '@supabase/supabase-js'
+// src/lib/generateStack.ts
+
+import { createClient } from '@supabase/supabase-js';
+import OpenAI from 'openai';
 
 export interface Submission {
-  id?: string; // Submission UUID for pulling child tables
+  id?: string;
   goals: string[];
   healthConditions?: string[];
   medications?: string[];
   supplements?: string[];
   hormones?: string[];
   tier?: 'budget' | 'mid' | 'premium';
+  dob?: string;
+  sex?: string;
+  pregnant?: string;
+  weight?: number;
+  height?: string;
+  energy_rating?: number;
+  sleep_rating?: number;
+  dosing_pref?: string;
+  brand_pref?: string;
+  email?: string;
 }
 
 export interface StackItem {
-  supplement_id: string;
+  supplement_id?: string;
   name: string;
   dose: string;
   link: string | null;
   notes: string | null;
+  rationale?: string;
+  caution?: string;
+  citations?: string[];
 }
 
 const supabase = createClient(
@@ -24,14 +40,28 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 );
 
-export async function generateStack(
-  submission: Submission
-): Promise<StackItem[]> {
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
+});
+
+export async function generateStack(submission: Submission): Promise<StackItem[]> {
+  const rulesOnly = true; // toggle to false to test AI mode later
+
+  if (rulesOnly) {
+    return generateStackFromRules(submission);
+  } else {
+    return generateStackFromLLM(submission);
+  }
+}
+
+// ------------------------
+// ✅ Rules Engine (your original logic, preserved)
+// ------------------------
+async function generateStackFromRules(submission: Submission): Promise<StackItem[]> {
   const goals = submission.goals ?? [];
   const tier = submission.tier ?? 'budget';
   const health = submission.healthConditions ?? [];
 
-  // --- Pull child tables if submission.id is present ---
   let meds: any[] = [];
   let userSupps: any[] = [];
   let hormones: any[] = [];
@@ -51,13 +81,9 @@ export async function generateStack(
     hormones = hormonesRaw ?? [];
   }
 
-  // Prefer structured (child tables), fallback to flat array fields
   const medsArr = meds.length > 0 ? meds.map(m => m.name) : (submission.medications ?? []);
   const userSuppsArr = userSupps.length > 0 ? userSupps.map(s => s.name) : (submission.supplements ?? []);
-  // Hormones ready for future use if needed:
-  // const hormoneArr = hormones.length > 0 ? hormones.map(h => h.name) : (submission.hormones ?? []);
 
-  // --- Step 1: Get rules matching user goals ---
   const { data: rules, error: rulesError } = await supabase
     .from('rules')
     .select('*')
@@ -67,22 +93,14 @@ export async function generateStack(
     return [];
   }
 
-  // Filter out rules not meant for stack generation
-  const candidateIngredients =
-    rules
-      ?.filter(
-        (r: any) =>
-          r.rule_type !== 'UL' &&
-          r.rule_type !== 'SPACING' &&
-          r.rule_type !== 'AVOID'
-      )
-      .map((r: any) => r.counterparty_name)
-      .filter((name: any) => !!name) ?? [];
+  const candidateIngredients = rules
+    ?.filter(r => r.rule_type !== 'UL' && r.rule_type !== 'SPACING' && r.rule_type !== 'AVOID')
+    .map(r => r.counterparty_name)
+    .filter(Boolean) ?? [];
 
   const stack: StackItem[] = [];
 
   for (const ingredient of candidateIngredients) {
-    // Fetch the appropriate supplement entry for the desired tier.
     const { data: supp, error: suppError } = await supabase
       .from('supplements')
       .select('*')
@@ -90,70 +108,107 @@ export async function generateStack(
       .eq('tier', tier)
       .single();
     if (suppError || !supp) {
-      console.warn(`No supplement found for ingredient ${ingredient}`, suppError);
+      console.warn(`No supplement found for ${ingredient}`, suppError);
       continue;
     }
 
-    // Fetch the interaction flags for this ingredient.
     const { data: interact, error: interactError } = await supabase
       .from('interactions')
       .select('*')
       .eq('ingredient', ingredient)
       .single();
-    if (interactError) {
-      console.warn(
-        `Failed to fetch interactions for ingredient ${ingredient}`,
-        interactError
-      );
-    }
+    if (interactError) console.warn(`No interaction data for ${ingredient}`);
 
-    // Determine if this supplement should be excluded based on interactions
     let blocked = false;
     if (interact) {
-      // Medications
       if (
-        medsArr.some((m: string) =>
-          m.toLowerCase().includes('anticoagulant')
-        ) &&
+        medsArr.some(m => m.toLowerCase().includes('anticoagulant')) &&
         interact.anticoagulants_bleeding_risk === 'Y'
-      ) {
-        blocked = true;
-      }
-      // Pregnancy
+      ) blocked = true;
       if (
-        health.some((h: string) => h.toLowerCase().includes('pregnancy')) &&
+        health.some(h => h.toLowerCase().includes('pregnancy')) &&
         interact.pregnancy_caution === 'Y'
-      ) {
-        blocked = true;
-      }
-      // Liver caution
+      ) blocked = true;
       if (
-        health.some((h: string) => h.toLowerCase().includes('liver')) &&
+        health.some(h => h.toLowerCase().includes('liver')) &&
         interact.liver_disease_caution === 'Y'
-      ) {
-        blocked = true;
-      }
-      // Kidney caution
+      ) blocked = true;
       if (
-        health.some((h: string) => h.toLowerCase().includes('kidney')) &&
+        health.some(h => h.toLowerCase().includes('kidney')) &&
         interact.kidney_disease_caution === 'Y'
-      ) {
-        blocked = true;
-      }
+      ) blocked = true;
     }
 
-    if (blocked) {
-      continue;
-    }
+    if (blocked) continue;
 
     stack.push({
-      supplement_id: supp.id as string,
-      name: supp.ingredient as string,
-      dose: supp.dose as string,
-      link: (supp.link ?? null) as string | null,
-      notes: (supp.notes ?? null) as string | null,
+      supplement_id: supp.id,
+      name: supp.ingredient,
+      dose: supp.dose,
+      link: supp.link ?? null,
+      notes: supp.notes ?? null,
     });
   }
 
   return stack;
+}
+
+// ------------------------
+// 🤖 AI Engine (calls GPT-4o or GPT-4)
+// ------------------------
+async function generateStackFromLLM(sub: Submission): Promise<StackItem[]> {
+  const prompt = formatPromptFromSubmission(sub);
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    temperature: 0.4,
+    messages: [
+      { role: 'system', content: 'You are a supplement expert.' },
+      { role: 'user', content: prompt },
+    ],
+  });
+
+  const raw = response.choices[0].message?.content ?? '';
+  return parseStackFromLLMOutput(raw);
+}
+
+function formatPromptFromSubmission(sub: Submission): string {
+  return `
+User info:
+- Age: ${sub.dob ? calculateAge(sub.dob) : 'Unknown'}
+- Sex at Birth: ${sub.sex ?? 'Unknown'}
+- Pregnant: ${sub.pregnant ?? 'Unknown'}
+- Weight: ${sub.weight ?? 'Unknown'}
+- Height: ${sub.height ?? 'Unknown'}
+- Conditions: ${sub.healthConditions?.join(', ') ?? 'None'}
+- Medications: ${sub.medications?.join(', ') ?? 'None'}
+- Supplements: ${sub.supplements?.join(', ') ?? 'None'}
+- Hormones: ${sub.hormones?.join(', ') ?? 'None'}
+- Goals: ${sub.goals?.join(', ') ?? 'Unknown'}
+- Energy (1–5): ${sub.energy_rating ?? '3'}
+- Sleep (1–5): ${sub.sleep_rating ?? '3'}
+
+Instructions:
+- Generate a safe daily supplement stack (max 8 ingredients)
+- Return valid JSON only (no explanation)
+- Each entry = { name, dose, timing, rationale, caution?, citations? }
+- Avoid known interactions and pregnancy risks
+`;
+}
+
+function parseStackFromLLMOutput(output: string): StackItem[] {
+  const first = output.indexOf('[');
+  const last = output.lastIndexOf(']');
+  const json = output.slice(first, last + 1);
+  try {
+    return JSON.parse(json);
+  } catch {
+    return [];
+  }
+}
+
+function calculateAge(dob: string): number {
+  const birth = new Date(dob);
+  const now = new Date();
+  return now.getFullYear() - birth.getFullYear();
 }
