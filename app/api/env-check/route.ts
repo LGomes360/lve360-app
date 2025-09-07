@@ -2,6 +2,11 @@
 import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
+/**
+ * Diagnostic API route: Checks if required env variables are present.
+ * Never leaks secret values. Pass ?all=1 to see all env keys (names only).
+ */
+
 const DEFAULT_KEYS = [
   'NEXT_PUBLIC_SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
@@ -16,8 +21,9 @@ export async function GET(req: Request) {
   const showAll = url.searchParams.get('all') === '1';
 
   if (showAll) {
-    // List all key names present (no values)
+    // Lists all env var names present (no values).
     const names = Object.keys(process.env ?? {}).sort();
+    // (Optional: add a Cache-Control header if you want)
     return NextResponse.json({ ok: true, keys_present: names });
   }
 
