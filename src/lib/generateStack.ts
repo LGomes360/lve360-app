@@ -1,18 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 
-/**
- * A representation of a user submission from the intake form.
- */
-export interface Submission {
-  goals: string[];
-  healthConditions?: string[];
-  medications?: string[];
-  tier?: 'budget' | 'mid' | 'premium';
-}
-
-/**
- * A single item within a personalized supplement stack.
- */
 export interface StackItem {
   supplement_id: string;
   name: string;
@@ -21,52 +8,53 @@ export interface StackItem {
   notes: string | null;
 }
 
-/**
- * Create a Supabase client using environment variables. This client is configured
- * with the service role key so it can perform privileged operations such as reading
- * from protected tables and inserting rows into join tables.
- */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL as string,
   process.env.SUPABASE_SERVICE_ROLE_KEY as string,
   { auth: { persistSession: false } }
 );
 
-/**
- * Generate a personalized supplement stack for a given submission.
- *
- * The algorithm is simple and rule‑driven:
- * 1. Identify relevant rules based on the user's goals. Rules in the `rules`
- *    table specify a `counterparty_name` (the supplement to add) and exclude
- *    certain rule types (UL, SPACING, AVOID) that are handled elsewhere.
- * 2. For each candidate supplement, fetch the appropriate tiered product from
- *    the `supplements` table (budget, mid, premium).
- * 3. Consult the `interactions` table to remove any supplements that conflict
- *    with the user's medications or health conditions.
- * 4. Assemble the list of safe, tier‑appropriate stack items.
- *
- * @param submission A structured object capturing the user's intake form.
- * @returns An array of safe, tier‑appropriate stack items.
- */
-export async function generateStack(
-  submission: Submission
-): Promise<StackItem[]> {
-  const goals = submission.goals ?? [];
-  const tier = submission.tier ?? 'budget';
-  const health = submission.healthConditions ?? [];
-  const meds = submission.medications ?? [];
+export async function generateStack(submissionId: string): Promise<StackItem[]> {
+  // 1. Fetch submission and children
+  const { data: submission, error } = await supabase
+    .from('submissions')
+    .select('*')
+    .eq('id', submissionId)
+    .single();
 
-  // Step 1: look up rules that match any of the user's goals.
+  if (error || !submission) {
+    console.error('Submission not found', error);
+    return [];
+  }
+
+  // 2. Fetch child tables (all rows for this submission)
+  const [{ data: meds = [] }, { data: userSupps = [] }, { data: hormones = [] }] = await Promise.all([
+    supabase.from('submission_medications').select('*').eq('submission_id', submissionId),
+    supabase.from('submission_supplements').select('*').eq('submission_id', submissionId),
+    supabase.from('submission_hormones').select('*').eq('submission_id', submissionId),
+  ]);
+
+  // 3. Normalize for stack logic
+  const goals = submission.goals || [];
+  const tier = submission.tier || 'budget';
+  // prefer structured over fallback flat fields
+  const health = submission.conditions || []; // can merge with hormones if needed
+  const medsArr = meds.length > 0 ? meds.map(m => m.name) : (submission.medications || []);
+  const userSuppsArr = userSupps.length > 0 ? userSupps.map(s => s.name) : (submission.supplements || []);
+  // For future: pull hormone names if used in stack logic
+
+  // 4. Find rules that match user goals
   const { data: rules, error: rulesError } = await supabase
     .from('rules')
     .select('*')
     .in('entity_a_name', goals);
+
   if (rulesError) {
     console.error('Error fetching rules', rulesError);
     return [];
   }
 
-  // Filter out UL, SPACING and AVOID rules; these are handled separately.
+  // 5. Filter out non-stack rules
   const candidateIngredients =
     rules
       ?.filter(
@@ -106,30 +94,23 @@ export async function generateStack(
       );
     }
 
-    // Determine if this supplement should be excluded based on interactions
-    // with the user's health conditions or medications. We check a handful of
-    // common caution flags; additional flags can be added as needed.
+    // Block by medication or health condition
     let blocked = false;
     if (interact) {
-      // Example: if the user is on anticoagulants and the supplement carries
-      // bleeding risk, skip it.
       if (
-        meds.some((m: string) =>
+        medsArr.some((m: string) =>
           m.toLowerCase().includes('anticoagulant')
         ) &&
         interact.anticoagulants_bleeding_risk === 'Y'
       ) {
         blocked = true;
       }
-      // Example: pregnancy caution – skip if the user flagged pregnancy.
       if (
         health.some((h: string) => h.toLowerCase().includes('pregnancy')) &&
         interact.pregnancy_caution === 'Y'
       ) {
         blocked = true;
       }
-      // Additional flags such as liver_disease_caution, kidney_disease_caution,
-      // or immunocompromised_caution could be checked here.
       if (
         health.some((h: string) => h.toLowerCase().includes('liver')) &&
         interact.liver_disease_caution === 'Y'
