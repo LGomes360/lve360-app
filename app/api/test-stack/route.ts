@@ -1,30 +1,57 @@
-import { NextRequest } from 'next/server';
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { createClient } from '@supabase/supabase-js';
 import { generateStack } from '@/lib/generateStack';
 
-// /app/api/test-stack/route.ts
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-  // Parse query params
-  const id = searchParams.get('id') || '';
-  const goals = searchParams.getAll('goals').length
-    ? searchParams.getAll('goals')
-    : ['Weight Loss', 'Longevity'];
-
-  try {
-    const stack = await generateStack({
-      id,
-      goals,
-      // Add other fields if needed for generateStack signature
-    });
-    return new Response(JSON.stringify(stack), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  } catch (err: any) {
-    return new Response(
-      JSON.stringify({ error: String(err) }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const id = req.query.id as string;
+  if (!id) {
+    res.status(400).json({ error: 'Missing id param' });
+    return;
   }
+
+  // Fetch the main submission
+  const { data: submission, error } = await supabase
+    .from('submissions')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error || !submission) {
+    res.status(404).json({ error: 'Submission not found' });
+    return;
+  }
+
+  // Fetch child tables (medications, supplements, hormones) for this submission
+  const { data: meds } = await supabase
+    .from('submission_medications')
+    .select('*')
+    .eq('submission_id', id);
+
+  const { data: supps } = await supabase
+    .from('submission_supplements')
+    .select('*')
+    .eq('submission_id', id);
+
+  const { data: hormones } = await supabase
+    .from('submission_hormones')
+    .select('*')
+    .eq('submission_id', id);
+
+  // Add them to the submission object for generateStack
+  const fullSubmission = {
+    ...submission,
+    medications: meds ?? [],
+    supplements: supps ?? [],
+    hormones: hormones ?? [],
+  };
+
+  // Call your generateStack function!
+  const stack = await generateStack(fullSubmission);
+
+  res.status(200).json(stack);
 }
