@@ -10,7 +10,7 @@ function getAdmin() {
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 }
 
-// --- Utility Functions (unchanged, but you can keep tweaking if you want) ---
+// Utility: Accepts string, array, object — always returns string or undefined.
 function cleanSingle(val: any): string | undefined {
   if (val == null) return undefined;
   if (Array.isArray(val)) return val.length ? cleanSingle(val[0]) : undefined;
@@ -22,6 +22,7 @@ function cleanSingle(val: any): string | undefined {
   return String(val);
 }
 
+// Utility: Accepts array, string, object — always returns filtered array or [].
 function cleanArray(val: any): string[] {
   if (val == null) return [];
   if (Array.isArray(val)) return val.map(cleanSingle).filter(Boolean) as string[];
@@ -72,7 +73,6 @@ function getByKeyOrLabel(src: Record<string, unknown>, key: string, labelCandida
   return undefined;
 }
 
-// ---- MAIN HANDLER ----
 export async function POST(req: NextRequest) {
   const admin = getAdmin();
   let body: any;
@@ -89,6 +89,8 @@ export async function POST(req: NextRequest) {
     const fieldsMap = body?.data?.fields ? fieldsToMap(body.data.fields) : {};
     const answersMap = body?.form_response?.answers ? answersToMap(body.form_response.answers) : {};
     const src = { ...fieldsMap, ...answersMap };
+
+    console.log('[Webhook DEBUG] Tally incoming fields map:', JSON.stringify(src, null, 2));
 
     // Normalization: always flatten and clean
     const normalized = {
@@ -134,7 +136,9 @@ export async function POST(req: NextRequest) {
       brand_pref: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.brand_pref, ['brand preference', 'when it comes to supplements, do you prefer...'])),
     };
 
-    // Validate & Insert (parent first)
+    console.log('[Webhook DEBUG] Normalized for Zod:', JSON.stringify(normalized, null, 2));
+
+    // Validate & Insert
     const parsed = NormalizedSubmissionSchema.safeParse(normalized);
     if (!parsed.success) {
       console.error('[Webhook DEBUG] Validation error:', JSON.stringify(parsed.error.flatten(), null, 2));
@@ -150,7 +154,9 @@ export async function POST(req: NextRequest) {
     }
     const data = parsed.data;
 
-    // --- Insert PARENT submission row ---
+    console.log('[Webhook DEBUG] Final DB insert payload:', JSON.stringify(data, null, 2));
+
+    // Insert main row
     const { data: subRow, error: subErr } = await admin
       .from('submissions')
       .insert({
@@ -174,11 +180,13 @@ export async function POST(req: NextRequest) {
         dosing_pref: data.dosing_pref,
         brand_pref: data.brand_pref,
         payload_json: body,
+        // If you have other NOT NULL columns (e.g. answers), set [] or {} as fallback!
       })
       .select('id')
       .single();
 
     if (subErr || !subRow) {
+      console.error('[Webhook DEBUG] DB insert error:', subErr, JSON.stringify(data, null, 2));
       await admin.from('webhook_failures').insert({
         source: 'tally',
         event_type: body?.eventType ?? body?.event_type ?? null,
@@ -189,18 +197,19 @@ export async function POST(req: NextRequest) {
       });
       return NextResponse.json({ ok: false, error: 'DB insert failed' }, { status: 500 });
     }
-    const submissionId = subRow.id;
 
-    // ---- Insert to child tables (fan-out, non-blocking) ----
+    const submissionId = subRow.id;
+    // ===== Child-table inserts (async, safe, never breaks build) =====
     const childTasks: Promise<any>[] = [];
 
-    // Medications
     if (Array.isArray(data.medications) && data.medications.length) {
-      childTasks.push(
-        admin.from('submission_medications').insert(
-          data.medications.map((name) => ({ submission_id: submissionId, name }))
-        ).catch((err) => {
-          admin.from('webhook_failures').insert({
+      childTasks.push((async () => {
+        try {
+          await admin.from('submission_medications').insert(
+            data.medications.map((name) => ({ submission_id: submissionId, name }))
+          );
+        } catch (err: any) {
+          await admin.from('webhook_failures').insert({
             source: 'tally',
             event_type: body?.eventType ?? body?.event_type ?? null,
             event_id: body?.eventId ?? body?.event_id ?? null,
@@ -208,17 +217,18 @@ export async function POST(req: NextRequest) {
             severity: 'warn',
             payload_json: body,
           });
-        })
-      );
+        }
+      })());
     }
 
-    // Hormones
     if (Array.isArray(data.hormones) && data.hormones.length) {
-      childTasks.push(
-        admin.from('submission_hormones').insert(
-          data.hormones.map((name) => ({ submission_id: submissionId, name }))
-        ).catch((err) => {
-          admin.from('webhook_failures').insert({
+      childTasks.push((async () => {
+        try {
+          await admin.from('submission_hormones').insert(
+            data.hormones.map((name) => ({ submission_id: submissionId, name }))
+          );
+        } catch (err: any) {
+          await admin.from('webhook_failures').insert({
             source: 'tally',
             event_type: body?.eventType ?? body?.event_type ?? null,
             event_id: body?.eventId ?? body?.event_id ?? null,
@@ -226,24 +236,25 @@ export async function POST(req: NextRequest) {
             severity: 'warn',
             payload_json: body,
           });
-        })
-      );
+        }
+      })());
     }
 
-    // Supplements (parsedSupplements is an array of { name, brand, dose, timing? })
     if (Array.isArray(data.supplements) && data.supplements.length) {
-      childTasks.push(
-        admin.from('submission_supplements').insert(
-          data.supplements.map((s) => ({
-            submission_id: submissionId,
-            name: s.name,
-            brand: s.brand ?? null,
-            dose: s.dose ?? null,
-            timing: s.timing ?? null,
-            source: 'intake'
-          }))
-        ).catch((err) => {
-          admin.from('webhook_failures').insert({
+      childTasks.push((async () => {
+        try {
+          await admin.from('submission_supplements').insert(
+            data.supplements.map((s) => ({
+              submission_id: submissionId,
+              name: s.name,
+              brand: s.brand ?? null,
+              dose: s.dose ?? null,
+              timing: s.timing ?? null,
+              source: 'intake'
+            }))
+          );
+        } catch (err: any) {
+          await admin.from('webhook_failures').insert({
             source: 'tally',
             event_type: body?.eventType ?? body?.event_type ?? null,
             event_id: body?.eventId ?? body?.event_id ?? null,
@@ -251,14 +262,12 @@ export async function POST(req: NextRequest) {
             severity: 'warn',
             payload_json: body,
           });
-        })
-      );
+        }
+      })());
     }
 
-    // Add more child tables here, same pattern!
-
-    // Wait for all children (non-blocking, don't fail parent if child fails)
-    await Promise.allSettled(childTasks);
+    // Wait for all child table tasks (but don't block user response)
+    Promise.all(childTasks).catch(() => { /* Swallow child errors */ });
 
     return NextResponse.json({ ok: true, submission_id: submissionId });
   } catch (err) {
