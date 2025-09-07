@@ -1,0 +1,13 @@
+// pages/api/test-stack.ts
+
+import { NextApiRequest, NextApiResponse } from 'next';
+import { generateStack } from '@/lib/generateStack';
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const submissionId = req.query.id as string; // call with /api/test-stack?id=xxxx
+  const stack = await generateStack({
+    id: submissionId,
+    goals: ['Weight Loss', 'Longevity'],
+  });
+  res.status(200).json(stack);
+}
