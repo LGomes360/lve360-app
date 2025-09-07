@@ -11,7 +11,7 @@ function getAdmin() {
 }
 
 // Utility: Accepts string, array, object — always returns string or undefined.
-function cleanSingle(val: any) {
+function cleanSingle(val: any): string | undefined {
   if (val == null) return undefined;
   if (Array.isArray(val)) return val.length ? cleanSingle(val[0]) : undefined;
   if (typeof val === 'object' && 'value' in val) return cleanSingle(val.value);
@@ -23,9 +23,9 @@ function cleanSingle(val: any) {
 }
 
 // Utility: Accepts array, string, object — always returns filtered array or [].
-function cleanArray(val: any) {
+function cleanArray(val: any): string[] {
   if (val == null) return [];
-  if (Array.isArray(val)) return val.map(cleanSingle).filter(Boolean);
+  if (Array.isArray(val)) return val.map(cleanSingle).filter(Boolean) as string[];
   if (typeof val === 'object' && 'value' in val) return cleanArray(val.value);
   if (typeof val === 'object') return [];
   if (typeof val === 'string' && val.trim() !== '') return [val];
