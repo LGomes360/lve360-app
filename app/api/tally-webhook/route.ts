@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
   let body: any;
   try {
     body = await req.json();
+    console.log('[Webhook DEBUG] Incoming body:', JSON.stringify(body, null, 2));
   } catch (err) {
     console.error('[Webhook] Invalid JSON:', err);
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 });
@@ -88,6 +89,8 @@ export async function POST(req: NextRequest) {
     const fieldsMap = body?.data?.fields ? fieldsToMap(body.data.fields) : {};
     const answersMap = body?.form_response?.answers ? answersToMap(body.form_response.answers) : {};
     const src = { ...fieldsMap, ...answersMap };
+
+    console.log('[Webhook DEBUG] Tally incoming fields map:', JSON.stringify(src, null, 2));
 
     // Normalization: always flatten and clean
     const normalized = {
@@ -133,9 +136,12 @@ export async function POST(req: NextRequest) {
       brand_pref: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.brand_pref, ['brand preference', 'when it comes to supplements, do you prefer...'])),
     };
 
-    // Validate & Insert (rest of your code here unchanged)...
+    console.log('[Webhook DEBUG] Normalized for Zod:', JSON.stringify(normalized, null, 2));
+
+    // Validate & Insert
     const parsed = NormalizedSubmissionSchema.safeParse(normalized);
     if (!parsed.success) {
+      console.error('[Webhook DEBUG] Validation error:', JSON.stringify(parsed.error.flatten(), null, 2));
       await admin.from('webhook_failures').insert({
         source: 'tally',
         event_type: body?.eventType ?? body?.event_type ?? null,
@@ -147,6 +153,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Validation failed' }, { status: 422 });
     }
     const data = parsed.data;
+
+    console.log('[Webhook DEBUG] Final DB insert payload:', JSON.stringify(data, null, 2));
 
     const { data: subRow, error: subErr } = await admin
       .from('submissions')
@@ -176,6 +184,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (subErr || !subRow) {
+      console.error('[Webhook DEBUG] DB insert error:', subErr, JSON.stringify(data, null, 2));
       await admin.from('webhook_failures').insert({
         source: 'tally',
         event_type: body?.eventType ?? body?.event_type ?? null,
@@ -186,14 +195,13 @@ export async function POST(req: NextRequest) {
       });
       return NextResponse.json({ ok: false, error: 'DB insert failed' }, { status: 500 });
     }
-    const submissionId = subRow.id;
 
-    // Insert child tables...
-    // ... (rest same as previous version) ...
+    const submissionId = subRow.id;
+    // (child-table inserts go here, unchanged...)
 
     return NextResponse.json({ ok: true, submission_id: submissionId });
   } catch (err) {
-    console.error('[Webhook Fatal Error]', err);
+    console.error('[Webhook Fatal Error]', err, body ? JSON.stringify(body, null, 2) : '');
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
 }
