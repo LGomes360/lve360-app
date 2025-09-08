@@ -1,4 +1,4 @@
-// lve360-app/app/api/generate-stack/route.ts/
+// lve360-app/app/api/generate-stack/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
@@ -18,6 +18,9 @@ function supabaseAdmin() {
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * GET returns route info only (docs/test, no data).
+ */
 export async function GET() {
   return NextResponse.json({
     ok: true,
@@ -28,6 +31,9 @@ export async function GET() {
   });
 }
 
+/**
+ * POST: Generate and save a supplement stack for the given user/email.
+ */
 export async function POST(request: Request) {
   try {
     assertEnv();
@@ -37,6 +43,7 @@ export async function POST(request: Request) {
     let submission;
 
     if (user_id) {
+      // Find latest submission for this user_id
       const { data, error } = await supabase
         .from('submissions')
         .select('*')
@@ -59,6 +66,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'Must provide user_id or email' }, { status: 400 });
     }
 
+    // 2. Generate the stack (calls your business logic)
     const items = await generateStack(submission);
 
     const generated = {
@@ -69,8 +77,10 @@ export async function POST(request: Request) {
       notes: null,
     };
 
+    // Always resolve user_id from email if not passed
     const resolvedUserId = user_id ?? (await findOrCreateUserIdForEmail(supabase, submission.email ?? email));
 
+    // 3. Upsert stack with user_id
     const stackRow = {
       submission_id: submission.id,
       user_id: resolvedUserId ?? null,
@@ -109,4 +119,54 @@ export async function POST(request: Request) {
   }
 }
 
-// Helper functions as you have them…
+// ---------- Helper Functions ----------
+
+/** Robust JSON body parser for Next.js Route Handlers */
+async function safeJson<T = unknown>(req: Request): Promise<T | Record<string, never>> {
+  try {
+    const len = req.headers.get('content-length');
+    if (!len || len === '0') return {};
+    return (await req.json()) as T;
+  } catch {
+    return {};
+  }
+}
+
+/** Gets latest submission for a user/email (most recent first) */
+async function getLatestSubmission(
+  supabase: ReturnType<typeof supabaseAdmin>,
+  email?: string
+): Promise<any | null> {
+  let query = supabase.from('submissions').select('*').order('created_at', { ascending: false }).limit(1);
+  if (email) query = query.eq('email', email);
+  const { data, error } = await query;
+  if (error) throw new Error(`Failed to fetch latest submission: ${error.message}`);
+  return (data?.[0] ?? null);
+}
+
+/** Finds user_id for email, or creates new user row if needed */
+async function findOrCreateUserIdForEmail(
+  supabase: ReturnType<typeof supabaseAdmin>,
+  email?: string | null
+): Promise<string | null> {
+  if (!email) return null;
+  const { data: user, error } = await supabase
+    .from('users')
+    .select('id')
+    .eq('email', email)
+    .single();
+
+  // PGRST116 = no rows found
+  if (error && error.code !== 'PGRST116') throw new Error(`Failed to lookup user: ${error.message}`);
+  if (user) return user.id;
+
+  // Insert new user if not found
+  const { data: created, error: createErr } = await supabase
+    .from('users')
+    .insert({ email })
+    .select('id')
+    .single();
+
+  if (createErr) throw new Error(`Failed to create user: ${createErr.message}`);
+  return created?.id ?? null;
+}
