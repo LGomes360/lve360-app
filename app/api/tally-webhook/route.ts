@@ -29,37 +29,6 @@ function cleanArray(val: any): string[] {
   return [];
 }
 
-// --- Simple key/value mapping helpers ---
-function fieldsToMap(fields: any[]): Record<string, unknown> {
-  const map: Record<string, unknown> = {};
-  for (const f of fields ?? []) {
-    if (!f) continue;
-    const key = f.key ?? '';
-    let val = f.value ?? f.text ?? f.answer ?? f;
-    if (f.type === 'CHECKBOXES' && Array.isArray(f.value)) {
-      val = f.value.map((v: any) => v?.label ?? v?.value ?? v);
-    }
-    map[key] = val;
-    if (f.label) map[`label::${String(f.label).toLowerCase()}`] = val;
-  }
-  return map;
-}
-
-function answersToMap(answers: any[]): Record<string, unknown> {
-  const map: Record<string, unknown> = {};
-  for (const a of answers ?? []) {
-    const label = a?.field?.label ? String(a.field.label).toLowerCase() : undefined;
-    const key = a?.field?.id ?? a?.field?.key;
-    let val = a?.text ?? a?.email ?? a?.choice?.label ?? a?.choices?.labels ?? a?.value ?? a;
-    if (Array.isArray(val)) {
-      val = val.map((v: any) => (typeof v === 'string' ? v : v?.label ?? v?.value ?? String(v))).filter(Boolean);
-    }
-    if (key) map[key] = val;
-    if (label) map[`label::${label}`] = val;
-  }
-  return map;
-}
-
 export async function POST(req: NextRequest) {
   const admin = getAdmin();
   let body: any;
@@ -73,37 +42,31 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const fieldsMap = body?.data?.fields ? fieldsToMap(body.data.fields) : {};
-    const answersMap = body?.form_response?.answers ? answersToMap(body.form_response.answers) : {};
-    const src = { ...fieldsMap, ...answersMap };
+    const fields = body?.data?.fields ?? body?.form_response?.answers?.fields ?? [];
 
-    // --- Normalize fields
+    // --- Normalize for Zod ---
     const normalized = {
-      user_email: cleanSingle(src['question_7K5g10'] ?? src['label::email address (your goes report here)']),
-      name: cleanSingle(src['question_a4oPKX'] ?? src['label::name or nickname']),
-      dob: cleanSingle(src['question_2KO5bg']),
-      height: cleanSingle(src['question_Pzk8r1']),
-      weight: cleanSingle(src['question_O7k8ka']),
-      sex: cleanSingle(src['question_vDbvEl']),
-      gender: cleanSingle(src['question_xJ9B0E']),
-      pregnant: cleanSingle(src['question_RD8lZQ']),
-      goals: cleanArray(src['question_o2lQ0N']),
-      skip_meals: cleanSingle(src['question_ElYrZB']),
-      energy_rating: cleanSingle(src['question_GpyjqL']),
-      sleep_rating: cleanSingle(src['question_O78yjM']),
-      allergies: cleanArray(src['question_o2l8rV']),
-      conditions: cleanArray(src['question_7K5Yj6']),
-      medications: cleanArray(src['question_Ex8YB2']),
-      supplements: cleanArray(src['question_kNO8DM']),
-      hormones: cleanArray(src['question_ro2Myv']),
-      dosing_pref: cleanSingle(src['question_vDbapX']),
-      brand_pref: cleanSingle(src['question_LKyjgz']),
-      tier: cleanSingle(src['tier'] ?? 'free'),
+      user_email: cleanSingle(fields.find(f => f.key === 'question_7K5g10')?.value),
+      name: cleanSingle(fields.find(f => f.key === 'question_a4oPKX')?.value),
+      dob: cleanSingle(fields.find(f => f.key === 'question_2KO5bg')?.value),
+      height: cleanSingle(fields.find(f => f.key === 'question_Pzk8r1')?.value),
+      weight: cleanSingle(fields.find(f => f.key === 'question_O7k8ka')?.value),
+      sex: cleanSingle(fields.find(f => f.key === 'question_vDbvEl')?.value),
+      gender: cleanSingle(fields.find(f => f.key === 'question_xJ9B0E')?.value),
+      pregnant: cleanSingle(fields.find(f => f.key === 'question_RD8lZQ')?.value),
+      goals: cleanArray(fields.find(f => f.key === 'question_o2lQ0N')?.value),
+      skip_meals: cleanSingle(fields.find(f => f.key === 'question_ElYrZB')?.value),
+      energy_rating: cleanSingle(fields.find(f => f.key === 'question_GpyjqL')?.value),
+      sleep_rating: cleanSingle(fields.find(f => f.key === 'question_O78yjM')?.value),
+      allergies: cleanArray(fields.find(f => f.key === 'question_o2l8rV')?.value),
+      conditions: cleanArray(fields.find(f => f.key === 'question_7K5Yj6')?.value),
+      medications: cleanArray(fields.find(f => f.key === 'question_Ex8YB2')?.value),
+      supplements: cleanArray(fields.find(f => f.key === 'question_kNO8DM')?.value),
+      hormones: cleanArray(fields.find(f => f.key === 'question_ro2Myv')?.value),
+      dosing_pref: cleanSingle(fields.find(f => f.key === 'question_vDbapX')?.value),
+      brand_pref: cleanSingle(fields.find(f => f.key === 'question_LKyjgz')?.value),
     };
 
-    console.log('[Webhook DEBUG] Normalized submission:', JSON.stringify(normalized, null, 2));
-
-    // --- Validate using Zod ---
     const parsed = NormalizedSubmissionSchema.safeParse(normalized);
     if (!parsed.success) {
       await admin.from('webhook_failures').insert({
@@ -118,10 +81,10 @@ export async function POST(req: NextRequest) {
     }
 
     const data = parsed.data;
-    const normalizedEmail = data.user_email;
-
-    // --- Find or create canonical user ---
+    const normalizedEmail = data.user_email!;
     let userId: string;
+
+    // --- Find or create canonical user row ---
     const { data: existingUser } = await admin.from('users')
       .select('id, tier')
       .eq('email', normalizedEmail)
@@ -129,24 +92,16 @@ export async function POST(req: NextRequest) {
 
     if (existingUser) {
       userId = existingUser.id;
-      // Upgrade tier if needed
-      if (existingUser.tier !== 'premium' && data.tier === 'premium') {
-        await admin.from('users').update({ tier: 'premium' }).eq('id', userId);
-      }
     } else {
       const { data: newUser } = await admin.from('users')
-        .insert({ email: normalizedEmail, tier: data.tier ?? 'free' })
+        .insert({ email: normalizedEmail, tier: 'free' })
         .select('id')
         .single();
       userId = newUser.id;
     }
 
-    // --- Insert submission ---
-    const answersPayload =
-      body?.data?.fields && Array.isArray(body.data.fields) ? body.data.fields :
-      body?.form_response?.answers && Array.isArray(body.form_response.answers) ? body.form_response.answers :
-      [];
-
+    // --- Insert submission linked to canonical user_id ---
+    const answersPayload = body?.data?.fields ?? body?.form_response?.answers?.fields ?? [];
     const { data: subRow, error: subErr } = await admin.from('submissions')
       .insert({
         user_id: userId,
