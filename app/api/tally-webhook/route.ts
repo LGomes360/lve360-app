@@ -1,10 +1,3 @@
-// -----------------------------------------------------------------------------
-// LVE360 // Tally Webhook
-// Handles incoming Tally form submissions, normalizes + validates data,
-// creates (or finds) the canonical user, inserts the submission with user_id,
-// optionally inserts child tables, logs errors to webhook_failures.
-// -----------------------------------------------------------------------------
-
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { TALLY_KEYS, NormalizedSubmissionSchema } from '@/types/tally-normalized';
@@ -21,6 +14,20 @@ function normalizeEmail(email?: string): string | undefined {
   return email ? email.trim().toLowerCase() : undefined;
 }
 
+interface TallyField {
+  key: string;
+  value: any;
+  label?: string;
+  type?: string;
+  [prop: string]: any;
+}
+
+interface TallyAnswer {
+  field?: { id?: string; key?: string; label?: string };
+  value?: any;
+  [prop: string]: any;
+}
+
 export async function POST(req: NextRequest) {
   const admin = getAdmin();
   let body: any;
@@ -35,8 +42,21 @@ export async function POST(req: NextRequest) {
 
   try {
     // --- Merge fields from Tally ---
-    const fieldsMap = body?.data?.fields ? Object.fromEntries(body.data.fields.map(f => [f.key, f.value])) : {};
-    const answersMap = body?.form_response?.answers ? Object.fromEntries(body.form_response.answers.map(a => [a.field?.id ?? a.field?.key, a.value ?? a])) : {};
+    const fieldsMap: Record<string, unknown> = body?.data?.fields
+      ? Object.fromEntries(
+          (body.data.fields as TallyField[]).map((f: TallyField) => [f.key, f.value])
+        )
+      : {};
+
+    const answersMap: Record<string, unknown> = body?.form_response?.answers
+      ? Object.fromEntries(
+          (body.form_response.answers as TallyAnswer[]).map((a: TallyAnswer) => [
+            a.field?.id ?? a.field?.key ?? '',
+            a.value ?? null,
+          ])
+        )
+      : {};
+
     const src = { ...fieldsMap, ...answersMap };
 
     // --- Normalize data for Zod validation ---
@@ -60,12 +80,12 @@ export async function POST(req: NextRequest) {
       hormones: parseList(src[TALLY_KEYS.hormones] ?? []),
       dosing_pref: src[TALLY_KEYS.dosing_pref] ?? null,
       brand_pref: src[TALLY_KEYS.brand_pref] ?? null,
-      tier: src[TALLY_KEYS.tier] ?? 'free', // fallback
+      tier: src[TALLY_KEYS.tier] ?? 'free',
     };
 
     console.log('[Webhook DEBUG] Normalized submission:', JSON.stringify(normalized, null, 2));
 
-    // --- Validate via Zod ---
+    // --- Validate with Zod ---
     const parsed = NormalizedSubmissionSchema.safeParse(normalized);
     if (!parsed.success) {
       await admin.from('webhook_failures').insert({
@@ -150,9 +170,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'DB insert failed' }, { status: 500 });
     }
 
-    const submissionId = subRow.id;
-
-    return NextResponse.json({ ok: true, submission_id: submissionId });
+    return NextResponse.json({ ok: true, submission_id: subRow.id });
 
   } catch (err) {
     console.error('[Webhook Fatal Error]', err, body ? JSON.stringify(body, null, 2) : '');
