@@ -53,7 +53,7 @@ export default function Results() {
               `id, created_at, items:stacks_items(
                 supplement_id,
                 dose,
-                note,
+                notes,
                 supplement:supplements(ingredient, link, notes)
               )`
             )
@@ -70,7 +70,7 @@ export default function Results() {
               name: item.supplement.ingredient,
               dose: item.dose,
               link: item.supplement.link,
-              notes: item.supplement.notes ?? item.note ?? null
+              notes: item.supplement.notes ?? item.notes ?? null
             }));
             setStack(items);
           } else {
