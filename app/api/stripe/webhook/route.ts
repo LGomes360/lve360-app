@@ -51,6 +51,60 @@ async function upsertUser(row: {
   }
 }
 
+/**
+ * Dedupe user rows by email, and relink submissions & stacks.
+ */
+async function dedupeUserRowsByEmail(email: string) {
+  const resp = await fetch(`${SUPA_URL}/rest/v1/users?email=eq.${encodeURIComponent(email)}`, {
+    headers: {
+      'apikey': SUPA_SERVICE,
+      'Authorization': `Bearer ${SUPA_SERVICE}`,
+    },
+  });
+  if (!resp.ok) return;
+  const users = await resp.json();
+  if (!users || users.length < 2) return; // Only dedupe if >1
+
+  // Pick first as main user, others as dupes
+  const main = users[0];
+  const extras = users.slice(1);
+
+  const extraIds = extras.map((u: any) => u.id);
+  if (extraIds.length === 0) return;
+
+  // Update submissions and stacks to point to main user_id
+  await fetch(`${SUPA_URL}/rest/v1/submissions?user_id=in.(${extraIds.map(encodeURIComponent).join(',')})`, {
+    method: 'PATCH',
+    headers: {
+      'apikey': SUPA_SERVICE,
+      'Authorization': `Bearer ${SUPA_SERVICE}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ user_id: main.id }),
+  });
+
+  await fetch(`${SUPA_URL}/rest/v1/stacks?user_id=in.(${extraIds.map(encodeURIComponent).join(',')})`, {
+    method: 'PATCH',
+    headers: {
+      'apikey': SUPA_SERVICE,
+      'Authorization': `Bearer ${SUPA_SERVICE}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ user_id: main.id }),
+  });
+
+  // Delete duplicate user rows
+  await fetch(`${SUPA_URL}/rest/v1/users?id=in.(${extraIds.map(encodeURIComponent).join(',')})`, {
+    method: 'DELETE',
+    headers: {
+      'apikey': SUPA_SERVICE,
+      'Authorization': `Bearer ${SUPA_SERVICE}`,
+    },
+  });
+
+  console.log(`✅ Deduped users for ${email}. Kept ${main.id}, removed: ${extraIds.join(', ')}`);
+}
+
 export async function POST(req: NextRequest) {
   const raw = await req.text();
   const sig = req.headers.get('stripe-signature')!;
@@ -81,6 +135,7 @@ export async function POST(req: NextRequest) {
           stripe_customer_id: customerId,
           stripe_subscription_status: 'active'
         });
+        await dedupeUserRowsByEmail(email);
       }
     }
 
@@ -109,6 +164,7 @@ export async function POST(req: NextRequest) {
           stripe_customer_id: customerId,
           stripe_subscription_status: status
         });
+        await dedupeUserRowsByEmail(email);
       }
     }
 
@@ -134,6 +190,7 @@ export async function POST(req: NextRequest) {
           stripe_customer_id: customerId,
           stripe_subscription_status: 'canceled'
         });
+        await dedupeUserRowsByEmail(email);
       }
     }
 
