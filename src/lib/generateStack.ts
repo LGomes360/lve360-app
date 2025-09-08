@@ -3,13 +3,24 @@
 import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 
+// -------------------
+// Types
+// -------------------
+
+export interface SupplementInput {
+  name: string;
+  dose?: string;
+  timing?: string;
+  brand?: string;
+}
+
 export interface Submission {
   id?: string;
   goals: string[];
   healthConditions?: string[];
-  medications?: string[];
-  supplements?: string[];
-  hormones?: string[];
+  medications?: string[] | SupplementInput[];
+  supplements?: string[] | SupplementInput[];
+  hormones?: string[] | SupplementInput[];
   tier?: 'budget' | 'mid' | 'premium';
   dob?: string;
   sex?: string;
@@ -32,7 +43,12 @@ export interface StackItem {
   rationale?: string;
   caution?: string;
   citations?: string[];
+  timing?: string;
 }
+
+// -------------------
+// DB/AI Setup
+// -------------------
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL as string,
@@ -44,8 +60,13 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
+// -------------------
+// Core Stack Engine
+// -------------------
+
 export async function generateStack(submission: Submission): Promise<StackItem[]> {
-  const rulesOnly = true; // toggle to false to test AI mode later
+  // Set to false to use AI!
+  const rulesOnly = true;
 
   if (rulesOnly) {
     return generateStackFromRules(submission);
@@ -54,9 +75,10 @@ export async function generateStack(submission: Submission): Promise<StackItem[]
   }
 }
 
-// ------------------------
-// ✅ Rules Engine (your original logic, preserved)
-// ------------------------
+// -------------------
+// Rules Engine
+// -------------------
+
 async function generateStackFromRules(submission: Submission): Promise<StackItem[]> {
   const goals = submission.goals ?? [];
   const tier = submission.tier ?? 'budget';
@@ -81,13 +103,20 @@ async function generateStackFromRules(submission: Submission): Promise<StackItem
     hormones = hormonesRaw ?? [];
   }
 
-  const medsArr = meds.length > 0 ? meds.map(m => m.name) : (submission.medications ?? []);
-  const userSuppsArr = userSupps.length > 0 ? userSupps.map(s => s.name) : (submission.supplements ?? []);
+  // Handle both string[] and object[]
+  const medsArr = Array.isArray(submission.medications)
+    ? submission.medications.map(m => typeof m === 'string' ? m : m.name)
+    : meds.length > 0 ? meds.map(m => m.name) : [];
+
+  const userSuppsArr = Array.isArray(submission.supplements)
+    ? submission.supplements.map(s => typeof s === 'string' ? s : s.name)
+    : userSupps.length > 0 ? userSupps.map(s => s.name) : [];
 
   const { data: rules, error: rulesError } = await supabase
     .from('rules')
     .select('*')
     .in('entity_a_name', goals);
+
   if (rulesError) {
     console.error('Error fetching rules', rulesError);
     return [];
@@ -153,26 +182,43 @@ async function generateStackFromRules(submission: Submission): Promise<StackItem
   return stack;
 }
 
-// ------------------------
-// 🤖 AI Engine (calls GPT-4o or GPT-4)
-// ------------------------
+// -------------------
+// LLM Engine
+// -------------------
+
 async function generateStackFromLLM(sub: Submission): Promise<StackItem[]> {
   const prompt = formatPromptFromSubmission(sub);
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    temperature: 0.4,
-    messages: [
-      { role: 'system', content: 'You are a supplement expert.' },
-      { role: 'user', content: prompt },
-    ],
-  });
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      temperature: 0.4,
+      messages: [
+        { role: 'system', content: 'You are a supplement expert.' },
+        { role: 'user', content: prompt },
+      ],
+    });
 
-  const raw = response.choices[0].message?.content ?? '';
-  return parseStackFromLLMOutput(raw);
+    const raw = response.choices[0].message?.content ?? '';
+    return parseStackFromLLMOutput(raw);
+  } catch (err) {
+    console.error('LLM API error', err);
+    return [];
+  }
 }
 
 function formatPromptFromSubmission(sub: Submission): string {
+  // Converts arrays of objects to name strings if needed
+  const meds = Array.isArray(sub.medications)
+    ? sub.medications.map(m => typeof m === 'string' ? m : m.name).join(', ')
+    : '';
+  const supps = Array.isArray(sub.supplements)
+    ? sub.supplements.map(s => typeof s === 'string' ? s : s.name).join(', ')
+    : '';
+  const horms = Array.isArray(sub.hormones)
+    ? sub.hormones.map(h => typeof h === 'string' ? h : h.name).join(', ')
+    : '';
+
   return `
 User info:
 - Age: ${sub.dob ? calculateAge(sub.dob) : 'Unknown'}
@@ -181,9 +227,9 @@ User info:
 - Weight: ${sub.weight ?? 'Unknown'}
 - Height: ${sub.height ?? 'Unknown'}
 - Conditions: ${sub.healthConditions?.join(', ') ?? 'None'}
-- Medications: ${sub.medications?.join(', ') ?? 'None'}
-- Supplements: ${sub.supplements?.join(', ') ?? 'None'}
-- Hormones: ${sub.hormones?.join(', ') ?? 'None'}
+- Medications: ${meds}
+- Supplements: ${supps}
+- Hormones: ${horms}
 - Goals: ${sub.goals?.join(', ') ?? 'Unknown'}
 - Energy (1–5): ${sub.energy_rating ?? '3'}
 - Sleep (1–5): ${sub.sleep_rating ?? '3'}
@@ -199,10 +245,15 @@ Instructions:
 function parseStackFromLLMOutput(output: string): StackItem[] {
   const first = output.indexOf('[');
   const last = output.lastIndexOf(']');
+  if (first === -1 || last === -1) {
+    console.error('LLM output missing array:', output);
+    return [];
+  }
   const json = output.slice(first, last + 1);
   try {
     return JSON.parse(json);
-  } catch {
+  } catch (e) {
+    console.error('Failed to parse LLM stack JSON', e, json);
     return [];
   }
 }
@@ -210,5 +261,10 @@ function parseStackFromLLMOutput(output: string): StackItem[] {
 function calculateAge(dob: string): number {
   const birth = new Date(dob);
   const now = new Date();
-  return now.getFullYear() - birth.getFullYear();
+  let age = now.getFullYear() - birth.getFullYear();
+  const m = now.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) {
+    age--;
+  }
+  return age;
 }
