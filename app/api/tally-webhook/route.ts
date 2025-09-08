@@ -59,28 +59,33 @@ export async function POST(req: NextRequest) {
 
     const src = { ...fieldsMap, ...answersMap };
 
+    // --- Type-safe helper to index TALLY_KEYS ---
+    function getValue<K extends keyof typeof TALLY_KEYS>(key: K) {
+      return src[TALLY_KEYS[key] as keyof typeof src];
+    }
+
     // --- Normalize data for Zod validation ---
     const normalized = {
-      user_email: normalizeEmail(src[TALLY_KEYS.user_email] as string),
-      name: src[TALLY_KEYS.name] ?? null,
-      dob: src[TALLY_KEYS.dob] ?? null,
-      height: src[TALLY_KEYS.height] ?? null,
-      weight: src[TALLY_KEYS.weight] ?? null,
-      sex: src[TALLY_KEYS.sex] ?? null,
-      gender: src[TALLY_KEYS.gender] ?? null,
-      pregnant: src[TALLY_KEYS.pregnant] ?? null,
-      goals: parseList(src[TALLY_KEYS.goals] ?? []),
-      skip_meals: src[TALLY_KEYS.skip_meals] ?? null,
-      energy_rating: src[TALLY_KEYS.energy_rating] ?? null,
-      sleep_rating: src[TALLY_KEYS.sleep_rating] ?? null,
-      allergies: parseList(src[TALLY_KEYS.allergies] ?? []),
-      conditions: parseList(src[TALLY_KEYS.conditions] ?? []),
-      medications: parseList(src[TALLY_KEYS.medications] ?? []),
-      supplements: parseSupplements(src[TALLY_KEYS.supplements] ?? []),
-      hormones: parseList(src[TALLY_KEYS.hormones] ?? []),
-      dosing_pref: src[TALLY_KEYS.dosing_pref] ?? null,
-      brand_pref: src[TALLY_KEYS.brand_pref] ?? null,
-      tier: src[TALLY_KEYS.tier] ?? 'free',
+      user_email: normalizeEmail(getValue('user_email') as string),
+      name: getValue('name') ?? null,
+      dob: getValue('dob') ?? null,
+      height: getValue('height') ?? null,
+      weight: getValue('weight') ?? null,
+      sex: getValue('sex') ?? null,
+      gender: getValue('gender') ?? null,
+      pregnant: getValue('pregnant') ?? null,
+      goals: parseList(getValue('goals') ?? []),
+      skip_meals: getValue('skip_meals') ?? null,
+      energy_rating: getValue('energy_rating') ?? null,
+      sleep_rating: getValue('sleep_rating') ?? null,
+      allergies: parseList(getValue('allergies') ?? []),
+      conditions: parseList(getValue('conditions') ?? []),
+      medications: parseList(getValue('medications') ?? []),
+      supplements: parseSupplements(getValue('supplements') ?? []),
+      hormones: parseList(getValue('hormones') ?? []),
+      dosing_pref: getValue('dosing_pref') ?? null,
+      brand_pref: getValue('brand_pref') ?? null,
+      tier: getValue('tier') ?? 'free',
     };
 
     console.log('[Webhook DEBUG] Normalized submission:', JSON.stringify(normalized, null, 2));
