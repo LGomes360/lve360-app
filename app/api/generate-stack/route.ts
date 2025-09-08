@@ -40,10 +40,10 @@ export async function POST(request: Request) {
     const { email, user_id } = await safeJson<{ email?: string; user_id?: string }>(request);
     const supabase = supabaseAdmin();
 
+    // --------- 1. Fetch the latest submission ---------
     let submission;
 
     if (user_id) {
-      // Find latest submission for this user_id
       const { data, error } = await supabase
         .from('submissions')
         .select('*')
@@ -66,25 +66,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'Must provide user_id or email' }, { status: 400 });
     }
 
-    // 2. Generate the stack (calls your business logic)
+    // --------- 2. Ensure email exists ---------
+    const resolvedEmail = submission.email ?? email;
+    if (!resolvedEmail) {
+      return NextResponse.json(
+        { ok: false, error: "Cannot generate stack: missing user email for this submission" },
+        { status: 400 }
+      );
+    }
+
+    // --------- 3. Resolve user_id if missing ---------
+    const resolvedUserId = user_id ?? (await findOrCreateUserIdForEmail(supabase, resolvedEmail));
+
+    // --------- 4. Generate the stack ---------
     const items = await generateStack(submission);
 
     const generated = {
       items: items ?? [],
       summary: null,
-      version: 'v1',
+      version: 'v1',               // Ensure this column type is text in DB
       totalMonthlyCost: null,
       notes: null,
     };
 
-    // Always resolve user_id from email if not passed
-    const resolvedUserId = user_id ?? (await findOrCreateUserIdForEmail(supabase, submission.email ?? email));
-
-    // 3. Upsert stack with user_id
+    // --------- 5. Upsert stack row ---------
     const stackRow = {
       submission_id: submission.id,
-      user_id: resolvedUserId ?? null,
-      email: submission.email ?? email ?? null,
+      user_id: resolvedUserId,
+      user_email: resolvedEmail,   // Must match NOT NULL DB constraint
       items: generated.items,
       summary: generated.summary,
       version: generated.version,
@@ -108,20 +117,21 @@ export async function POST(request: Request) {
       stack_id: upserted?.id ?? null,
       items_preview: generated.items.slice(0, 5),
       meta: {
-        email: submission.email ?? email ?? null,
+        email: resolvedEmail,
         version: generated.version ?? 'v1',
-        user_id: resolvedUserId ?? null,
+        user_id: resolvedUserId,
       },
     });
+
   } catch (err: any) {
-    // Optionally: log the full error to a server log here
     return NextResponse.json({ ok: false, error: err?.message ?? 'Unknown server error' }, { status: 500 });
   }
 }
 
-// ---------- Helper Functions ----------
+// --------------------------
+// Helper Functions
+// --------------------------
 
-/** Robust JSON body parser for Next.js Route Handlers */
 async function safeJson<T = unknown>(req: Request): Promise<T | Record<string, never>> {
   try {
     const len = req.headers.get('content-length');
@@ -132,7 +142,6 @@ async function safeJson<T = unknown>(req: Request): Promise<T | Record<string, n
   }
 }
 
-/** Gets latest submission for a user/email (most recent first) */
 async function getLatestSubmission(
   supabase: ReturnType<typeof supabaseAdmin>,
   email?: string
@@ -141,10 +150,9 @@ async function getLatestSubmission(
   if (email) query = query.eq('email', email);
   const { data, error } = await query;
   if (error) throw new Error(`Failed to fetch latest submission: ${error.message}`);
-  return (data?.[0] ?? null);
+  return data?.[0] ?? null;
 }
 
-/** Finds user_id for email, or creates new user row if needed */
 async function findOrCreateUserIdForEmail(
   supabase: ReturnType<typeof supabaseAdmin>,
   email?: string | null
@@ -156,11 +164,9 @@ async function findOrCreateUserIdForEmail(
     .eq('email', email)
     .single();
 
-  // PGRST116 = no rows found
   if (error && error.code !== 'PGRST116') throw new Error(`Failed to lookup user: ${error.message}`);
   if (user) return user.id;
 
-  // Insert new user if not found
   const { data: created, error: createErr } = await supabase
     .from('users')
     .insert({ email })
