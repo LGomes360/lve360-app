@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { NormalizedSubmissionSchema } from '@/types/tally-normalized';
-import { TALLY_KEYS } from '@/types/tally-keys';
+// Relative import to avoid Next.js build error
+import { TALLY_KEYS } from '../../../src/types/tally-keys';
 import { parseList, parseSupplements } from '@/lib/parseLists';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest) {
 
     console.log('[Webhook DEBUG] Normalized submission:', JSON.stringify(normalized, null, 2));
 
-    // --- Zod validation ---
+    // --- Validate ---
     const parsed = NormalizedSubmissionSchema.safeParse(normalized);
     if (!parsed.success) {
       await admin.from('webhook_failures').insert({
