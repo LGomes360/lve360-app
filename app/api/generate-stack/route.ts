@@ -19,7 +19,7 @@ function supabaseAdmin() {
 export const dynamic = 'force-dynamic';
 
 /**
- * GET returns route info only (docs/test, no data).
+ * GET returns route info only.
  */
 export async function GET() {
   return NextResponse.json({
@@ -27,74 +27,65 @@ export async function GET() {
     endpoint: '/api/generate-stack',
     method: 'POST',
     body: '{ "email"?: string, "user_id"?: string }',
-    note: 'Generates a stack from the latest submission (filtered by user_id or email) and upserts into `stacks`.',
+    note: 'Generates a stack from the latest submission and upserts into `stacks`.',
   });
 }
 
 /**
- * POST: Generate and save a supplement stack for the given user/email.
+ * POST: Generate and save a personalized supplement stack
  */
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     assertEnv();
-    const { email, user_id } = await safeJson<{ email?: string; user_id?: string }>(request);
     const supabase = supabaseAdmin();
 
-    // --------- 1. Fetch the latest submission ---------
-    let submission;
+    // --- Parse body ---
+    const { email, user_id } = await safeJson<{ email?: string; user_id?: string }>(request);
 
-    if (user_id) {
-      const { data, error } = await supabase
-        .from('submissions')
-        .select('*')
-        .eq('user_id', user_id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    // --- Authenticate & validate paid user ---
+    const resolvedUserId = user_id ?? email;
+    const { data: user, error: userErr } = await supabase
+      .from('users')
+      .select('id, paid')
+      .eq('id', resolvedUserId)
+      .single();
 
-      if (error) throw new Error(`Failed to fetch submission for user_id ${user_id}: ${error.message}`);
-      if (!data) {
-        return NextResponse.json({ ok: false, error: `No submissions found for user_id ${user_id}` }, { status: 404 });
-      }
-      submission = data;
-    } else if (email) {
-      submission = await getLatestSubmission(supabase, email);
-      if (!submission) {
-        return NextResponse.json({ ok: false, error: `No submissions found for ${email}` }, { status: 404 });
-      }
-    } else {
-      return NextResponse.json({ ok: false, error: 'Must provide user_id or email' }, { status: 400 });
+    if (userErr || !user) {
+      return NextResponse.json({ ok: false, error: 'User not found or unauthorized' }, { status: 401 });
+    }
+    if (!user.paid) {
+      return NextResponse.json({ ok: false, error: 'User has not paid' }, { status: 403 });
     }
 
-    // --------- 2. Ensure email exists ---------
+    // --- Fetch latest submission ---
+    const submission = await getLatestSubmission(supabase, resolvedUserId, email);
+    if (!submission) {
+      return NextResponse.json({ ok: false, error: 'No submission found' }, { status: 404 });
+    }
+
+    // --- Ensure email ---
     const resolvedEmail = submission.email ?? email;
     if (!resolvedEmail) {
-      return NextResponse.json(
-        { ok: false, error: "Cannot generate stack: missing user email for this submission" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: 'Submission missing user email' }, { status: 400 });
     }
 
-    // --------- 3. Resolve user_id if missing ---------
-    const resolvedUserId = user_id ?? (await findOrCreateUserIdForEmail(supabase, resolvedEmail));
-
-    // --------- 4. Generate the stack ---------
-    const items = await generateStack(submission);
+    // --- Generate stack ---
+    const items = await generateStack(submission) ?? [];
 
     const generated = {
-      items: items ?? [],
+      items,
       summary: null,
-      version: 'v1',               // Ensure this column type is text in DB
+      version: 'v1',              // make sure DB column is TEXT
       totalMonthlyCost: null,
       notes: null,
     };
 
-    // --------- 5. Upsert stack row ---------
+    // --- Upsert stack ---
     const stackRow = {
       submission_id: submission.id,
-      user_id: resolvedUserId,
-      user_email: resolvedEmail,   // Must match NOT NULL DB constraint
-      items: generated.items,
+      user_id: user.id,
+      user_email: resolvedEmail,   // satisfies NOT NULL
+      items: generated.items,      // default empty array if null
       summary: generated.summary,
       version: generated.version,
       total_monthly_cost: generated.totalMonthlyCost,
@@ -118,21 +109,18 @@ export async function POST(request: Request) {
       items_preview: generated.items.slice(0, 5),
       meta: {
         email: resolvedEmail,
-        version: generated.version ?? 'v1',
-        user_id: resolvedUserId,
+        version: generated.version,
+        user_id: user.id,
       },
     });
-
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message ?? 'Unknown server error' }, { status: 500 });
   }
 }
 
-// --------------------------
-// Helper Functions
-// --------------------------
+// ---------------- Helper Functions ----------------
 
-async function safeJson<T = unknown>(req: Request): Promise<T | Record<string, never>> {
+async function safeJson<T = unknown>(req: NextRequest): Promise<T | Record<string, never>> {
   try {
     const len = req.headers.get('content-length');
     if (!len || len === '0') return {};
@@ -144,35 +132,13 @@ async function safeJson<T = unknown>(req: Request): Promise<T | Record<string, n
 
 async function getLatestSubmission(
   supabase: ReturnType<typeof supabaseAdmin>,
+  user_id?: string,
   email?: string
 ): Promise<any | null> {
   let query = supabase.from('submissions').select('*').order('created_at', { ascending: false }).limit(1);
+  if (user_id) query = query.eq('user_id', user_id);
   if (email) query = query.eq('email', email);
   const { data, error } = await query;
   if (error) throw new Error(`Failed to fetch latest submission: ${error.message}`);
   return data?.[0] ?? null;
-}
-
-async function findOrCreateUserIdForEmail(
-  supabase: ReturnType<typeof supabaseAdmin>,
-  email?: string | null
-): Promise<string | null> {
-  if (!email) return null;
-  const { data: user, error } = await supabase
-    .from('users')
-    .select('id')
-    .eq('email', email)
-    .single();
-
-  if (error && error.code !== 'PGRST116') throw new Error(`Failed to lookup user: ${error.message}`);
-  if (user) return user.id;
-
-  const { data: created, error: createErr } = await supabase
-    .from('users')
-    .insert({ email })
-    .select('id')
-    .single();
-
-  if (createErr) throw new Error(`Failed to create user: ${createErr.message}`);
-  return created?.id ?? null;
 }
