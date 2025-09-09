@@ -2,38 +2,89 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
+import { createClient } from '@supabase/supabase-js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPA_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabase = createClient(SUPA_URL, SUPA_SERVICE);
 
-/**
- * Normalize email for deduplication.
- */
 function normalize(email: string | null | undefined): string {
-  return (email ?? '').toString().trim().toLowerCase();
+  return (email ?? '').trim().toLowerCase();
 }
 
 /**
- * Upsert a user into Supabase by email.
- * Always keeps tier and Stripe info up-to-date.
+ * Always returns the canonical user_id for the given email.
+ * If submissions exist, uses submission.user_id; otherwise, returns null.
+ */
+async function getCanonicalUserIdByEmail(email: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('submissions')
+    .select('user_id')
+    .eq('user_email', email)
+    .order('submitted_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error || !data) return null;
+  return data.user_id;
+}
+
+/**
+ * Upsert user by email. On insert, uses canonical_user_id if provided.
  */
 async function upsertUser(row: {
   email: string;
   tier: 'free' | 'premium';
   stripe_customer_id?: string | null;
   stripe_subscription_status?: string | null;
+  canonical_user_id?: string | null;
 }) {
+  const email = normalize(row.email);
+  // Lookup existing user by normalized email
+  const { data: existingUsers, error: lookupErr } = await supabase
+    .from('users')
+    .select('*')
+    .eq('email', email);
+
+  if (lookupErr) {
+    console.error('Supabase user lookup failed:', lookupErr);
+    return;
+  }
+
+  let idToUse = row.canonical_user_id || undefined;
+
+  // If user exists, just update
+  if (existingUsers && existingUsers.length > 0) {
+    const user = existingUsers[0];
+    const resp = await supabase
+      .from('users')
+      .update({
+        tier: row.tier,
+        stripe_customer_id: row.stripe_customer_id ?? user.stripe_customer_id,
+        stripe_subscription_status: row.stripe_subscription_status ?? user.stripe_subscription_status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', user.id);
+    if (resp.error) {
+      console.error('❌ Supabase user update failed:', resp.error);
+    } else {
+      console.log('✅ Supabase user updated:', email, '→ tier:', row.tier);
+    }
+    return;
+  }
+
+  // If not found, insert with canonical user_id if provided
   const payload = [{
-    email: (row.email ?? '').trim().toLowerCase(),
+    id: idToUse, // undefined = auto-gen, else force
+    email,
     tier: row.tier,
     stripe_customer_id: row.stripe_customer_id ?? null,
     stripe_subscription_status: row.stripe_subscription_status ?? null,
     updated_at: new Date().toISOString(),
   }];
 
-  // Upsert by email
-  const resp = await fetch(`${SUPA_URL}/rest/v1/users?on_conflict=email`, {
+  const resp = await fetch(`${SUPA_URL}/rest/v1/users`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -45,64 +96,56 @@ async function upsertUser(row: {
   });
 
   if (!resp.ok) {
-    console.error('❌ Supabase upsert failed:', await resp.text());
+    const msg = await resp.text();
+    console.error('❌ Supabase user insert failed:', msg);
+    // Try deduplication if duplicate error
+    if (resp.status === 409 || msg.toLowerCase().includes('duplicate')) {
+      await dedupeUserRowsByEmail(email);
+    }
   } else {
-    console.log('✅ Supabase upsert ok for', payload[0].email, '→ tier:', row.tier);
+    console.log('✅ Supabase user inserted for', email, '→ tier:', row.tier);
   }
 }
 
 /**
- * Dedupe user rows by email, and relink submissions & stacks.
+ * Deduplicate users table for a given email.
+ * Keeps the canonical user_id (from submissions if possible).
+ * Updates submissions/stacks, deletes extra users.
  */
 async function dedupeUserRowsByEmail(email: string) {
-  const resp = await fetch(`${SUPA_URL}/rest/v1/users?email=eq.${encodeURIComponent(email)}`, {
-    headers: {
-      'apikey': SUPA_SERVICE,
-      'Authorization': `Bearer ${SUPA_SERVICE}`,
-    },
-  });
-  if (!resp.ok) return;
-  const users = await resp.json();
-  if (!users || users.length < 2) return; // Only dedupe if >1
+  const emailNorm = normalize(email);
+  const { data: users, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('email', emailNorm);
 
-  // Pick first as main user, others as dupes
-  const main = users[0];
-  const extras = users.slice(1);
+  if (error || !users || users.length < 2) return; // Only dedupe if >1
 
-  const extraIds = extras.map((u: any) => u.id);
+  // Find canonical user_id (from submissions, else first user)
+  let canonical_user_id = await getCanonicalUserIdByEmail(emailNorm);
+  if (!canonical_user_id) canonical_user_id = users[0].id;
+
+  const extras = users.filter(u => u.id !== canonical_user_id);
+  const extraIds = extras.map(u => u.id);
   if (extraIds.length === 0) return;
 
-  // Update submissions and stacks to point to main user_id
-  await fetch(`${SUPA_URL}/rest/v1/submissions?user_id=in.(${extraIds.map(encodeURIComponent).join(',')})`, {
-    method: 'PATCH',
-    headers: {
-      'apikey': SUPA_SERVICE,
-      'Authorization': `Bearer ${SUPA_SERVICE}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ user_id: main.id }),
-  });
+  // Update submissions/stacks to point to canonical user_id
+  await supabase
+    .from('submissions')
+    .update({ user_id: canonical_user_id })
+    .in('user_id', extraIds);
+  await supabase
+    .from('stacks')
+    .update({ user_id: canonical_user_id })
+    .in('user_id', extraIds);
 
-  await fetch(`${SUPA_URL}/rest/v1/stacks?user_id=in.(${extraIds.map(encodeURIComponent).join(',')})`, {
-    method: 'PATCH',
-    headers: {
-      'apikey': SUPA_SERVICE,
-      'Authorization': `Bearer ${SUPA_SERVICE}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ user_id: main.id }),
-  });
+  // Delete extras
+  await supabase
+    .from('users')
+    .delete()
+    .in('id', extraIds);
 
-  // Delete duplicate user rows
-  await fetch(`${SUPA_URL}/rest/v1/users?id=in.(${extraIds.map(encodeURIComponent).join(',')})`, {
-    method: 'DELETE',
-    headers: {
-      'apikey': SUPA_SERVICE,
-      'Authorization': `Bearer ${SUPA_SERVICE}`,
-    },
-  });
-
-  console.log(`✅ Deduped users for ${email}. Kept ${main.id}, removed: ${extraIds.join(', ')}`);
+  console.log(`✅ Deduped users for ${emailNorm}. Kept ${canonical_user_id}, removed: ${extraIds.join(', ')}`);
 }
 
 export async function POST(req: NextRequest) {
@@ -129,11 +172,14 @@ export async function POST(req: NextRequest) {
 
       console.log('✅ Checkout completed for', email);
       if (email) {
+        // Get canonical user_id from submissions if exists
+        const canonical_user_id = await getCanonicalUserIdByEmail(email);
         await upsertUser({
           email,
           tier: 'premium',
           stripe_customer_id: customerId,
-          stripe_subscription_status: 'active'
+          stripe_subscription_status: 'active',
+          canonical_user_id
         });
         await dedupeUserRowsByEmail(email);
       }
@@ -158,11 +204,13 @@ export async function POST(req: NextRequest) {
       console.log('ℹ️ Subscription updated:', sub.id, email, '→', status);
 
       if (email) {
+        const canonical_user_id = await getCanonicalUserIdByEmail(email);
         await upsertUser({
           email,
           tier,
           stripe_customer_id: customerId,
-          stripe_subscription_status: status
+          stripe_subscription_status: status,
+          canonical_user_id
         });
         await dedupeUserRowsByEmail(email);
       }
@@ -184,11 +232,13 @@ export async function POST(req: NextRequest) {
 
       console.log('❌ Subscription canceled:', sub.id, email);
       if (email) {
+        const canonical_user_id = await getCanonicalUserIdByEmail(email);
         await upsertUser({
           email,
           tier: 'free',
           stripe_customer_id: customerId,
-          stripe_subscription_status: 'canceled'
+          stripe_subscription_status: 'canceled',
+          canonical_user_id
         });
         await dedupeUserRowsByEmail(email);
       }
