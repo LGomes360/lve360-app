@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-//  LVE360 // tally-webhook
+//  LVE360 // tally-webhook (dedupe/canonical user_id safe)
 //  Handles incoming Tally form submissions, normalizes and validates data,
 //  creates (or finds) the user, inserts the submission (with user_id),
 //  and (optionally) inserts child tables. Logs all errors to webhook_failures.
@@ -78,6 +78,11 @@ function getByKeyOrLabel(src: Record<string, unknown>, key: string, labelCandida
     if (v !== undefined) return v;
   }
   return undefined;
+}
+
+// Utility for dedupe-safe email normalization
+function normalize(email: string | null | undefined): string {
+  return (email ?? '').toString().trim().toLowerCase();
 }
 
 export async function POST(req: NextRequest) {
@@ -159,13 +164,16 @@ export async function POST(req: NextRequest) {
     }
     const data = parsed.data;
 
-    // --- FIND OR CREATE USER_ID ---
+    // --- FIND OR CREATE USER_ID (DEDUPE-SAFE + CANONICAL) ---
     let userId: string | undefined = undefined;
     if (data.user_email) {
+      const normalizedEmail = normalize(data.user_email);
+
+      // Try to find user first (by normalized email)
       const { data: userRow, error: userErr } = await admin
         .from('users')
         .select('id')
-        .eq('email', data.user_email)
+        .eq('email', normalizedEmail)
         .maybeSingle();
 
       if (userErr) console.error('[Webhook DEBUG] User lookup error:', userErr);
@@ -173,11 +181,28 @@ export async function POST(req: NextRequest) {
       if (userRow && userRow.id) {
         userId = userRow.id;
       } else {
+        // Look for canonical user_id from prior submission (e.g., Stripe-first)
+        const { data: subRow, error: subLookupErr } = await admin
+          .from('submissions')
+          .select('user_id')
+          .eq('user_email', normalizedEmail)
+          .order('submitted_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        let canonicalUserId = subRow?.user_id;
+
         const { data: newUser, error: newUserErr } = await admin
           .from('users')
-          .insert({ email: data.user_email })
+          .insert({
+            id: canonicalUserId,          // will be undefined unless found (which is fine)
+            email: normalizedEmail,
+            tier: 'free',
+            updated_at: new Date().toISOString(),
+          })
           .select('id')
           .single();
+
         if (newUser && newUser.id) userId = newUser.id;
         if (newUserErr) console.error('[Webhook DEBUG] User creation error:', newUserErr);
       }
@@ -194,7 +219,7 @@ export async function POST(req: NextRequest) {
       .from('submissions')
       .insert({
         user_id: userId ?? null,
-        user_email: data.user_email,
+        user_email: data.user_email ? normalize(data.user_email) : null,
         name: data.name,
         dob: data.dob,
         height: data.height,
