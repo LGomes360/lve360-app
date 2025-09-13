@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { createClient } from "@supabase/supabase-js";
 
@@ -18,15 +19,22 @@ export default function ResultsPage() {
   // Dev-only toggle
   const [testMode] = useState(process.env.NODE_ENV !== "production");
 
-  const submissionId = "8c0f3b4a-32e4-4077-a77f-fa83c6650086";
+  // ✅ Read submission_id from URL
+  const searchParams = useSearchParams();
+  const submissionId = searchParams.get("submission_id");
 
   useEffect(() => {
+    if (!submissionId) {
+      setError("Missing submission_id in URL");
+      setLoading(false);
+      return;
+    }
+
     async function fetchUserAndReport() {
       try {
         setLoading(true);
 
         if (!testMode) {
-          // ✅ Real check: Supabase Auth + users.tier
           const {
             data: { session },
           } = await supabase.auth.getSession();
@@ -40,7 +48,6 @@ export default function ResultsPage() {
           }
         }
 
-        // ✅ Always fetch report
         const res = await fetch("/api/generate-report", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -50,6 +57,7 @@ export default function ResultsPage() {
         if (!res.ok) throw new Error(`API error ${res.status}`);
         const data = await res.json();
         if (data?.body) setReport(data.body);
+        else setError("No report body returned");
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -78,7 +86,6 @@ export default function ResultsPage() {
     <div className="max-w-3xl mx-auto py-8 px-4">
       <h1 className="text-3xl font-bold mb-6">Your LVE360 Concierge Report</h1>
 
-      {/* Show toggle only in dev */}
       {testMode && (
         <div className="mb-6">
           <button
@@ -95,7 +102,6 @@ export default function ResultsPage() {
 
       {report && (
         <div className="prose prose-lg space-y-6">
-          {/* Always show Sections 1–3 */}
           {["Section 1. Current Analysis", "Section 2. Contraindications", "Section 3. Bang-for-Buck"].map(
             (sec) =>
               sections[sec] && (
@@ -106,7 +112,6 @@ export default function ResultsPage() {
               )
           )}
 
-          {/* Premium-only sections */}
           {Object.entries(sections)
             .filter(
               ([header]) =>
