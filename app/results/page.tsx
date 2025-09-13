@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { createClient } from "@supabase/supabase-js";
@@ -10,16 +10,15 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-export default function ResultsPage() {
+function ResultsContent() {
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPremiumUser, setIsPremiumUser] = useState(false);
 
-  // Dev-only toggle
   const [testMode] = useState(process.env.NODE_ENV !== "production");
 
-  // ✅ Read submission_id safely from URL
+  // ✅ Wrapped in Suspense
   const searchParams = useSearchParams();
   const submissionId = searchParams?.get("submission_id") ?? null;
 
@@ -71,7 +70,7 @@ export default function ResultsPage() {
   function splitSections(md: string): Record<string, string> {
     const parts = md.split(/^## /gm);
     const sections: Record<string, string> = {};
-    for (const part of parts) {
+    for (const part of parts ?? []) {
       if (!part.trim()) continue;
       const [header, ...rest] = part.split("\n");
       sections[header.trim()] = rest.join("\n").trim();
@@ -82,14 +81,13 @@ export default function ResultsPage() {
   let sections: Record<string, string> = {};
   if (report) sections = splitSections(report);
 
-  // ✅ Fallback UI if submission_id missing
   if (!submissionId) {
     return (
       <div className="max-w-xl mx-auto py-12 px-6 text-center">
         <h1 className="text-2xl font-semibold mb-4">No Report Found</h1>
         <p className="text-gray-600 mb-6">
-          It looks like you landed here without completing the intake quiz. To
-          get your personalized concierge report, please start with the quiz.
+          It looks like you landed here without completing the intake quiz.
+          Please start with the quiz to generate your personalized report.
         </p>
         <a
           href="/"
@@ -147,7 +145,6 @@ export default function ResultsPage() {
             .map(([header, body]) => (
               <section key={header} className="relative">
                 <h2>## {header}</h2>
-
                 {!isPremiumUser ? (
                   <div className="relative">
                     <div className="blur-sm select-none pointer-events-none">
@@ -173,5 +170,14 @@ export default function ResultsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ✅ Wrap in Suspense so Next.js 14 is happy
+export default function ResultsPageWrapper() {
+  return (
+    <Suspense fallback={<p className="text-center py-8">Loading report...</p>}>
+      <ResultsContent />
+    </Suspense>
   );
 }
