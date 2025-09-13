@@ -2,22 +2,51 @@
 
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { createClient } from "@supabase/supabase-js";
+
+// Supabase client (browser safe)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function ResultsPage() {
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isPremiumUser, setIsPremiumUser] = useState(false);
 
-  // ⚡ Replace this with however you pass the submission_id (from session, URL, or props)
+  // ⚡ Replace this with however you pass submission_id (session, props, etc.)
   const submissionId = "8c0f3b4a-32e4-4077-a77f-fa83c6650086";
 
-  // ⚡ Replace this with your real subscription check (Supabase, Stripe, etc.)
-  const isPremiumUser = false;
-
   useEffect(() => {
-    async function fetchReport() {
+    async function fetchUserAndReport() {
       try {
         setLoading(true);
+
+        // 1. Get current session
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.user?.id) {
+          setError("Not logged in");
+          return;
+        }
+
+        // 2. Fetch user row with tier
+        const { data: userRow, error: userError } = await supabase
+          .from("users")
+          .select("tier")
+          .eq("id", session.user.id)
+          .single();
+
+        if (userError) {
+          console.warn("No user row found:", userError);
+        } else {
+          setIsPremiumUser(userRow?.tier === "premium");
+        }
+
+        // 3. Call report API
         const res = await fetch("/api/generate-report", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -39,7 +68,7 @@ export default function ResultsPage() {
       }
     }
 
-    fetchReport();
+    fetchUserAndReport();
   }, [submissionId]);
 
   // Utility: split markdown by section headers
