@@ -18,7 +18,6 @@ function ResultsContent() {
 
   const [testMode] = useState(process.env.NODE_ENV !== "production");
 
-  // ✅ Wrapped in Suspense
   const searchParams = useSearchParams();
   const submissionId = searchParams?.get("submission_id") ?? null;
 
@@ -81,33 +80,46 @@ function ResultsContent() {
   let sections: Record<string, string> = {};
   if (report) sections = splitSections(report);
 
+  // --- Fallback UI if submission_id missing ---
   if (!submissionId) {
     return (
       <div className="max-w-xl mx-auto py-12 px-6 text-center">
-        <h1 className="text-2xl font-semibold mb-4">No Report Found</h1>
+        <h1 className="text-2xl font-semibold mb-4 text-[#041B2D]">
+          No Report Found
+        </h1>
         <p className="text-gray-600 mb-6">
           It looks like you landed here without completing the intake quiz.
           Please start with the quiz to generate your personalized report.
         </p>
-        <a
-          href="/"
-          className="inline-block px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
-        >
-          Take the Quiz
-        </a>
+        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <a
+            href="https://tally.so/r/mOqRBk"
+            className="px-6 py-3 rounded-lg text-white font-medium text-center bg-[#06C1A0] hover:bg-[#049b80] transition-colors"
+          >
+            Take the Quiz
+          </a>
+          <a
+            href="/"
+            className="px-6 py-3 rounded-lg font-medium text-center border border-[#041B2D] text-[#041B2D] hover:bg-[#041B2D] hover:text-white transition-colors"
+          >
+            Back to Home
+          </a>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
-      <h1 className="text-3xl font-bold mb-6">Your LVE360 Concierge Report</h1>
+      <h1 className="text-3xl font-bold mb-6 text-[#041B2D]">
+        Your LVE360 Concierge Report
+      </h1>
 
       {testMode && (
         <div className="mb-6">
           <button
             onClick={() => setIsPremiumUser((prev) => !prev)}
-            className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+            className="px-4 py-2 rounded bg-gray-200 text-[#041B2D] hover:bg-gray-300"
           >
             Toggle Premium Mode (currently: {isPremiumUser ? "Premium" : "Free"})
           </button>
@@ -128,7 +140,7 @@ function ResultsContent() {
             (sec) =>
               sections[sec] && (
                 <section key={sec}>
-                  <h2>## {sec}</h2>
+                  <h2 className="text-[#041B2D]">## {sec}</h2>
                   <ReactMarkdown>{sections[sec]}</ReactMarkdown>
                 </section>
               )
@@ -144,19 +156,20 @@ function ResultsContent() {
             )
             .map(([header, body]) => (
               <section key={header} className="relative">
-                <h2>## {header}</h2>
+                <h2 className="text-[#041B2D]">## {header}</h2>
+
                 {!isPremiumUser ? (
                   <div className="relative">
                     <div className="blur-sm select-none pointer-events-none">
                       <ReactMarkdown>{body}</ReactMarkdown>
                     </div>
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/70">
-                      <p className="mb-3 text-gray-700 font-medium">
+                      <p className="mb-3 text-[#041B2D] font-medium">
                         🔒 Unlock this section with LVE360 Premium
                       </p>
                       <a
                         href="/pricing"
-                        className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+                        className="px-4 py-2 bg-[#06C1A0] text-white rounded-lg hover:bg-[#049b80]"
                       >
                         Upgrade Now
                       </a>
