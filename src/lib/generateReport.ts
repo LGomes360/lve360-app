@@ -20,7 +20,7 @@ const ReportInputSchema = z.object({
   tier: z.enum(["budget", "mid", "premium"]).optional(),
   dob: z.string().optional(),
   sex: z.string().optional(),
-  pregnant: z.string().optional(),
+  pregnant: z.string().nullable().optional(), // ✅ allow null
   weight: z.number().optional(),
   height: z.string().optional(),
   energy_rating: z.number().optional(),
@@ -86,30 +86,40 @@ export async function generateReport(submissionIdOrEmail: string) {
 }
 
 // -------------------
-// Helpers
+// Normalization Helpers
 // -------------------
 
 function normalizeSubmission(sub: any): ReportInput {
-  const meds = arrToNames(sub?.medications);
-  const supps = arrToNames(sub?.supplements);
-  const horms = arrToNames(sub?.hormones);
-
   return {
     id: sub?.id,
     email: sub?.user_email ?? sub?.email,
-    goals: sub?.goals ?? [],
-    healthConditions: sub?.healthConditions ?? sub?.conditions ?? [],
-    medications: meds,
-    supplements: supps,
-    hormones: horms,
+
+    goals: Array.isArray(sub?.goals)
+      ? sub.goals.filter(Boolean)
+      : sub?.goals
+      ? [sub.goals]
+      : [],
+
+    healthConditions: Array.isArray(sub?.healthConditions ?? sub?.conditions)
+      ? (sub?.healthConditions ?? sub?.conditions).filter(Boolean)
+      : sub?.healthConditions ?? sub?.conditions
+      ? [sub?.healthConditions ?? sub?.conditions]
+      : [],
+
+    medications: arrToNames(sub?.medications),
+    supplements: arrToNames(sub?.supplements),
+    hormones: arrToNames(sub?.hormones),
+
     tier: sub?.tier ?? "budget",
     dob: sub?.dob,
     sex: sub?.sex ?? sub?.sex_at_birth,
-    pregnant: sub?.pregnant,
+    pregnant: sub?.pregnant ?? undefined,
+
     weight: numOrUndefined(sub?.weight),
     height: sub?.height,
     energy_rating: numOrUndefined(sub?.energy_rating),
     sleep_rating: numOrUndefined(sub?.sleep_rating),
+
     dosing_pref: sub?.dosing_pref,
     brand_pref: sub?.brand_pref,
   };
@@ -118,8 +128,17 @@ function normalizeSubmission(sub: any): ReportInput {
 function arrToNames(a: any): string[] {
   if (!a) return [];
   if (Array.isArray(a)) {
-    return a.map((x) => (typeof x === "string" ? x : x?.name)).filter(Boolean);
+    return a
+      .map((x) =>
+        typeof x === "string"
+          ? x
+          : typeof x?.name === "string"
+          ? x.name
+          : null
+      )
+      .filter(Boolean) as string[];
   }
+  if (typeof a === "string") return [a];
   return [];
 }
 
