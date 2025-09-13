@@ -19,7 +19,6 @@ function ResultsContent() {
   const [isPremiumUser, setIsPremiumUser] = useState(false);
 
   const [testMode] = useState(process.env.NODE_ENV !== "production");
-
   const searchParams = useSearchParams();
   const submissionId = searchParams?.get("submission_id") ?? null;
 
@@ -82,7 +81,7 @@ function ResultsContent() {
   let sections: Record<string, string> = {};
   if (report) sections = splitSections(report);
 
-  // --- Fallback UI if submission_id missing ---
+  // --- Fallback if no submission_id ---
   if (!submissionId) {
     return (
       <div className="max-w-xl mx-auto py-12 px-6 text-center">
@@ -127,8 +126,29 @@ function ResultsContent() {
 
       {report && (
         <div className="prose prose-lg space-y-6">
-          {sectionsConfig.map(({ header, premiumOnly }) =>
-            sections[header] ? (
+          {sectionsConfig.map(({ header, premiumOnly }) => {
+            if (!sections[header]) return null;
+
+            if (premiumOnly && !isPremiumUser) {
+              return (
+                <div
+                  key={header}
+                  className="border border-gray-200 rounded-lg p-6 bg-gray-50 text-center"
+                >
+                  <h2 className="text-xl font-semibold mb-2 text-[#041B2D]">
+                    {header}
+                  </h2>
+                  <p className="text-gray-600 mb-4">
+                    This section is available with Premium.
+                  </p>
+                  <CTAButton href="/pricing" variant="primary">
+                    Upgrade to Premium
+                  </CTAButton>
+                </div>
+              );
+            }
+
+            return (
               <ReportSection
                 key={header}
                 header={header}
@@ -136,15 +156,14 @@ function ResultsContent() {
                 premiumOnly={premiumOnly}
                 isPremiumUser={isPremiumUser}
               />
-            ) : null
-          )}
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-// ✅ Wrap in Suspense to fix Next.js errors
 export default function ResultsPageWrapper() {
   return (
     <Suspense fallback={<p className="text-center py-8">Loading report...</p>}>
