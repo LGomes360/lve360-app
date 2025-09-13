@@ -1,7 +1,7 @@
 // src/lib/generateStack.ts
 
-import { createClient } from '@supabase/supabase-js';
-import OpenAI from 'openai';
+import { createClient } from "@supabase/supabase-js";
+import OpenAI from "openai";
 
 // -------------------
 // Types
@@ -21,7 +21,7 @@ export interface Submission {
   medications?: string[] | SupplementInput[];
   supplements?: string[] | SupplementInput[];
   hormones?: string[] | SupplementInput[];
-  tier?: 'budget' | 'mid' | 'premium';
+  tier?: "budget" | "mid" | "premium";
   dob?: string;
   sex?: string;
   pregnant?: string;
@@ -65,14 +65,53 @@ const openai = new OpenAI({
 // -------------------
 
 export async function generateStack(submission: Submission): Promise<StackItem[]> {
-  // Set to false to use AI!
-  const rulesOnly = true;
+  const useRulesOnly = process.env.USE_RULES_ONLY === "true"; // default false
 
-  if (rulesOnly) {
-    return generateStackFromRules(submission);
+  let stack: StackItem[] = [];
+
+  if (useRulesOnly) {
+    stack = await generateStackFromRules(submission);
   } else {
-    return generateStackFromLLM(submission);
+    stack = await generateStackFromLLM(submission);
   }
+
+  // Save to DB if we have a submission.id
+  if (submission.id && stack.length > 0) {
+    try {
+      const { data: stackRecord, error: stackErr } = await supabase
+        .from("stacks")
+        .insert({
+          submission_id: submission.id,
+          generated_by: useRulesOnly ? "rules" : "llm",
+          created_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (stackErr) throw stackErr;
+
+      const items = stack.map((item) => ({
+        stack_id: stackRecord.id,
+        name: item.name,
+        dose: item.dose,
+        timing: item.timing ?? null,
+        link: item.link ?? null,
+        notes: item.notes ?? null,
+        rationale: item.rationale ?? null,
+        caution: item.caution ?? null,
+        citations: item.citations ?? null,
+      }));
+
+      const { error: itemsErr } = await supabase.from("stack_items").insert(items);
+      if (itemsErr) {
+        console.error("❌ Failed to insert stack items:", itemsErr);
+      }
+    } catch (err) {
+      console.error("❌ Error saving stack:", err);
+    }
+  }
+
+  return stack;
 }
 
 // -------------------
@@ -80,8 +119,8 @@ export async function generateStack(submission: Submission): Promise<StackItem[]
 // -------------------
 
 async function generateStackFromRules(submission: Submission): Promise<StackItem[]> {
-  const goals = submission.goals ?? [];
-  const tier = submission.tier ?? 'budget';
+  const goals = submission.goals?.map((g) => g.toLowerCase()) ?? [];
+  const tier = submission.tier ?? "budget";
   const health = submission.healthConditions ?? [];
 
   let meds: any[] = [];
@@ -89,83 +128,86 @@ async function generateStackFromRules(submission: Submission): Promise<StackItem
   let hormones: any[] = [];
 
   if (submission.id) {
-    const [
-      { data: medsRaw },
-      { data: userSuppsRaw },
-      { data: hormonesRaw }
-    ] = await Promise.all([
-      supabase.from('submission_medications').select('name').eq('submission_id', submission.id),
-      supabase.from('submission_supplements').select('name').eq('submission_id', submission.id),
-      supabase.from('submission_hormones').select('name').eq('submission_id', submission.id),
-    ]);
+    const [{ data: medsRaw }, { data: userSuppsRaw }, { data: hormonesRaw }] =
+      await Promise.all([
+        supabase.from("submission_medications").select("name").eq("submission_id", submission.id),
+        supabase.from("submission_supplements").select("name").eq("submission_id", submission.id),
+        supabase.from("submission_hormones").select("name").eq("submission_id", submission.id),
+      ]);
     meds = medsRaw ?? [];
     userSupps = userSuppsRaw ?? [];
     hormones = hormonesRaw ?? [];
   }
 
-  // Handle both string[] and object[]
   const medsArr = Array.isArray(submission.medications)
-    ? submission.medications.map(m => typeof m === 'string' ? m : m.name)
-    : meds.length > 0 ? meds.map(m => m.name) : [];
+    ? submission.medications.map((m) => (typeof m === "string" ? m : m.name))
+    : meds.map((m) => m.name);
 
   const userSuppsArr = Array.isArray(submission.supplements)
-    ? submission.supplements.map(s => typeof s === 'string' ? s : s.name)
-    : userSupps.length > 0 ? userSupps.map(s => s.name) : [];
+    ? submission.supplements.map((s) => (typeof s === "string" ? s : s.name))
+    : userSupps.map((s) => s.name);
 
   const { data: rules, error: rulesError } = await supabase
-    .from('rules')
-    .select('*')
-    .in('entity_a_name', goals);
+    .from("rules")
+    .select("*")
+    .in("entity_a_name", goals);
 
   if (rulesError) {
-    console.error('Error fetching rules', rulesError);
+    console.error("❌ Error fetching rules", rulesError);
     return [];
   }
 
-  const candidateIngredients = rules
-    ?.filter(r => r.rule_type !== 'UL' && r.rule_type !== 'SPACING' && r.rule_type !== 'AVOID')
-    .map(r => r.counterparty_name)
-    .filter(Boolean) ?? [];
+  const candidateIngredients =
+    rules
+      ?.filter(
+        (r) => r.rule_type !== "UL" && r.rule_type !== "SPACING" && r.rule_type !== "AVOID"
+      )
+      .map((r) => r.counterparty_name)
+      .filter(Boolean) ?? [];
 
   const stack: StackItem[] = [];
 
   for (const ingredient of candidateIngredients) {
     const { data: supp, error: suppError } = await supabase
-      .from('supplements')
-      .select('*')
-      .eq('ingredient', ingredient)
-      .eq('tier', tier)
+      .from("supplements")
+      .select("*")
+      .eq("ingredient", ingredient)
+      .eq("tier", tier)
       .single();
+
     if (suppError || !supp) {
-      console.warn(`No supplement found for ${ingredient}`, suppError);
+      console.warn(`⚠️ No supplement found for ${ingredient}`, suppError);
       continue;
     }
 
-    const { data: interact, error: interactError } = await supabase
-      .from('interactions')
-      .select('*')
-      .eq('ingredient', ingredient)
+    const { data: interact } = await supabase
+      .from("interactions")
+      .select("*")
+      .eq("ingredient", ingredient)
       .single();
-    if (interactError) console.warn(`No interaction data for ${ingredient}`);
 
     let blocked = false;
     if (interact) {
       if (
-        medsArr.some(m => m.toLowerCase().includes('anticoagulant')) &&
-        interact.anticoagulants_bleeding_risk === 'Y'
-      ) blocked = true;
+        medsArr.some((m) => m.toLowerCase().includes("anticoagulant")) &&
+        interact.anticoagulants_bleeding_risk === "Y"
+      )
+        blocked = true;
       if (
-        health.some(h => h.toLowerCase().includes('pregnancy')) &&
-        interact.pregnancy_caution === 'Y'
-      ) blocked = true;
+        health.some((h) => h.toLowerCase().includes("pregnancy")) &&
+        interact.pregnancy_caution === "Y"
+      )
+        blocked = true;
       if (
-        health.some(h => h.toLowerCase().includes('liver')) &&
-        interact.liver_disease_caution === 'Y'
-      ) blocked = true;
+        health.some((h) => h.toLowerCase().includes("liver")) &&
+        interact.liver_disease_caution === "Y"
+      )
+        blocked = true;
       if (
-        health.some(h => h.toLowerCase().includes('kidney')) &&
-        interact.kidney_disease_caution === 'Y'
-      ) blocked = true;
+        health.some((h) => h.toLowerCase().includes("kidney")) &&
+        interact.kidney_disease_caution === "Y"
+      )
+        blocked = true;
     }
 
     if (blocked) continue;
@@ -191,48 +233,47 @@ async function generateStackFromLLM(sub: Submission): Promise<StackItem[]> {
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: "gpt-4o",
       temperature: 0.4,
       messages: [
-        { role: 'system', content: 'You are a supplement expert.' },
-        { role: 'user', content: prompt },
+        { role: "system", content: "You are a supplement expert." },
+        { role: "user", content: prompt },
       ],
     });
 
-    const raw = response.choices[0].message?.content ?? '';
+    const raw = response.choices[0].message?.content ?? "";
     return parseStackFromLLMOutput(raw);
   } catch (err) {
-    console.error('LLM API error', err);
+    console.error("❌ LLM API error", err);
     return [];
   }
 }
 
 function formatPromptFromSubmission(sub: Submission): string {
-  // Converts arrays of objects to name strings if needed
   const meds = Array.isArray(sub.medications)
-    ? sub.medications.map(m => typeof m === 'string' ? m : m.name).join(', ')
-    : '';
+    ? sub.medications.map((m) => (typeof m === "string" ? m : m.name)).join(", ")
+    : "";
   const supps = Array.isArray(sub.supplements)
-    ? sub.supplements.map(s => typeof s === 'string' ? s : s.name).join(', ')
-    : '';
+    ? sub.supplements.map((s) => (typeof s === "string" ? s : s.name)).join(", ")
+    : "";
   const horms = Array.isArray(sub.hormones)
-    ? sub.hormones.map(h => typeof h === 'string' ? h : h.name).join(', ')
-    : '';
+    ? sub.hormones.map((h) => (typeof h === "string" ? h : h.name)).join(", ")
+    : "";
 
   return `
 User info:
-- Age: ${sub.dob ? calculateAge(sub.dob) : 'Unknown'}
-- Sex at Birth: ${sub.sex ?? 'Unknown'}
-- Pregnant: ${sub.pregnant ?? 'Unknown'}
-- Weight: ${sub.weight ?? 'Unknown'}
-- Height: ${sub.height ?? 'Unknown'}
-- Conditions: ${sub.healthConditions?.join(', ') ?? 'None'}
+- Age: ${sub.dob ? calculateAge(sub.dob) : "Unknown"}
+- Sex at Birth: ${sub.sex ?? "Unknown"}
+- Pregnant: ${sub.pregnant ?? "Unknown"}
+- Weight: ${sub.weight ?? "Unknown"}
+- Height: ${sub.height ?? "Unknown"}
+- Conditions: ${sub.healthConditions?.join(", ") ?? "None"}
 - Medications: ${meds}
 - Supplements: ${supps}
 - Hormones: ${horms}
-- Goals: ${sub.goals?.join(', ') ?? 'Unknown'}
-- Energy (1–5): ${sub.energy_rating ?? '3'}
-- Sleep (1–5): ${sub.sleep_rating ?? '3'}
+- Goals: ${sub.goals?.join(", ") ?? "Unknown"}
+- Energy (1–5): ${sub.energy_rating ?? "3"}
+- Sleep (1–5): ${sub.sleep_rating ?? "3"}
 
 Instructions:
 - Generate a safe daily supplement stack (max 8 ingredients)
@@ -243,17 +284,17 @@ Instructions:
 }
 
 function parseStackFromLLMOutput(output: string): StackItem[] {
-  const first = output.indexOf('[');
-  const last = output.lastIndexOf(']');
+  const first = output.indexOf("[");
+  const last = output.lastIndexOf("]");
   if (first === -1 || last === -1) {
-    console.error('LLM output missing array:', output);
+    console.error("❌ LLM output missing array:", output);
     return [];
   }
   const json = output.slice(first, last + 1);
   try {
     return JSON.parse(json);
   } catch (e) {
-    console.error('Failed to parse LLM stack JSON', e, json);
+    console.error("❌ Failed to parse LLM stack JSON", e, json);
     return [];
   }
 }
