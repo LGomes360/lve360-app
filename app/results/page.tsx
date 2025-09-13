@@ -4,6 +4,7 @@ import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { createClient } from "@supabase/supabase-js";
+import CTAButton from "@/components/CTAButton";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -92,18 +93,12 @@ function ResultsContent() {
           Please start with the quiz to generate your personalized report.
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <a
-            href="https://tally.so/r/mOqRBk"
-            className="px-6 py-3 rounded-lg text-white font-medium text-center bg-[#06C1A0] hover:bg-[#049b80] transition-colors"
-          >
+          <CTAButton href="https://tally.so/r/mOqRBk" variant="primary">
             Take the Quiz
-          </a>
-          <a
-            href="/"
-            className="px-6 py-3 rounded-lg font-medium text-center border border-[#041B2D] text-[#041B2D] hover:bg-[#041B2D] hover:text-white transition-colors"
-          >
+          </CTAButton>
+          <CTAButton href="/" variant="secondary">
             Back to Home
-          </a>
+          </CTAButton>
         </div>
       </div>
     );
@@ -117,12 +112,12 @@ function ResultsContent() {
 
       {testMode && (
         <div className="mb-6">
-          <button
+          <CTAButton
             onClick={() => setIsPremiumUser((prev) => !prev)}
-            className="px-4 py-2 rounded bg-gray-200 text-[#041B2D] hover:bg-gray-300"
+            variant="secondary"
           >
             Toggle Premium Mode (currently: {isPremiumUser ? "Premium" : "Free"})
-          </button>
+          </CTAButton>
         </div>
       )}
 
@@ -167,12 +162,9 @@ function ResultsContent() {
                       <p className="mb-3 text-[#041B2D] font-medium">
                         🔒 Unlock this section with LVE360 Premium
                       </p>
-                      <a
-                        href="/pricing"
-                        className="px-4 py-2 bg-[#06C1A0] text-white rounded-lg hover:bg-[#049b80]"
-                      >
+                      <CTAButton href="/pricing" variant="primary">
                         Upgrade Now
-                      </a>
+                      </CTAButton>
                     </div>
                   </div>
                 ) : (
