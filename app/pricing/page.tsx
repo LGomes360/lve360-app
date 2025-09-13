@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import CTAButton from "@/components/CTAButton";
+import PlanCard from "@/components/PlanCard";
 
 export default function Pricing() {
   const [email, setEmail] = useState("");
@@ -50,53 +50,35 @@ export default function Pricing() {
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {/* Free Plan */}
-        <div className="border rounded-xl p-8 shadow-sm flex flex-col">
-          <h2 className="text-2xl font-semibold mb-4 text-[#041B2D]">Free</h2>
-          <p className="text-gray-600 mb-6">
-            Get your intake quiz and a preview of your personalized report.
-          </p>
-          <p className="text-3xl font-bold mb-6 text-[#041B2D]">$0</p>
-          <CTAButton href="/results" variant="secondary" fullWidth>
-            Get Started
-          </CTAButton>
-        </div>
+      {/* Plan grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
+        <PlanCard
+          title="Free"
+          description="Get your intake quiz and a preview of your personalized report."
+          price="$0"
+          variant="free"
+          buttonText="Get Started"
+          buttonHref="/results"
+        />
 
-        {/* Premium Plan */}
-        <div className="border-2 border-[#06C1A0] rounded-xl p-8 shadow-md flex flex-col relative">
-          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#06C1A0] text-white px-3 py-1 rounded-full text-sm font-medium">
-            Most Popular
-          </div>
-          <h2 className="text-2xl font-semibold mb-4 text-[#041B2D]">Premium</h2>
-          <p className="text-gray-600 mb-6">
-            Unlock your full concierge report, supplement stack, and lifestyle
-            roadmap.
-          </p>
-          <p className="text-3xl font-bold mb-6 text-[#041B2D]">$9/mo</p>
-          <CTAButton
-            onClick={() => subscribe("premium")}
-            variant="primary"
-            fullWidth
-          >
-            Upgrade Now
-          </CTAButton>
-        </div>
+        <PlanCard
+          title="Premium"
+          description="Unlock your full concierge report, supplement stack, and lifestyle roadmap."
+          price="$9/mo"
+          variant="premium"
+          badge="Most Popular"
+          buttonText="Upgrade Now"
+          buttonAction={() => subscribe("premium")}
+        />
 
-        {/* Concierge Plan */}
-        <div className="border rounded-xl p-8 shadow-sm flex flex-col">
-          <h2 className="text-2xl font-semibold mb-4 text-[#041B2D]">
-            Concierge
-          </h2>
-          <p className="text-gray-600 mb-6">
-            Coming soon: direct access to LVE360 specialists and lab
-            integrations.
-          </p>
-          <p className="text-3xl font-bold mb-6 text-[#041B2D]">TBD</p>
-          <CTAButton variant="disabled" fullWidth>
-            Coming Soon
-          </CTAButton>
-        </div>
+        <PlanCard
+          title="Concierge"
+          description="Coming soon: direct access to LVE360 specialists and lab integrations."
+          price="TBD"
+          variant="concierge"
+          buttonText="Coming Soon"
+          disabled
+        />
       </div>
     </main>
   );
