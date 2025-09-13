@@ -1,8 +1,7 @@
-import { describe, it, expect } from "vitest"; // or jest if you're using jest
-import { ReportInput } from "../src/lib/generateReport";
-import { buildReportPromptFromSpec } from "../src/lib/generateReport"; // make sure it's exported
+import { describe, it, expect } from "vitest"; // swap to jest if that's your runner
+import { ReportInput, buildReportPromptFromSpec } from "../src/lib/generateReport";
 
-// Minimal fake submission for testing
+// Fake submission for testing
 const fakeSubmission: ReportInput = {
   id: "test123",
   email: "test@example.com",
@@ -23,6 +22,7 @@ const fakeSubmission: ReportInput = {
   brand_pref: "budget brands",
 };
 
+// The 9 required section headers
 const sections = [
   "## Section 1. Current Analysis",
   "## Section 2. Contraindications",
