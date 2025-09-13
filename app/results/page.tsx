@@ -16,7 +16,7 @@ export default function ResultsPage() {
   const [error, setError] = useState<string | null>(null);
   const [isPremiumUser, setIsPremiumUser] = useState(false);
 
-  // ⚡ Replace this with however you pass submission_id (session, props, etc.)
+  // ⚡ Replace with your submission_id source
   const submissionId = "8c0f3b4a-32e4-4077-a77f-fa83c6650086";
 
   useEffect(() => {
@@ -33,20 +33,18 @@ export default function ResultsPage() {
           return;
         }
 
-        // 2. Fetch user row with tier
+        // 2. Fetch user tier
         const { data: userRow, error: userError } = await supabase
           .from("users")
           .select("tier")
           .eq("id", session.user.id)
           .single();
 
-        if (userError) {
-          console.warn("No user row found:", userError);
-        } else {
+        if (!userError) {
           setIsPremiumUser(userRow?.tier === "premium");
         }
 
-        // 3. Call report API
+        // 3. Fetch report
         const res = await fetch("/api/generate-report", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -56,11 +54,8 @@ export default function ResultsPage() {
         if (!res.ok) throw new Error(`API error ${res.status}`);
 
         const data = await res.json();
-        if (data?.body) {
-          setReport(data.body);
-        } else {
-          setError("No report body returned");
-        }
+        if (data?.body) setReport(data.body);
+        else setError("No report body returned");
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -71,9 +66,9 @@ export default function ResultsPage() {
     fetchUserAndReport();
   }, [submissionId]);
 
-  // Utility: split markdown by section headers
+  // Split report into sections
   function splitSections(md: string): Record<string, string> {
-    const parts = md.split(/^## /gm); // split on section headers
+    const parts = md.split(/^## /gm);
     const sections: Record<string, string> = {};
     for (const part of parts) {
       if (!part.trim()) continue;
@@ -106,35 +101,43 @@ export default function ResultsPage() {
               )
           )}
 
-          {/* Premium-only content */}
-          {!isPremiumUser ? (
-            <div className="p-6 bg-gray-100 border rounded-lg text-center">
-              <p className="mb-2">
-                🔒 Unlock your personalized stack and lifestyle plan by upgrading
-                to LVE360 Premium.
-              </p>
-              <a
-                href="/pricing"
-                className="inline-block px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700"
-              >
-                Upgrade Now
-              </a>
-            </div>
-          ) : (
-            Object.entries(sections)
-              .filter(
-                ([header]) =>
-                  !header.startsWith("Section 1") &&
-                  !header.startsWith("Section 2") &&
-                  !header.startsWith("Section 3")
-              )
-              .map(([header, body]) => (
-                <section key={header}>
-                  <h2>## {header}</h2>
+          {/* Premium-only sections */}
+          {Object.entries(sections)
+            .filter(
+              ([header]) =>
+                !header.startsWith("Section 1") &&
+                !header.startsWith("Section 2") &&
+                !header.startsWith("Section 3")
+            )
+            .map(([header, body]) => (
+              <section key={header} className="relative">
+                <h2>## {header}</h2>
+
+                {!isPremiumUser ? (
+                  <div className="relative">
+                    {/* Blurred content */}
+                    <div className="blur-sm select-none pointer-events-none">
+                      <ReactMarkdown>{body}</ReactMarkdown>
+                    </div>
+
+                    {/* Overlay upgrade CTA */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/70">
+                      <p className="mb-3 text-gray-700 font-medium">
+                        🔒 Unlock this section with LVE360 Premium
+                      </p>
+                      <a
+                        href="/pricing"
+                        className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+                      >
+                        Upgrade Now
+                      </a>
+                    </div>
+                  </div>
+                ) : (
                   <ReactMarkdown>{body}</ReactMarkdown>
-                </section>
-              ))
-          )}
+                )}
+              </section>
+            ))}
         </div>
       )}
     </div>
