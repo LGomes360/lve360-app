@@ -19,9 +19,9 @@ export default function ResultsPage() {
   // Dev-only toggle
   const [testMode] = useState(process.env.NODE_ENV !== "production");
 
-  // ✅ Read submission_id from URL
+  // ✅ Read submission_id safely from URL
   const searchParams = useSearchParams();
-  const submissionId = searchParams.get("submission_id");
+  const submissionId = searchParams?.get("submission_id") ?? null;
 
   useEffect(() => {
     if (!submissionId) {
@@ -102,7 +102,12 @@ export default function ResultsPage() {
 
       {report && (
         <div className="prose prose-lg space-y-6">
-          {["Section 1. Current Analysis", "Section 2. Contraindications", "Section 3. Bang-for-Buck"].map(
+          {/* Always show Sections 1–3 */}
+          {[
+            "Section 1. Current Analysis",
+            "Section 2. Contraindications",
+            "Section 3. Bang-for-Buck",
+          ].map(
             (sec) =>
               sections[sec] && (
                 <section key={sec}>
@@ -112,6 +117,7 @@ export default function ResultsPage() {
               )
           )}
 
+          {/* Premium-only sections */}
           {Object.entries(sections)
             .filter(
               ([header]) =>
