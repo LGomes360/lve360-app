@@ -2,9 +2,9 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import ReactMarkdown from "react-markdown";
 import { createClient } from "@supabase/supabase-js";
 import CTAButton from "@/components/CTAButton";
+import ReportSection from "@/components/ReportSection";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -127,17 +127,15 @@ function ResultsContent() {
       {report && (
         <div className="prose prose-lg space-y-6">
           {/* Always show Sections 1–3 */}
-          {[
-            "Section 1. Current Analysis",
-            "Section 2. Contraindications",
-            "Section 3. Bang-for-Buck",
-          ].map(
+          {["Section 1. Current Analysis", "Section 2. Contraindications", "Section 3. Bang-for-Buck"].map(
             (sec) =>
               sections[sec] && (
-                <section key={sec}>
-                  <h2 className="text-[#041B2D]">## {sec}</h2>
-                  <ReactMarkdown>{sections[sec]}</ReactMarkdown>
-                </section>
+                <ReportSection
+                  key={sec}
+                  header={sec}
+                  body={sections[sec]}
+                  isPremiumUser={true} // always free
+                />
               )
           )}
 
@@ -150,27 +148,13 @@ function ResultsContent() {
                 !header.startsWith("Section 3")
             )
             .map(([header, body]) => (
-              <section key={header} className="relative">
-                <h2 className="text-[#041B2D]">## {header}</h2>
-
-                {!isPremiumUser ? (
-                  <div className="relative">
-                    <div className="blur-sm select-none pointer-events-none">
-                      <ReactMarkdown>{body}</ReactMarkdown>
-                    </div>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/70">
-                      <p className="mb-3 text-[#041B2D] font-medium">
-                        🔒 Unlock this section with LVE360 Premium
-                      </p>
-                      <CTAButton href="/pricing" variant="primary">
-                        Upgrade Now
-                      </CTAButton>
-                    </div>
-                  </div>
-                ) : (
-                  <ReactMarkdown>{body}</ReactMarkdown>
-                )}
-              </section>
+              <ReportSection
+                key={header}
+                header={header}
+                body={body}
+                premiumOnly
+                isPremiumUser={isPremiumUser}
+              />
             ))}
         </div>
       )}
@@ -178,7 +162,7 @@ function ResultsContent() {
   );
 }
 
-// ✅ Wrap in Suspense so Next.js 14 is happy
+// ✅ Wrap in Suspense
 export default function ResultsPageWrapper() {
   return (
     <Suspense fallback={<p className="text-center py-8">Loading report...</p>}>
