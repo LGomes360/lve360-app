@@ -82,6 +82,25 @@ export default function ResultsPage() {
   let sections: Record<string, string> = {};
   if (report) sections = splitSections(report);
 
+  // ✅ Fallback UI if submission_id missing
+  if (!submissionId) {
+    return (
+      <div className="max-w-xl mx-auto py-12 px-6 text-center">
+        <h1 className="text-2xl font-semibold mb-4">No Report Found</h1>
+        <p className="text-gray-600 mb-6">
+          It looks like you landed here without completing the intake quiz. To
+          get your personalized concierge report, please start with the quiz.
+        </p>
+        <a
+          href="/"
+          className="inline-block px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+        >
+          Take the Quiz
+        </a>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
       <h1 className="text-3xl font-bold mb-6">Your LVE360 Concierge Report</h1>
