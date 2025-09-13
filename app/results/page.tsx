@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import CTAButton from "@/components/CTAButton";
 import ReportSection from "@/components/ReportSection";
+import { sectionsConfig } from "@/config/reportSections";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -126,43 +127,24 @@ function ResultsContent() {
 
       {report && (
         <div className="prose prose-lg space-y-6">
-          {/* Always show Sections 1–3 */}
-          {["Section 1. Current Analysis", "Section 2. Contraindications", "Section 3. Bang-for-Buck"].map(
-            (sec) =>
-              sections[sec] && (
-                <ReportSection
-                  key={sec}
-                  header={sec}
-                  body={sections[sec]}
-                  isPremiumUser={true} // always free
-                />
-              )
-          )}
-
-          {/* Premium-only sections */}
-          {Object.entries(sections)
-            .filter(
-              ([header]) =>
-                !header.startsWith("Section 1") &&
-                !header.startsWith("Section 2") &&
-                !header.startsWith("Section 3")
-            )
-            .map(([header, body]) => (
+          {sectionsConfig.map(({ header, premiumOnly }) =>
+            sections[header] ? (
               <ReportSection
                 key={header}
                 header={header}
-                body={body}
-                premiumOnly
+                body={sections[header]}
+                premiumOnly={premiumOnly}
                 isPremiumUser={isPremiumUser}
               />
-            ))}
+            ) : null
+          )}
         </div>
       )}
     </div>
   );
 }
 
-// ✅ Wrap in Suspense
+// ✅ Wrap in Suspense to fix Next.js errors
 export default function ResultsPageWrapper() {
   return (
     <Suspense fallback={<p className="text-center py-8">Loading report...</p>}>
