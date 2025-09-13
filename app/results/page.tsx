@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { createClient } from "@supabase/supabase-js";
 
-// Supabase client (browser safe)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -16,7 +15,9 @@ export default function ResultsPage() {
   const [error, setError] = useState<string | null>(null);
   const [isPremiumUser, setIsPremiumUser] = useState(false);
 
-  // ⚡ Replace with your submission_id source
+  // Dev-only toggle
+  const [testMode] = useState(process.env.NODE_ENV !== "production");
+
   const submissionId = "8c0f3b4a-32e4-4077-a77f-fa83c6650086";
 
   useEffect(() => {
@@ -24,27 +25,22 @@ export default function ResultsPage() {
       try {
         setLoading(true);
 
-        // 1. Get current session
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session?.user?.id) {
-          setError("Not logged in");
-          return;
+        if (!testMode) {
+          // ✅ Real check: Supabase Auth + users.tier
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (session?.user?.id) {
+            const { data: userRow } = await supabase
+              .from("users")
+              .select("tier")
+              .eq("id", session.user.id)
+              .single();
+            setIsPremiumUser(userRow?.tier === "premium");
+          }
         }
 
-        // 2. Fetch user tier
-        const { data: userRow, error: userError } = await supabase
-          .from("users")
-          .select("tier")
-          .eq("id", session.user.id)
-          .single();
-
-        if (!userError) {
-          setIsPremiumUser(userRow?.tier === "premium");
-        }
-
-        // 3. Fetch report
+        // ✅ Always fetch report
         const res = await fetch("/api/generate-report", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -52,10 +48,8 @@ export default function ResultsPage() {
         });
 
         if (!res.ok) throw new Error(`API error ${res.status}`);
-
         const data = await res.json();
         if (data?.body) setReport(data.body);
-        else setError("No report body returned");
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -64,9 +58,8 @@ export default function ResultsPage() {
     }
 
     fetchUserAndReport();
-  }, [submissionId]);
+  }, [submissionId, testMode]);
 
-  // Split report into sections
   function splitSections(md: string): Record<string, string> {
     const parts = md.split(/^## /gm);
     const sections: Record<string, string> = {};
@@ -84,6 +77,18 @@ export default function ResultsPage() {
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
       <h1 className="text-3xl font-bold mb-6">Your LVE360 Concierge Report</h1>
+
+      {/* Show toggle only in dev */}
+      {testMode && (
+        <div className="mb-6">
+          <button
+            onClick={() => setIsPremiumUser((prev) => !prev)}
+            className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+          >
+            Toggle Premium Mode (currently: {isPremiumUser ? "Premium" : "Free"})
+          </button>
+        </div>
+      )}
 
       {loading && <p className="text-gray-500">Generating your report...</p>}
       {error && <p className="text-red-600">❌ {error}</p>}
@@ -115,12 +120,9 @@ export default function ResultsPage() {
 
                 {!isPremiumUser ? (
                   <div className="relative">
-                    {/* Blurred content */}
                     <div className="blur-sm select-none pointer-events-none">
                       <ReactMarkdown>{body}</ReactMarkdown>
                     </div>
-
-                    {/* Overlay upgrade CTA */}
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/70">
                       <p className="mb-3 text-gray-700 font-medium">
                         🔒 Unlock this section with LVE360 Premium
