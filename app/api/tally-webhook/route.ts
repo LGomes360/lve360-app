@@ -1,9 +1,8 @@
 // -----------------------------------------------------------------------------
 // File: app/api/tally-webhook/route.ts
-// LVE360 // API Route (MAXIMAL VERSION)
-// Handles incoming Tally form submissions, normalizes + validates data,
-// creates (or finds) the user, inserts the submission (with user_id),
-// logs all errors to webhook_failures.
+// LVE360 // API Route (MAXIMUM VERSION, 2025-09-16, NO DUPLICATES)
+// Handles incoming Tally/Typeform, normalizes + validates data, finds/creates user,
+// inserts the submission (with user_id and tally_submission_id), logs all errors.
 // -----------------------------------------------------------------------------
 
 import { NextRequest, NextResponse } from "next/server";
@@ -91,16 +90,18 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json();
 
-    // Merge fields and answers for compatibility (Tally and Typeform)
+    // Merge fields and answers for compatibility
     const fieldsMap = body?.data?.fields ? fieldsToMap(body.data.fields) : {};
     const answersMap = body?.form_response?.answers
       ? answersToMap(body.form_response.answers)
       : {};
     const src = { ...fieldsMap, ...answersMap };
 
-    // -- Normalize all critical fields --
+    // -- Extract Tally submission ID (OUTSIDE Zod) --
+    const tally_submission_id = body?.data?.submissionId || body?.id || null;
+
+    // -- Normalize all critical fields (inside Zod) --
     const normalized = {
-      tally_submission_id: body?.data?.submissionId || body?.id || null,
       user_email: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.user_email, ["email"])),
       name: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.name, ["name", "nickname"])),
       dob: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.dob, ["dob", "date of birth"])),
@@ -189,27 +190,20 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // --- Prepare submission row without property duplication ---
-    // Remove any conflicting keys from 'data'
-    const {
-      user_email,                // extracted, not spread
-      tally_submission_id,       // extracted, not spread
-      ...restData                // everything else
-    } = data;
-
-    const insertObj = {
+    // --- Build submission object (NO DUPLICATE FIELDS!) ---
+    const submissionRow = {
       user_id: userId ?? null,
       user_email: data.user_email ? normalize(data.user_email) : null,
-      tally_submission_id: normalized.tally_submission_id ?? null,
-      ...restData,
+      tally_submission_id, // only here, not inside data!
+      ...data,
       payload_json: body,
       answers: body?.data?.fields ?? body?.form_response?.answers ?? [],
     };
 
-    // --- Insert submission (including Tally's original ID if present) ---
+    // --- Insert submission ---
     const { data: subRow, error: subErr } = await supa
       .from("submissions")
-      .insert(insertObj)
+      .insert(submissionRow)
       .select("id")
       .single();
 
@@ -227,9 +221,6 @@ export async function POST(req: NextRequest) {
 
     const submissionId = subRow.id;
     const resultsUrl = `https://app.lve360.com/results?submission_id=${submissionId}`;
-
-    // --- (Optional) Send confirmation email, if desired ---
-    // You can uncomment and fill in your RESEND API/email code here
 
     // --- Respond with submission id and redirect URL ---
     return NextResponse.json({
