@@ -192,7 +192,7 @@ export async function POST(req: NextRequest) {
       .from("submissions")
       .insert({
         user_id: userId ?? null,
-        user_email: data.user_email ? normalize(data.user_email) : null,
+         tally_submission_id: normalized.tally_submission_id ?? null,
         tally_submission_id: normalized.tally_submission_id ?? null,
         ...data,
         payload_json: body,
