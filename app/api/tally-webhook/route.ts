@@ -1,245 +1,238 @@
-
 // -----------------------------------------------------------------------------
-// File: app/api/stripe/webhook/route.ts
+// File: app/api/tally-webhook/route.ts
 // LVE360 // API Route
-// Stripe webhook handler. Handles subscription lifecycle events.
-// Upserts users, dedupes rows, and syncs subscription state into Supabase.
+// Handles incoming Tally form submissions, normalizes + validates data,
+// creates (or finds) the user, inserts the submission (with user_id),
+// and logs errors to webhook_failures.
 // -----------------------------------------------------------------------------
-
-export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
-import { supabaseAdmin as supa } from "@lib/supabaseAdmin";
+import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
+import { TALLY_KEYS, NormalizedSubmissionSchema } from "@/types/tally-normalized";
+import { parseList, parseSupplements } from "@/lib/parseLists";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPA_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+function cleanSingle(val: any): string | undefined {
+  if (val == null) return undefined;
+  if (Array.isArray(val)) return val.length ? cleanSingle(val[0]) : undefined;
+  if (typeof val === "object" && "value" in val) return cleanSingle(val.value);
+  if (typeof val === "object" && "id" in val) return cleanSingle(val.id);
+  if (typeof val === "object" && Object.keys(val).length === 1 && "label" in val)
+    return cleanSingle(val.label);
+  if (typeof val === "object") return undefined;
+  if (typeof val === "boolean") return val ? "yes" : "no";
+  return String(val);
+}
 
-// -----------------------------------------------------------------------------
-// Utils
-// -----------------------------------------------------------------------------
+function cleanArray(val: any): string[] {
+  if (val == null) return [];
+  if (Array.isArray(val)) return val.map(cleanSingle).filter(Boolean) as string[];
+  if (typeof val === "object" && "value" in val) return cleanArray(val.value);
+  if (typeof val === "object") return [];
+  if (typeof val === "string" && val.trim() !== "") return [val];
+  return [];
+}
+
+// Merge Tally "fields" (classic) or "answers" (Typeform-style) into a flat map
+function fieldsToMap(fields: any[]): Record<string, unknown> {
+  const map: Record<string, unknown> = {};
+  for (const f of fields ?? []) {
+    if (!f) continue;
+    const key = f.key ?? "";
+    let val = f.value ?? f.text ?? f.answer ?? f;
+    if (f.type === "CHECKBOXES" && Array.isArray(f.value)) {
+      val = f.value.map((v: any) => v?.label ?? v?.value ?? v);
+    }
+    map[key] = val;
+    if (f.label) map[`label::${String(f.label).toLowerCase()}`] = val;
+  }
+  return map;
+}
+
+function answersToMap(answers: any[]): Record<string, unknown> {
+  const map: Record<string, unknown> = {};
+  for (const a of answers ?? []) {
+    const label = a?.field?.label ? String(a.field.label).toLowerCase() : undefined;
+    const key = a?.field?.id ?? a?.field?.key;
+    let val =
+      a?.text ?? a?.email ?? a?.choice?.label ?? a?.choices?.labels ?? a?.value ?? a;
+    if (Array.isArray(val)) {
+      val = val
+        .map((v: any) =>
+          typeof v === "string" ? v : v?.label ?? v?.value ?? String(v)
+        )
+        .filter(Boolean);
+    }
+    if (key) map[key] = val;
+    if (label) map[`label::${label}`] = val;
+  }
+  return map;
+}
+
+function getByKeyOrLabel(
+  src: Record<string, unknown>,
+  key: string,
+  labelCandidates: string[]
+): unknown {
+  if (key && key in src) return src[key];
+  for (const l of labelCandidates) {
+    const v = src[`label::${l.toLowerCase()}`];
+    if (v !== undefined) return v;
+  }
+  return undefined;
+}
+
 function normalize(email: string | null | undefined): string {
-  return (email ?? "").trim().toLowerCase();
+  return (email ?? "").toString().trim().toLowerCase();
 }
 
-// Always returns canonical user_id if submissions exist, else null
-async function getCanonicalUserIdByEmail(email: string): Promise<string | null> {
-  const { data, error } = await supa
-    .from("submissions")
-    .select("user_id")
-    .eq("user_email", email)
-    .order("submitted_at", { ascending: false })
-    .limit(1)
-    .single();
-
-  if (error || !data) return null;
-  return data.user_id;
-}
-
-// Upsert user with subscription info
-async function upsertUser(row: {
-  email: string;
-  tier: "free" | "premium";
-  stripe_customer_id?: string | null;
-  stripe_subscription_status?: string | null;
-  canonical_user_id?: string | null;
-}) {
-  const email = normalize(row.email);
-
-  // Lookup existing users
-  const { data: existingUsers, error: lookupErr } = await supa
-    .from("users")
-    .select("*")
-    .eq("email", email);
-
-  if (lookupErr) {
-    console.error("❌ Supabase user lookup failed:", lookupErr);
-    return;
-  }
-
-  const idToUse = row.canonical_user_id || undefined;
-
-  // Update if exists
-  if (existingUsers && existingUsers.length > 0) {
-    const user = existingUsers[0];
-    const resp = await supa
-      .from("users")
-      .update({
-        tier: row.tier,
-        stripe_customer_id: row.stripe_customer_id ?? user.stripe_customer_id,
-        stripe_subscription_status:
-          row.stripe_subscription_status ?? user.stripe_subscription_status,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", user.id);
-    if (resp.error) console.error("❌ Supabase user update failed:", resp.error);
-    else console.log("✅ User updated:", email, "→", row.tier);
-    return;
-  }
-
-  // Insert if not found
-  const payload = [
-    {
-      id: idToUse,
-      email,
-      tier: row.tier,
-      stripe_customer_id: row.stripe_customer_id ?? null,
-      stripe_subscription_status: row.stripe_subscription_status ?? null,
-      updated_at: new Date().toISOString(),
-    },
-  ];
-
-  const resp = await fetch(`${SUPA_URL}/rest/v1/users`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: SUPA_SERVICE,
-      Authorization: `Bearer ${SUPA_SERVICE}`,
-      Prefer: "resolution=merge-duplicates",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!resp.ok) {
-    const msg = await resp.text();
-    console.error("❌ Supabase user insert failed:", msg);
-    if (resp.status === 409 || msg.toLowerCase().includes("duplicate")) {
-      await dedupeUserRowsByEmail(email);
-    }
-  } else {
-    console.log("✅ User inserted for", email, "→", row.tier);
-  }
-}
-
-// Deduplicate users for a given email
-async function dedupeUserRowsByEmail(email: string) {
-  const emailNorm = normalize(email);
-  const { data: users, error } = await supa
-    .from("users")
-    .select("*")
-    .eq("email", emailNorm);
-
-  if (error || !users || users.length < 2) return;
-
-  let canonical_user_id = await getCanonicalUserIdByEmail(emailNorm);
-  if (!canonical_user_id) canonical_user_id = users[0].id;
-
-  const extras = users.filter((u) => u.id !== canonical_user_id);
-  const extraIds = extras.map((u) => u.id);
-  if (extraIds.length === 0) return;
-
-  await supa.from("submissions").update({ user_id: canonical_user_id }).in("user_id", extraIds);
-  await supa.from("stacks").update({ user_id: canonical_user_id }).in("user_id", extraIds);
-  await supa.from("users").delete().in("id", extraIds);
-
-  console.log(
-    `✅ Deduped users for ${emailNorm}. Kept ${canonical_user_id}, removed: ${extraIds.join(", ")}`
-  );
-}
-
-// -----------------------------------------------------------------------------
-// POST handler
-// -----------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
-  const raw = await req.text();
-  const sig = req.headers.get("stripe-signature")!;
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
-
-  let event: Stripe.Event;
+  let body: any;
   try {
-    event = stripe.webhooks.constructEvent(raw, sig, endpointSecret);
-  } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: `Webhook error: ${err.message}` },
-      { status: 400 }
-    );
-  }
+    body = await req.json();
+    // Merge fields and answers for best compatibility
+    const fieldsMap = body?.data?.fields ? fieldsToMap(body.data.fields) : {};
+    const answersMap = body?.form_response?.answers
+      ? answersToMap(body.form_response.answers)
+      : {};
+    const src = { ...fieldsMap, ...answersMap };
 
-  try {
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
-        const email = normalize(session.customer_email);
-        const customerId =
-          typeof session.customer === "string"
-            ? session.customer
-            : session.customer?.id || null;
+    // -- Normalize all critical fields --
+    const normalized = {
+      tally_submission_id: body?.data?.submissionId || body?.id || null,  // Store Tally's ID if present
+      user_email: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.user_email, ["email"])),
+      name: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.name, ["name", "nickname"])),
+      dob: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.dob, ["dob", "date of birth"])),
+      height: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.height, ["height"])),
+      weight: (() => {
+        const val = getByKeyOrLabel(src, TALLY_KEYS.weight, ["weight"]);
+        if (typeof val === "number") return val;
+        if (typeof val === "string") return val.replace(/[^0-9.]/g, "");
+        return undefined;
+      })(),
+      sex: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.sex, ["sex"])),
+      gender: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.gender, ["gender"])),
+      pregnant: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.pregnant, ["pregnant"])),
+      goals: cleanArray(parseList(getByKeyOrLabel(src, TALLY_KEYS.goals, ["goals"]))),
+      skip_meals: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.skip_meals, ["skip meals"])),
+      energy_rating: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.energy_rating, ["energy rating"])),
+      sleep_rating: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.sleep_rating, ["sleep rating"])),
+      allergies: (() => {
+        const flag = String(cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.allergies_flag, ["allergies"])) ?? "").toLowerCase();
+        const details = getByKeyOrLabel(src, TALLY_KEYS.allergy_details, ["allergy details"]);
+        return (flag === "yes" || flag === "true") && details
+          ? cleanArray(parseList(details))
+          : [];
+      })(),
+      conditions: cleanArray(parseList(getByKeyOrLabel(src, TALLY_KEYS.conditions, ["conditions"]))),
+      medications: cleanArray(parseList(getByKeyOrLabel(src, TALLY_KEYS.medications, ["medications"]))),
+      supplements: parseSupplements(getByKeyOrLabel(src, TALLY_KEYS.supplements, ["supplements"])),
+      hormones: cleanArray(parseList(getByKeyOrLabel(src, TALLY_KEYS.hormones, ["hormones"]))),
+      dosing_pref: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.dosing_pref, ["dosing preference"])),
+      brand_pref: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.brand_pref, ["brand preference"])),
+    };
 
-        console.log("✅ Checkout completed:", email);
-        if (email) {
-          const canonical_user_id = await getCanonicalUserIdByEmail(email);
-          await upsertUser({
-            email,
-            tier: "premium",
-            stripe_customer_id: customerId,
-            stripe_subscription_status: "active",
-            canonical_user_id,
-          });
-          await dedupeUserRowsByEmail(email);
-        }
-        break;
-      }
-      case "customer.subscription.updated": {
-        const sub = event.data.object as Stripe.Subscription;
-        const customerId =
-          typeof sub.customer === "string" ? sub.customer : sub.customer?.id || null;
+    // --- Validate using Zod schema ---
+    const parsed = NormalizedSubmissionSchema.safeParse(normalized);
+    if (!parsed.success) {
+      await supa.from("webhook_failures").insert({
+        source: "tally",
+        event_type: body?.eventType ?? null,
+        event_id: body?.eventId ?? null,
+        error_message: `validation_error: ${JSON.stringify(parsed.error.flatten())}`,
+        severity: "error",
+        payload_json: body,
+      });
+      return NextResponse.json({ ok: false, error: "Validation failed" }, { status: 422 });
+    }
+    const data = parsed.data;
 
-        let email = "";
-        if (customerId) {
-          const cust = await stripe.customers.retrieve(customerId);
-          email = normalize((cust as Stripe.Customer).email);
-        }
+    // --- Find or create user ---
+    let userId: string | undefined;
+    if (data.user_email) {
+      const normalizedEmail = normalize(data.user_email);
 
-        const status = sub.status;
-        const tier = status === "active" ? "premium" : "free";
-        console.log("ℹ️ Subscription updated:", sub.id, email, "→", status);
+      // Try to find user row
+      const { data: userRow } = await supa
+        .from("users")
+        .select("id")
+        .eq("email", normalizedEmail)
+        .maybeSingle();
 
-        if (email) {
-          const canonical_user_id = await getCanonicalUserIdByEmail(email);
-          await upsertUser({
-            email,
-            tier,
-            stripe_customer_id: customerId,
-            stripe_subscription_status: status,
-            canonical_user_id,
-          });
-          await dedupeUserRowsByEmail(email);
-        }
-        break;
-      }
-      case "customer.subscription.deleted": {
-        const sub = event.data.object as Stripe.Subscription;
-        const customerId =
-          typeof sub.customer === "string" ? sub.customer : sub.customer?.id || null;
+      if (userRow?.id) {
+        userId = userRow.id;
+      } else {
+        // Try to find by previous submissions
+        const { data: subRow } = await supa
+          .from("submissions")
+          .select("user_id")
+          .eq("user_email", normalizedEmail)
+          .order("submitted_at", { ascending: false })
+          .limit(1)
+          .single();
 
-        let email = "";
-        if (customerId) {
-          const cust = await stripe.customers.retrieve(customerId);
-          email = normalize((cust as Stripe.Customer).email);
-        }
+        const canonicalUserId = subRow?.user_id;
 
-        console.log("❌ Subscription canceled:", sub.id, email);
-        if (email) {
-          const canonical_user_id = await getCanonicalUserIdByEmail(email);
-          await upsertUser({
-            email,
+        // Insert user
+        const { data: newUser } = await supa
+          .from("users")
+          .insert({
+            id: canonicalUserId,
+            email: normalizedEmail,
             tier: "free",
-            stripe_customer_id: customerId,
-            stripe_subscription_status: "canceled",
-            canonical_user_id,
-          });
-          await dedupeUserRowsByEmail(email);
-        }
-        break;
+            updated_at: new Date().toISOString(),
+          })
+          .select("id")
+          .single();
+        if (newUser?.id) userId = newUser.id;
       }
-      default:
-        console.log(`ℹ️ Unhandled event type: ${event.type}`);
     }
 
-    return NextResponse.json({ ok: true, received: true });
-  } catch (e: any) {
-    console.error("[Webhook Handler Error]", e?.message || e);
-    return NextResponse.json({ ok: false, error: "handler-error" }, { status: 500 });
+    // --- Insert submission (including Tally's original ID if present) ---
+    const { data: subRow, error: subErr } = await supa
+      .from("submissions")
+      .insert({
+        user_id: userId ?? null,
+        user_email: data.user_email ? normalize(data.user_email) : null,
+        tally_submission_id: normalized.tally_submission_id ?? null,
+        ...data,
+        payload_json: body,
+        answers: body?.data?.fields ?? body?.form_response?.answers ?? [],
+      })
+      .select("id")
+      .single();
+
+    if (subErr || !subRow) {
+      await supa.from("webhook_failures").insert({
+        source: "tally",
+        event_type: body?.eventType ?? null,
+        event_id: body?.eventId ?? null,
+        error_message: `insert_submission_error: ${subErr?.message}`,
+        severity: "critical",
+        payload_json: body,
+      });
+      return NextResponse.json({ ok: false, error: "DB insert failed" }, { status: 500 });
+    }
+
+    const submissionId = subRow.id;
+    const resultsUrl = `https://app.lve360.com/results?submission_id=${submissionId}`;
+
+    // --- (Optional) Send confirmation email, if desired ---
+    // You can uncomment and fill in your RESEND API/email code here
+
+    // --- Respond with submission id and redirect URL ---
+    return NextResponse.json({
+      ok: true,
+      submission_id: submissionId,
+      redirectUrl: resultsUrl,
+    });
+  } catch (err: any) {
+    // Log fatal error and return 500
+    await supa.from("webhook_failures").insert({
+      source: "tally",
+      error_message: `fatal_error: ${err?.message ?? String(err)}`,
+      severity: "fatal",
+      payload_json: null,
+    });
+    return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
 }
