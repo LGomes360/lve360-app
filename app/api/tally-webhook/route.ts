@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // File: app/api/tally-webhook/route.ts
-// LVE360 // API Route (MAXIMUM VERSION, 2025-09-16, NO DUPLICATES)
+// LVE360 // API Route (2025-09-16 FINAL VERSION)
 // Handles incoming Tally/Typeform, normalizes + validates data, finds/creates user,
 // inserts the submission (with user_id and tally_submission_id), logs all errors.
 // -----------------------------------------------------------------------------
@@ -190,12 +190,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // --- REMOVE DUPLICATE KEYS: destructure user_email out of data ---
+    const { user_email, ...restData } = data;
+
     // --- Build submission object (NO DUPLICATE FIELDS!) ---
     const submissionRow = {
       user_id: userId ?? null,
-      user_email: data.user_email ? normalize(data.user_email) : null,
-      tally_submission_id, // only here, not inside data!
-      ...data,
+      user_email: user_email ? normalize(user_email) : null,
+      tally_submission_id,
+      ...restData,
       payload_json: body,
       answers: body?.data?.fields ?? body?.form_response?.answers ?? [],
     };
