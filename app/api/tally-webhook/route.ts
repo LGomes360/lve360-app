@@ -1,386 +1,245 @@
+
 // -----------------------------------------------------------------------------
-//  LVE360 // tally-webhook (dedupe/canonical user_id safe)
-//  Handles incoming Tally form submissions, normalizes and validates data,
-//  creates (or finds) the user, inserts the submission (with user_id),
-//  and (optionally) inserts child tables. Logs all errors to webhook_failures.
+// File: app/api/stripe/webhook/route.ts
+// LVE360 // API Route
+// Stripe webhook handler. Handles subscription lifecycle events.
+// Upserts users, dedupes rows, and syncs subscription state into Supabase.
 // -----------------------------------------------------------------------------
+
+export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { TALLY_KEYS, NormalizedSubmissionSchema } from "@/types/tally-normalized";
-import { parseList, parseSupplements } from "@/lib/parseLists";
-import { Resend } from "resend";
+import Stripe from "stripe";
+import { supabaseAdmin as supa } from "@lib/supabaseAdmin";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPA_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-function getAdmin() {
-  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false },
-  });
-}
-
-// Utility: Accepts string, array, object — always returns string or undefined.
-function cleanSingle(val: any): string | undefined {
-  if (val == null) return undefined;
-  if (Array.isArray(val)) return val.length ? cleanSingle(val[0]) : undefined;
-  if (typeof val === "object" && "value" in val) return cleanSingle(val.value);
-  if (typeof val === "object" && "id" in val) return cleanSingle(val.id);
-  if (typeof val === "object" && Object.keys(val).length === 1 && "label" in val)
-    return cleanSingle(val.label);
-  if (typeof val === "object") return undefined;
-  if (typeof val === "boolean") return val ? "yes" : "no";
-  return String(val);
-}
-
-// Utility: Accepts array, string, object — always returns filtered array or [].
-function cleanArray(val: any): string[] {
-  if (val == null) return [];
-  if (Array.isArray(val)) return val.map(cleanSingle).filter(Boolean) as string[];
-  if (typeof val === "object" && "value" in val) return cleanArray(val.value);
-  if (typeof val === "object") return [];
-  if (typeof val === "string" && val.trim() !== "") return [val];
-  return [];
-}
-
-function fieldsToMap(fields: any[]): Record<string, unknown> {
-  const map: Record<string, unknown> = {};
-  for (const f of fields ?? []) {
-    if (!f) continue;
-    const key = f.key ?? "";
-    let val = f.value ?? f.text ?? f.answer ?? f;
-    if (f.type === "CHECKBOXES" && Array.isArray(f.value)) {
-      val = f.value.map((v: any) => v?.label ?? v?.value ?? v);
-    }
-    map[key] = val;
-    if (f.label) map[`label::${String(f.label).toLowerCase()}`] = val;
-  }
-  return map;
-}
-
-function answersToMap(answers: any[]): Record<string, unknown> {
-  const map: Record<string, unknown> = {};
-  for (const a of answers ?? []) {
-    const label = a?.field?.label ? String(a.field.label).toLowerCase() : undefined;
-    const key = a?.field?.id ?? a?.field?.key;
-    let val =
-      a?.text ??
-      a?.email ??
-      a?.choice?.label ??
-      a?.choices?.labels ??
-      a?.value ??
-      a;
-    if (Array.isArray(val)) {
-      val = val
-        .map((v: any) =>
-          typeof v === "string" ? v : v?.label ?? v?.value ?? String(v)
-        )
-        .filter(Boolean);
-    }
-    if (key) map[key] = val;
-    if (label) map[`label::${label}`] = val;
-  }
-  return map;
-}
-
-function getByKeyOrLabel(
-  src: Record<string, unknown>,
-  key: string,
-  labelCandidates: string[]
-): unknown {
-  if (key && key in src) return src[key];
-  for (const l of labelCandidates) {
-    const v = src[`label::${l.toLowerCase()}`];
-    if (v !== undefined) return v;
-  }
-  return undefined;
-}
-
-// Utility for dedupe-safe email normalization
+// -----------------------------------------------------------------------------
+// Utils
+// -----------------------------------------------------------------------------
 function normalize(email: string | null | undefined): string {
-  return (email ?? "").toString().trim().toLowerCase();
+  return (email ?? "").trim().toLowerCase();
 }
 
+// Always returns canonical user_id if submissions exist, else null
+async function getCanonicalUserIdByEmail(email: string): Promise<string | null> {
+  const { data, error } = await supa
+    .from("submissions")
+    .select("user_id")
+    .eq("user_email", email)
+    .order("submitted_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error || !data) return null;
+  return data.user_id;
+}
+
+// Upsert user with subscription info
+async function upsertUser(row: {
+  email: string;
+  tier: "free" | "premium";
+  stripe_customer_id?: string | null;
+  stripe_subscription_status?: string | null;
+  canonical_user_id?: string | null;
+}) {
+  const email = normalize(row.email);
+
+  // Lookup existing users
+  const { data: existingUsers, error: lookupErr } = await supa
+    .from("users")
+    .select("*")
+    .eq("email", email);
+
+  if (lookupErr) {
+    console.error("❌ Supabase user lookup failed:", lookupErr);
+    return;
+  }
+
+  const idToUse = row.canonical_user_id || undefined;
+
+  // Update if exists
+  if (existingUsers && existingUsers.length > 0) {
+    const user = existingUsers[0];
+    const resp = await supa
+      .from("users")
+      .update({
+        tier: row.tier,
+        stripe_customer_id: row.stripe_customer_id ?? user.stripe_customer_id,
+        stripe_subscription_status:
+          row.stripe_subscription_status ?? user.stripe_subscription_status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", user.id);
+    if (resp.error) console.error("❌ Supabase user update failed:", resp.error);
+    else console.log("✅ User updated:", email, "→", row.tier);
+    return;
+  }
+
+  // Insert if not found
+  const payload = [
+    {
+      id: idToUse,
+      email,
+      tier: row.tier,
+      stripe_customer_id: row.stripe_customer_id ?? null,
+      stripe_subscription_status: row.stripe_subscription_status ?? null,
+      updated_at: new Date().toISOString(),
+    },
+  ];
+
+  const resp = await fetch(`${SUPA_URL}/rest/v1/users`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPA_SERVICE,
+      Authorization: `Bearer ${SUPA_SERVICE}`,
+      Prefer: "resolution=merge-duplicates",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) {
+    const msg = await resp.text();
+    console.error("❌ Supabase user insert failed:", msg);
+    if (resp.status === 409 || msg.toLowerCase().includes("duplicate")) {
+      await dedupeUserRowsByEmail(email);
+    }
+  } else {
+    console.log("✅ User inserted for", email, "→", row.tier);
+  }
+}
+
+// Deduplicate users for a given email
+async function dedupeUserRowsByEmail(email: string) {
+  const emailNorm = normalize(email);
+  const { data: users, error } = await supa
+    .from("users")
+    .select("*")
+    .eq("email", emailNorm);
+
+  if (error || !users || users.length < 2) return;
+
+  let canonical_user_id = await getCanonicalUserIdByEmail(emailNorm);
+  if (!canonical_user_id) canonical_user_id = users[0].id;
+
+  const extras = users.filter((u) => u.id !== canonical_user_id);
+  const extraIds = extras.map((u) => u.id);
+  if (extraIds.length === 0) return;
+
+  await supa.from("submissions").update({ user_id: canonical_user_id }).in("user_id", extraIds);
+  await supa.from("stacks").update({ user_id: canonical_user_id }).in("user_id", extraIds);
+  await supa.from("users").delete().in("id", extraIds);
+
+  console.log(
+    `✅ Deduped users for ${emailNorm}. Kept ${canonical_user_id}, removed: ${extraIds.join(", ")}`
+  );
+}
+
+// -----------------------------------------------------------------------------
+// POST handler
+// -----------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
-  const admin = getAdmin();
-  let body: any;
+  const raw = await req.text();
+  const sig = req.headers.get("stripe-signature")!;
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+
+  let event: Stripe.Event;
   try {
-    body = await req.json();
-    console.log("[Webhook DEBUG] Incoming body:", JSON.stringify(body, null, 2));
-  } catch (err) {
-    console.error("[Webhook] Invalid JSON:", err);
-    return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
+    event = stripe.webhooks.constructEvent(raw, sig, endpointSecret);
+  } catch (err: any) {
+    return NextResponse.json(
+      { ok: false, error: `Webhook error: ${err.message}` },
+      { status: 400 }
+    );
   }
 
   try {
-    // --- Merge fields from Tally webhook (supports both Tally and Typeform shapes) ---
-    const fieldsMap = body?.data?.fields ? fieldsToMap(body.data.fields) : {};
-    const answersMap = body?.form_response?.answers
-      ? answersToMap(body.form_response.answers)
-      : {};
-    const src = { ...fieldsMap, ...answersMap };
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const email = normalize(session.customer_email);
+        const customerId =
+          typeof session.customer === "string"
+            ? session.customer
+            : session.customer?.id || null;
 
-    // --- Normalize all inputs for Zod validation ---
-    const normalized = {
-      user_email: cleanSingle(
-        getByKeyOrLabel(src, TALLY_KEYS.user_email, ["email", "user email", "your email"])
-      ),
-      name: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.name, ["name", "nickname"])),
-      dob: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.dob, ["dob", "date of birth"])),
-      height: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.height, ["height"])),
-      weight: (() => {
-        const val = getByKeyOrLabel(src, TALLY_KEYS.weight, [
-          "weight",
-          "weight (lb)",
-          "weight (lbs)",
-        ]);
-        if (typeof val === "number") return val;
-        if (typeof val === "string") return val.replace(/[^0-9.]/g, "");
-        return undefined;
-      })(),
-      sex: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.sex, ["sex at birth", "sex"])),
-      gender: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.gender, ["gender", "gender identity"])),
-      pregnant: cleanSingle(
-        getByKeyOrLabel(src, TALLY_KEYS.pregnant, [
-          "pregnant",
-          "pregnancy/breastfeeding",
-          "pregnancy",
-        ])
-      ),
-      goals: cleanArray(
-        parseList(getByKeyOrLabel(src, TALLY_KEYS.goals, ["goals", "primary goals"]))
-      ),
-      skip_meals: cleanSingle(
-        getByKeyOrLabel(src, TALLY_KEYS.skip_meals, ["skip meals"])
-      ),
-      energy_rating: cleanSingle(
-        getByKeyOrLabel(src, TALLY_KEYS.energy_rating, ["energy rating"])
-      ),
-      sleep_rating: cleanSingle(
-        getByKeyOrLabel(src, TALLY_KEYS.sleep_rating, ["sleep rating"])
-      ),
-      allergies: (() => {
-        const flag = String(
-          cleanSingle(
-            getByKeyOrLabel(src, TALLY_KEYS.allergies_flag, [
-              "allergies",
-              "allergies or sensitivities",
-            ])
-          ) ?? ""
-        ).toLowerCase();
-        const details = getByKeyOrLabel(src, TALLY_KEYS.allergy_details, [
-          "allergy details",
-          "what are you allergic to?",
-        ]);
-        return (flag === "yes" || flag === "true") && details
-          ? cleanArray(parseList(details))
-          : [];
-      })(),
-      conditions: cleanArray(
-        parseList(getByKeyOrLabel(src, TALLY_KEYS.conditions, ["conditions"]))
-      ),
-      medications: (() => {
-        const flag = String(
-          cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.meds_flag, ["medications?"])) ?? ""
-        ).toLowerCase();
-        const list = getByKeyOrLabel(src, TALLY_KEYS.medications, [
-          "medications",
-          "list medication",
-        ]);
-        return (flag === "yes" || flag === "true") && list
-          ? cleanArray(parseList(list))
-          : cleanArray(parseList(list));
-      })(),
-      supplements: (() => {
-        const flag = String(
-          cleanSingle(
-            getByKeyOrLabel(src, TALLY_KEYS.supplements_flag, ["supplements?"])
-          ) ?? ""
-        ).toLowerCase();
-        const list = getByKeyOrLabel(src, TALLY_KEYS.supplements, [
-          "supplements",
-          "list supplements",
-        ]);
-        return (flag === "yes" || flag === "true") && list
-          ? parseSupplements(list)
-          : parseSupplements(list);
-      })(),
-      hormones: (() => {
-        const flag = String(
-          cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.hormones_flag, ["hormones?"])) ?? ""
-        ).toLowerCase();
-        const list = getByKeyOrLabel(src, TALLY_KEYS.hormones, [
-          "hormones",
-          "list hormones",
-        ]);
-        return (flag === "yes" || flag === "true") && list
-          ? cleanArray(parseList(list))
-          : cleanArray(parseList(list));
-      })(),
-      dosing_pref: cleanSingle(
-        getByKeyOrLabel(src, TALLY_KEYS.dosing_pref, [
-          "dosing preference",
-          "what is realistic for your lifestyle?",
-        ])
-      ),
-      brand_pref: cleanSingle(
-        getByKeyOrLabel(src, TALLY_KEYS.brand_pref, [
-          "brand preference",
-          "when it comes to supplements, do you prefer...",
-        ])
-      ),
-    };
+        console.log("✅ Checkout completed:", email);
+        if (email) {
+          const canonical_user_id = await getCanonicalUserIdByEmail(email);
+          await upsertUser({
+            email,
+            tier: "premium",
+            stripe_customer_id: customerId,
+            stripe_subscription_status: "active",
+            canonical_user_id,
+          });
+          await dedupeUserRowsByEmail(email);
+        }
+        break;
+      }
+      case "customer.subscription.updated": {
+        const sub = event.data.object as Stripe.Subscription;
+        const customerId =
+          typeof sub.customer === "string" ? sub.customer : sub.customer?.id || null;
 
-    console.log(
-      "[Webhook DEBUG] Normalized for Zod:",
-      JSON.stringify(normalized, null, 2)
-    );
+        let email = "";
+        if (customerId) {
+          const cust = await stripe.customers.retrieve(customerId);
+          email = normalize((cust as Stripe.Customer).email);
+        }
 
-    // --- Validate data using Zod schema ---
-    const parsed = NormalizedSubmissionSchema.safeParse(normalized);
-    if (!parsed.success) {
-      console.error(
-        "[Webhook DEBUG] Validation error:",
-        JSON.stringify(parsed.error.flatten(), null, 2)
-      );
-      await admin.from("webhook_failures").insert({
-        source: "tally",
-        event_type: body?.eventType ?? body?.event_type ?? null,
-        event_id: body?.eventId ?? body?.event_id ?? null,
-        error_message: `validation_error: ${JSON.stringify(parsed.error.flatten())}`,
-        severity: "error",
-        payload_json: body,
-      });
-      return NextResponse.json({ ok: false, error: "Validation failed" }, { status: 422 });
-    }
-    const data = parsed.data;
+        const status = sub.status;
+        const tier = status === "active" ? "premium" : "free";
+        console.log("ℹ️ Subscription updated:", sub.id, email, "→", status);
 
-    // --- FIND OR CREATE USER_ID ---
-    let userId: string | undefined = undefined;
-    if (data.user_email) {
-      const normalizedEmail = normalize(data.user_email);
+        if (email) {
+          const canonical_user_id = await getCanonicalUserIdByEmail(email);
+          await upsertUser({
+            email,
+            tier,
+            stripe_customer_id: customerId,
+            stripe_subscription_status: status,
+            canonical_user_id,
+          });
+          await dedupeUserRowsByEmail(email);
+        }
+        break;
+      }
+      case "customer.subscription.deleted": {
+        const sub = event.data.object as Stripe.Subscription;
+        const customerId =
+          typeof sub.customer === "string" ? sub.customer : sub.customer?.id || null;
 
-      const { data: userRow } = await admin
-        .from("users")
-        .select("id")
-        .eq("email", normalizedEmail)
-        .maybeSingle();
+        let email = "";
+        if (customerId) {
+          const cust = await stripe.customers.retrieve(customerId);
+          email = normalize((cust as Stripe.Customer).email);
+        }
 
-      if (userRow && userRow.id) {
-        userId = userRow.id;
-      } else {
-        const { data: subRow } = await admin
-          .from("submissions")
-          .select("user_id")
-          .eq("user_email", normalizedEmail)
-          .order("submitted_at", { ascending: false })
-          .limit(1)
-          .single();
-
-        let canonicalUserId = subRow?.user_id;
-
-        const { data: newUser } = await admin
-          .from("users")
-          .insert({
-            id: canonicalUserId,
-            email: normalizedEmail,
+        console.log("❌ Subscription canceled:", sub.id, email);
+        if (email) {
+          const canonical_user_id = await getCanonicalUserIdByEmail(email);
+          await upsertUser({
+            email,
             tier: "free",
-            updated_at: new Date().toISOString(),
-          })
-          .select("id")
-          .single();
-
-        if (newUser && newUser.id) userId = newUser.id;
+            stripe_customer_id: customerId,
+            stripe_subscription_status: "canceled",
+            canonical_user_id,
+          });
+          await dedupeUserRowsByEmail(email);
+        }
+        break;
       }
+      default:
+        console.log(`ℹ️ Unhandled event type: ${event.type}`);
     }
 
-    // Prepare answers payload
-    const answersPayload =
-      body?.data?.fields && Array.isArray(body.data.fields)
-        ? body.data.fields
-        : body?.form_response?.answers && Array.isArray(body.form_response.answers)
-        ? body.form_response.answers
-        : [];
-
-    // --- INSERT SUBMISSION WITH USER_ID ---
-    const { data: subRow, error: subErr } = await admin
-      .from("submissions")
-      .insert({
-        user_id: userId ?? null,
-        user_email: data.user_email ? normalize(data.user_email) : null,
-        name: data.name,
-        dob: data.dob,
-        height: data.height,
-        weight: data.weight,
-        sex: data.sex,
-        gender: data.gender,
-        pregnant: data.pregnant,
-        goals: data.goals,
-        skip_meals: data.skip_meals,
-        energy_rating: data.energy_rating,
-        sleep_rating: data.sleep_rating,
-        allergies: data.allergies,
-        conditions: data.conditions,
-        medications: data.medications,
-        supplements: data.supplements,
-        hormones: data.hormones,
-        dosing_pref: data.dosing_pref,
-        brand_pref: data.brand_pref,
-        payload_json: body,
-        answers: answersPayload,
-      })
-      .select("id")
-      .single();
-
-    if (subErr || !subRow) {
-      console.error("[Webhook DEBUG] DB insert error:", subErr);
-      await admin.from("webhook_failures").insert({
-        source: "tally",
-        event_type: body?.eventType ?? body?.event_type ?? null,
-        event_id: body?.eventId ?? body?.event_id ?? null,
-        error_message: `insert_submission_error: ${subErr?.message}`,
-        severity: "critical",
-        payload_json: body,
-      });
-      return NextResponse.json({ ok: false, error: "DB insert failed" }, { status: 500 });
-    }
-
-    const submissionId = subRow.id;
-    const resultsUrl = `https://app.lve360.com/results?submission_id=${submissionId}`;
-
-    // --- Send email with Resend ---
-    if (data.user_email && RESEND_API_KEY) {
-      try {
-        const resend = new Resend(RESEND_API_KEY);
-        await resend.emails.send({
-          from: "LVE360 <no-reply@lve360.com>",
-          to: data.user_email,
-          subject: "Your LVE360 Concierge Report",
-          html: `
-            <p>Hi ${data.name ?? ""},</p>
-            <p>Thanks for completing the LVE360 intake quiz!</p>
-            <p>You can view your personalized concierge report anytime here:</p>
-            <p><a href="${resultsUrl}">${resultsUrl}</a></p>
-            <br/>
-            <p>Longevity | Vitality | Energy</p>
-            <p>— The LVE360 Team</p>
-          `,
-        });
-        console.log("[Webhook DEBUG] Sent email to:", data.user_email);
-      } catch (emailErr) {
-        console.error("[Webhook DEBUG] Email send failed:", emailErr);
-      }
-    }
-
-    // --- Return redirectUrl for Tally ---
-    return NextResponse.json({
-      ok: true,
-      submission_id: submissionId,
-      redirectUrl: resultsUrl,
-    });
-  } catch (err) {
-    console.error("[Webhook Fatal Error]", err, body ? JSON.stringify(body, null, 2) : "");
-    return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
+    return NextResponse.json({ ok: true, received: true });
+  } catch (e: any) {
+    console.error("[Webhook Handler Error]", e?.message || e);
+    return NextResponse.json({ ok: false, error: "handler-error" }, { status: 500 });
   }
 }
