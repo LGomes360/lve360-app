@@ -1,9 +1,9 @@
 // -----------------------------------------------------------------------------
 // File: app/api/tally-webhook/route.ts
-// LVE360 // API Route
+// LVE360 // API Route (MAXIMAL VERSION)
 // Handles incoming Tally form submissions, normalizes + validates data,
 // creates (or finds) the user, inserts the submission (with user_id),
-// and logs errors to webhook_failures.
+// logs all errors to webhook_failures.
 // -----------------------------------------------------------------------------
 
 import { NextRequest, NextResponse } from "next/server";
@@ -11,6 +11,7 @@ import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
 import { TALLY_KEYS, NormalizedSubmissionSchema } from "@/types/tally-normalized";
 import { parseList, parseSupplements } from "@/lib/parseLists";
 
+// --- Utility functions ---
 function cleanSingle(val: any): string | undefined {
   if (val == null) return undefined;
   if (Array.isArray(val)) return val.length ? cleanSingle(val[0]) : undefined;
@@ -32,7 +33,6 @@ function cleanArray(val: any): string[] {
   return [];
 }
 
-// Merge Tally "fields" (classic) or "answers" (Typeform-style) into a flat map
 function fieldsToMap(fields: any[]): Record<string, unknown> {
   const map: Record<string, unknown> = {};
   for (const f of fields ?? []) {
@@ -85,11 +85,13 @@ function normalize(email: string | null | undefined): string {
   return (email ?? "").toString().trim().toLowerCase();
 }
 
+// --- MAIN HANDLER ---
 export async function POST(req: NextRequest) {
   let body: any;
   try {
     body = await req.json();
-    // Merge fields and answers for best compatibility
+
+    // Merge fields and answers for compatibility (Tally and Typeform)
     const fieldsMap = body?.data?.fields ? fieldsToMap(body.data.fields) : {};
     const answersMap = body?.form_response?.answers
       ? answersToMap(body.form_response.answers)
@@ -98,7 +100,7 @@ export async function POST(req: NextRequest) {
 
     // -- Normalize all critical fields --
     const normalized = {
-      tally_submission_id: body?.data?.submissionId || body?.id || null,  // Store Tally's ID if present
+      tally_submission_id: body?.data?.submissionId || body?.id || null,
       user_email: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.user_email, ["email"])),
       name: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.name, ["name", "nickname"])),
       dob: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.dob, ["dob", "date of birth"])),
@@ -187,17 +189,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // --- Prepare submission row without property duplication ---
+    // Remove any conflicting keys from 'data'
+    const {
+      user_email,                // extracted, not spread
+      tally_submission_id,       // extracted, not spread
+      ...restData                // everything else
+    } = data;
+
+    const insertObj = {
+      user_id: userId ?? null,
+      user_email: data.user_email ? normalize(data.user_email) : null,
+      tally_submission_id: normalized.tally_submission_id ?? null,
+      ...restData,
+      payload_json: body,
+      answers: body?.data?.fields ?? body?.form_response?.answers ?? [],
+    };
+
     // --- Insert submission (including Tally's original ID if present) ---
     const { data: subRow, error: subErr } = await supa
       .from("submissions")
-      .insert({
-        user_id: userId ?? null,
-         tally_submission_id: normalized.tally_submission_id ?? null,
-        tally_submission_id: normalized.tally_submission_id ?? null,
-        ...data,
-        payload_json: body,
-        answers: body?.data?.fields ?? body?.form_response?.answers ?? [],
-      })
+      .insert(insertObj)
       .select("id")
       .single();
 
