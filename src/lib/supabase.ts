@@ -4,10 +4,10 @@
 //  - supabase       -> browser-safe (anon key)
 //  - supabaseAdmin  -> server-only (service role key)
 //
-// Use this file anywhere you currently import from "./supabase" or "@/lib/supabase".
+// Uses relative import for types to avoid path-alias resolution issues on CI.
 
 import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/supabase";
+import type { Database } from "../types/supabase";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -16,7 +16,7 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 /**
  * Environment checks:
  * - In production we throw if required envs are missing (fail fast).
- * - In development we warn (easier local dev), but you can tighten to throw if you prefer.
+ * - In development we warn to preserve local dev ergonomics.
  */
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   if (process.env.NODE_ENV === "production") {
