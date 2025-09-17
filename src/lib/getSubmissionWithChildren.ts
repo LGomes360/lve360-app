@@ -1,55 +1,60 @@
-// src/lib/getSubmissionWithChildren.ts
-// Server-side helper: fetch a submission and its child rows using the admin client.
-// Minimal, no TypeScript type imports to avoid module resolution issues during CI.
-// Returns a plain JS object (any) to keep downstream callers working.
+// src/lib/supabase.ts
+// Centralized Supabase client exports for LVE360
+// Exports:
+//  - supabase       -> browser-safe (anon key)
+//  - supabaseAdmin  -> server-only (service role key)
+//
+// Uses relative import for types to avoid path-alias resolution issues on CI.
 
-import { supabaseAdmin } from './supabaseAdmin';
+import { createClient } from "@supabase/supabase-js";
+import type { Database } from "../types/supabase";
 
-export async function getSubmissionWithChildren(submissionId: string): Promise<any> {
-  // 1) Parent submission
-  const { data: submission, error: parentErr } = await supabaseAdmin
-    .from('submissions')
-    .select('*')
-    .eq('id', submissionId)
-    .single();
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (parentErr || !submission) {
-    throw parentErr ?? new Error(`Submission not found: ${submissionId}`);
+/**
+ * Environment checks:
+ * - In production we throw if required envs are missing (fail fast).
+ * - In development we warn to preserve local dev ergonomics.
+ */
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are required."
+    );
+  } else {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "⚠️ Missing Supabase public env vars. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to avoid surprises."
+    );
   }
-
-  // 2) Child queries in parallel
-  const [medsRes, suppsRes, hormRes] = await Promise.all([
-    supabaseAdmin
-      .from('submission_medications')
-      .select('*')
-      .eq('submission_id', submissionId),
-    supabaseAdmin
-      .from('submission_supplements')
-      .select('*')
-      .eq('submission_id', submissionId),
-    supabaseAdmin
-      .from('submission_hormones')
-      .select('*')
-      .eq('submission_id', submissionId)
-  ]);
-
-  // 3) Fail fast on child errors
-  if (medsRes.error || suppsRes.error || hormRes.error) {
-    throw medsRes.error ?? suppsRes.error ?? hormRes.error;
-  }
-
-  const medications = medsRes.data ?? [];
-  const supplements = suppsRes.data ?? [];
-  const hormones = hormRes.data ?? [];
-
-  // Keep both short and canonical keys to preserve compatibility
-  return {
-    ...submission,
-    medications,
-    supplements,
-    hormones,
-    submission_medications: medications,
-    submission_supplements: supplements,
-    submission_hormones: hormones
-  };
 }
+
+if (!SUPABASE_SERVICE_ROLE_KEY) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing Supabase env var: SUPABASE_SERVICE_ROLE_KEY is required in production.");
+  } else {
+    // eslint-disable-next-line no-console
+    console.warn("⚠️ Missing SUPABASE_SERVICE_ROLE_KEY. Server-side admin operations will fail without it.");
+  }
+}
+
+// Browser-safe client (typed)
+export const supabase = createClient<Database>(
+  SUPABASE_URL ?? "",
+  SUPABASE_ANON_KEY ?? "",
+  {
+    auth: { persistSession: true }
+  }
+);
+
+// Server-only admin client (typed). Use only in server code / API routes.
+export const supabaseAdmin = createClient<Database>(
+  SUPABASE_URL ?? "",
+  SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false }
+  }
+);
+
