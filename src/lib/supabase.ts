@@ -1,23 +1,14 @@
 // src/lib/supabase.ts
-// Centralized Supabase client exports for LVE360
-// Named exports:
-//   - supabase      -> browser-safe (anon key)
-//   - supabaseAdmin -> server-only (service role key)
-// Default export: { supabase, supabaseAdmin } for consumers using default import.
-// Uses relative type import to avoid path-alias resolution problems in CI.
+// Central Supabase exports for LVE360
+// - Named exports: supabase (anon), supabaseAdmin (service role)
+// - No type imports to avoid CI/alias/type resolution issues
 
 import { createClient } from "@supabase/supabase-js";
-import type { Database } from "../types/supabase";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
-/**
- * Environment checks:
- * - In production we throw if required envs are missing (fail fast).
- * - In development we warn to preserve local dev ergonomics.
- */
 if (process.env.NODE_ENV === "production") {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     throw new Error(
@@ -41,16 +32,15 @@ if (process.env.NODE_ENV === "production") {
   }
 }
 
-// Browser-safe client (typed). Safe to import on client & server.
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: true }
+// Browser-safe client (no generic type param)
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: true },
 });
 
-// Server-only admin client (typed). Use only in server code / API routes.
-export const supabaseAdmin = createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false }
+// Server-only admin client (no generic type param)
+export const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
 });
 
-// Default-export convenience (some files may import default)
-const defaultExport = { supabase, supabaseAdmin };
-export default defaultExport;
+// Default export convenience (some files import default)
+export default { supabase, supabaseAdmin };
