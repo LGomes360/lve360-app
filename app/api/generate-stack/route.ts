@@ -1,34 +1,49 @@
 // app/api/generate-stack/route.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getOpenAiClient } from "../../../src/lib/openai";
 import { supabaseAdmin } from "@/lib/supabase";
+import { generateStackForSubmission } from "@/lib/generateStack";
 
+/**
+ * POST /api/generate-stack
+ * Body: { submissionId: string }
+ *
+ * Behavior:
+ *  - Validate submissionId
+ *  - Generate stack via generateStackForSubmission
+ *  - Upsert a stack row into `stacks` table (adjust schema as needed)
+ *  - Return the saved stack id + markdown
+ */
 export async function POST(req: NextRequest) {
   try {
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json({ error: "Supabase envs not configured." }, { status: 500 });
-    }
-
-    let openai;
-    try {
-      openai = getOpenAiClient();
-    } catch (e: any) {
-      return NextResponse.json({ error: e.message }, { status: 500 });
-    }
-
     const body = await req.json().catch(() => ({}));
-    const prompt = body.prompt ?? "Create supplements stack for example user";
+    const submissionId = (body.submissionId ?? body.submission_id ?? "").toString().trim();
+    if (!submissionId) return NextResponse.json({ error: "submissionId required" }, { status: 400 });
 
-    const aiResp = await openai.responses.create({
-      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-      input: prompt,
-    });
+    // 1) Generate stack (uses typed helpers, OpenAI)
+    const { markdown, raw } = await generateStackForSubmission(submissionId);
 
-    // Optionally save to Supabase: await supabaseAdmin.from("stacks").insert([{ aiResp }]);
+    // 2) Persist into 'stacks' table (schema: adjust to your DB)
+    const payload = {
+      submission_id: submissionId,
+      body: markdown,
+      raw_response: JSON.stringify(raw),
+      generated_at: new Date().toISOString(),
+    };
 
-    return NextResponse.json({ ok: true, ai: aiResp });
+    const { data: saved, error: saveErr } = await supabaseAdmin
+      .from("stacks")
+      .upsert(payload)
+      .select()
+      .single();
+
+    if (saveErr) {
+      // return generated markdown even if DB save failed, but surface error info
+      return NextResponse.json({ ok: true, saved: false, error: saveErr.message, markdown }, { status: 200 });
+    }
+
+    return NextResponse.json({ ok: true, submission_id: submissionId, stack_id: saved?.id ?? null, markdown }, { status: 200 });
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message ?? String(err) }, { status: 500 });
+    return NextResponse.json({ error: String(err?.message ?? err) }, { status: 500 });
   }
 }
