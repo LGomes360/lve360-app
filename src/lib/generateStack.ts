@@ -1,311 +1,127 @@
 // src/lib/generateStack.ts
+// Generate a supplement "stack" (Markdown) for a submission using OpenAI.
+// - Uses getOpenAiClient() (lazy) to avoid throwing at import time.
+// - Uses getSubmissionWithChildren to load the submission and children.
+// - Returns { markdown, raw } where raw is the OpenAI response object.
 
-import { createClient } from "@supabase/supabase-js";
-import OpenAI from "openai";
+import { getOpenAiClient } from "@/lib/openai";
+import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
+import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
+import type { Database } from "@/types/supabase";
 
-// -------------------
-// Types
-// -------------------
+const MAX_PROMPT_CHARS = 28_000; // keep prompt comfortably under model input limits
 
-export interface SupplementInput {
-  name: string;
-  dose?: string;
-  timing?: string;
-  brand?: string;
-}
-
-export interface Submission {
-  id?: string;
-  goals: string[];
-  healthConditions?: string[];
-  medications?: string[] | SupplementInput[];
-  supplements?: string[] | SupplementInput[];
-  hormones?: string[] | SupplementInput[];
-  tier?: "budget" | "mid" | "premium";
-  dob?: string;
-  sex?: string;
-  pregnant?: string;
-  weight?: number;
-  height?: string;
-  energy_rating?: number;
-  sleep_rating?: number;
-  dosing_pref?: string;
-  brand_pref?: string;
-  email?: string;
-}
-
-export interface StackItem {
-  supplement_id?: string;
-  name: string;
-  dose: string;
-  link: string | null;
-  notes: string | null;
-  rationale?: string;
-  caution?: string;
-  citations?: string[];
-  timing?: string;
-}
-
-// -------------------
-// DB/AI Setup
-// -------------------
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL as string,
-  process.env.SUPABASE_SERVICE_ROLE_KEY as string,
-  { auth: { persistSession: false } }
-);
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
-
-// -------------------
-// Core Stack Engine
-// -------------------
-
-export async function generateStack(submission: Submission): Promise<StackItem[]> {
-  const useRulesOnly = process.env.USE_RULES_ONLY === "true"; // default false
-
-  let stack: StackItem[] = [];
-
-  if (useRulesOnly) {
-    stack = await generateStackFromRules(submission);
-  } else {
-    stack = await generateStackFromLLM(submission);
+function safeStringify(obj: any) {
+  try {
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return String(obj);
   }
+}
 
-  // Save to DB if we have a submission.id
-  if (submission.id && stack.length > 0) {
-    try {
-      const { data: stackRecord, error: stackErr } = await supabase
-        .from("stacks")
-        .insert({
-          submission_id: submission.id,
-          generated_by: useRulesOnly ? "rules" : "llm",
-          created_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
+function buildPrompt(sub: SubmissionWithChildren) {
+  // Compose a deterministic, structured prompt with labeled sections
+  const parts = [
+    "# LVE360 Stack Generation Request",
+    "Please return a single Markdown-formatted supplement stack with exactly 9 sections. Sections should be labeled and in this order:",
+    "1) Summary\n2) Goals\n3) Contraindications/Med-Interactions\n4) Current Stack\n5) Recommended Stack (AM/PM/Bedtime)\n6) Dosing & Notes\n7) Evidence & References\n8) Shopping Links\n9) Follow-up Plan",
+    "",
+    "Use the submission below as the ONLY source of truth. Do NOT hallucinate additional conditions or medications. If data is missing, explicitly note it.",
+    "",
+    "Submission (JSON):",
+    "```json",
+    safeStringify({
+      submission: {
+        id: sub.id,
+        name: (sub as any).name ?? null,
+        age: (sub as any).age ?? null,
+        sex: (sub as any).sex ?? null,
+        answers: (sub as any).answers ?? null,
+      },
+      medications: sub.medications ?? [],
+      supplements: sub.supplements ?? [],
+      hormones: sub.hormones ?? [],
+    }),
+    "```",
+    "",
+    "Important constraints:",
+    "- Return Markdown only in the response body.",
+    "- Use ASCII-safe characters and strict line wrapping ~80 chars max.",
+    "- Do NOT include any private keys or environment values.",
+    "",
+    "Output rules:",
+    "- Exactly 9 sections as listed above.",
+    "- Each section must have a short header (like \"## Summary\") and 2-6 bullet points where appropriate.",
+    "",
+    "Produce the recommended stack in a table where columns are: Supplement | Dose | Timing | Notes",
+    "",
+    "End of instructions."
+  ];
 
-      if (stackErr) throw stackErr;
+  // join and enforce a character limit (truncate the submission JSON if needed)
+  let prompt = parts.join("\n\n");
+  if (prompt.length > MAX_PROMPT_CHARS) {
+    // very conservative truncation: remove lengthy arrays
+    prompt = prompt.slice(0, MAX_PROMPT_CHARS - 500) + "\n\n...TRUNCATED_FOR_LENGTH";
+  }
+  return prompt;
+}
 
-      const items = stack.map((item) => ({
-        stack_id: stackRecord.id,
-        name: item.name,
-        dose: item.dose,
-        timing: item.timing ?? null,
-        link: item.link ?? null,
-        notes: item.notes ?? null,
-        rationale: item.rationale ?? null,
-        caution: item.caution ?? null,
-        citations: item.citations ?? null,
-      }));
+export async function generateStackForSubmission(submissionId: string) {
+  if (!submissionId) throw new Error("submissionId is required");
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
 
-      const { error: itemsErr } = await supabase.from("stack_items").insert(items);
-      if (itemsErr) {
-        console.error("❌ Failed to insert stack items:", itemsErr);
+  // 1) Load submission + children
+  const submission = await getSubmissionWithChildren(submissionId);
+
+  // 2) Build prompt
+  const prompt = buildPrompt(submission);
+
+  // 3) Call OpenAI response API (lazy)
+  const openai = getOpenAiClient();
+
+  const response = await openai.responses.create({
+    model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+    input: prompt,
+    // you may add other params (temperature, max_tokens) as needed
+  });
+
+  // 4) Extract primary text output (defensive)
+  let markdown = "";
+  try {
+    // The Responses API shape may vary; attempt robust extraction
+    const outputs = (response as any).output;
+    if (Array.isArray(outputs) && outputs.length) {
+      // pick first text-like content
+      const first = outputs[0];
+      if (typeof first === "string") markdown = first;
+      else if (first?.content) {
+        // content may be array of { type, text } or { type, parts }
+        if (Array.isArray(first.content)) {
+          // join text pieces
+          markdown = first.content.map((c: any) => c.text ?? c.parts?.join?.("") ?? "").join("\n");
+        } else if (typeof first.content === "string") {
+          markdown = first.content;
+        } else if (first.content?.[0]?.text) {
+          markdown = first.content.map((c: any) => c.text).join("\n");
+        }
       }
-    } catch (err) {
-      console.error("❌ Error saving stack:", err);
+    } else if ((response as any).output_text) {
+      markdown = (response as any).output_text;
+    } else {
+      markdown = safeStringify(response);
     }
-  }
-
-  return stack;
-}
-
-// -------------------
-// Rules Engine
-// -------------------
-
-async function generateStackFromRules(submission: Submission): Promise<StackItem[]> {
-  const goals = submission.goals?.map((g) => g.toLowerCase()) ?? [];
-  const tier = submission.tier ?? "budget";
-  const health = submission.healthConditions ?? [];
-
-  let meds: any[] = [];
-  let userSupps: any[] = [];
-  let hormones: any[] = [];
-
-  if (submission.id) {
-    const [{ data: medsRaw }, { data: userSuppsRaw }, { data: hormonesRaw }] =
-      await Promise.all([
-        supabase.from("submission_medications").select("name").eq("submission_id", submission.id),
-        supabase.from("submission_supplements").select("name").eq("submission_id", submission.id),
-        supabase.from("submission_hormones").select("name").eq("submission_id", submission.id),
-      ]);
-    meds = medsRaw ?? [];
-    userSupps = userSuppsRaw ?? [];
-    hormones = hormonesRaw ?? [];
-  }
-
-  const medsArr = Array.isArray(submission.medications)
-    ? submission.medications.map((m) => (typeof m === "string" ? m : m.name))
-    : meds.map((m) => m.name);
-
-  const userSuppsArr = Array.isArray(submission.supplements)
-    ? submission.supplements.map((s) => (typeof s === "string" ? s : s.name))
-    : userSupps.map((s) => s.name);
-
-  const { data: rules, error: rulesError } = await supabase
-    .from("rules")
-    .select("*")
-    .in("entity_a_name", goals);
-
-  if (rulesError) {
-    console.error("❌ Error fetching rules", rulesError);
-    return [];
-  }
-
-  const candidateIngredients =
-    rules
-      ?.filter(
-        (r) => r.rule_type !== "UL" && r.rule_type !== "SPACING" && r.rule_type !== "AVOID"
-      )
-      .map((r) => r.counterparty_name)
-      .filter(Boolean) ?? [];
-
-  const stack: StackItem[] = [];
-
-  for (const ingredient of candidateIngredients) {
-    const { data: supp, error: suppError } = await supabase
-      .from("supplements")
-      .select("*")
-      .eq("ingredient", ingredient)
-      .eq("tier", tier)
-      .single();
-
-    if (suppError || !supp) {
-      console.warn(`⚠️ No supplement found for ${ingredient}`, suppError);
-      continue;
-    }
-
-    const { data: interact } = await supabase
-      .from("interactions")
-      .select("*")
-      .eq("ingredient", ingredient)
-      .single();
-
-    let blocked = false;
-    if (interact) {
-      if (
-        medsArr.some((m) => m.toLowerCase().includes("anticoagulant")) &&
-        interact.anticoagulants_bleeding_risk === "Y"
-      )
-        blocked = true;
-      if (
-        health.some((h) => h.toLowerCase().includes("pregnancy")) &&
-        interact.pregnancy_caution === "Y"
-      )
-        blocked = true;
-      if (
-        health.some((h) => h.toLowerCase().includes("liver")) &&
-        interact.liver_disease_caution === "Y"
-      )
-        blocked = true;
-      if (
-        health.some((h) => h.toLowerCase().includes("kidney")) &&
-        interact.kidney_disease_caution === "Y"
-      )
-        blocked = true;
-    }
-
-    if (blocked) continue;
-
-    stack.push({
-      supplement_id: supp.id,
-      name: supp.ingredient,
-      dose: supp.dose,
-      link: supp.link ?? null,
-      notes: supp.notes ?? null,
-    });
-  }
-
-  return stack;
-}
-
-// -------------------
-// LLM Engine
-// -------------------
-
-async function generateStackFromLLM(sub: Submission): Promise<StackItem[]> {
-  const prompt = formatPromptFromSubmission(sub);
-
-  try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      temperature: 0.4,
-      messages: [
-        { role: "system", content: "You are a supplement expert." },
-        { role: "user", content: prompt },
-      ],
-    });
-
-    const raw = response.choices[0].message?.content ?? "";
-    return parseStackFromLLMOutput(raw);
   } catch (err) {
-    console.error("❌ LLM API error", err);
-    return [];
+    // fallback: stringify entire response
+    markdown = safeStringify(response);
   }
+
+  // Ensure markdown is not empty
+  if (!markdown || markdown.trim().length === 0) {
+    markdown = "## Error\n\nAI returned no usable text. Raw response attached below.\n\n```\n" + safeStringify(response) + "\n```";
+  }
+
+  return { markdown, raw: response };
 }
 
-function formatPromptFromSubmission(sub: Submission): string {
-  const meds = Array.isArray(sub.medications)
-    ? sub.medications.map((m) => (typeof m === "string" ? m : m.name)).join(", ")
-    : "";
-  const supps = Array.isArray(sub.supplements)
-    ? sub.supplements.map((s) => (typeof s === "string" ? s : s.name)).join(", ")
-    : "";
-  const horms = Array.isArray(sub.hormones)
-    ? sub.hormones.map((h) => (typeof h === "string" ? h : h.name)).join(", ")
-    : "";
-
-  return `
-User info:
-- Age: ${sub.dob ? calculateAge(sub.dob) : "Unknown"}
-- Sex at Birth: ${sub.sex ?? "Unknown"}
-- Pregnant: ${sub.pregnant ?? "Unknown"}
-- Weight: ${sub.weight ?? "Unknown"}
-- Height: ${sub.height ?? "Unknown"}
-- Conditions: ${sub.healthConditions?.join(", ") ?? "None"}
-- Medications: ${meds}
-- Supplements: ${supps}
-- Hormones: ${horms}
-- Goals: ${sub.goals?.join(", ") ?? "Unknown"}
-- Energy (1–5): ${sub.energy_rating ?? "3"}
-- Sleep (1–5): ${sub.sleep_rating ?? "3"}
-
-Instructions:
-- Generate a safe daily supplement stack (max 8 ingredients)
-- Return valid JSON only (no explanation)
-- Each entry = { name, dose, timing, rationale, caution?, citations? }
-- Avoid known interactions and pregnancy risks
-`;
-}
-
-function parseStackFromLLMOutput(output: string): StackItem[] {
-  const first = output.indexOf("[");
-  const last = output.lastIndexOf("]");
-  if (first === -1 || last === -1) {
-    console.error("❌ LLM output missing array:", output);
-    return [];
-  }
-  const json = output.slice(first, last + 1);
-  try {
-    return JSON.parse(json);
-  } catch (e) {
-    console.error("❌ Failed to parse LLM stack JSON", e, json);
-    return [];
-  }
-}
-
-function calculateAge(dob: string): number {
-  const birth = new Date(dob);
-  const now = new Date();
-  let age = now.getFullYear() - birth.getFullYear();
-  const m = now.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) {
-    age--;
-  }
-  return age;
-}
+export default generateStackForSubmission;

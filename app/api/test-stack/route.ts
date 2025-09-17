@@ -1,38 +1,30 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { generateStack } from '../../../src/lib/generateStack'
-import { createClient } from '@supabase/supabase-js'
+// app/api/test-stack/route.ts
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { supabaseAdmin } from "@/lib/supabase";
+import { getOpenAiClient } from "../../../src/lib/openai";
 
-function supabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key);
-}
+export async function POST(req: NextRequest) {
+  try {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json({ error: "Supabase envs missing." }, { status: 500 });
+    }
 
-/**
- * GET /api/test-stack?id=<submission_id>
- * Test-only endpoint: fetches a submission by id, runs stack generator, returns stack.
- * No writes or user_id logic needed.
- */
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const id = searchParams.get('id');
+    let openai;
+    try {
+      openai = getOpenAiClient();
+    } catch (e: any) {
+      return NextResponse.json({ error: e.message }, { status: 500 });
+    }
 
-  if (!id) {
-    return NextResponse.json({ ok: false, error: 'Missing ?id parameter' }, { status: 400 });
+    // example test logic
+    const resp = await openai.responses.create({
+      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+      input: "LVE360 test prompt",
+    });
+
+    return NextResponse.json({ ok: true, resp });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message ?? String(err) }, { status: 500 });
   }
-
-  const supabase = supabaseAdmin();
-  const { data: submission, error } = await supabase
-    .from('submissions')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
-
-  if (error || !submission) {
-    return NextResponse.json({ ok: false, error: 'Submission not found' }, { status: 404 });
-  }
-
-  const stack = await generateStack(submission as any);
-
-  return NextResponse.json({ ok: true, stack });
 }

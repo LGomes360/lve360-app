@@ -1,39 +1,57 @@
-import { createClient } from '@supabase/supabase-js';
+// src/lib/getSubmissionWithChildren.ts
+// Robust helper: returns a Submission + its child rows.
+// - Typed against Database from '@/types/supabase'.
+// - Uses supabaseAdmin (service-role client).
+// - Never instantiates clients at import-time beyond existing shared clients.
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { supabaseAdmin } from "@/lib/supabase";
+import type { Database } from "@/types/supabase";
 
-export async function getSubmissionWithChildren(submissionId: string) {
-  // 1. Fetch parent submission
-  const { data: submission, error } = await supabase
-    .from('submissions')
-    .select('*')
-    .eq('id', submissionId)
+export type SubmissionRow = Database["public"]["Tables"]["submissions"]["Row"];
+export type SubmissionMedicationRow = Database["public"]["Tables"]["submission_medications"]["Row"];
+export type SubmissionSupplementRow = Database["public"]["Tables"]["submission_supplements"]["Row"];
+export type SubmissionHormoneRow = Database["public"]["Tables"]["submission_hormones"]["Row"];
+
+export type SubmissionWithChildren = SubmissionRow & {
+  medications: SubmissionMedicationRow[];
+  supplements: SubmissionSupplementRow[];
+  hormones: SubmissionHormoneRow[];
+};
+
+export async function getSubmissionWithChildren(submissionId: string): Promise<SubmissionWithChildren> {
+  if (!submissionId) throw new Error("submissionId is required");
+
+  // Fetch the parent submission
+  const { data: submission, error: parentErr } = await supabaseAdmin
+    .from("submissions")
+    .select("*")
+    .eq("id", submissionId)
     .single();
-  if (error || !submission) throw new Error('Submission not found');
 
-  // 2. Fetch children
-  const { data: medications } = await supabase
-    .from('submission_medications')
-    .select('*')
-    .eq('submission_id', submissionId);
+  if (parentErr) {
+    throw new Error(`Failed to fetch submission ${submissionId}: ${parentErr.message}`);
+  }
+  if (!submission) {
+    throw new Error(`Submission ${submissionId} not found`);
+  }
 
-  const { data: supplements } = await supabase
-    .from('submission_supplements')
-    .select('*')
-    .eq('submission_id', submissionId);
+  // Fetch child rows in parallel
+  const [medResp, supResp, horResp] = await Promise.all([
+    supabaseAdmin.from("submission_medications").select("*").eq("submission_id", submissionId),
+    supabaseAdmin.from("submission_supplements").select("*").eq("submission_id", submissionId),
+    supabaseAdmin.from("submission_hormones").select("*").eq("submission_id", submissionId),
+  ]);
 
-  const { data: hormones } = await supabase
-    .from('submission_hormones')
-    .select('*')
-    .eq('submission_id', submissionId);
+  if (medResp.error) throw new Error(`Failed to fetch medications: ${medResp.error.message}`);
+  if (supResp.error) throw new Error(`Failed to fetch supplements: ${supResp.error.message}`);
+  if (horResp.error) throw new Error(`Failed to fetch hormones: ${horResp.error.message}`);
 
   return {
     ...submission,
-    medications: medications || [],
-    supplements: supplements || [],
-    hormones: hormones || [],
+    medications: medResp.data ?? [],
+    supplements: supResp.data ?? [],
+    hormones: horResp.data ?? [],
   };
 }
+
+export default getSubmissionWithChildren;
