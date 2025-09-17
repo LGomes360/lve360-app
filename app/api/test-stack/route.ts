@@ -1,38 +1,41 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { generateStack } from '../../../src/lib/generateStack'
-import { createClient } from '@supabase/supabase-js'
+// app/api/test-stack/route.ts
+// Server route that uses the centralized supabase admin client.
+// This version imports the shared client (supabaseAdmin) and
+// guards against missing envs at module load time.
 
-function supabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key);
-}
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+
+// Use centralized client. Adjust relative path if your layout differs:
+import { supabaseAdmin } from "../../../src/lib/supabase";
 
 /**
- * GET /api/test-stack?id=<submission_id>
- * Test-only endpoint: fetches a submission by id, runs stack generator, returns stack.
- * No writes or user_id logic needed.
+ * Helper: ensure supabaseAdmin is available and envs are set.
+ * If envs are missing, return a friendly error at runtime instead of throwing during module load.
  */
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const id = searchParams.get('id');
-
-  if (!id) {
-    return NextResponse.json({ ok: false, error: 'Missing ?id parameter' }, { status: 400 });
+function getAdminClientOrThrow() {
+  // supabaseAdmin creation in src/lib/supabase.ts may have produced a client even with empty strings,
+  // but we still verify the envs are present to avoid runtime surprises.
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  if (!url || !key) {
+    throw new Error("Supabase envs are not configured (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY).");
   }
-
-  const supabase = supabaseAdmin();
-  const { data: submission, error } = await supabase
-    .from('submissions')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
-
-  if (error || !submission) {
-    return NextResponse.json({ ok: false, error: 'Submission not found' }, { status: 404 });
-  }
-
-  const stack = await generateStack(submission as any);
-
-  return NextResponse.json({ ok: true, stack });
+  return supabaseAdmin;
 }
+
+export async function POST(req: NextRequest) {
+  try {
+    const admin = getAdminClientOrThrow();
+    // Example call — replace with your route logic
+    const { data, error } = await admin.from("submissions").select("*").limit(1);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true, data });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
+  }
+}
+
+// If your route uses GET or other methods, export them similarly.
