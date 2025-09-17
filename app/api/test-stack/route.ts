@@ -1,7 +1,7 @@
 // app/api/test-stack/route.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { supabaseAdmin } from "../../../@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { getOpenAiClient } from "../../../src/lib/openai";
 
 export async function POST(req: NextRequest) {

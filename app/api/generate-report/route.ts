@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getOpenAiClient } from "../../../src/lib/openai";
-import { supabaseAdmin } from "../../../@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 
 /**
  * POST /api/generate-report
