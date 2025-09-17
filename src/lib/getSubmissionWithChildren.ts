@@ -1,69 +1,70 @@
-// -----------------------------------------------------------------------------
-// LVE360 // getSubmissionWithChildren.ts
-// Fetches a single submission plus all child rows (supplements, medications,
-// hormones) in one typed object. Service‑role key is used because this runs
-// server‑side only. No secrets are ever returned to the client.
-// -----------------------------------------------------------------------------
+// src/lib/getSubmissionWithChildren.ts
+// Server-side helper: fetch a submission and its child rows using the admin client.
+// Returns both short keys (medications/supplements/hormones) and submission_* keys
+// so existing code will continue working.
 
-
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import type { Database } from '@/types/supabase';
 
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-
-// Typed admin client (no session persistence)
-const admin = createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-auth: { persistSession: false }
-});
-
-
 export type SubmissionWithChildren = Database['public']['Tables']['submissions']['Row'] & {
-submission_supplements: Database['public']['Tables']['submission_supplements']['Row'][];
-submission_medications: Database['public']['Tables']['submission_medications']['Row'][];
-submission_hormones: Database['public']['Tables']['submission_hormones']['Row'][];
+  // short aliases (used in many places)
+  medications: Database['public']['Tables']['submission_medications']['Row'][];
+  supplements: Database['public']['Tables']['submission_supplements']['Row'][];
+  hormones: Database['public']['Tables']['submission_hormones']['Row'][];
+  // canonical submission_* names (if other code expects these)
+  submission_medications: Database['public']['Tables']['submission_medications']['Row'][];
+  submission_supplements: Database['public']['Tables']['submission_supplements']['Row'][];
+  submission_hormones: Database['public']['Tables']['submission_hormones']['Row'][];
 };
 
+export async function getSubmissionWithChildren(
+  submissionId: string
+): Promise<SubmissionWithChildren> {
+  // 1) Fetch parent row
+  const { data: submission, error: subErr } = await supabaseAdmin
+    .from('submissions')
+    .select('*')
+    .eq('id', submissionId)
+    .single();
 
-export async function getSubmissionWithChildren(id: string): Promise<SubmissionWithChildren> {
-// ── 1. Grab the parent submission row ───────────────────────────────────────
-const { data: submission, error } = await admin
-.from('submissions')
-.select('*')
-.eq('id', id)
-.single();
+  if (subErr || !submission) {
+    // surface helpful error for debugging
+    throw subErr ?? new Error(`Submission not found: ${submissionId}`);
+  }
 
+  // 2) Fetch children in parallel
+  const [medsRes, suppsRes, hormRes] = await Promise.all([
+    supabaseAdmin
+      .from('submission_medications')
+      .select('*')
+      .eq('submission_id', submissionId),
+    supabaseAdmin
+      .from('submission_supplements')
+      .select('*')
+      .eq('submission_id', submissionId),
+    supabaseAdmin
+      .from('submission_hormones')
+      .select('*')
+      .eq('submission_id', submissionId)
+  ]);
 
-if (error || !submission) throw error ?? new Error('Submission not found');
+  // 3) Fail fast if any child query errored
+  if (medsRes.error || suppsRes.error || hormRes.error) {
+    throw medsRes.error ?? suppsRes.error ?? hormRes.error;
+  }
 
+  const medications = medsRes.data ?? [];
+  const supplements = suppsRes.data ?? [];
+  const hormones = hormRes.data ?? [];
 
-// ── 2. Pull child tables in parallel ────────────────────────────────────────
-const [supps, meds, hormones] = await Promise.all([
-admin
-.from('submission_supplements')
-.select('*')
-.eq('submission_id', id),
-admin
-.from('submission_medications')
-.select('*')
-.eq('submission_id', id),
-admin
-.from('submission_hormones')
-.select('*')
-.eq('submission_id', id)
-]);
-
-
-if (supps.error || meds.error || hormones.error)
-throw supps.error ?? meds.error ?? hormones.error;
-
-
-return {
-...submission,
-submission_supplements: supps.data ?? [],
-submission_medications: meds.data ?? [],
-submission_hormones: hormones.data ?? []
-};
+  return {
+    ...submission,
+    medications,
+    supplements,
+    hormones,
+    // also include canonical keys
+    submission_medications: medications,
+    submission_supplements: supplements,
+    submission_hormones: hormones
+  };
 }
