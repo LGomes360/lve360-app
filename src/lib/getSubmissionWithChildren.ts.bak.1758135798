@@ -1,6 +1,6 @@
 // src/lib/getSubmissionWithChildren.ts
 // Fetch a submission and its child rows (meds, supplements, hormones).
-// Exports both named and default.
+// Exports both named and default for compatibility.
 
 import { supabaseAdmin } from "./supabase";
 
@@ -43,3 +43,4 @@ export async function getSubmissionWithChildren(submissionId: string): Promise<a
 }
 
 export default getSubmissionWithChildren;
+
