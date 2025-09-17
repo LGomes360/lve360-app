@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
       // Adjust to your schema: users table columns, subscriptions table, tier names, etc.
       if (email) {
         // Upsert user if not present
-        await supabaseAdmin.from("users").upsert({ email }, { onConflict: ["email"] });
+        await supabaseAdmin.from("users").upsert({ email }, { onConflict: "email" });
 
         // Mark user as premium (example)
         // NOTE: replace this with your actual logic (subscription rows, tier mapping, metadata)
