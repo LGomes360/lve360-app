@@ -1,49 +1,24 @@
-export const runtime = 'nodejs';
+// app/api/users/tier/route.ts
+// Safe handler for /api/users/tier — runtime env checks and correct import path.
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { supabaseAdmin } from "../../../../src/lib/supabase";
 
-const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPA_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-/**
- * GET /api/users/tier?email=...
- * Returns the user's current tier and Stripe subscription status.
- * No writes or user_id logic needed — read-only.
- */
 export async function GET(req: NextRequest) {
-  const emailRaw = req.nextUrl.searchParams.get('email') || '';
-  const email = emailRaw.trim().toLowerCase();
+  try {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json({ error: "Supabase envs missing." }, { status: 500 });
+    }
 
-  if (!email) {
-    return NextResponse.json({ error: 'missing email' }, { status: 400 });
+    const userId = String(req.nextUrl.searchParams.get("userId") ?? "");
+    if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
+
+    const { data, error } = await supabaseAdmin.from("users").select("tier").eq("id", userId).single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    return NextResponse.json({ ok: true, tier: data?.tier ?? null });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message ?? String(err) }, { status: 500 });
   }
-
-  const url =
-    `${SUPA_URL}/rest/v1/users` +
-    `?select=tier,stripe_subscription_status,email` +
-    `&email=eq.${encodeURIComponent(email)}` +
-    `&limit=1`;
-
-  const r = await fetch(url, {
-    headers: {
-      apikey: SUPA_SERVICE,
-      Authorization: `Bearer ${SUPA_SERVICE}`,
-    },
-    cache: 'no-store',
-  });
-
-  if (!r.ok) {
-    const txt = await r.text();
-    console.error('users/tier fetch failed:', txt);
-    return NextResponse.json({ error: 'db-error' }, { status: 500 });
-  }
-
-  const rows = await r.json();
-  const row = Array.isArray(rows) ? rows[0] : null;
-
-  return NextResponse.json({
-    email,
-    tier: (row?.tier as 'free' | 'premium') ?? 'free',
-    stripe_subscription_status: row?.stripe_subscription_status ?? null,
-  });
 }
