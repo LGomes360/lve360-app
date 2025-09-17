@@ -1,6 +1,6 @@
 // app/api/stacks/route.ts
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../src/lib/supabase";
+import { supabaseAdmin } from "../../../@/lib/supabase";
 
 export async function GET() {
   try {

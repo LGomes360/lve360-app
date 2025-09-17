@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getOpenAiClient } from "../../../src/lib/openai";
-import { supabaseAdmin } from "../../../src/lib/supabase";
+import { supabaseAdmin } from "../../../@/lib/supabase";
 
 export async function POST(req: NextRequest) {
   try {

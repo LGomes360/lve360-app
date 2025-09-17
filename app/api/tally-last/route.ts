@@ -8,7 +8,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 // Adjust this relative path if your central client is located elsewhere:
-import { supabaseAdmin } from "../../../src/lib/supabase";
+import { supabaseAdmin } from "../../../@/lib/supabase";
 
 export async function GET(_req: NextRequest) {
   try {
