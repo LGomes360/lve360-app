@@ -1,39 +1,69 @@
+// -----------------------------------------------------------------------------
+// LVE360 // getSubmissionWithChildren.ts
+// Fetches a single submission plus all child rows (supplements, medications,
+// hormones) in one typed object. Service‑role key is used because this runs
+// server‑side only. No secrets are ever returned to the client.
+// -----------------------------------------------------------------------------
+
+
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/types/supabase';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
-export async function getSubmissionWithChildren(submissionId: string) {
-  // 1. Fetch parent submission
-  const { data: submission, error } = await supabase
-    .from('submissions')
-    .select('*')
-    .eq('id', submissionId)
-    .single();
-  if (error || !submission) throw new Error('Submission not found');
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-  // 2. Fetch children
-  const { data: medications } = await supabase
-    .from('submission_medications')
-    .select('*')
-    .eq('submission_id', submissionId);
 
-  const { data: supplements } = await supabase
-    .from('submission_supplements')
-    .select('*')
-    .eq('submission_id', submissionId);
+// Typed admin client (no session persistence)
+const admin = createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+auth: { persistSession: false }
+});
 
-  const { data: hormones } = await supabase
-    .from('submission_hormones')
-    .select('*')
-    .eq('submission_id', submissionId);
 
-  return {
-    ...submission,
-    medications: medications || [],
-    supplements: supplements || [],
-    hormones: hormones || [],
-  };
+export type SubmissionWithChildren = Database['public']['Tables']['submissions']['Row'] & {
+submission_supplements: Database['public']['Tables']['submission_supplements']['Row'][];
+submission_medications: Database['public']['Tables']['submission_medications']['Row'][];
+submission_hormones: Database['public']['Tables']['submission_hormones']['Row'][];
+};
+
+
+export async function getSubmissionWithChildren(id: string): Promise<SubmissionWithChildren> {
+// ── 1. Grab the parent submission row ───────────────────────────────────────
+const { data: submission, error } = await admin
+.from('submissions')
+.select('*')
+.eq('id', id)
+.single();
+
+
+if (error || !submission) throw error ?? new Error('Submission not found');
+
+
+// ── 2. Pull child tables in parallel ────────────────────────────────────────
+const [supps, meds, hormones] = await Promise.all([
+admin
+.from('submission_supplements')
+.select('*')
+.eq('submission_id', id),
+admin
+.from('submission_medications')
+.select('*')
+.eq('submission_id', id),
+admin
+.from('submission_hormones')
+.select('*')
+.eq('submission_id', id)
+]);
+
+
+if (supps.error || meds.error || hormones.error)
+throw supps.error ?? meds.error ?? hormones.error;
+
+
+return {
+...submission,
+submission_supplements: supps.data ?? [],
+submission_medications: meds.data ?? [],
+submission_hormones: hormones.data ?? []
+};
 }
