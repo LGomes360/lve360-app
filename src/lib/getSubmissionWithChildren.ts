@@ -1,23 +1,11 @@
 // src/lib/getSubmissionWithChildren.ts
 // Server-side helper: fetch a submission and its child rows using the admin client.
-// Uses relative imports to avoid path-alias resolution issues during build.
+// Minimal, no TypeScript type imports to avoid module resolution issues during CI.
+// Returns a plain JS object (any) to keep downstream callers working.
 
 import { supabaseAdmin } from './supabaseAdmin';
-import type { Database } from '../types/supabase';
 
-export type SubmissionWithChildren = Database['public']['Tables']['submissions']['Row'] & {
-  medications: Database['public']['Tables']['submission_medications']['Row'][];
-  supplements: Database['public']['Tables']['submission_supplements']['Row'][];
-  hormones: Database['public']['Tables']['submission_hormones']['Row'][];
-  // also include canonical submission_* keys for backward compatibility
-  submission_medications: Database['public']['Tables']['submission_medications']['Row'][];
-  submission_supplements: Database['public']['Tables']['submission_supplements']['Row'][];
-  submission_hormones: Database['public']['Tables']['submission_hormones']['Row'][];
-};
-
-export async function getSubmissionWithChildren(
-  submissionId: string
-): Promise<SubmissionWithChildren> {
+export async function getSubmissionWithChildren(submissionId: string): Promise<any> {
   // 1) Parent submission
   const { data: submission, error: parentErr } = await supabaseAdmin
     .from('submissions')
@@ -54,6 +42,7 @@ export async function getSubmissionWithChildren(
   const supplements = suppsRes.data ?? [];
   const hormones = hormRes.data ?? [];
 
+  // Keep both short and canonical keys to preserve compatibility
   return {
     ...submission,
     medications,
