@@ -1,79 +1,59 @@
-// src/types/supabase.ts
-// Minimal supabase types used by the app to satisfy TypeScript imports.
-// Replace with generated types from `npx supabase gen types` when convenient.
+// src/lib/supabase.ts
+// Centralized Supabase client exports for LVE360
+// Exports:
+//  - supabase       -> browser-safe (anon key)
+//  - supabaseAdmin  -> server-only (service role key)
+//
+// Use this file anywhere you currently import from "./supabase" or "@/lib/supabase".
 
-export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json }
-  | Json[];
+import { createClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/supabase";
 
-export type Database = {
-  public: {
-    Tables: {
-      submissions: {
-        Row: {
-          id: string;
-          user_id?: string | null;
-          created_at?: string | null;
-          // flexible catch-all for other fields
-          [key: string]: Json | string | number | boolean | null | undefined;
-        };
-      };
-      submission_supplements: {
-        Row: {
-          id: string;
-          submission_id: string;
-          supplement_id?: string | null;
-          name?: string | null;
-          dose?: string | null;
-          timing?: string | null;
-          [key: string]: Json | string | number | boolean | null | undefined;
-        };
-      };
-      submission_medications: {
-        Row: {
-          id: string;
-          submission_id: string;
-          med_name?: string | null;
-          dose?: string | null;
-          notes?: string | null;
-          [key: string]: Json | string | number | boolean | null | undefined;
-        };
-      };
-      submission_hormones: {
-        Row: {
-          id: string;
-          submission_id: string;
-          hormone_name?: string | null;
-          dose?: string | null;
-          notes?: string | null;
-          [key: string]: Json | string | number | boolean | null | undefined;
-        };
-      };
-      users: {
-        Row: {
-          id: string;
-          email?: string | null;
-          created_at?: string | null;
-          [key: string]: Json | string | number | boolean | null | undefined;
-        };
-      };
-      supplements: {
-        Row: {
-          id: string;
-          name?: string | null;
-          brand?: string | null;
-          affiliate_url?: string | null;
-          [key: string]: Json | string | number | boolean | null | undefined;
-        };
-      };
-    };
-    Views: Record<string, never>;
-    Functions: Record<string, never>;
-    Enums: Record<string, never>;
-    CompositeTypes: Record<string, never>;
-  };
-};
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+/**
+ * Environment checks:
+ * - In production we throw if required envs are missing (fail fast).
+ * - In development we warn (easier local dev), but you can tighten to throw if you prefer.
+ */
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are required."
+    );
+  } else {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "⚠️ Missing Supabase public env vars. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to avoid surprises."
+    );
+  }
+}
+
+if (!SUPABASE_SERVICE_ROLE_KEY) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing Supabase env var: SUPABASE_SERVICE_ROLE_KEY is required in production.");
+  } else {
+    // eslint-disable-next-line no-console
+    console.warn("⚠️ Missing SUPABASE_SERVICE_ROLE_KEY. Server-side admin operations will fail without it.");
+  }
+}
+
+// Browser-safe client (typed)
+export const supabase = createClient<Database>(
+  SUPABASE_URL ?? "",
+  SUPABASE_ANON_KEY ?? "",
+  {
+    auth: { persistSession: true }
+  }
+);
+
+// Server-only admin client (typed). Use only in server code / API routes.
+export const supabaseAdmin = createClient<Database>(
+  SUPABASE_URL ?? "",
+  SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false }
+  }
+);
