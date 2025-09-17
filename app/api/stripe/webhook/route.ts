@@ -1,7 +1,4 @@
 // app/api/stripe/webhook/route.ts
-// Safe Stripe webhook handler — lazy init and runtime env checks.
-// Note: import path corrected to reach src/lib from a 4-level deep route.
-
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import Stripe from "stripe";
@@ -18,7 +15,8 @@ export async function POST(req: NextRequest) {
     const rawBody = await req.text();
     const sig = req.headers.get("stripe-signature") || "";
 
-    const stripe = new Stripe(stripeKey, { apiVersion: "2022-11-15" });
+    // Use an API version matching installed stripe types
+    const stripe = new Stripe(stripeKey, { apiVersion: "2023-10-16" });
 
     try {
       const event = stripe.webhooks.constructEvent(rawBody, sig, endpointSecret);
