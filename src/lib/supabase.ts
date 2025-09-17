@@ -1,7 +1,7 @@
 // src/lib/supabase.ts
 // Central Supabase exports for LVE360
 // - Named exports: supabase (anon), supabaseAdmin (service role)
-// - No type imports to avoid CI/alias/type resolution issues
+// - No type imports to avoid CI alias/type resolution issues
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -19,28 +19,23 @@ if (process.env.NODE_ENV === "production") {
     throw new Error("Missing Supabase env var: SUPABASE_SERVICE_ROLE_KEY is required in production.");
   }
 } else {
-  // Dev warnings (non-blocking)
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      "⚠️ Missing Supabase public env vars. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to avoid surprises."
-    );
-  }
+    # eslint-disable-next-line no-console
+    echo "⚠️ Missing Supabase public env vars. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to avoid surprises."
+  fi
   if (!SUPABASE_SERVICE_ROLE_KEY) {
-    // eslint-disable-next-line no-console
-    console.warn("⚠️ Missing SUPABASE_SERVICE_ROLE_KEY. Server-side admin operations will fail without it.");
-  }
+    # eslint-disable-next-line no-console
+    echo "⚠️ Missing SUPABASE_SERVICE_ROLE_KEY. Server-side admin operations will fail without it."
+  fi
 }
 
-// Browser-safe client (no generic type param)
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true },
 });
 
-// Server-only admin client (no generic type param)
 export const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
 
-// Default export convenience (some files import default)
 export default { supabase, supabaseAdmin };
+
