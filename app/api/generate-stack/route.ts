@@ -21,14 +21,15 @@ export async function POST(req: NextRequest) {
     // If caller provided only the short Tally id, resolve it to the submission UUID
     if (!submissionId && tallyShort) {
       try {
-        // Await the query and handle the returned { data, error } shape
-        const resp = await supabaseAdmin
+        // Be explicit about "any" here so TS doesn't infer the wrong Response type
+        const resp: any = await supabaseAdmin
           .from("submissions")
           .select("id,tally_submission_id,user_email")
           .eq("tally_submission_id", tallyShort)
           .limit(1);
 
-        const { data, error } = resp as any;
+        const data: any = resp?.data;
+        const error: any = resp?.error;
 
         if (error) {
           console.error("Error resolving tally_submission_id:", error);
@@ -39,10 +40,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (!Array.isArray(data) || data.length === 0) {
-          return NextResponse.json(
-            { ok: false, error: `Submission not found for tally_submission_id=${tallyShort}` },
-            { status: 404 }
-          );
+          return NextResponse.json({ ok: false, error: `Submission not found for tally_submission_id=${tallyShort}` }, { status: 404 });
         }
 
         submissionId = data[0].id;
@@ -57,16 +55,16 @@ export async function POST(req: NextRequest) {
     }
 
     // Load submission row (optional; helps find user_email or tally id)
-    let submissionRow: any = null;
+    let submissionRow: Record<string, any> | null = null;
     try {
-      const { data: sdata, error: sErr } = await supabaseAdmin
+      const resp: any = await supabaseAdmin
         .from("submissions")
         .select("id,user_email,tally_submission_id")
         .eq("id", submissionId)
         .limit(1);
 
-      if (!sErr && Array.isArray(sdata) && sdata.length) {
-        submissionRow = sdata[0];
+      if (!resp?.error && Array.isArray(resp?.data) && resp.data.length) {
+        submissionRow = resp.data[0];
       }
     } catch (e) {
       // non-fatal: continue if this lookup fails
@@ -74,10 +72,11 @@ export async function POST(req: NextRequest) {
     }
 
     // 1) Generate stack via the OpenAI helper
-    const { markdown, raw } = await generateStackForSubmission(submissionId);
+    // generateStackForSubmission may return 'raw' of unknown shape — treat as any
+    const { markdown, raw }: { markdown: string | null; raw: any } = (await generateStackForSubmission(submissionId)) as any;
 
     // 2) Determine user_email (submission row preferred; fallback to AI or placeholder)
-    const userEmail = (submissionRow?.user_email ?? raw?.user_email ?? `unknown+${Date.now()}@local`)?.toString();
+    const userEmail = (submissionRow?.user_email ?? (raw as any)?.user_email ?? `unknown+${Date.now()}@local`).toString();
 
     // 3) Build stack payload (adjust fields to match your schema as needed)
     const stackRow: any = {
@@ -96,17 +95,17 @@ export async function POST(req: NextRequest) {
     };
 
     // 4) Upsert into stacks (use onConflict to avoid duplicate rows)
-    const { data: savedArr, error: saveErr } = await supabaseAdmin
+    const respSave: any = await supabaseAdmin
       .from("stacks")
       .upsert(stackRow, { onConflict: "submission_id" })
       .select();
 
-    if (saveErr) {
-      console.error("Failed to persist stack:", saveErr);
-      return NextResponse.json({ ok: true, saved: false, error: String(saveErr.message ?? saveErr), ai: { markdown, raw } }, { status: 200 });
+    if (respSave?.error) {
+      console.error("Failed to persist stack:", respSave.error);
+      return NextResponse.json({ ok: true, saved: false, error: String(respSave.error?.message ?? respSave.error), ai: { markdown, raw } }, { status: 200 });
     }
 
-    const saved = Array.isArray(savedArr) ? savedArr[0] ?? null : savedArr;
+    const saved = Array.isArray(respSave?.data) ? respSave.data[0] ?? null : respSave?.data ?? null;
 
     return NextResponse.json({ ok: true, saved: true, stack: saved, ai: { markdown, raw } }, { status: 200 });
   } catch (err: any) {
