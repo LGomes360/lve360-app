@@ -10,6 +10,16 @@ jobs:
   build:
     name: Install & Build
     runs-on: ubuntu-latest
+
+    # Expose the required env vars from GitHub Secrets
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_PRICE_PREMIUM: ${{ secrets.STRIPE_PRICE_PREMIUM }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -25,19 +35,3 @@ jobs:
 
       - name: Run production build (Next.js)
         run: npm run build
-        # If your build needs secrets (NEXT_PUBLIC_*, SUPABASE, STRIPE), set them in repo Settings -> Secrets and uncomment below:
-        # env:
-        #   NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-        #   NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-        #   SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        #   STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-        #   STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-
-      - name: (optional) Run linter if present
-        if: always()
-        run: |
-          if grep -q '"lint":' package.json; then
-            npm run lint || true
-          else
-            echo "No lint script defined"
-          fi
