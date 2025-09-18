@@ -11,7 +11,7 @@ jobs:
     name: Install & Build
     runs-on: ubuntu-latest
 
-    # Expose the required env vars from GitHub Secrets
+    # Expose the required env vars from GitHub Secrets (case-sensitive)
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
@@ -32,6 +32,24 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Confirm required env vars are present (debug)
+        run: |
+          set -e
+          VARS="NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY STRIPE_SECRET_KEY STRIPE_PRICE_PREMIUM STRIPE_WEBHOOK_SECRET"
+          MISSING=0
+          for V in $VARS; do
+            if [ -z "${!V}" ]; then
+              echo "$V -> MISSING"
+              MISSING=1
+            else
+              echo "$V -> present"
+            fi
+          done
+          if [ $MISSING -eq 1 ]; then
+            echo "One or more required env vars are missing. See messages above."
+            exit 1
+          fi
 
       - name: Run production build (Next.js)
         run: npm run build
