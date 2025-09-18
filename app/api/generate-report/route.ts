@@ -8,14 +8,11 @@ import { assertEnv } from "@/lib/env";
  * POST /api/generate-report
  * Body: { submissionId: string }
  *
- * Behavior:
- *  - Validate submissionId
- *  - Load submission from Supabase
- *  - Lazily initialize OpenAI (request-time)
- *  - Call OpenAI Responses API to generate report
- *  - Save report row to `reports` with token usage and estimate
- *
- * Important: no OpenAI client is created at module load time.
+ * Lazily initializes OpenAI at request-time in a type-safe way so build-time
+ * doesn't require OPENAI_API_KEY. Works with either:
+ *  - src/lib/openai.ts exporting getOpenAiClient()
+ *  - src/lib/openai.ts exporting getOpenAI()
+ *  - or falling back to dynamic import('openai') and new OpenAI({ apiKey })
  */
 
 export async function POST(req: NextRequest) {
@@ -38,7 +35,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "submission not found" }, { status: 404 });
     }
 
-    // Optionally assert envs at request-time (will warn for PR builds; will throw in production if required envs missing)
+    // Assert envs at request-time (throws in production if required envs missing)
     try {
       assertEnv();
     } catch (e) {
@@ -46,12 +43,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Server environment misconfigured" }, { status: 500 });
     }
 
-    // Lazy initialize OpenAI inside the request handler to avoid build-time throws
-    let openai: any;
+    // -----------------------
+    // Lazy-initialize OpenAI
+    // -----------------------
+    let openai: any = null;
     try {
-      const mod = await import("@/lib/openai");
-      openai = (mod.getOpenAiClient ?? mod.getOpenAI ?? mod.default)?.();
-      if (!openai) throw new Error("OpenAI client factory not found in /src/lib/openai");
+      // Try your local factory first (if present)
+      const mod: any = await import("@/lib/openai").catch(() => null);
+
+      if (mod) {
+        // Prefer the factory function if it exists
+        if (typeof mod.getOpenAiClient === "function") {
+          openai = mod.getOpenAiClient();
+        } else if (typeof mod.getOpenAI === "function") {
+          openai = mod.getOpenAI();
+        } else if (mod.default) {
+          // If default export is a class/constructor: instantiate it.
+          // If default is already a client instance, accept it.
+          const Def = mod.default;
+          if (typeof Def === "function") {
+            openai = new Def({ apiKey: process.env.OPENAI_API_KEY });
+          } else {
+            openai = Def;
+          }
+        }
+      }
+
+      // Fallback: dynamic import of the official SDK
+      if (!openai) {
+        const OpenAIMod: any = await import("openai");
+        const OpenAIDef = OpenAIMod?.default ?? OpenAIMod;
+        if (typeof OpenAIDef === "function") {
+          openai = new OpenAIDef({ apiKey: process.env.OPENAI_API_KEY });
+        } else {
+          // defensive: assign whatever was exported
+          openai = OpenAIDef;
+        }
+      }
+
+      if (!openai) throw new Error("OpenAI initialization failed");
     } catch (e: any) {
       console.error("OpenAI init failed:", e?.message ?? e);
       return NextResponse.json({ ok: false, error: "OpenAI unavailable (missing key or misconfigured)" }, { status: 500 });
@@ -113,11 +143,9 @@ export async function POST(req: NextRequest) {
     const promptTokens = Number(usage.prompt_tokens ?? 0);
     const completionTokens = Number(usage.completion_tokens ?? 0);
 
-    // Safely compute total tokens without mixing ?? and || in one expression
+    // Compute total tokens in clear steps to avoid operator-mixing issues
     const totalTokensRaw = usage.total_tokens;
-    const totalTokens = Number(
-      totalTokensRaw != null ? totalTokensRaw : promptTokens + completionTokens
-    );
+    const totalTokens = Number(totalTokensRaw != null ? totalTokensRaw : promptTokens + completionTokens);
 
     // Estimate cost (replace with your real per-1k constants if known)
     const INPUT_COST_PER_1K = parseFloat(process.env.INPUT_COST_PER_1K ?? "0") || 0;
