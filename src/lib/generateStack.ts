@@ -1,10 +1,9 @@
 // src/lib/generateStack.ts
 // Generate a supplement "stack" (Markdown) for a submission using OpenAI.
-// - Uses getOpenAiClient() (lazy) to avoid throwing at import time.
+// - Lazy-inits OpenAI at runtime to avoid throwing at build-time.
 // - Uses getSubmissionWithChildren to load the submission and children.
 // - Returns { markdown, raw } where raw is the OpenAI response object.
 
-import { getOpenAiClient } from "@/lib/openai";
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 import type { Database } from "@/types/supabase";
@@ -55,7 +54,7 @@ function buildPrompt(sub: SubmissionWithChildren) {
     "",
     "Produce the recommended stack in a table where columns are: Supplement | Dose | Timing | Notes",
     "",
-    "End of instructions."
+    "End of instructions.",
   ];
 
   // join and enforce a character limit (truncate the submission JSON if needed)
@@ -77,16 +76,44 @@ export async function generateStackForSubmission(submissionId: string) {
   // 2) Build prompt
   const prompt = buildPrompt(submission);
 
-  // 3) Call OpenAI response API (lazy)
-  const openai = getOpenAiClient();
+  // 3) Lazy-init OpenAI client at runtime (do NOT do this at module top-level)
+  let openai: any = null;
+  try {
+    // Try local factory first (src/lib/openai)
+    const localMod: any = await import("./openai").catch(() => null);
 
+    if (localMod) {
+      if (typeof localMod.getOpenAiClient === "function") {
+        openai = localMod.getOpenAiClient();
+      } else if (typeof localMod.getOpenAI === "function") {
+        openai = localMod.getOpenAI();
+      } else if (localMod.default) {
+        const Def = localMod.default;
+        openai = typeof Def === "function" ? new Def({ apiKey: process.env.OPENAI_API_KEY }) : Def;
+      }
+    }
+
+    // Fallback: dynamic import of the official SDK
+    if (!openai) {
+      const OpenAIMod: any = await import("openai");
+      const OpenAIDef = OpenAIMod?.default ?? OpenAIMod;
+      openai = typeof OpenAIDef === "function" ? new OpenAIDef({ apiKey: process.env.OPENAI_API_KEY }) : OpenAIDef;
+    }
+
+    if (!openai) throw new Error("OpenAI initialization failed");
+  } catch (e: any) {
+    // surface a clear error to caller
+    throw new Error(`OpenAI init failed: ${String(e?.message ?? e)}`);
+  }
+
+  // 4) Call OpenAI response API
   const response = await openai.responses.create({
     model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
     input: prompt,
     // you may add other params (temperature, max_tokens) as needed
   });
 
-  // 4) Extract primary text output (defensive)
+  // 5) Extract primary text output (defensive)
   let markdown = "";
   try {
     // The Responses API shape may vary; attempt robust extraction
