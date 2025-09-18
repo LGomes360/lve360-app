@@ -42,7 +42,6 @@ export async function POST(req: NextRequest) {
     try {
       assertEnv();
     } catch (e) {
-      // If assertEnv throws (production), respond with an explicit error to avoid unhandled throws during request handling.
       console.error("env assertion failed:", e);
       return NextResponse.json({ error: "Server environment misconfigured" }, { status: 500 });
     }
@@ -50,13 +49,9 @@ export async function POST(req: NextRequest) {
     // Lazy initialize OpenAI inside the request handler to avoid build-time throws
     let openai: any;
     try {
-      // dynamic import so bundlers don't eagerly evaluate at build time
       const mod = await import("@/lib/openai");
-      // support both named helpers used in repo: prefer getOpenAiClient, fallback to default/getOpenAI
       openai = (mod.getOpenAiClient ?? mod.getOpenAI ?? mod.default)?.();
-      if (!openai) {
-        throw new Error("OpenAI client factory not found in /src/lib/openai");
-      }
+      if (!openai) throw new Error("OpenAI client factory not found in /src/lib/openai");
     } catch (e: any) {
       console.error("OpenAI init failed:", e?.message ?? e);
       return NextResponse.json({ ok: false, error: "OpenAI unavailable (missing key or misconfigured)" }, { status: 500 });
@@ -90,8 +85,9 @@ export async function POST(req: NextRequest) {
           outputText = first;
         } else if (first?.content) {
           if (Array.isArray(first.content)) {
-            // join text pieces
-            outputText = first.content.map((c: any) => c.text ?? (Array.isArray(c.parts) ? c.parts.join("") : "")).join("\n");
+            outputText = first.content
+              .map((c: any) => c.text ?? (Array.isArray(c.parts) ? c.parts.join("") : ""))
+              .join("\n");
           } else if (typeof first.content === "string") {
             outputText = first.content;
           } else {
@@ -108,21 +104,25 @@ export async function POST(req: NextRequest) {
       outputText = JSON.stringify(response);
     }
 
-    const usage = (response?.usage ?? response?.metrics ?? {
+    const usage = response?.usage ?? response?.metrics ?? {
       prompt_tokens: 0,
       completion_tokens: 0,
       total_tokens: 0,
-    });
+    };
 
     const promptTokens = Number(usage.prompt_tokens ?? 0);
     const completionTokens = Number(usage.completion_tokens ?? 0);
-    const totalTokens = Number(usage.total_tokens ?? promptTokens + completionTokens || 0);
+
+    // Safely compute total tokens without mixing ?? and || in one expression
+    const totalTokensRaw = usage.total_tokens;
+    const totalTokens = Number(
+      totalTokensRaw != null ? totalTokensRaw : promptTokens + completionTokens
+    );
 
     // Estimate cost (replace with your real per-1k constants if known)
     const INPUT_COST_PER_1K = parseFloat(process.env.INPUT_COST_PER_1K ?? "0") || 0;
     const OUTPUT_COST_PER_1K = parseFloat(process.env.OUTPUT_COST_PER_1K ?? "0") || 0;
-    const estCost =
-      (promptTokens / 1000) * INPUT_COST_PER_1K + (completionTokens / 1000) * OUTPUT_COST_PER_1K;
+    const estCost = (promptTokens / 1000) * INPUT_COST_PER_1K + (completionTokens / 1000) * OUTPUT_COST_PER_1K;
 
     // Save report row
     const { data: saved, error: saveErr } = await supabaseAdmin
