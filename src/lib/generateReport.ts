@@ -1,11 +1,10 @@
 // src/lib/generateReport.ts
 import { supabaseAdmin } from "@/lib/supabase";
-import { getOpenAiClient } from "./openai";
 
 /**
  * generateReport(submissionId)
  * - Loads submission and calls OpenAI Responses API to generate a report.
- * - This file DOES NOT instantiate OpenAI at module-load; the factory is called inside the function.
+ * - This file DOES NOT instantiate OpenAI at module-load; the factory is resolved inside the function.
  */
 
 export default async function generateReport(submissionId: string) {
@@ -22,10 +21,32 @@ export default async function generateReport(submissionId: string) {
     throw new Error("submission not found");
   }
 
-  // Lazy-init OpenAI at runtime — do NOT call getOpenAiClient() at module top-level
-  let openai: any;
+  // Lazy-init OpenAI at runtime — do NOT import or call any factory at module top-level
+  let openai: any = null;
   try {
-    openai = getOpenAiClient();
+    // Try local factory/module first (src/lib/openai)
+    const localMod: any = await import("./openai").catch(() => null);
+
+    if (localMod) {
+      if (typeof localMod.getOpenAiClient === "function") {
+        openai = localMod.getOpenAiClient();
+      } else if (typeof localMod.getOpenAI === "function") {
+        openai = localMod.getOpenAI();
+      } else if (localMod.default) {
+        const Def = localMod.default;
+        // If default is a constructor/class, instantiate it; otherwise accept instance
+        openai = typeof Def === "function" ? new Def({ apiKey: process.env.OPENAI_API_KEY }) : Def;
+      }
+    }
+
+    // Fallback: dynamic import of the official SDK
+    if (!openai) {
+      const OpenAIMod: any = await import("openai");
+      const OpenAIDef = OpenAIMod?.default ?? OpenAIMod;
+      openai = typeof OpenAIDef === "function" ? new OpenAIDef({ apiKey: process.env.OPENAI_API_KEY }) : OpenAIDef;
+    }
+
+    if (!openai) throw new Error("OpenAI initialization failed");
   } catch (e: any) {
     throw new Error("OpenAI client unavailable: " + (e?.message ?? String(e)));
   }
