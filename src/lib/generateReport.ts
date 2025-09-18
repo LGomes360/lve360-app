@@ -1,34 +1,87 @@
 // src/lib/generateReport.ts
-// Exports a single function to generate a report using OpenAI and Supabase.
-// Avoids instantiating OpenAI at module-load.
-
+import { supabaseAdmin } from "@/lib/supabase";
 import { getOpenAiClient } from "./openai";
-import { supabaseAdmin } from "./supabase";
 
-export async function generateReportForSubmission(submissionId: string) {
-  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not set");
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error("Supabase envs not configured");
+/**
+ * generateReport(submissionId)
+ * - Loads submission and calls OpenAI Responses API to generate a report.
+ * - This file DOES NOT instantiate OpenAI at module-load; the factory is called inside the function.
+ */
+
+export default async function generateReport(submissionId: string) {
+  if (!submissionId) throw new Error("submissionId is required");
+
+  // Load submission
+  const { data: submission, error: subErr } = await supabaseAdmin
+    .from("submissions")
+    .select("*")
+    .eq("id", submissionId)
+    .single();
+
+  if (subErr || !submission) {
+    throw new Error("submission not found");
   }
 
-  const openai = getOpenAiClient();
+  // Lazy-init OpenAI at runtime — do NOT call getOpenAiClient() at module top-level
+  let openai: any;
+  try {
+    openai = getOpenAiClient();
+  } catch (e: any) {
+    throw new Error("OpenAI client unavailable: " + (e?.message ?? String(e)));
+  }
 
-  // Read submission
-  const { data: submission, error } = await supabaseAdmin.from("submissions").select("*").eq("id", submissionId).single();
-  if (error) throw error;
+  // Build prompt (customize as needed)
+  const prompt = `Generate LVE360 report for submission:\n\n${JSON.stringify(submission, null, 2)}`;
 
-  // Create a prompt from the submission (placeholder)
-  const prompt = `Create a report for submission: ${JSON.stringify(submission)}`;
-
-  const aiResp = await openai.responses.create({
+  // Call OpenAI Responses API
+  const response = await openai.responses.create({
     model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
     input: prompt,
   });
 
-  // Optionally store
-  // await supabaseAdmin.from("reports").insert([{ submission_id: submissionId, ai: aiResp }]);
+  // Extract text defensively
+  let outputText = "";
+  try {
+    if (typeof response === "string") outputText = response;
+    else if (response.output_text) outputText = response.output_text;
+    else if (Array.isArray(response.output) && response.output.length) {
+      const first = response.output[0];
+      if (typeof first === "string") outputText = first;
+      else if (first?.content) {
+        if (Array.isArray(first.content)) {
+          outputText = first.content
+            .map((c: any) => c.text ?? (Array.isArray(c.parts) ? c.parts.join("") : ""))
+            .join("\n");
+        } else if (typeof first.content === "string") {
+          outputText = first.content;
+        } else {
+          outputText = JSON.stringify(first.content);
+        }
+      } else {
+        outputText = JSON.stringify(first);
+      }
+    } else {
+      outputText = JSON.stringify(response);
+    }
+  } catch (err) {
+    outputText = JSON.stringify(response);
+  }
 
-  return { submission, aiResp };
+  const usage = response?.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  const promptTokens = Number(usage.prompt_tokens ?? 0);
+  const completionTokens = Number(usage.completion_tokens ?? 0);
+  const totalTokensRaw = usage.total_tokens;
+  const totalTokens = Number(totalTokensRaw != null ? totalTokensRaw : promptTokens + completionTokens);
+
+  // Return structured result (caller can persist)
+  return {
+    submission,
+    markdown: outputText,
+    usage: {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: totalTokens,
+    },
+    raw: response,
+  };
 }
-
-export default generateReportForSubmission;
