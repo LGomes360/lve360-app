@@ -1,26 +1,38 @@
 // src/lib/openai.ts
-import assert from "assert";
+// Backwards-compatible lazy OpenAI initializer.
+//
+// Exports:
+//  - getOpenAI()        => preferred name (sync-style; throws if key missing)
+//  - getOpenAiClient    => alias for older imports in the repo
+//
+// Implementation uses require() so the client is not created at module-load time
+// in environments that would cause build-time failures.
 
-let _client: any | null = null;
+type OpenAIClient = any;
 
-/**
- * Return a lazily initialized OpenAI client.
- * Does NOT instantiate at module load time, so build-time doesn't require OPENAI_API_KEY.
- */
-export function getOpenAI() {
+let _client: OpenAIClient | null = null;
+
+export function getOpenAI(): OpenAIClient {
   if (_client) return _client;
 
   const key = process.env.OPENAI_API_KEY || process.env.NEXT_PUBLIC_OPENAI_API_KEY;
   if (!key) {
-    // do not throw at module load time; only throw when someone actually tries to call the API.
-    throw new Error("Missing OPENAI_API_KEY; set as env or GitHub Action secret.");
+    throw new Error("Missing OPENAI_API_KEY — set as environment variable or GitHub Action secret.");
   }
 
-  // If you use official OpenAI SDK:
-  // import { OpenAI } from "openai"; return new OpenAI({ apiKey: key });
-  // But do a dynamic import to avoid build-time require:
-  // (we'll use a minimal dynamic import pattern)
-  const OpenAI = require("openai").default || require("openai");
+  // dynamic require to avoid bundlers eagerly resolving this at build time.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-assignment
+  const pkg = require("openai");
+  // Support both CJS and ESM default export shapes:
+  // pkg.default (ESM transpiled), or pkg (CJS).
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+  const OpenAI = (pkg && pkg.default) ? pkg.default : pkg;
   _client = new OpenAI({ apiKey: key });
   return _client;
 }
+
+// Legacy alias to satisfy files that import `getOpenAiClient`.
+export const getOpenAiClient = getOpenAI;
+
+// Also provide a default export (optional) for any modules importing default.
+export default getOpenAI;
