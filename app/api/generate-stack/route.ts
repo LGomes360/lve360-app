@@ -10,7 +10,7 @@ import { generateStackForSubmission } from "@/lib/generateStack";
  *   - submissionId: UUID (preferred)
  *   - OR tally_submission_id: short Tally id (e.g. "jaJMeJQ")
  *
- * Returns JSON: { ok: true, saved: true/false, stack_id?, markdown?, error? }
+ * Returns JSON: { ok: true, saved: true/false, stack?, ai? }
  */
 export async function POST(req: NextRequest) {
   try {
@@ -18,83 +18,99 @@ export async function POST(req: NextRequest) {
     let submissionId = (body.submissionId ?? body.submission_id ?? "")?.toString().trim() || null;
     const tallyShort = (body.tally_submission_id ?? body.tallyId ?? body.tally ?? "")?.toString().trim() || null;
 
-    // If a short Tally id is provided, resolve it to the submission UUID
+    // If caller provided only the short Tally id, resolve it to the submission UUID
     if (!submissionId && tallyShort) {
-      const resolved = await supabaseAdmin
-        .from("submissions")
-        .select("id,user_email,user_id,tally_submission_id")
-        .eq("tally_submission_id", tallyShort)
-        .limit(1)
-        .single()
-        .catch((e: any) => ({ data: null, error: e }));
+      try {
+        // Await the query and handle the returned { data, error } shape
+        const resp = await supabaseAdmin
+          .from("submissions")
+          .select("id,tally_submission_id,user_email")
+          .eq("tally_submission_id", tallyShort)
+          .limit(1);
 
-      if (!resolved?.data) {
-        return NextResponse.json({ ok: false, saved: false, error: `Submission not found for tally_submission_id=${tallyShort}` }, { status: 404 });
+        const { data, error } = resp as any;
+
+        if (error) {
+          console.error("Error resolving tally_submission_id:", error);
+          return NextResponse.json(
+            { ok: false, error: "Failed to resolve tally_submission_id", details: String(error?.message ?? error) },
+            { status: 500 }
+          );
+        }
+
+        if (!Array.isArray(data) || data.length === 0) {
+          return NextResponse.json(
+            { ok: false, error: `Submission not found for tally_submission_id=${tallyShort}` },
+            { status: 404 }
+          );
+        }
+
+        submissionId = data[0].id;
+      } catch (err: any) {
+        console.error("Unexpected error resolving tally id:", err);
+        return NextResponse.json({ ok: false, error: "Failed to resolve tally_submission_id", details: String(err) }, { status: 500 });
       }
-      submissionId = resolved.data.id;
     }
 
     if (!submissionId) {
-      return NextResponse.json({ ok: false, saved: false, error: "submissionId required" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "submissionId required (or provide tally_submission_id)" }, { status: 400 });
     }
 
-    // 1) Generate stack markdown using your helper (OpenAI)
+    // Load submission row (optional; helps find user_email or tally id)
+    let submissionRow: any = null;
+    try {
+      const { data: sdata, error: sErr } = await supabaseAdmin
+        .from("submissions")
+        .select("id,user_email,tally_submission_id")
+        .eq("id", submissionId)
+        .limit(1);
+
+      if (!sErr && Array.isArray(sdata) && sdata.length) {
+        submissionRow = sdata[0];
+      }
+    } catch (e) {
+      // non-fatal: continue if this lookup fails
+      console.warn("Ignored error loading submission:", e);
+    }
+
+    // 1) Generate stack via the OpenAI helper
     const { markdown, raw } = await generateStackForSubmission(submissionId);
 
-    // 2) Fetch the submission to obtain user_email (stacks.user_email is NOT NULL)
-    const submissionQuery = await supabaseAdmin
-      .from("submissions")
-      .select("id,user_email,user_id,tally_submission_id")
-      .eq("id", submissionId)
-      .limit(1)
-      .single()
-      .catch((e: any) => ({ data: null, error: e }));
+    // 2) Determine user_email (submission row preferred; fallback to AI or placeholder)
+    const userEmail = (submissionRow?.user_email ?? raw?.user_email ?? `unknown+${Date.now()}@local`)?.toString();
 
-    if (!submissionQuery?.data) {
-      // We generated markdown, but we can't attach to a submission we can't find
-      return NextResponse.json({ ok: true, saved: false, error: "Could not find submission to attach stack to", markdown }, { status: 200 });
-    }
-
-    const submissionRow = submissionQuery.data;
-    const userEmail = submissionRow.user_email ?? null;
-
-    if (!userEmail) {
-      // Schema requires user_email on stacks; fail with a clear message
-      return NextResponse.json({
-        ok: true,
-        saved: false,
-        error: "Submission has no user_email (stacks.user_email is required)",
-        markdown,
-      }, { status: 200 });
-    }
-
-    // 3) Build payload and persist (use insert so we don't rely on unique constraints)
-    const payload = {
-      user_email: userEmail,
+    // 3) Build stack payload (adjust fields to match your schema as needed)
+    const stackRow: any = {
       submission_id: submissionId,
-      version: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-      body: markdown,
-      items: JSON.stringify([]), // placeholder; populate later if you parse items
-      tally_submission_id: submissionRow.tally_submission_id ?? null,
-      user_id: submissionRow.user_id ?? null,
+      user_email: userEmail,
+      email: userEmail,
+      version: process.env.OPENAI_MODEL ?? null,
+      summary: typeof markdown === "string" ? markdown.slice(0, 2000) : null,
+      items: [],
+      sections: { markdown: markdown ?? null, raw: raw ?? null, generated_at: new Date().toISOString() },
+      notes: null,
+      total_monthly_cost: 0,
+      tally_submission_id: submissionRow?.tally_submission_id ?? null,
       created_at: new Date().toISOString(),
-      raw: raw ? JSON.stringify(raw) : null,
+      updated_at: new Date().toISOString(),
     };
 
-    const insertResp = await supabaseAdmin
+    // 4) Upsert into stacks (use onConflict to avoid duplicate rows)
+    const { data: savedArr, error: saveErr } = await supabaseAdmin
       .from("stacks")
-      .insert(payload)
-      .select()
-      .single()
-      .catch((e: any) => ({ data: null, error: e }));
+      .upsert(stackRow, { onConflict: "submission_id" })
+      .select();
 
-    if (!insertResp?.data) {
-      return NextResponse.json({ ok: true, saved: false, error: String(insertResp?.error?.message ?? insertResp?.error ?? "Insert failed"), markdown }, { status: 200 });
+    if (saveErr) {
+      console.error("Failed to persist stack:", saveErr);
+      return NextResponse.json({ ok: true, saved: false, error: String(saveErr.message ?? saveErr), ai: { markdown, raw } }, { status: 200 });
     }
 
-    const saved = insertResp.data;
-    return NextResponse.json({ ok: true, saved: true, stack_id: saved.id, markdown }, { status: 200 });
+    const saved = Array.isArray(savedArr) ? savedArr[0] ?? null : savedArr;
+
+    return NextResponse.json({ ok: true, saved: true, stack: saved, ai: { markdown, raw } }, { status: 200 });
   } catch (err: any) {
+    console.error("Unhandled error in generate-stack:", err);
     return NextResponse.json({ ok: false, error: String(err?.message ?? err) }, { status: 500 });
   }
 }
