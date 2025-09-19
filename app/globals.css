@@ -1,16 +1,11 @@
 /* app/globals.css */
 
-/* --- Tailwind Directives --- */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* One-line Tailwind v4 import */
+@import "tailwindcss";
 
-/* --- Optional overrides --- */
+/* (Optional) minimal resets you want to keep */
 html, body {
-  @apply min-h-screen antialiased;
   margin: 0;
   padding: 0;
-  /* Remove forced background so Tailwind can take over */
-  font-family: theme("fontFamily.sans");
-  background-color: transparent;
+  font-family: Arial, sans-serif;
 }
