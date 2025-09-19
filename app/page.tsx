@@ -1,38 +1,32 @@
-// -----------------------------------------------------------------------------
-// File: app/page.tsx
-// LVE360 // Homepage
-// Welcomes users with branding, tagline, and primary actions.
-// -----------------------------------------------------------------------------
-
 export default function Home() {
   return (
-    <main className="max-w-3xl mx-auto py-16 px-6 text-center">
-      {/* Gradient Heading */}
-      <h1 className="text-5xl font-extrabold mb-6 bg-gradient-to-r from-brand to-brand-dark bg-clip-text text-transparent">
+    <main className="max-w-3xl mx-auto py-20 px-6 text-center">
+      {/* Gradient headline */}
+      <h1 className="text-5xl font-extrabold bg-gradient-to-r from-teal-500 to-[#041B2D] bg-clip-text text-transparent mb-6">
         Welcome to LVE360
       </h1>
 
-      {/* Tagline */}
+      {/* Subtitle */}
       <p className="text-lg text-gray-700 mb-10">
-        Your personalized health optimization platform for
-        <span className="font-semibold text-brand"> Longevity</span>,{" "}
-        <span className="font-semibold text-brand">Vitality</span>, and{" "}
-        <span className="font-semibold text-brand">Energy</span>.
+        Your personalized health optimization platform for{" "}
+        <span className="font-semibold text-[#06C1A0]">
+          Longevity • Vitality • Energy
+        </span>
       </p>
 
-      {/* CTA Buttons */}
+      {/* Call-to-action buttons */}
       <div className="flex flex-col sm:flex-row gap-4 justify-center">
         <a
           href="/pricing"
-          className="px-6 py-3 rounded-xl bg-brand text-white font-semibold shadow hover:bg-brand-dark transition"
+          className="px-6 py-3 rounded-xl bg-[#06C1A0] text-white font-semibold shadow-lg hover:bg-[#049e85] transition"
         >
-          💎 See Premium Plans
+          See Premium Plans
         </a>
         <a
           href="/results"
-          className="px-6 py-3 rounded-xl border border-brand text-brand font-semibold hover:bg-brand-light hover:text-brand-dark transition"
+          className="px-6 py-3 rounded-xl border border-[#06C1A0] text-[#06C1A0] font-semibold hover:bg-[#E6FCF8] transition"
         >
-          📊 View Your Report
+          View Your Report
         </a>
       </div>
     </main>
