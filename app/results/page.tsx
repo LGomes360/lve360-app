@@ -2,7 +2,7 @@
 // File: app/results/page.tsx
 // LVE360 // Results Page
 // Fetches saved stack from /api/get-stack and displays structured items
-// with premium gating. Adds regenerate + export-to-PDF.
+// with premium gating. Adds regenerate + export-to-PDF + UX polish.
 // -----------------------------------------------------------------------------
 
 "use client";
@@ -120,7 +120,7 @@ function ResultsContent() {
 
     try {
       const html2pdfModule = await import("html2pdf.js");
-      const html2pdf = html2pdfModule.default; // ✅ get callable function
+      const html2pdf = html2pdfModule.default;
 
       html2pdf()
         .from(reportRef.current)
@@ -159,7 +159,7 @@ function ResultsContent() {
   // --- Fallback if no submission_id ---
   if (!submissionId) {
     return (
-      <div className="max-w-xl mx-auto py-12 px-6 text-center">
+      <div className="max-w-xl mx-auto py-12 px-6 text-center animate-fadeIn">
         <h1 className="text-2xl font-semibold mb-4 text-[#041B2D]">
           No Report Found
         </h1>
@@ -180,7 +180,7 @@ function ResultsContent() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto py-10 px-6">
+    <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn">
       {/* Header with gradient */}
       <div className="text-center mb-10">
         <h1 className="text-4xl font-extrabold text-[#041B2D] bg-gradient-to-r from-[#06C1A0] to-[#041B2D] bg-clip-text text-transparent">
@@ -214,20 +214,32 @@ function ResultsContent() {
       </div>
 
       {loading && <p className="text-gray-500 text-center">Loading your report...</p>}
-      {error && <p className="text-red-600 text-center">❌ {error}</p>}
+
+      {error && (
+        <div className="text-center text-red-600 mb-6">
+          <p className="mb-2">⚠️ Something went wrong: {error}</p>
+          <CTAButton onClick={fetchStack} variant="secondary">
+            Retry
+          </CTAButton>
+        </div>
+      )}
 
       {/* Report body */}
       <div ref={reportRef} className="space-y-6">
         {items && items.length > 0 ? (
           <div className="grid gap-6">
             {items.map((item, idx) => (
-              <ReportSection
+              <div
                 key={idx}
-                header={item.section ?? `Section ${idx + 1}`}
-                body={item.text}
-                premiumOnly={false} // TODO: wire premium gating once schema supports
-                isPremiumUser={isPremiumUser}
-              />
+                className="animate-fadeIn border rounded-lg shadow-sm p-4 transition-transform hover:scale-[1.01]"
+              >
+                <ReportSection
+                  header={item.section ?? `Section ${idx + 1}`}
+                  body={item.text}
+                  premiumOnly={false}
+                  isPremiumUser={isPremiumUser}
+                />
+              </div>
             ))}
           </div>
         ) : markdown ? (
@@ -239,7 +251,7 @@ function ResultsContent() {
                 return (
                   <div
                     key={header}
-                    className="border border-gray-200 rounded-xl p-6 bg-gray-50 text-center shadow-sm"
+                    className="animate-fadeIn border border-gray-200 rounded-xl p-6 bg-gray-50 text-center shadow-sm"
                   >
                     <h2 className="text-xl font-semibold mb-2 text-[#041B2D]">
                       {header}
@@ -255,13 +267,17 @@ function ResultsContent() {
               }
 
               return (
-                <ReportSection
+                <div
                   key={header}
-                  header={header}
-                  body={sections[header]}
-                  premiumOnly={premiumOnly}
-                  isPremiumUser={isPremiumUser}
-                />
+                  className="animate-fadeIn transition-transform hover:scale-[1.01]"
+                >
+                  <ReportSection
+                    header={header}
+                    body={sections[header]}
+                    premiumOnly={premiumOnly}
+                    isPremiumUser={isPremiumUser}
+                  />
+                </div>
               );
             })}
           </div>
@@ -271,6 +287,11 @@ function ResultsContent() {
           </p>
         )}
       </div>
+
+      {/* Footer */}
+      <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
+        Longevity • Vitality • Energy — <span className="font-semibold">LVE360</span> © 2025
+      </footer>
     </div>
   );
 }
