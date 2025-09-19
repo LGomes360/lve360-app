@@ -27,8 +27,8 @@ export default function PlanCard({
 }: PlanCardProps) {
   return (
     <div
-      className={`rounded-xl p-8 shadow-sm flex flex-col border ${
-        variant === "premium" ? "border-2 border-[#06C1A0] shadow-md" : ""
+      className={`relative rounded-xl p-8 shadow-sm flex flex-col border ${
+        variant === "premium" ? "border-2 border-[#06C1A0] shadow-md" : "border-gray-200"
       }`}
     >
       {badge && (
@@ -45,9 +45,8 @@ export default function PlanCard({
         <CTAButton
           onClick={buttonAction}
           href={buttonHref}
-          variant={
-            disabled ? "disabled" : variant === "free" ? "secondary" : "primary"
-          }
+          disabled={disabled}
+          variant={variant === "free" ? "secondary" : "primary"}
           fullWidth
         >
           {buttonText}
