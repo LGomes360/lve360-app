@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Leaf, Gem, Zap } from "lucide-react"; // Icons: Longevity, Vitality, Energy
 import CTAButton from "@/components/CTAButton";
 
 export default function Pricing() {
@@ -39,10 +40,11 @@ export default function Pricing() {
       </h1>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-10 mb-12">
-        {/* Free Tier */}
+        {/* Free Tier — Longevity */}
         <div className="relative rounded-2xl border border-gray-200 p-8 bg-gray-50 flex flex-col shadow-sm">
+          <Leaf className="mx-auto mb-4 text-[#06C1A0]" size={36} />
           <h2 className="text-2xl font-semibold mb-4">Free</h2>
-          <p className="text-gray-600 mb-6">Basic insights, quiz results.</p>
+          <p className="text-gray-600 mb-6">Longevity starts here.</p>
           <ul className="text-left text-gray-700 space-y-2 mb-6">
             <li>✓ Current Analysis</li>
             <li>✓ Contraindications</li>
@@ -55,13 +57,14 @@ export default function Pricing() {
           </CTAButton>
         </div>
 
-        {/* Premium Tier */}
+        {/* Premium Tier — Vitality */}
         <div className="relative rounded-2xl border-2 border-[#06C1A0] p-8 bg-white flex flex-col shadow-lg">
           <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#06C1A0] text-white px-3 py-1 rounded-full text-sm font-medium">
             Most Popular
           </div>
+          <Gem className="mx-auto mb-4 text-[#06C1A0]" size={36} />
           <h2 className="text-2xl font-semibold mb-4">Premium</h2>
-          <p className="text-gray-600 mb-6">$9/month • Cancel anytime</p>
+          <p className="text-gray-600 mb-6">Vitality unlocked • $9/month</p>
           <ul className="text-left text-gray-700 space-y-2 mb-6">
             <li>✓ Everything in Free</li>
             <li>✓ Personalized Stack</li>
@@ -81,13 +84,14 @@ export default function Pricing() {
           </CTAButton>
         </div>
 
-        {/* Concierge Tier */}
+        {/* Concierge Tier — Energy */}
         <div className="relative rounded-2xl border-2 border-[#D4AF37] p-8 bg-black flex flex-col shadow-lg text-[#D4AF37]">
           <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#D4AF37] text-black px-3 py-1 rounded-full text-sm font-medium">
             VIP Access
           </div>
+          <Zap className="mx-auto mb-4 text-[#D4AF37]" size={36} />
           <h2 className="text-2xl font-semibold mb-4">Concierge</h2>
-          <p className="mb-6 text-[#D4AF37]">$99/month • Limited availability</p>
+          <p className="mb-6">$99/month • Energy redefined</p>
           <ul className="text-left space-y-2 mb-6">
             <li>✓ Everything in Premium</li>
             <li>✓ One-on-One Consults</li>
