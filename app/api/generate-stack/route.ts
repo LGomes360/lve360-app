@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
       sections: { markdown: markdownForParsing ?? null, raw: raw ?? null, generated_at: new Date().toISOString() },
       notes: null,
       total_monthly_cost: 0,
-      tally_submission_id: submissionRow?.tally_submission_id ?? null,
+      tally_submission_id: submissionRow?.tally_submission_id ?? (tallyShort ?? null),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
