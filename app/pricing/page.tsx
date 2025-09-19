@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Leaf, Gem, Zap } from "lucide-react"; // Icons: Longevity, Vitality, Energy
+import { Leaf, Gem, Zap } from "lucide-react";
 import CTAButton from "@/components/CTAButton";
 
 export default function Pricing() {
@@ -35,10 +35,20 @@ export default function Pricing() {
 
   return (
     <main className="max-w-5xl mx-auto py-16 px-6 text-center">
-      <h1 className="text-4xl font-extrabold mb-10 text-[#041B2D]">
-        LVE360 Pricing
-      </h1>
+      {/* Hero Banner */}
+      <div className="mb-16">
+        <h1 className="text-5xl font-extrabold mb-4 text-[#041B2D] tracking-tight">
+          Choose Your Path
+        </h1>
+        <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+          Unlock <span className="text-[#06C1A0] font-semibold">Longevity</span>, 
+          ignite <span className="text-[#06C1A0] font-semibold">Vitality</span>, 
+          and power up your <span className="text-[#06C1A0] font-semibold">Energy</span>.  
+          Your health concierge journey starts here.
+        </p>
+      </div>
 
+      {/* Pricing Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-10 mb-12">
         {/* Free Tier — Longevity */}
         <div className="relative rounded-2xl border border-gray-200 p-8 bg-gray-50 flex flex-col shadow-sm">
