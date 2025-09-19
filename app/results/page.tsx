@@ -1,3 +1,10 @@
+// -----------------------------------------------------------------------------
+// File: app/results/page.tsx
+// LVE360 // Results Page
+// Fetches saved stack from /api/get-stack and displays sections with premium gating.
+// Optional: regenerate button to refresh AI stack.
+// -----------------------------------------------------------------------------
+
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
@@ -17,55 +24,88 @@ function ResultsContent() {
   const [report, setReport] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPremiumUser, setIsPremiumUser] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
 
   const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
   const submissionId = searchParams?.get("submission_id") ?? null;
 
-  useEffect(() => {
+  // --- Load user tier (skip in test mode) ---
+  async function loadUserTier() {
+    if (testMode) return;
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (session?.user?.id) {
+      const { data: userRow } = await supabase
+        .from("users")
+        .select("tier")
+        .eq("id", session.user.id)
+        .single();
+      setIsPremiumUser(userRow?.tier === "premium");
+    }
+  }
+
+  // --- Fetch stack from API ---
+  async function fetchStack() {
     if (!submissionId) {
       setError("Missing submission_id in URL");
       setLoading(false);
       return;
     }
+    try {
+      setLoading(true);
+      const res = await fetch(
+        `/api/get-stack?submission_id=${encodeURIComponent(submissionId)}`
+      );
+      if (!res.ok) throw new Error(`API error ${res.status}`);
+      const data = await res.json();
 
-    async function fetchUserAndReport() {
-      try {
-        setLoading(true);
-
-        if (!testMode) {
-          const {
-            data: { session },
-          } = await supabase.auth.getSession();
-          if (session?.user?.id) {
-            const { data: userRow } = await supabase
-              .from("users")
-              .select("tier")
-              .eq("id", session.user.id)
-              .single();
-            setIsPremiumUser(userRow?.tier === "premium");
-          }
-        }
-
-        const res = await fetch("/api/generate-report", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ submission_id: submissionId }),
-        });
-
-        if (!res.ok) throw new Error(`API error ${res.status}`);
-        const data = await res.json();
-        if (data?.body) setReport(data.body);
-        else setError("No report body returned");
-      } catch (err: any) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
+      if (data?.ok && data?.stack) {
+        setReport(
+          data.stack.ai?.markdown ??
+            data.stack.summary ??
+            "⚠️ No markdown content available."
+        );
+      } else {
+        setError(data?.error ?? "No stack found");
       }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
+  }
 
-    fetchUserAndReport();
-  }, [submissionId, testMode]);
+  // --- Regenerate stack on demand ---
+  async function regenerateStack() {
+    if (!submissionId) return;
+    try {
+      setRegenerating(true);
+      const res = await fetch("/api/generate-stack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ submission_id: submissionId }),
+      });
+      if (!res.ok) throw new Error(`API error ${res.status}`);
+      const data = await res.json();
+      if (data?.ok && data?.ai?.markdown) {
+        setReport(data.ai.markdown);
+        setError(null);
+      } else {
+        setError("Regenerate failed.");
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
+  useEffect(() => {
+    loadUserTier();
+    fetchStack();
+  }, [submissionId]);
 
   function splitSections(md: string): Record<string, string> {
     const parts = md.split(/^## /gm);
@@ -78,8 +118,7 @@ function ResultsContent() {
     return sections;
   }
 
-  let sections: Record<string, string> = {};
-  if (report) sections = splitSections(report);
+  const sections: Record<string, string> = report ? splitSections(report) : {};
 
   // --- Fallback if no submission_id ---
   if (!submissionId) {
@@ -111,17 +150,24 @@ function ResultsContent() {
       </h1>
 
       {testMode && (
-        <div className="mb-6">
+        <div className="mb-6 flex flex-col gap-2">
           <CTAButton
             onClick={() => setIsPremiumUser((prev) => !prev)}
             variant="secondary"
           >
             Toggle Premium Mode (currently: {isPremiumUser ? "Premium" : "Free"})
           </CTAButton>
+          <CTAButton
+            onClick={regenerateStack}
+            disabled={regenerating}
+            variant="primary"
+          >
+            {regenerating ? "Regenerating..." : "🔄 Regenerate Report"}
+          </CTAButton>
         </div>
       )}
 
-      {loading && <p className="text-gray-500">Generating your report...</p>}
+      {loading && <p className="text-gray-500">Loading your report...</p>}
       {error && <p className="text-red-600">❌ {error}</p>}
 
       {report && (
