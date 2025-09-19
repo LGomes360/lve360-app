@@ -113,24 +113,27 @@ function ResultsContent() {
     }
   }
 
-  // --- Export PDF ---
+  // --- Export PDF (dynamic import ensures browser-only) ---
   async function exportPDF() {
-  if (typeof window === "undefined") return; // 🚨 Guard for server-side
-  if (!reportRef.current) return;
-  const element = reportRef.current;
+    if (typeof window === "undefined") return; // 🚨 guard for SSR
+    if (!reportRef.current) return;
 
-  const html2pdf = (await import("html2pdf.js")).default;
-
-  html2pdf()
-    .from(element)
-    .set({
-      margin: 0.5,
-      filename: "LVE360_Report.pdf",
-      html2canvas: { scale: 2 },
-      jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-    })
-    .save();
-}
+    try {
+      const html2pdf = await import("html2pdf.js");
+      html2pdf()
+        .from(reportRef.current)
+        .set({
+          margin: 0.5,
+          filename: "LVE360_Report.pdf",
+          html2canvas: { scale: 2 },
+          jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+        })
+        .save();
+    } catch (err) {
+      console.error("Failed to export PDF:", err);
+      setError("PDF export failed");
+    }
+  }
 
   useEffect(() => {
     loadUserTier();
@@ -220,7 +223,7 @@ function ResultsContent() {
                 key={idx}
                 header={item.section ?? `Section ${idx + 1}`}
                 body={item.text}
-                premiumOnly={false} // TODO: wire premium gating once schema supports
+                premiumOnly={false}
                 isPremiumUser={isPremiumUser}
               />
             ))}
