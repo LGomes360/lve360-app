@@ -1,4 +1,8 @@
 // app/api/get-stack/route.ts
+// -----------------------------------------------------------------------------
+// Force dynamic rendering because we use searchParams (request-specific)
+// -----------------------------------------------------------------------------
+export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic"; // <- tells Next.js never to statically render
 import { NextRequest, NextResponse } from "next/server";
