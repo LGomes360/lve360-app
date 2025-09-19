@@ -13,7 +13,6 @@ import { createClient } from "@supabase/supabase-js";
 import CTAButton from "@/components/CTAButton";
 import ReportSection from "@/components/ReportSection";
 import { sectionsConfig } from "@/config/reportSections";
-import html2pdf from "html2pdf.js"; // <-- must install: npm install html2pdf.js
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -116,18 +115,22 @@ function ResultsContent() {
 
   // --- Export PDF ---
   function exportPDF() {
-    if (!reportRef.current) return;
-    const element = reportRef.current;
-    html2pdf()
-      .from(element)
-      .set({
-        margin: 0.5,
-        filename: "LVE360_Report.pdf",
-        html2canvas: { scale: 2 },
-        jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-      })
-      .save();
-  }
+  if (!reportRef.current) return;
+  const element = reportRef.current;
+
+  // ✅ dynamic import runs only in browser
+  const html2pdf = (await import("html2pdf.js")).default;
+
+  html2pdf()
+    .from(element)
+    .set({
+      margin: 0.5,
+      filename: "LVE360_Report.pdf",
+      html2canvas: { scale: 2 },
+      jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+    })
+    .save();
+}
 
   useEffect(() => {
     loadUserTier();
