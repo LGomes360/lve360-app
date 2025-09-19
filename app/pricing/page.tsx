@@ -11,7 +11,7 @@ export default function Pricing() {
     if (e) setEmail(e);
   }, []);
 
-  async function subscribe() {
+  async function subscribe(plan: "premium" | "concierge") {
     if (!email) {
       alert("Please enter your email");
       return;
@@ -20,7 +20,7 @@ export default function Pricing() {
     const res = await fetch("/api/stripe/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, plan: "premium" }),
+      body: JSON.stringify({ email, plan }),
     });
 
     const data = await res.json();
@@ -33,27 +33,35 @@ export default function Pricing() {
   }
 
   return (
-    <main className="max-w-3xl mx-auto py-12 px-6 text-center">
-      <h1 className="text-3xl font-bold mb-6 text-[#041B2D]">LVE360 Pricing</h1>
+    <main className="max-w-5xl mx-auto py-16 px-6 text-center">
+      <h1 className="text-4xl font-extrabold mb-10 text-[#041B2D]">
+        LVE360 Pricing
+      </h1>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-10 mb-12">
         {/* Free Tier */}
-        <div className="border rounded-lg p-6 bg-gray-50">
-          <h2 className="text-xl font-semibold mb-2">Free</h2>
-          <p className="text-gray-600 mb-4">Basic insights, quiz results.</p>
-          <ul className="text-left text-gray-700 space-y-2">
+        <div className="relative rounded-2xl border border-gray-200 p-8 bg-gray-50 flex flex-col shadow-sm">
+          <h2 className="text-2xl font-semibold mb-4">Free</h2>
+          <p className="text-gray-600 mb-6">Basic insights, quiz results.</p>
+          <ul className="text-left text-gray-700 space-y-2 mb-6">
             <li>✓ Current Analysis</li>
             <li>✓ Contraindications</li>
             <li>✓ Bang-for-Buck picks</li>
             <li>✗ Personalized Stack</li>
             <li>✗ Weekly Tweaks</li>
           </ul>
+          <CTAButton href="/quiz" variant="secondary" fullWidth>
+            Get Started
+          </CTAButton>
         </div>
 
         {/* Premium Tier */}
-        <div className="border rounded-lg p-6 bg-white shadow-md">
-          <h2 className="text-xl font-semibold mb-2">Premium</h2>
-          <p className="text-gray-600 mb-4">$9/month • Cancel anytime</p>
+        <div className="relative rounded-2xl border-2 border-[#06C1A0] p-8 bg-white flex flex-col shadow-lg">
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#06C1A0] text-white px-3 py-1 rounded-full text-sm font-medium">
+            Most Popular
+          </div>
+          <h2 className="text-2xl font-semibold mb-4">Premium</h2>
+          <p className="text-gray-600 mb-6">$9/month • Cancel anytime</p>
           <ul className="text-left text-gray-700 space-y-2 mb-6">
             <li>✓ Everything in Free</li>
             <li>✓ Personalized Stack</li>
@@ -61,7 +69,6 @@ export default function Pricing() {
             <li>✓ Weekly Tweaks</li>
             <li>✓ Dashboard Snapshot</li>
           </ul>
-
           <input
             type="email"
             placeholder="Your email"
@@ -69,16 +76,44 @@ export default function Pricing() {
             onChange={(e) => setEmail(e.target.value)}
             className="w-full border rounded-lg px-4 py-2 mb-4"
           />
-
-          <CTAButton onClick={subscribe} variant="primary">
+          <CTAButton onClick={() => subscribe("premium")} variant="primary" fullWidth>
             Subscribe with Stripe
+          </CTAButton>
+        </div>
+
+        {/* Concierge Tier */}
+        <div className="relative rounded-2xl border-2 border-[#D4AF37] p-8 bg-black flex flex-col shadow-lg text-[#D4AF37]">
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#D4AF37] text-black px-3 py-1 rounded-full text-sm font-medium">
+            VIP Access
+          </div>
+          <h2 className="text-2xl font-semibold mb-4">Concierge</h2>
+          <p className="mb-6 text-[#D4AF37]">$99/month • Limited availability</p>
+          <ul className="text-left space-y-2 mb-6">
+            <li>✓ Everything in Premium</li>
+            <li>✓ One-on-One Consults</li>
+            <li>✓ Lab Review & Protocols</li>
+            <li>✓ Priority Support</li>
+            <li>✓ Exclusive Product Access</li>
+          </ul>
+          <input
+            type="email"
+            placeholder="Your email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full border border-[#D4AF37] bg-black text-[#D4AF37] rounded-lg px-4 py-2 mb-4 placeholder-gray-500"
+          />
+          <CTAButton
+            onClick={() => subscribe("concierge")}
+            variant="concierge"
+            fullWidth
+          >
+            Join Concierge
           </CTAButton>
         </div>
       </div>
 
       <p className="text-sm text-gray-500">
-        Payments are processed securely by Stripe. Cancel anytime from your
-        account.
+        Payments are processed securely by Stripe. Cancel anytime from your account.
       </p>
 
       <div className="mt-6">
