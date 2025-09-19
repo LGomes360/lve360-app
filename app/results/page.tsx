@@ -113,13 +113,15 @@ function ResultsContent() {
     }
   }
 
-  // --- Export PDF (dynamic import ensures browser-only) ---
+  // --- Export PDF (dynamic import, browser-only) ---
   async function exportPDF() {
-    if (typeof window === "undefined") return; // 🚨 guard for SSR
+    if (typeof window === "undefined") return; // 🚨 SSR guard
     if (!reportRef.current) return;
 
     try {
-      const html2pdf = await import("html2pdf.js");
+      const html2pdfModule = await import("html2pdf.js");
+      const html2pdf = html2pdfModule.default; // ✅ get callable function
+
       html2pdf()
         .from(reportRef.current)
         .set({
@@ -223,7 +225,7 @@ function ResultsContent() {
                 key={idx}
                 header={item.section ?? `Section ${idx + 1}`}
                 body={item.text}
-                premiumOnly={false}
+                premiumOnly={false} // TODO: wire premium gating once schema supports
                 isPremiumUser={isPremiumUser}
               />
             ))}
