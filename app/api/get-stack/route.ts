@@ -4,7 +4,7 @@
 // -----------------------------------------------------------------------------
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic"; // <- tells Next.js never to statically render
+
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
