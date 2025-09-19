@@ -9,7 +9,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body className="min-h-screen flex flex-col">
+      <body className="bg-red-500 min-h-screen flex flex-col text-white">
         {/* Header */}
         <header className="bg-[#041B2D] text-white py-4">
           <nav className="max-w-5xl mx-auto flex justify-between px-4">
