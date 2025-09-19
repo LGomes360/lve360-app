@@ -1,11 +1,9 @@
-/* app/globals.css */
-
-/* One-line Tailwind v4 import */
+/* Tailwind (v4) */
 @import "tailwindcss";
 
-/* (Optional) minimal resets you want to keep */
-html, body {
-  margin: 0;
-  padding: 0;
-  font-family: Arial, sans-serif;
-}
+/* Small global polish */
+::selection { background: #A8F0E4; color: #041B2D; }
+:focus-visible { outline: none; }
+
+/* Smoothen motion for subtle UI changes */
+* { scroll-behavior: smooth; }
