@@ -1,40 +1,35 @@
+// app/page.tsx
+import Link from "next/link";
+
 export default function Home() {
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#E6FCF8] via-white to-[#F9FAFB] px-6">
-      <div className="max-w-4xl w-full text-center">
-        {/* Hero Section */}
-        <div className="bg-white/80 backdrop-blur-md rounded-3xl shadow-2xl p-12 border border-gray-200">
-          <h1 className="text-6xl font-extrabold mb-6 bg-gradient-to-r from-[#06C1A0] to-[#041B2D] bg-clip-text text-transparent drop-shadow-sm">
-            Welcome to LVE360
-          </h1>
-          <p className="text-xl text-gray-700 mb-10 leading-relaxed">
-            Your personalized health optimization platform for <br />
-            <span className="text-[#06C1A0] font-semibold">
-              Longevity • Vitality • Energy
-            </span>
-          </p>
+    <main className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-brand to-brand-dark text-white text-center px-6">
+      {/* Hero Section */}
+      <h1 className="text-5xl sm:text-6xl font-extrabold mb-6 drop-shadow-lg">
+        Welcome to <span className="text-brand-light">LVE360</span>
+      </h1>
 
-          {/* Buttons */}
-          <div className="flex flex-col sm:flex-row gap-6 justify-center">
-            <a
-              href="/pricing"
-              className="inline-flex items-center justify-center px-10 py-4 rounded-full bg-[#06C1A0] text-white text-lg font-semibold shadow-md hover:shadow-lg hover:scale-105 transition-transform duration-200"
-            >
-              💎 See Premium Plans
-            </a>
-            <a
-              href="/results"
-              className="inline-flex items-center justify-center px-10 py-4 rounded-full border-2 border-[#06C1A0] text-[#06C1A0] text-lg font-semibold hover:bg-[#E6FCF8] hover:scale-105 transition-transform duration-200"
-            >
-              📊 View Your Report
-            </a>
-          </div>
-        </div>
+      <p className="text-xl sm:text-2xl mb-10 max-w-2xl text-gray-100">
+        Your personalized health optimization platform for{" "}
+        <span className="text-brand-light font-semibold">Longevity</span>,{" "}
+        <span className="text-brand-light font-semibold">Vitality</span>, and{" "}
+        <span className="text-brand-light font-semibold">Energy</span>.
+      </p>
 
-        {/* Tagline */}
-        <p className="mt-12 text-gray-600 text-sm tracking-wide uppercase">
-          💡 AI-Powered Wellness, Backed by Science
-        </p>
+      {/* CTA Buttons */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <Link
+          href="/pricing"
+          className="px-8 py-4 bg-white text-brand-dark font-semibold text-lg rounded-full shadow-lg hover:shadow-2xl hover:scale-105 transition transform"
+        >
+          💎 See Premium Plans
+        </Link>
+        <Link
+          href="/results"
+          className="px-8 py-4 bg-brand-light text-brand-dark font-semibold text-lg rounded-full shadow-lg hover:shadow-2xl hover:scale-105 transition transform"
+        >
+          📊 View Your Report
+        </Link>
       </div>
     </main>
   );
