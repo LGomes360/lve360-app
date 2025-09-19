@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     try {
       const resp: any = await supabaseAdmin
         .from("submissions")
-        .select("id,user_email,tally_submission_id,summary")
+        .select("id,user_id,user_email,tally_submission_id,summary")
         .eq("id", submissionId)
         .limit(1);
 
