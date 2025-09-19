@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generateStackForSubmission } from "@/lib/generateStack";
+import { parseMarkdownToItems } from "@/lib/parseMarkdownToItems";
 
 /**
  * POST /api/generate-stack
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
     try {
       const resp: any = await supabaseAdmin
         .from("submissions")
-        .select("id,user_email,tally_submission_id")
+        .select("id,user_email,tally_submission_id,summary")
         .eq("id", submissionId)
         .limit(1);
 
@@ -78,15 +79,27 @@ export async function POST(req: NextRequest) {
     // 2) Determine user_email (submission row preferred; fallback to AI or placeholder)
     const userEmail = (submissionRow?.user_email ?? (raw as any)?.user_email ?? `unknown+${Date.now()}@local`).toString();
 
+    // === New: pick best markdown candidate and parse into items ===
+    // Try: sections/raw.output_text -> ai.markdown/raw.output_text -> returned markdown -> submission summary
+    const markdownForParsing =
+      (raw && (raw?.sections?.raw?.output_text || raw?.sections?.raw?.text?.content)) ||
+      (raw && (raw?.markdown || (raw?.raw && raw.raw.output_text))) ||
+      markdown ||
+      (submissionRow && submissionRow.summary) ||
+      "";
+
+    const items = parseMarkdownToItems(String(markdownForParsing || ""));
+
     // 3) Build stack payload (adjust fields to match your schema as needed)
     const stackRow: any = {
       submission_id: submissionId,
       user_email: userEmail,
       email: userEmail,
       version: process.env.OPENAI_MODEL ?? null,
-      summary: typeof markdown === "string" ? markdown.slice(0, 2000) : null,
-      items: [],
-      sections: { markdown: markdown ?? null, raw: raw ?? null, generated_at: new Date().toISOString() },
+      // store a shorter summary for quick views, but persist full markdown in sections.markdown
+      summary: typeof markdownForParsing === "string" ? String(markdownForParsing).slice(0, 2000) : null,
+      items, // populated by parseMarkdownToItems
+      sections: { markdown: markdownForParsing ?? null, raw: raw ?? null, generated_at: new Date().toISOString() },
       notes: null,
       total_monthly_cost: 0,
       tally_submission_id: submissionRow?.tally_submission_id ?? null,
