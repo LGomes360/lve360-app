@@ -201,6 +201,7 @@ export async function POST(req: NextRequest) {
       ...restData,
       payload_json: body,
       answers: body?.data?.fields ?? body?.form_response?.answers ?? [],
+      updated_at: new Date().toISOString(),
     };
 
     // --- Insert submission ---
