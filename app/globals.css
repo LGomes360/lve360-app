@@ -1,9 +1,23 @@
-/* Tailwind (v4) */
-@import "tailwindcss";
+/* app/globals.css */
 
-/* Small global polish */
+/* --- Tailwind Directives --- */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* --- Optional minimal overrides --- */
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: Arial, sans-serif;
+}
+
+/* --- Global keyframes used by the hero blobs --- */
+@keyframes float {
+  0%   { transform: translateY(0px); }
+  50%  { transform: translateY(12px); }
+  100% { transform: translateY(0px); }
+}
+
+/* small polish */
 ::selection { background: #A8F0E4; color: #041B2D; }
-:focus-visible { outline: none; }
-
-/* Smoothen motion for subtle UI changes */
-* { scroll-behavior: smooth; }
