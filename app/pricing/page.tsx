@@ -34,24 +34,48 @@ export default function Pricing() {
   }
 
   return (
-    <main className="max-w-5xl mx-auto py-16 px-6 text-center">
+    <main className="relative max-w-5xl mx-auto py-16 px-6 text-center">
+      {/* Gradient Background */}
+      <div className="absolute inset-0 -z-10 bg-gradient-to-b from-[#06C1A0]/10 via-white to-[#041B2D]/5"></div>
+
+      {/* DNA Watermark */}
+      <div className="absolute inset-0 -z-10 flex items-center justify-center opacity-5 pointer-events-none">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="400"
+          height="400"
+          viewBox="0 0 200 200"
+          className="text-[#06C1A0]"
+        >
+          <path
+            d="M50,20 C90,80 110,120 150,180
+               M150,20 C110,80 90,120 50,180"
+            stroke="currentColor"
+            strokeWidth="4"
+            fill="none"
+          />
+        </svg>
+      </div>
+
       {/* Hero Banner */}
-      <div className="mb-16">
-        <h1 className="text-5xl font-extrabold mb-4 text-[#041B2D] tracking-tight">
+      <div className="mb-16 relative">
+        <h1 className="text-5xl font-extrabold mb-4 text-[#041B2D] tracking-tight drop-shadow-sm">
           Choose Your Path
         </h1>
-        <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-          Unlock <span className="text-[#06C1A0] font-semibold">Longevity</span>, 
-          ignite <span className="text-[#06C1A0] font-semibold">Vitality</span>, 
-          and power up your <span className="text-[#06C1A0] font-semibold">Energy</span>.  
-          Your health concierge journey starts here.
+        <p className="text-xl text-gray-700 max-w-2xl mx-auto">
+          Unlock{" "}
+          <span className="text-[#06C1A0] font-semibold">Longevity</span>, ignite{" "}
+          <span className="text-[#06C1A0] font-semibold">Vitality</span>, and
+          power up your{" "}
+          <span className="text-[#06C1A0] font-semibold">Energy</span>.  
+          Your concierge wellness journey starts here.
         </p>
       </div>
 
       {/* Pricing Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-10 mb-12">
         {/* Free Tier — Longevity */}
-        <div className="relative rounded-2xl border border-gray-200 p-8 bg-gray-50 flex flex-col shadow-sm">
+        <div className="relative rounded-2xl border border-gray-200 p-8 bg-gray-50 flex flex-col shadow-sm hover:shadow-md transition">
           <Leaf className="mx-auto mb-4 text-[#06C1A0]" size={36} />
           <h2 className="text-2xl font-semibold mb-4">Free</h2>
           <p className="text-gray-600 mb-6">Longevity starts here.</p>
@@ -68,7 +92,7 @@ export default function Pricing() {
         </div>
 
         {/* Premium Tier — Vitality */}
-        <div className="relative rounded-2xl border-2 border-[#06C1A0] p-8 bg-white flex flex-col shadow-lg">
+        <div className="relative rounded-2xl border-2 border-[#06C1A0] p-8 bg-white flex flex-col shadow-lg hover:shadow-xl transition">
           <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#06C1A0] text-white px-3 py-1 rounded-full text-sm font-medium">
             Most Popular
           </div>
@@ -95,7 +119,7 @@ export default function Pricing() {
         </div>
 
         {/* Concierge Tier — Energy */}
-        <div className="relative rounded-2xl border-2 border-[#D4AF37] p-8 bg-black flex flex-col shadow-lg text-[#D4AF37]">
+        <div className="relative rounded-2xl border-2 border-[#D4AF37] p-8 bg-black flex flex-col shadow-lg hover:shadow-2xl transition text-[#D4AF37]">
           <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#D4AF37] text-black px-3 py-1 rounded-full text-sm font-medium">
             VIP Access
           </div>
