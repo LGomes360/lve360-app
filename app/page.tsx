@@ -1,12 +1,25 @@
 export default function Home() {
   return (
-    <main className="max-w-3xl mx-auto py-12 px-6 text-center">
-      <h1 className="text-4xl font-bold mb-4 text-[var(--lve-navy)]">
+    <main className="max-w-3xl mx-auto py-16 px-6 text-center">
+      {/* Big, bold gradient heading */}
+      <h1 className="text-5xl font-extrabold mb-6 bg-gradient-to-r from-brand to-brand-dark bg-clip-text text-transparent">
         Welcome to LVE360
       </h1>
-      <p className="text-lg text-gray-700">
-        Your personalized health optimization platform.<br/>
-        <a href="/pricing" style={{color: '#06C1A0'}}>See Premium Plans</a> or <a href="/results" style={{color: '#06C1A0'}}>View Your Report</a>
+
+      {/* Subheading */}
+      <p className="text-xl text-gray-700 mb-8">
+        Your personalized health optimization platform.
+      </p>
+
+      {/* Links with Tailwind styling */}
+      <p className="space-x-4">
+        <a href="/pricing" className="text-brand hover:text-brand-dark font-semibold">
+          See Premium Plans
+        </a>
+        <span className="text-gray-500">or</span>
+        <a href="/results" className="text-brand hover:text-brand-dark font-semibold">
+          View Your Report
+        </a>
       </p>
     </main>
   );

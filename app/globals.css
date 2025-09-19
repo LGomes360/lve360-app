@@ -1,5 +1,11 @@
 /* app/globals.css */
 
+/* --- Tailwind Directives --- */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* --- Your Global Overrides --- */
 html, body {
   margin: 0;
   padding: 0;
