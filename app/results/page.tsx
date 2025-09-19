@@ -114,11 +114,11 @@ function ResultsContent() {
   }
 
   // --- Export PDF ---
-  function exportPDF() {
+  async function exportPDF() {
+  if (typeof window === "undefined") return; // 🚨 Guard for server-side
   if (!reportRef.current) return;
   const element = reportRef.current;
 
-  // ✅ dynamic import runs only in browser
   const html2pdf = (await import("html2pdf.js")).default;
 
   html2pdf()
