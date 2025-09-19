@@ -2,17 +2,18 @@
 // File: app/results/page.tsx
 // LVE360 // Results Page
 // Fetches saved stack from /api/get-stack and displays structured items
-// with premium gating. Falls back to markdown if items missing.
+// with premium gating. Adds regenerate + export-to-PDF.
 // -----------------------------------------------------------------------------
 
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import CTAButton from "@/components/CTAButton";
 import ReportSection from "@/components/ReportSection";
 import { sectionsConfig } from "@/config/reportSections";
+import html2pdf from "html2pdf.js"; // <-- must install: npm install html2pdf.js
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,6 +28,8 @@ function ResultsContent() {
 
   const [items, setItems] = useState<any[] | null>(null);
   const [markdown, setMarkdown] = useState<string | null>(null);
+
+  const reportRef = useRef<HTMLDivElement>(null);
 
   const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
@@ -111,6 +114,21 @@ function ResultsContent() {
     }
   }
 
+  // --- Export PDF ---
+  function exportPDF() {
+    if (!reportRef.current) return;
+    const element = reportRef.current;
+    html2pdf()
+      .from(element)
+      .set({
+        margin: 0.5,
+        filename: "LVE360_Report.pdf",
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+      })
+      .save();
+  }
+
   useEffect(() => {
     loadUserTier();
     fetchStack();
@@ -154,48 +172,57 @@ function ResultsContent() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto py-8 px-4">
-      <h1 className="text-3xl font-bold mb-6 text-[#041B2D]">
-        Your LVE360 Concierge Report
-      </h1>
+    <div className="max-w-4xl mx-auto py-10 px-6">
+      {/* Header with gradient */}
+      <div className="text-center mb-10">
+        <h1 className="text-4xl font-extrabold text-[#041B2D] bg-gradient-to-r from-[#06C1A0] to-[#041B2D] bg-clip-text text-transparent">
+          Your LVE360 Concierge Report
+        </h1>
+        <p className="text-gray-600 mt-2">
+          Personalized insights for Longevity • Vitality • Energy
+        </p>
+      </div>
 
-      {testMode && (
-        <div className="mb-6 flex flex-col gap-2">
+      {/* Action buttons */}
+      <div className="flex flex-wrap gap-3 justify-center mb-8">
+        {testMode && (
           <CTAButton
             onClick={() => setIsPremiumUser((prev) => !prev)}
             variant="secondary"
           >
-            Toggle Premium Mode (currently: {isPremiumUser ? "Premium" : "Free"})
+            Toggle Premium Mode ({isPremiumUser ? "Premium" : "Free"})
           </CTAButton>
-          <CTAButton
-            onClick={regenerateStack}
-            variant="primary"
-            disabled={regenerating}
-          >
-            {regenerating ? "Regenerating..." : "🔄 Regenerate Report"}
-          </CTAButton>
-        </div>
-      )}
+        )}
+        <CTAButton
+          onClick={regenerateStack}
+          variant="primary"
+          disabled={regenerating}
+        >
+          {regenerating ? "⏳ Refreshing..." : "🔄 Refresh Report"}
+        </CTAButton>
+        <CTAButton onClick={exportPDF} variant="secondary">
+          📄 Export PDF
+        </CTAButton>
+      </div>
 
-      {loading && <p className="text-gray-500">Loading your report...</p>}
-      {error && <p className="text-red-600">❌ {error}</p>}
+      {loading && <p className="text-gray-500 text-center">Loading your report...</p>}
+      {error && <p className="text-red-600 text-center">❌ {error}</p>}
 
-      {/* Render from structured items if available */}
-      {items && items.length > 0 ? (
-        <div className="space-y-6">
-          {items.map((item, idx) => (
-            <ReportSection
-              key={idx}
-              header={item.section ?? `Section ${idx + 1}`}
-              body={item.text}
-              premiumOnly={false} // TODO: wire premiumOnly if schema supports
-              isPremiumUser={isPremiumUser}
-            />
-          ))}
-        </div>
-      ) : (
-        // Fallback to markdown split by ## headers
-        markdown && (
+      {/* Report body */}
+      <div ref={reportRef} className="space-y-6">
+        {items && items.length > 0 ? (
+          <div className="grid gap-6">
+            {items.map((item, idx) => (
+              <ReportSection
+                key={idx}
+                header={item.section ?? `Section ${idx + 1}`}
+                body={item.text}
+                premiumOnly={false} // TODO: wire premium gating once schema supports
+                isPremiumUser={isPremiumUser}
+              />
+            ))}
+          </div>
+        ) : markdown ? (
           <div className="prose prose-lg space-y-6">
             {sectionsConfig.map(({ header, premiumOnly }) => {
               if (!sections[header]) return null;
@@ -204,7 +231,7 @@ function ResultsContent() {
                 return (
                   <div
                     key={header}
-                    className="border border-gray-200 rounded-lg p-6 bg-gray-50 text-center"
+                    className="border border-gray-200 rounded-xl p-6 bg-gray-50 text-center shadow-sm"
                   >
                     <h2 className="text-xl font-semibold mb-2 text-[#041B2D]">
                       {header}
@@ -230,8 +257,12 @@ function ResultsContent() {
               );
             })}
           </div>
-        )
-      )}
+        ) : (
+          <p className="text-gray-500 text-center">
+            ⚠️ No report content available. Try regenerating.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
