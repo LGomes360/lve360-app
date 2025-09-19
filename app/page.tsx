@@ -98,15 +98,6 @@ export default function Home() {
           <div className="h-10 rounded bg-gray-100 ring-1 ring-gray-200" />
         </div>
       </section>
-
-      {/* Keyframe for gentle floating */}
-      <style jsx global>{`
-        @keyframes float {
-          0%   { transform: translateY(0px) }
-          50%  { transform: translateY(12px) }
-          100% { transform: translateY(0px) }
-        }
-      `}</style>
     </main>
   );
 }
