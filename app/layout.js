@@ -1,4 +1,4 @@
-import './globals.css'
+import "./globals.css";
 import Link from "next/link";
 
 export const metadata = {
@@ -9,32 +9,34 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body className="bg-red-500 min-h-screen flex flex-col text-white">
+      <body className="min-h-screen flex flex-col bg-gradient-to-b from-brand-dark via-brand to-brand-light text-white font-sans">
         {/* Header */}
-        <header className="bg-[#041B2D] text-white py-4">
-          <nav className="max-w-5xl mx-auto flex justify-between px-4">
-            <Link href="/" className="font-bold text-lg">
+        <header className="bg-brand-dark shadow-md">
+          <nav className="max-w-6xl mx-auto flex justify-between items-center px-6 py-4">
+            <Link href="/" className="text-2xl font-display font-bold text-brand-light">
               LVE360
             </Link>
-            <div className="space-x-6">
-              <Link href="/">Home</Link>
-              <Link href="/pricing">Pricing</Link>
-              <Link href="/results">Results</Link>
+            <div className="space-x-8 text-sm font-medium">
+              <Link href="/" className="hover:text-brand-light transition">Home</Link>
+              <Link href="/pricing" className="hover:text-brand-light transition">Pricing</Link>
+              <Link href="/results" className="hover:text-brand-light transition">Results</Link>
             </div>
           </nav>
         </header>
 
         {/* Main content */}
-        <main className="flex-1">{children}</main>
+        <main className="flex-1 flex flex-col items-center justify-center text-center px-6">
+          {children}
+        </main>
 
         {/* Footer */}
-        <footer className="bg-gray-100 text-gray-600 py-4 text-center text-sm">
-          <div className="max-w-5xl mx-auto flex flex-col sm:flex-row justify-between px-4">
+        <footer className="bg-brand-dark text-gray-300 py-6 text-sm">
+          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-center space-y-4 sm:space-y-0 px-6">
             <p>© {new Date().getFullYear()} LVE360. All rights reserved.</p>
-            <div className="space-x-4">
-              <Link href="/terms">Terms</Link>
-              <Link href="/privacy">Privacy</Link>
-              <Link href="/contact">Contact</Link>
+            <div className="space-x-6">
+              <Link href="/terms" className="hover:text-brand-light">Terms</Link>
+              <Link href="/privacy" className="hover:text-brand-light">Privacy</Link>
+              <Link href="/contact" className="hover:text-brand-light">Contact</Link>
             </div>
           </div>
         </footer>
