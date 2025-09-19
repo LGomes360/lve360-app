@@ -77,7 +77,27 @@ export async function POST(req: NextRequest) {
     const { markdown, raw }: { markdown: string | null; raw: any } = (await generateStackForSubmission(submissionId)) as any;
 
     // 2) Determine user_email (submission row preferred; fallback to AI or placeholder)
-    const userEmail = (submissionRow?.user_email ?? (raw as any)?.user_email ?? `unknown+${Date.now()}@local`).toString();
+const userEmail = (submissionRow?.user_email ?? (raw as any)?.user_email ?? `unknown+${Date.now()}@local`).toString();
+
+// 2b) Resolve user_id: prefer submissionRow.user_id; if missing, try lookup by email in users table.
+// This helps link stacks to actual users when possible.
+let userId: string | null = submissionRow?.user_id ?? null;
+if (!userId && userEmail) {
+  try {
+    const uResp: any = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('email', userEmail)
+      .limit(1);
+
+    if (!uResp?.error && Array.isArray(uResp?.data) && uResp.data.length) {
+      userId = uResp.data[0].id;
+    }
+  } catch (e) {
+    console.warn('Non-fatal: user lookup by email failed', e);
+    // continue without userId — we will still save the stack
+  }
+}
 
     // === New: pick best markdown candidate and parse into items ===
     // Try: sections/raw.output_text -> ai.markdown/raw.output_text -> returned markdown -> submission summary
@@ -93,6 +113,7 @@ export async function POST(req: NextRequest) {
     // 3) Build stack payload (adjust fields to match your schema as needed)
     const stackRow: any = {
       submission_id: submissionId,
+      user_id: userId,
       user_email: userEmail,
       email: userEmail,
       version: process.env.OPENAI_MODEL ?? null,
