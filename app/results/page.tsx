@@ -1,8 +1,8 @@
 // -----------------------------------------------------------------------------
 // File: app/results/page.tsx
 // LVE360 // Results Page
-// Fetches saved stack from /api/get-stack and displays sections with premium gating.
-// Optional: regenerate button to refresh AI stack.
+// Fetches saved stack from /api/get-stack and displays structured items
+// with premium gating. Falls back to markdown if items missing.
 // -----------------------------------------------------------------------------
 
 "use client";
@@ -21,10 +21,12 @@ const supabase = createClient(
 
 function ResultsContent() {
   const [loading, setLoading] = useState(true);
-  const [report, setReport] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPremiumUser, setIsPremiumUser] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+
+  const [items, setItems] = useState<any[] | null>(null);
+  const [markdown, setMarkdown] = useState<string | null>(null);
 
   const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
@@ -62,11 +64,15 @@ function ResultsContent() {
       const data = await res.json();
 
       if (data?.ok && data?.stack) {
-        setReport(
-          data.stack.ai?.markdown ??
-            data.stack.summary ??
-            "⚠️ No markdown content available."
+        const stack = data.stack;
+        setItems(stack.items ?? null);
+        setMarkdown(
+          stack.sections?.markdown ??
+            stack.ai?.markdown ??
+            stack.summary ??
+            null
         );
+        setError(null);
       } else {
         setError(data?.error ?? "No stack found");
       }
@@ -89,8 +95,11 @@ function ResultsContent() {
       });
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
-      if (data?.ok && data?.ai?.markdown) {
-        setReport(data.ai.markdown);
+      if (data?.ok && data?.stack) {
+        setItems(data.stack.items ?? null);
+        setMarkdown(
+          data.stack.sections?.markdown ?? data.ai?.markdown ?? null
+        );
         setError(null);
       } else {
         setError("Regenerate failed.");
@@ -107,6 +116,7 @@ function ResultsContent() {
     fetchStack();
   }, [submissionId]);
 
+  // --- Split fallback markdown into sections ---
   function splitSections(md: string): Record<string, string> {
     const parts = md.split(/^## /gm);
     const sections: Record<string, string> = {};
@@ -118,7 +128,7 @@ function ResultsContent() {
     return sections;
   }
 
-  const sections: Record<string, string> = report ? splitSections(report) : {};
+  const sections: Record<string, string> = markdown ? splitSections(markdown) : {};
 
   // --- Fallback if no submission_id ---
   if (!submissionId) {
@@ -159,8 +169,8 @@ function ResultsContent() {
           </CTAButton>
           <CTAButton
             onClick={regenerateStack}
-            disabled={regenerating}
             variant="primary"
+            disabled={regenerating}
           >
             {regenerating ? "Regenerating..." : "🔄 Regenerate Report"}
           </CTAButton>
@@ -170,41 +180,57 @@ function ResultsContent() {
       {loading && <p className="text-gray-500">Loading your report...</p>}
       {error && <p className="text-red-600">❌ {error}</p>}
 
-      {report && (
-        <div className="prose prose-lg space-y-6">
-          {sectionsConfig.map(({ header, premiumOnly }) => {
-            if (!sections[header]) return null;
-
-            if (premiumOnly && !isPremiumUser) {
-              return (
-                <div
-                  key={header}
-                  className="border border-gray-200 rounded-lg p-6 bg-gray-50 text-center"
-                >
-                  <h2 className="text-xl font-semibold mb-2 text-[#041B2D]">
-                    {header}
-                  </h2>
-                  <p className="text-gray-600 mb-4">
-                    This section is available with Premium.
-                  </p>
-                  <CTAButton href="/pricing" variant="primary">
-                    Upgrade to Premium
-                  </CTAButton>
-                </div>
-              );
-            }
-
-            return (
-              <ReportSection
-                key={header}
-                header={header}
-                body={sections[header]}
-                premiumOnly={premiumOnly}
-                isPremiumUser={isPremiumUser}
-              />
-            );
-          })}
+      {/* Render from structured items if available */}
+      {items && items.length > 0 ? (
+        <div className="space-y-6">
+          {items.map((item, idx) => (
+            <ReportSection
+              key={idx}
+              header={item.section ?? `Section ${idx + 1}`}
+              body={item.text}
+              premiumOnly={false} // TODO: wire premiumOnly if schema supports
+              isPremiumUser={isPremiumUser}
+            />
+          ))}
         </div>
+      ) : (
+        // Fallback to markdown split by ## headers
+        markdown && (
+          <div className="prose prose-lg space-y-6">
+            {sectionsConfig.map(({ header, premiumOnly }) => {
+              if (!sections[header]) return null;
+
+              if (premiumOnly && !isPremiumUser) {
+                return (
+                  <div
+                    key={header}
+                    className="border border-gray-200 rounded-lg p-6 bg-gray-50 text-center"
+                  >
+                    <h2 className="text-xl font-semibold mb-2 text-[#041B2D]">
+                      {header}
+                    </h2>
+                    <p className="text-gray-600 mb-4">
+                      This section is available with Premium.
+                    </p>
+                    <CTAButton href="/pricing" variant="primary">
+                      Upgrade to Premium
+                    </CTAButton>
+                  </div>
+                );
+              }
+
+              return (
+                <ReportSection
+                  key={header}
+                  header={header}
+                  body={sections[header]}
+                  premiumOnly={premiumOnly}
+                  isPremiumUser={isPremiumUser}
+                />
+              );
+            })}
+          </div>
+        )
       )}
     </div>
   );
