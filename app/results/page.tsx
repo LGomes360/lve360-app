@@ -10,7 +10,8 @@
 import { useEffect, useState, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
-import ReactMarkdown from "react-markdown"; // ✅ New
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm"; // ✅ supports tables, strikethrough, etc.
 import CTAButton from "@/components/CTAButton";
 import ReportSection from "@/components/ReportSection";
 import { sectionsConfig } from "@/config/reportSections";
@@ -33,7 +34,10 @@ function ResultsContent() {
 
   const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
-  const submissionId = searchParams?.get("submission_id") ?? searchParams?.get("tally_submission_id") ?? null;
+  const submissionId =
+    searchParams?.get("submission_id") ??
+    searchParams?.get("tally_submission_id") ??
+    null;
 
   // --- Load user tier (skip in test mode) ---
   async function loadUserTier() {
@@ -86,7 +90,7 @@ function ResultsContent() {
     }
   }
 
-  // --- Regenerate stack on demand ---
+  // --- Regenerate stack ---
   async function regenerateStack() {
     if (!submissionId) return;
     try {
@@ -114,9 +118,9 @@ function ResultsContent() {
     }
   }
 
-  // --- Export PDF (dynamic import, browser-only) ---
+  // --- Export PDF ---
   async function exportPDF() {
-    if (typeof window === "undefined") return; // 🚨 SSR guard
+    if (typeof window === "undefined") return;
     if (!reportRef.current) return;
 
     try {
@@ -142,20 +146,6 @@ function ResultsContent() {
     loadUserTier();
     fetchStack();
   }, [submissionId]);
-
-  // --- Split fallback markdown into sections ---
-  function splitSections(md: string): Record<string, string> {
-    const parts = md.split(/^## /gm);
-    const sections: Record<string, string> = {};
-    for (const part of parts ?? []) {
-      if (!part.trim()) continue;
-      const [header, ...rest] = part.split("\n");
-      sections[header.trim()] = rest.join("\n").trim();
-    }
-    return sections;
-  }
-
-  const sections: Record<string, string> = markdown ? splitSections(markdown) : {};
 
   // --- Fallback if no submission_id ---
   if (!submissionId) {
@@ -244,9 +234,9 @@ function ResultsContent() {
             ))}
           </div>
         ) : markdown ? (
-          // ✅ Fallback: raw markdown renderer
-          <div className="prose prose-lg max-w-none">
-            <ReactMarkdown>{markdown}</ReactMarkdown>
+          // ✅ Styled markdown renderer
+          <div className="prose prose-lg max-w-none prose-headings:text-[#041B2D] prose-a:text-[#06C1A0] prose-strong:text-[#041B2D] prose-table:shadow-sm prose-table:border prose-th:bg-gray-100 prose-th:text-[#041B2D] prose-th:font-semibold prose-td:p-2 prose-th:p-2">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
           </div>
         ) : (
           <p className="text-gray-500 text-center">
