@@ -3,13 +3,15 @@
 // LVE360 // Results Page
 // Fetches saved stack from /api/get-stack and displays structured items
 // with premium gating. Adds regenerate + export-to-PDF + UX polish.
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------- 
 
 "use client";
 
 import { useEffect, useState, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm"; // ✅ supports tables, strikethrough, etc.
 import CTAButton from "@/components/CTAButton";
 import ReportSection from "@/components/ReportSection";
 import { sectionsConfig } from "@/config/reportSections";
@@ -32,7 +34,10 @@ function ResultsContent() {
 
   const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
-  const submissionId = searchParams?.get("submission_id") ?? null;
+  const submissionId =
+    searchParams?.get("submission_id") ??
+    searchParams?.get("tally_submission_id") ??
+    null;
 
   // --- Load user tier (skip in test mode) ---
   async function loadUserTier() {
@@ -70,7 +75,7 @@ function ResultsContent() {
         setItems(stack.items ?? null);
         setMarkdown(
           stack.sections?.markdown ??
-            stack.ai?.markdown ??
+            data.ai?.markdown ??
             stack.summary ??
             null
         );
@@ -85,7 +90,7 @@ function ResultsContent() {
     }
   }
 
-  // --- Regenerate stack on demand ---
+  // --- Regenerate stack ---
   async function regenerateStack() {
     if (!submissionId) return;
     try {
@@ -113,9 +118,9 @@ function ResultsContent() {
     }
   }
 
-  // --- Export PDF (dynamic import, browser-only) ---
+  // --- Export PDF ---
   async function exportPDF() {
-    if (typeof window === "undefined") return; // 🚨 SSR guard
+    if (typeof window === "undefined") return;
     if (!reportRef.current) return;
 
     try {
@@ -142,20 +147,6 @@ function ResultsContent() {
     fetchStack();
   }, [submissionId]);
 
-  // --- Split fallback markdown into sections ---
-  function splitSections(md: string): Record<string, string> {
-    const parts = md.split(/^## /gm);
-    const sections: Record<string, string> = {};
-    for (const part of parts ?? []) {
-      if (!part.trim()) continue;
-      const [header, ...rest] = part.split("\n");
-      sections[header.trim()] = rest.join("\n").trim();
-    }
-    return sections;
-  }
-
-  const sections: Record<string, string> = markdown ? splitSections(markdown) : {};
-
   // --- Fallback if no submission_id ---
   if (!submissionId) {
     return (
@@ -181,7 +172,7 @@ function ResultsContent() {
 
   return (
     <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn">
-      {/* Header with gradient */}
+      {/* Header */}
       <div className="text-center mb-10">
         <h1 className="text-4xl font-extrabold text-[#041B2D] bg-gradient-to-r from-[#06C1A0] to-[#041B2D] bg-clip-text text-transparent">
           Your LVE360 Concierge Report
@@ -243,43 +234,9 @@ function ResultsContent() {
             ))}
           </div>
         ) : markdown ? (
-          <div className="prose prose-lg space-y-6">
-            {sectionsConfig.map(({ header, premiumOnly }) => {
-              if (!sections[header]) return null;
-
-              if (premiumOnly && !isPremiumUser) {
-                return (
-                  <div
-                    key={header}
-                    className="animate-fadeIn border border-gray-200 rounded-xl p-6 bg-gray-50 text-center shadow-sm"
-                  >
-                    <h2 className="text-xl font-semibold mb-2 text-[#041B2D]">
-                      {header}
-                    </h2>
-                    <p className="text-gray-600 mb-4">
-                      This section is available with Premium.
-                    </p>
-                    <CTAButton href="/pricing" variant="primary">
-                      Upgrade to Premium
-                    </CTAButton>
-                  </div>
-                );
-              }
-
-              return (
-                <div
-                  key={header}
-                  className="animate-fadeIn transition-transform hover:scale-[1.01]"
-                >
-                  <ReportSection
-                    header={header}
-                    body={sections[header]}
-                    premiumOnly={premiumOnly}
-                    isPremiumUser={isPremiumUser}
-                  />
-                </div>
-              );
-            })}
+          // ✅ Styled markdown renderer
+          <div className="prose prose-lg max-w-none prose-headings:text-[#041B2D] prose-a:text-[#06C1A0] prose-strong:text-[#041B2D] prose-table:shadow-sm prose-table:border prose-th:bg-gray-100 prose-th:text-[#041B2D] prose-th:font-semibold prose-td:p-2 prose-th:p-2">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
           </div>
         ) : (
           <p className="text-gray-500 text-center">
