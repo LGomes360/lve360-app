@@ -3,7 +3,7 @@
 // LVE360 // Results Page
 // Fetches saved stack from /api/get-stack and displays structured items
 // with premium gating. Adds regenerate + export-to-PDF + UX polish.
-// ----------------------------------------------------------------------------- 
+// -----------------------------------------------------------------------------
 
 "use client";
 
@@ -11,10 +11,9 @@ import { useEffect, useState, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm"; // ✅ supports tables, strikethrough, etc.
+import remarkGfm from "remark-gfm";
 import CTAButton from "@/components/CTAButton";
 import ReportSection from "@/components/ReportSection";
-import { sectionsConfig } from "@/config/reportSections";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,7 +38,7 @@ function ResultsContent() {
     searchParams?.get("tally_submission_id") ??
     null;
 
-  // --- Load user tier (skip in test mode) ---
+  // --- Load user tier ---
   async function loadUserTier() {
     if (testMode) return;
     const {
@@ -55,7 +54,7 @@ function ResultsContent() {
     }
   }
 
-  // --- Fetch stack from API ---
+  // --- Fetch stack ---
   async function fetchStack() {
     if (!submissionId) {
       setError("Missing submission_id in URL");
@@ -151,7 +150,7 @@ function ResultsContent() {
   if (!submissionId) {
     return (
       <div className="max-w-xl mx-auto py-12 px-6 text-center animate-fadeIn">
-        <h1 className="text-2xl font-semibold mb-4 text-[#041B2D]">
+        <h1 className="text-2xl font-semibold mb-4 text-brand-dark">
           No Report Found
         </h1>
         <p className="text-gray-600 mb-6">
@@ -174,7 +173,7 @@ function ResultsContent() {
     <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn">
       {/* Header */}
       <div className="text-center mb-10">
-        <h1 className="text-4xl font-extrabold text-[#041B2D] bg-gradient-to-r from-[#06C1A0] to-[#041B2D] bg-clip-text text-transparent">
+        <h1 className="text-4xl font-extrabold text-brand-dark bg-gradient-to-r from-brand to-brand-dark bg-clip-text text-transparent">
           Your LVE360 Concierge Report
         </h1>
         <p className="text-gray-600 mt-2">
@@ -234,8 +233,16 @@ function ResultsContent() {
             ))}
           </div>
         ) : markdown ? (
-          // ✅ Styled markdown renderer
-          <div className="prose prose-lg max-w-none prose-headings:text-[#041B2D] prose-a:text-[#06C1A0] prose-strong:text-[#041B2D] prose-table:shadow-sm prose-table:border prose-th:bg-gray-100 prose-th:text-[#041B2D] prose-th:font-semibold prose-td:p-2 prose-th:p-2">
+          // ✅ Styled markdown block
+          <div
+            className="prose prose-lg max-w-none
+                       prose-h2:text-brand-dark prose-h2:font-display prose-h2:text-2xl
+                       prose-h3:text-brand-dark prose-h3:text-xl
+                       prose-strong:text-brand-dark
+                       prose-a:text-brand hover:prose-a:underline
+                       prose-table:border prose-table:border-gray-200 prose-table:rounded-lg prose-table:shadow-sm
+                       prose-th:bg-brand-light prose-th:text-brand-dark prose-th:font-semibold prose-td:p-3 prose-th:p-3"
+          >
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
           </div>
         ) : (
