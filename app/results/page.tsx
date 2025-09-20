@@ -1,195 +1,98 @@
-// app/results/page.tsx
-"use client";
+// -----------------------------------------------------------------------------
+// File: app/api/generate-stack/route.ts
+// LVE360 // API Route
+// Generates a supplement stack (free or premium) for a given submission.
+// Accepts either Supabase UUID (submission_id) or Tally short ID (tally_submission_id).
+// -----------------------------------------------------------------------------
 
-import { useEffect, useState, useRef, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import CTAButton from "@/components/CTAButton";
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
+import { generateStack } from "@/lib/generateStack";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+export const runtime = "nodejs";
 
-function ResultsContent() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isPremiumUser, setIsPremiumUser] = useState(false);
-  const [markdown, setMarkdown] = useState<string | null>(null);
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    console.log("Incoming payload:", body);
 
-  const reportRef = useRef<HTMLDivElement>(null);
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const tallyId = searchParams?.get("tally_submission_id") ?? null;
+    const submissionId: string | null = body?.submission_id ?? null;
+    const tallyId: string | null = body?.tally_submission_id ?? null;
 
-  // --- Load user tier (skip if no auth) ---
-  async function loadUserTier() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (session?.user?.id) {
-      const { data: userRow } = await supabase
-        .from("users")
-        .select("tier")
-        .eq("id", session.user.id)
-        .single();
-      setIsPremiumUser(userRow?.tier === "premium");
-    }
-  }
-
-  // --- Generate stack (free or premium) ---
-  async function generateStack(type: "free" | "premium") {
-    if (!tallyId) {
-      setError("Missing tally_submission_id in URL");
-      return;
+    if (!submissionId && !tallyId) {
+      return NextResponse.json(
+        { ok: false, error: "Missing submission_id or tally_submission_id" },
+        { status: 400 }
+      );
     }
 
-    if (type === "premium" && !isPremiumUser) {
-      router.push("/pricing");
-      return;
+    // -------------------------------------------------------------------------
+    // Step 1: Fetch submission from Supabase
+    // -------------------------------------------------------------------------
+    const { data: submission, error: fetchErr } = await supa
+      .from("submissions")
+      .select("*")
+      .or(
+        [
+          submissionId ? `id.eq.${submissionId}` : null,
+          tallyId ? `tally_submission_id.eq.${tallyId}` : null,
+        ]
+          .filter(Boolean)
+          .join(",")
+      )
+      .single();
+
+    if (fetchErr || !submission) {
+      console.error("Supabase fetch error:", fetchErr);
+      return NextResponse.json(
+        { ok: false, error: "Submission not found" },
+        { status: 404 }
+      );
     }
 
+    // -------------------------------------------------------------------------
+    // Step 2: Generate the stack (AI engine)
+    // -------------------------------------------------------------------------
+    let stack;
     try {
-      setLoading(true);
-      setError(null);
-
-      const res = await fetch("/api/generate-stack", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tally_submission_id: tallyId,
-          submission_id: tallyId, // 👈 mirror for safety
-          mode: type,
-        }),
-      });
-
-      if (!res.ok) throw new Error(`Fetch error ${res.status}`);
-      const data = await res.json();
-
-      if (data?.ok) {
-        const fetchRes = await fetch(
-          `/api/get-stack?tally_submission_id=${encodeURIComponent(tallyId)}`
-        );
-        if (!fetchRes.ok) throw new Error(`Fetch error ${fetchRes.status}`);
-        const stackData = await fetchRes.json();
-
-        setMarkdown(
-          stackData?.stack?.sections?.markdown ??
-            stackData?.stack?.ai?.markdown ??
-            stackData?.stack?.summary ??
-            null
-        );
-      } else {
-        setError("Generation failed. Please try again.");
-      }
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+      stack = await generateStack(submission);
+    } catch (aiErr: any) {
+      console.error("generateStack failed:", aiErr);
+      return NextResponse.json(
+        { ok: false, error: `Stack generation failed: ${aiErr.message}` },
+        { status: 500 }
+      );
     }
-  }
 
-  // --- Export PDF ---
-  async function exportPDF() {
-    if (typeof window === "undefined" || !reportRef.current) return;
+    // -------------------------------------------------------------------------
+    // Step 3: Persist result back into Supabase (optional but recommended)
+    // -------------------------------------------------------------------------
     try {
-      const mod = await import("html2pdf.js");
-      const html2pdf = (mod as any).default || (window as any).html2pdf;
-      html2pdf()
-        .from(reportRef.current)
-        .set({
-          margin: 0.5,
-          filename: "LVE360_Blueprint.pdf",
-          html2canvas: { scale: 2 },
-          jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-        })
-        .save();
-    } catch (err) {
-      console.error("PDF export failed", err);
-      setError("PDF export failed");
+      await supa
+        .from("stacks")
+        .upsert(
+          {
+            submission_id: submission.id,
+            tally_submission_id: submission.tally_submission_id,
+            stack_json: stack,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "submission_id" }
+        );
+    } catch (persistErr: any) {
+      console.error("Failed to persist stack:", persistErr);
+      // Continue anyway — don’t block user
     }
+
+    // -------------------------------------------------------------------------
+    // Step 4: Return success
+    // -------------------------------------------------------------------------
+    return NextResponse.json({ ok: true, stack });
+  } catch (err: any) {
+    console.error("Fatal generate-stack error:", err);
+    return NextResponse.json(
+      { ok: false, error: err.message ?? "Internal Server Error" },
+      { status: 500 }
+    );
   }
-
-  useEffect(() => {
-    loadUserTier();
-  }, []);
-
-  return (
-    <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn">
-      {/* Header */}
-      <div className="text-center mb-10">
-        <h1 className="text-4xl font-extrabold font-display text-[#041B2D]">
-          Your LVE360 Blueprint
-        </h1>
-        <p className="text-gray-600 mt-2 font-sans">
-          Personalized insights for Longevity • Vitality • Energy
-        </p>
-      </div>
-
-      {/* Action buttons */}
-      <div className="flex flex-wrap gap-3 justify-center mb-8">
-        <CTAButton
-          onClick={() => generateStack("free")}
-          variant="primary"
-          disabled={loading}
-        >
-          {loading ? "⏳ Generating..." : "✨ Generate Free Report"}
-        </CTAButton>
-
-        <CTAButton
-          onClick={() => generateStack("premium")}
-          variant="premium"
-          disabled={loading}
-        >
-          👑 Upgrade to Premium
-        </CTAButton>
-      </div>
-
-      {/* Errors */}
-      {error && (
-        <div className="text-center text-red-600 mb-6">
-          <p>{error}</p>
-        </div>
-      )}
-
-      {/* Report body */}
-      <div
-        ref={reportRef}
-        className="prose prose-lg max-w-none font-sans prose-h2:font-display prose-h2:text-brand-dark prose-strong:text-brand-dark prose-a:text-brand hover:prose-a:underline"
-      >
-        {markdown ? (
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
-        ) : (
-          <p className="text-gray-500 text-center">
-            🤖 No report yet. Click{" "}
-            <span className="font-semibold">Generate Free Report</span> above to
-            get your Blueprint!
-          </p>
-        )}
-      </div>
-
-      {/* Export button */}
-      <div className="flex justify-center mt-8">
-        <CTAButton onClick={exportPDF} variant="secondary">
-          📄 Export as PDF
-        </CTAButton>
-      </div>
-
-      {/* Footer */}
-      <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
-        Longevity • Vitality • Energy —{" "}
-        <span className="font-semibold">LVE360</span> © 2025
-      </footer>
-    </div>
-  );
-}
-
-export default function ResultsPageWrapper() {
-  return (
-    <Suspense fallback={<p className="text-center py-8">Loading...</p>}>
-      <ResultsContent />
-    </Suspense>
-  );
 }
