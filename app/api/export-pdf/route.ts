@@ -1,26 +1,32 @@
 // app/api/export-pdf/route.ts
-import { NextResponse } from "next/server";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+// -----------------------------------------------------------------------------
+// GET /api/export-pdf?submission_id=<uuid or tally_short>
+// Generates a branded PDF of the LVE360 Blueprint and streams it to the client.
+// -----------------------------------------------------------------------------
+
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
-export async function GET(req: Request) {
+export const runtime = "nodejs"; // ✅ force server runtime
+
+export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const submissionId = searchParams.get("submission_id");
-
+    const submissionId =
+      req.nextUrl.searchParams.get("submission_id") ?? null;
     if (!submissionId) {
       return NextResponse.json(
-        { ok: false, error: "submission_id required" },
+        { ok: false, error: "submission_id is required" },
         { status: 400 }
       );
     }
 
-    // 1. Load stack from DB
+    // --- Fetch stack row
     const { data, error } = await supabaseAdmin
       .from("stacks")
-      .select("sections")
+      .select("id, user_email, sections")
       .eq("submission_id", submissionId)
-      .single();
+      .maybeSingle();
 
     if (error || !data) {
       return NextResponse.json(
@@ -29,41 +35,76 @@ export async function GET(req: Request) {
       );
     }
 
-    const markdown = data.sections?.markdown ?? "No report available";
+    const markdown = data.sections?.markdown ?? "No content available.";
 
-    // 2. Create PDF
+    // --- Create PDF
     const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([595, 842]); // A4 size
+    const page = pdfDoc.addPage([612, 792]); // Letter size
     const { height } = page.getSize();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const titleFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    const text = `LVE360 Blueprint\n\n${markdown}`;
-
-    page.drawText(text, {
+    // Header
+    page.drawText("LVE360 Blueprint", {
       x: 50,
-      y: height - 80,
-      size: 12,
+      y: height - 60,
+      size: 24,
+      font: titleFont,
+      color: rgb(0.02, 0.11, 0.18), // brand.dark
+    });
+
+    // Sub-header
+    page.drawText("Longevity • Vitality • Energy", {
+      x: 50,
+      y: height - 90,
+      size: 14,
       font,
-      color: rgb(0, 0, 0),
-      lineHeight: 16,
-      maxWidth: 495,
+      color: rgb(0.02, 0.11, 0.18),
+    });
+
+    // Body text (truncated to fit one page for MVP)
+    const safeText = markdown.replace(/[#*_`>-]/g, ""); // strip md syntax
+    const wrapped = wrapText(safeText, 80);
+    page.drawText(wrapped.slice(0, 40).join("\n"), {
+      x: 50,
+      y: height - 130,
+      size: 11,
+      font,
+      color: rgb(0.02, 0.11, 0.18),
+      lineHeight: 14,
     });
 
     const pdfBytes = await pdfDoc.save();
 
-    // 3. Return as download
     return new NextResponse(pdfBytes, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="LVE360_Blueprint.pdf"`,
+        "Content-Disposition": `inline; filename="LVE360_Blueprint.pdf"`,
       },
     });
   } catch (err: any) {
-    console.error("export-pdf failed:", err);
+    console.error("Export PDF failed:", err);
     return NextResponse.json(
-      { ok: false, error: String(err.message ?? err) },
+      { ok: false, error: String(err?.message ?? err) },
       { status: 500 }
     );
   }
+}
+
+// --- helper to wrap text into lines
+function wrapText(text: string, maxChars: number): string[] {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let line = "";
+  for (const w of words) {
+    if ((line + " " + w).trim().length > maxChars) {
+      lines.push(line.trim());
+      line = w;
+    } else {
+      line += " " + w;
+    }
+  }
+  if (line.trim()) lines.push(line.trim());
+  return lines;
 }
