@@ -1,7 +1,7 @@
 // app/api/export-pdf/route.ts
 // -----------------------------------------------------------------------------
 // GET /api/export-pdf?submission_id=UUID
-// Generates a simple branded PDF report from a saved stack
+// Generates a branded PDF report from a saved stack
 // -----------------------------------------------------------------------------
 
 import { NextResponse } from "next/server";
@@ -9,6 +9,26 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 export const runtime = "nodejs";
+
+// simple word-wrap util for PDF
+function wrapText(text: string, maxWidth: number, font: any, size: number) {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let line = "";
+
+  for (const word of words) {
+    const testLine = line ? line + " " + word : word;
+    const width = font.widthOfTextAtSize(testLine, size);
+    if (width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = testLine;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
 
 export async function GET(req: Request) {
   try {
@@ -38,41 +58,59 @@ export async function GET(req: Request) {
 
     // --- Create PDF ---
     const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([612, 792]); // Letter size
-    const { height } = page.getSize();
-
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const titleFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+    let page = pdfDoc.addPage([612, 792]); // Letter
+    let y = 742; // start below header
 
     // Header
     page.drawText("LVE360 Blueprint", {
       x: 50,
-      y: height - 80,
-      size: 24,
+      y,
+      size: 22,
       font: titleFont,
-      color: rgb(0.02, 0.11, 0.18), // brand.dark
+      color: rgb(0.02, 0.11, 0.18),
     });
-
+    y -= 30;
     page.drawText("Longevity | Vitality | Energy", {
       x: 50,
-      y: height - 110,
+      y,
       size: 14,
       font,
       color: rgb(0.02, 0.11, 0.18),
     });
+    y -= 40;
 
     // Content
-    const text = stack.sections?.markdown ?? stack.summary ?? "No content available.";
-    const wrapped = text.split("\n").slice(0, 50).join("\n"); // keep it short for now
+    const text =
+      stack.sections?.markdown ?? stack.summary ?? "No content available.";
+    const paragraphs = text.split(/\n{2,}/);
 
-    page.drawText(wrapped, {
-      x: 50,
-      y: height - 150,
-      size: 11,
-      font,
-      color: rgb(0, 0, 0),
-      lineHeight: 14,
-    });
+    const marginX = 50;
+    const maxWidth = 612 - 2 * marginX;
+    const lineHeight = 14;
+    const fontSize = 11;
+
+    for (const para of paragraphs) {
+      const lines = wrapText(para, maxWidth, font, fontSize);
+      for (const line of lines) {
+        if (y < 60) {
+          // new page if near bottom
+          page = pdfDoc.addPage([612, 792]);
+          y = 742;
+        }
+        page.drawText(line, {
+          x: marginX,
+          y,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+        });
+        y -= lineHeight;
+      }
+      y -= lineHeight; // extra space between paragraphs
+    }
 
     // --- Save PDF ---
     const pdfBytes = await pdfDoc.save();
