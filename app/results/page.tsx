@@ -81,10 +81,10 @@ function ResultsContent() {
         const stack = data.stack;
         setItems(stack.items ?? []);
         setMarkdown(
-          stack.sections?.markdown ??
-            stack.ai?.markdown ??
-            stack.summary ??
-            null
+          stack.sections?.markdown ?? // ✅ FIX: use sections.markdown first
+          stack.ai?.markdown ??
+          stack.summary ??
+          null
         );
         setError(null);
       } else {
@@ -110,7 +110,12 @@ function ResultsContent() {
       const data = await res.json();
       if (data?.ok && data?.stack) {
         setItems(data.stack.items ?? []);
-        setMarkdown(data.stack.sections?.markdown ?? data.ai?.markdown ?? null);
+        setMarkdown(
+          data.stack.sections?.markdown ?? // ✅ FIX: use sections.markdown first
+          data.ai?.markdown ??
+          data.stack.summary ??
+          null
+        );
         setError(null);
       } else {
         setError("Regenerate failed.");
@@ -181,7 +186,11 @@ function ResultsContent() {
         <p className="text-gray-600 mt-2">Longevity • Vitality • Energy</p>
       </div>
 
+      {loading && <p className="text-gray-500 text-center">Loading your report...</p>}
+      {error && <p className="text-center text-red-600 mb-6">⚠️ {error}</p>}
+
       <div ref={reportRef} className="space-y-6">
+        {/* Show supplement items if available */}
         {items && items.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2">
             {items.map((item) => {
@@ -204,6 +213,11 @@ function ResultsContent() {
                         <p className="text-sm text-gray-500">Timing: {item.timing}</p>
                       )}
                     </div>
+                    <ChevronDown
+                      className={`w-5 h-5 text-gray-500 transform transition-transform duration-300 ${
+                        isOpen ? "rotate-180" : ""
+                      }`}
+                    />
                   </button>
 
                   <div
@@ -214,20 +228,7 @@ function ResultsContent() {
                     {item.brand && <p className="text-sm">Brand: {item.brand}</p>}
                     {item.notes && <p className="mt-2 text-gray-700">{item.notes}</p>}
 
-                    {isPremiumUser ? (
-                      <>
-                        {item.rationale && (
-                          <p className="mt-2">
-                            <strong>Rationale:</strong> {item.rationale}
-                          </p>
-                        )}
-                        {item.caution && (
-                          <p className="mt-2 text-red-600">
-                            <strong>Caution:</strong> {item.caution}
-                          </p>
-                        )}
-                      </>
-                    ) : (
+                    {!isPremiumUser && (
                       <div className="mt-3 p-3 border rounded bg-gray-50 text-center">
                         <p className="text-gray-600 mb-2">
                           Rationale & Evidence available with Premium.
@@ -237,25 +238,42 @@ function ResultsContent() {
                         </CTAButton>
                       </div>
                     )}
-
-                    {item.link_amazon && (
-                      <a
-                        href={item.link_amazon}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-3 text-[#06C1A0] text-sm underline block"
-                      >
-                        Buy on Amazon
-                      </a>
-                    )}
                   </div>
                 </div>
               );
             })}
           </div>
         ) : markdown ? (
-          <div className="prose prose-lg">
-            {/* Markdown fallback unchanged */}
+          // Fallback to markdown sections
+          <div className="prose prose-lg space-y-6">
+            {sectionsConfig.map(({ header, premiumOnly }) => {
+              if (!sections[header]) return null;
+              if (premiumOnly && !isPremiumUser) {
+                return (
+                  <div
+                    key={header}
+                    className="border border-gray-200 rounded-xl p-6 bg-gray-50 text-center shadow-sm"
+                  >
+                    <h2 className="text-xl font-semibold mb-2 text-[#041B2D]">
+                      {header}
+                    </h2>
+                    <p className="text-gray-600 mb-4">This section is Premium only.</p>
+                    <CTAButton href="/pricing" variant="primary">
+                      Upgrade
+                    </CTAButton>
+                  </div>
+                );
+              }
+              return (
+                <ReportSection
+                  key={header}
+                  header={header}
+                  body={sections[header]}
+                  premiumOnly={premiumOnly}
+                  isPremiumUser={isPremiumUser}
+                />
+              );
+            })}
           </div>
         ) : (
           <p className="text-gray-500 text-center">⚠️ No report content available.</p>
