@@ -1,122 +1,110 @@
 // app/api/export-pdf/route.ts
 // -----------------------------------------------------------------------------
-// GET /api/export-pdf?submission_id=UUID
-// Generates a branded PDF report from a saved stack
+// Generates and returns a PDF for a given submission/stack
+// Accepts ?submission_id=UUID or ?submission_id=shortTallyId
 // -----------------------------------------------------------------------------
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
-export const runtime = "nodejs";
-
-// simple word-wrap util for PDF
-function wrapText(text: string, maxWidth: number, font: any, size: number) {
-  const words = text.split(/\s+/);
-  const lines: string[] = [];
-  let line = "";
-
-  for (const word of words) {
-    const testLine = line ? line + " " + word : word;
-    const width = font.widthOfTextAtSize(testLine, size);
-    if (width > maxWidth && line) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = testLine;
-    }
-  }
-  if (line) lines.push(line);
-  return lines;
+// Utility: test if string looks like UUID
+function isUUID(str: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    str
+  );
 }
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const submissionId = searchParams.get("submission_id");
+    let submissionId = searchParams.get("submission_id");
 
     if (!submissionId) {
       return NextResponse.json(
-        { ok: false, error: "submission_id required" },
+        { ok: false, error: "submission_id is required" },
         { status: 400 }
       );
     }
 
-    // --- Fetch stack from DB ---
-    const { data: stack, error } = await supabaseAdmin
+    // Step 1: Resolve short Tally ID → UUID if needed
+    if (!isUUID(submissionId)) {
+      const { data, error } = await supabaseAdmin
+        .from("submissions")
+        .select("id")
+        .eq("tally_submission_id", submissionId)
+        .maybeSingle();
+
+      if (error) {
+        return NextResponse.json(
+          { ok: false, error: "Failed to resolve tally_submission_id" },
+          { status: 500 }
+        );
+      }
+
+      if (!data) {
+        return NextResponse.json(
+          { ok: false, error: "No submission found for that tally_submission_id" },
+          { status: 404 }
+        );
+      }
+
+      submissionId = data.id; // swap in the UUID
+    }
+
+    // Step 2: Fetch stack by UUID
+    const { data: stackRow, error: stackErr } = await supabaseAdmin
       .from("stacks")
       .select("sections, summary, user_email")
       .eq("submission_id", submissionId)
       .maybeSingle();
 
-    if (error || !stack) {
+    if (stackErr) {
+      return NextResponse.json(
+        { ok: false, error: "Failed to fetch stack" },
+        { status: 500 }
+      );
+    }
+
+    if (!stackRow) {
       return NextResponse.json(
         { ok: false, error: "Stack not found" },
         { status: 404 }
       );
     }
 
-    // --- Create PDF ---
+    // Step 3: Generate a simple PDF
     const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([612, 792]); // Letter size
+    const { height } = page.getSize();
+
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const titleFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-
-    let page = pdfDoc.addPage([612, 792]); // Letter
-    let y = 742; // start below header
-
-    // Header
-    page.drawText("LVE360 Blueprint", {
+    const title = "LVE360 Blueprint";
+    page.drawText(title, {
       x: 50,
-      y,
-      size: 22,
-      font: titleFont,
-      color: rgb(0.02, 0.11, 0.18),
-    });
-    y -= 30;
-    page.drawText("Longevity | Vitality | Energy", {
-      x: 50,
-      y,
-      size: 14,
+      y: height - 80,
+      size: 20,
       font,
-      color: rgb(0.02, 0.11, 0.18),
+      color: rgb(0.04, 0.11, 0.18), // brand.dark
     });
-    y -= 40;
 
-    // Content
-    const text =
-      stack.sections?.markdown ?? stack.summary ?? "No content available.";
-    const paragraphs = text.split(/\n{2,}/);
+    // Include some summary text
+    const summary =
+      stackRow.sections?.markdown ??
+      stackRow.summary ??
+      "No summary content available.";
+    page.drawText(summary.substring(0, 1000), {
+      x: 50,
+      y: height - 120,
+      size: 12,
+      font,
+      lineHeight: 14,
+      maxWidth: 500,
+    });
 
-    const marginX = 50;
-    const maxWidth = 612 - 2 * marginX;
-    const lineHeight = 14;
-    const fontSize = 11;
-
-    for (const para of paragraphs) {
-      const lines = wrapText(para, maxWidth, font, fontSize);
-      for (const line of lines) {
-        if (y < 60) {
-          // new page if near bottom
-          page = pdfDoc.addPage([612, 792]);
-          y = 742;
-        }
-        page.drawText(line, {
-          x: marginX,
-          y,
-          size: fontSize,
-          font,
-          color: rgb(0, 0, 0),
-        });
-        y -= lineHeight;
-      }
-      y -= lineHeight; // extra space between paragraphs
-    }
-
-    // --- Save PDF ---
     const pdfBytes = await pdfDoc.save();
-    const pdfBuffer = Buffer.from(pdfBytes);
 
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(pdfBytes, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
@@ -124,9 +112,9 @@ export async function GET(req: Request) {
       },
     });
   } catch (err: any) {
-    console.error("Export PDF error:", err);
+    console.error("PDF export failed:", err);
     return NextResponse.json(
-      { ok: false, error: String(err?.message ?? err) },
+      { ok: false, error: "PDF export failed" },
       { status: 500 }
     );
   }
