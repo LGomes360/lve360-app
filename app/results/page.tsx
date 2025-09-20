@@ -137,11 +137,15 @@ function ResultsContent() {
           variant="premium"
           fullWidth
         >
-          👑 Premium Report
+          👑 Upgrade to Premium Report
         </CTAButton>
       </div>
 
-      {loading && <p className="text-gray-500 text-center">🤖 Our AI is working hard to build your report...</p>}
+      {loading && (
+        <p className="text-gray-500 text-center">
+          🤖 Our AI is working hard to build your report...
+        </p>
+      )}
 
       {error && (
         <div className="text-center text-red-600 mb-6">
