@@ -1,3 +1,4 @@
+// src/components/CTAButton.tsx
 "use client";
 
 import React from "react";
@@ -21,19 +22,19 @@ export default function CTAButton({
   disabled = false,
 }: CTAButtonProps) {
   const base =
-    "px-6 py-3 rounded-lg font-medium text-center transition-colors duration-200 shadow-md";
+    "px-6 py-3 rounded-lg font-medium text-center transition-colors duration-200 min-w-[200px]"; // ensures consistent size
   const width = fullWidth ? "w-full" : "";
 
-  const variants: Record<string, string> = {
-    primary: "bg-brand text-white hover:bg-brand-dark",
+  const variants: Record<NonNullable<CTAButtonProps["variant"]>, string> = {
+    primary: "bg-[#06C1A0] text-white hover:bg-[#049b80] shadow-md",
     secondary:
-      "border border-brand-dark text-brand-dark hover:bg-brand-dark hover:text-white",
+      "border border-[#041B2D] text-[#041B2D] hover:bg-[#041B2D] hover:text-white shadow-sm",
     disabled:
       "bg-gray-200 text-gray-500 cursor-not-allowed border border-gray-300",
     concierge:
-      "bg-black text-gold border border-gold hover:bg-gold hover:text-black shadow-luxury",
+      "bg-black text-[#D4AF37] border border-[#D4AF37] hover:bg-[#D4AF37] hover:text-black shadow-md",
     premium:
-      "bg-gradient-to-r from-gold-light via-gold to-gold-dark text-white font-semibold shadow-premium hover:from-gold-dark hover:to-gold-dark",
+      "bg-[#041B2D] text-[#FFD700] border border-[#FFD700] hover:bg-[#FFD700] hover:text-[#041B2D] shadow-md",
   };
 
   const className = clsx(base, width, variants[variant]);
