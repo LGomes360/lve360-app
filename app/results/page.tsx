@@ -1,4 +1,3 @@
-// app/results/page.tsx
 "use client";
 
 import { useEffect, useState, useRef, Suspense } from "react";
@@ -16,6 +15,7 @@ const supabase = createClient(
 function ResultsContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isPremiumUser, setIsPremiumUser] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
 
   const [items, setItems] = useState<any[] | null>(null);
@@ -23,8 +23,30 @@ function ResultsContent() {
 
   const reportRef = useRef<HTMLDivElement>(null);
 
+  const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
-  const submissionId = searchParams?.get("submission_id") ?? null;
+
+  // 🔑 Accept either submission_id or tally_submission_id
+  const submissionId =
+    searchParams?.get("submission_id") ??
+    searchParams?.get("tally_submission_id") ??
+    null;
+
+  // --- Load user tier (skip in test mode) ---
+  async function loadUserTier() {
+    if (testMode) return;
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (session?.user?.id) {
+      const { data: userRow } = await supabase
+        .from("users")
+        .select("tier")
+        .eq("id", session.user.id)
+        .single();
+      setIsPremiumUser(userRow?.tier === "premium");
+    }
+  }
 
   // --- Fetch stack from API ---
   async function fetchStack() {
@@ -45,7 +67,10 @@ function ResultsContent() {
         const stack = data.stack;
         setItems(stack.items ?? null);
         setMarkdown(
-          stack.sections?.markdown ?? stack.ai?.markdown ?? stack.summary ?? null
+          stack.sections?.markdown ??
+            stack.ai?.markdown ??
+            stack.summary ??
+            null
         );
         setError(null);
       } else {
@@ -59,8 +84,13 @@ function ResultsContent() {
   }
 
   // --- Regenerate stack on demand ---
-  async function regenerateStack() {
+  async function regenerateStack(mode: "free" | "premium" = "free") {
     if (!submissionId) return;
+    if (mode === "premium" && !isPremiumUser) {
+      window.location.href = "/pricing";
+      return;
+    }
+
     try {
       setRegenerating(true);
       const res = await fetch("/api/generate-stack", {
@@ -69,6 +99,7 @@ function ResultsContent() {
         body: JSON.stringify({
           submission_id: submissionId,
           tally_submission_id: submissionId,
+          premium: mode === "premium",
         }),
       });
       if (!res.ok) throw new Error(`API error ${res.status}`);
@@ -95,8 +126,7 @@ function ResultsContent() {
     if (!reportRef.current) return;
 
     try {
-      // ✅ Import plain package (no dist path, no typings needed)
-      const mod = await import("html2pdf.js");
+      const mod = await import("html2pdf.js/dist/html2pdf.bundle.min.js");
       const html2pdf = (mod as any).default || (window as any).html2pdf;
 
       html2pdf()
@@ -109,20 +139,21 @@ function ResultsContent() {
         })
         .save();
     } catch (err) {
-      console.error("Failed to export PDF:", err);
+      console.error("PDF export failed:", err);
       setError("PDF export failed");
     }
   }
 
   useEffect(() => {
+    loadUserTier();
     fetchStack();
   }, [submissionId]);
 
   return (
-    <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn">
+    <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn font-sans">
       {/* Header */}
       <div className="text-center mb-10">
-        <h1 className="text-4xl font-extrabold font-display text-[#041B2D] bg-gradient-to-r from-[#06C1A0] to-[#041B2D] bg-clip-text text-transparent">
+        <h1 className="text-4xl font-extrabold font-display text-[#041B2D]">
           Your LVE360 Blueprint
         </h1>
         <p className="text-gray-600 mt-2 font-sans">
@@ -133,18 +164,25 @@ function ResultsContent() {
       {/* Action buttons */}
       <div className="flex flex-wrap gap-3 justify-center mb-8">
         <CTAButton
-          onClick={regenerateStack}
+          onClick={() => regenerateStack("free")}
           variant="primary"
           disabled={regenerating}
         >
           {regenerating ? "⏳ Generating..." : "✨ Generate Free Report"}
         </CTAButton>
-        <CTAButton href="/pricing" variant="premium">
+
+        <CTAButton
+          onClick={() => regenerateStack("premium")}
+          variant="premium"
+        >
           👑 Upgrade to Premium
         </CTAButton>
       </div>
 
-      {loading && <p className="text-gray-500 text-center">🤖 Our AI is working hard to prepare your results...</p>}
+      {/* Error + Loading */}
+      {loading && (
+        <p className="text-gray-500 text-center">🤖 Our AI is working hard to build your Blueprint...</p>
+      )}
 
       {error && (
         <div className="text-center text-red-600 mb-6">
@@ -158,26 +196,24 @@ function ResultsContent() {
       {/* Report body */}
       <div
         ref={reportRef}
-        className="prose prose-lg max-w-none font-sans font-[Poppins]
-          prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark
-          prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark
-          prose-strong:text-brand-dark prose-a:text-brand hover:prose-a:underline
-          prose-table:border prose-table:border-gray-200 prose-table:rounded-lg prose-table:shadow-sm
-          prose-th:bg-brand-light prose-th:text-brand-dark prose-th:font-semibold prose-td:p-3 prose-th:p-3"
+        className="prose prose-lg max-w-none font-sans mb-10
+        prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark
+        prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark
+        prose-strong:text-brand-dark"
       >
         {markdown ? (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
         ) : (
           <p className="text-gray-500 text-center">
-            ⚠️ No report content available. Try regenerating.
+            ⚠️ No report content available yet. Try generating your Blueprint.
           </p>
         )}
       </div>
 
-      {/* Export button moved to bottom */}
-      <div className="flex justify-center mt-10">
+      {/* Export PDF at bottom */}
+      <div className="flex justify-center">
         <CTAButton onClick={exportPDF} variant="secondary">
-          📄 Export to PDF
+          📄 Export as PDF
         </CTAButton>
       </div>
 
@@ -191,7 +227,7 @@ function ResultsContent() {
 
 export default function ResultsPageWrapper() {
   return (
-    <Suspense fallback={<p className="text-center py-8">Loading report...</p>}>
+    <Suspense fallback={<p className="text-center py-8">Loading Blueprint...</p>}>
       <ResultsContent />
     </Suspense>
   );
