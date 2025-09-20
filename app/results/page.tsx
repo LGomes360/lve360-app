@@ -20,10 +20,7 @@ function ResultsContent() {
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
 
-  const reportRef = useRef<HTMLDivElement>(null);
   const searchParams = useSearchParams();
-
-  // Always prefer tally_submission_id in URL
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
 
   // --- Pre-check: see if a stack already exists ---
@@ -89,30 +86,6 @@ function ResultsContent() {
     }
   }
 
-  // --- Export PDF ---
-  async function exportPDF() {
-    if (typeof window === "undefined" || !reportRef.current) return;
-    try {
-      const mod = await import("html2pdf.js");
-      const html2pdf = (mod as any).default || mod;
-
-      await html2pdf()
-        .from(reportRef.current)
-        .set({
-          margin: 0.5,
-          filename: "LVE360_Blueprint.pdf",
-          html2canvas: { scale: 2 },
-          jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-        })
-        .save();
-    } catch (err) {
-      console.error("PDF export failed:", err);
-      setError(
-        "PDF export failed. Please refresh and try again, or contact support."
-      );
-    }
-  }
-
   // Run pre-check once on mount
   useEffect(() => {
     fetchStack();
@@ -160,7 +133,6 @@ function ResultsContent() {
       {/* Report body */}
       {markdown && (
         <div
-          ref={reportRef}
           className="prose prose-lg max-w-none font-sans
             prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark
             prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark
@@ -175,10 +147,19 @@ function ResultsContent() {
         </div>
       )}
 
-      {/* Export button */}
+      {/* Export button (server-side only) */}
       {markdown && (
         <div className="flex justify-center mt-10">
-          <CTAButton onClick={exportPDF} variant="secondary">
+          <CTAButton
+            onClick={() => {
+              if (tallyId) {
+                window.open(`/api/export-pdf?submission_id=${tallyId}`, "_blank");
+              } else {
+                alert("Missing submission ID — please refresh and try again.");
+              }
+            }}
+            variant="secondary"
+          >
             📄 Export as PDF
           </CTAButton>
         </div>
