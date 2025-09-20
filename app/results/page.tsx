@@ -1,7 +1,8 @@
+// app/results/page.tsx
 "use client";
 
 import { useEffect, useState, useRef, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -25,12 +26,10 @@ function ResultsContent() {
 
   const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
+  const router = useRouter();
 
-  // 🔑 Accept either submission_id or tally_submission_id
-  const submissionId =
-    searchParams?.get("submission_id") ??
-    searchParams?.get("tally_submission_id") ??
-    null;
+  // 🔑 Grab the tally_submission_id from the URL
+  const submissionId = searchParams?.get("tally_submission_id") ?? null;
 
   // --- Load user tier (skip in test mode) ---
   async function loadUserTier() {
@@ -58,7 +57,7 @@ function ResultsContent() {
     try {
       setLoading(true);
       const res = await fetch(
-        `/api/get-stack?submission_id=${encodeURIComponent(submissionId)}`
+        `/api/get-stack?tally_submission_id=${encodeURIComponent(submissionId)}`
       );
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
@@ -84,22 +83,20 @@ function ResultsContent() {
   }
 
   // --- Regenerate stack on demand ---
-  async function regenerateStack(mode: "free" | "premium" = "free") {
+  async function regenerateStack(tier: "free" | "premium") {
     if (!submissionId) return;
-    if (mode === "premium" && !isPremiumUser) {
-      window.location.href = "/pricing";
+    if (tier === "premium" && !isPremiumUser) {
+      router.push("/pricing");
       return;
     }
-
     try {
       setRegenerating(true);
       const res = await fetch("/api/generate-stack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          submission_id: submissionId,
           tally_submission_id: submissionId,
-          premium: mode === "premium",
+          tier,
         }),
       });
       if (!res.ok) throw new Error(`API error ${res.status}`);
@@ -120,13 +117,13 @@ function ResultsContent() {
     }
   }
 
-  // --- Export PDF ---
+  // --- Export PDF (safe import) ---
   async function exportPDF() {
     if (typeof window === "undefined") return;
     if (!reportRef.current) return;
 
     try {
-      const mod = await import("html2pdf.js/dist/html2pdf.bundle.min.js");
+      const mod = await import("html2pdf.js"); // ✅ safe import
       const html2pdf = (mod as any).default || (window as any).html2pdf;
 
       html2pdf()
@@ -139,7 +136,7 @@ function ResultsContent() {
         })
         .save();
     } catch (err) {
-      console.error("PDF export failed:", err);
+      console.error("Failed to export PDF:", err);
       setError("PDF export failed");
     }
   }
@@ -154,9 +151,9 @@ function ResultsContent() {
       {/* Header */}
       <div className="text-center mb-10">
         <h1 className="text-4xl font-extrabold font-display text-[#041B2D]">
-          Your LVE360 Blueprint
+          Your LVE360 <span className="text-brand">Blueprint</span>
         </h1>
-        <p className="text-gray-600 mt-2 font-sans">
+        <p className="text-gray-600 mt-2">
           Personalized insights for Longevity • Vitality • Energy
         </p>
       </div>
@@ -170,7 +167,6 @@ function ResultsContent() {
         >
           {regenerating ? "⏳ Generating..." : "✨ Generate Free Report"}
         </CTAButton>
-
         <CTAButton
           onClick={() => regenerateStack("premium")}
           variant="premium"
@@ -179,9 +175,11 @@ function ResultsContent() {
         </CTAButton>
       </div>
 
-      {/* Error + Loading */}
+      {/* Status + Errors */}
       {loading && (
-        <p className="text-gray-500 text-center">🤖 Our AI is working hard to build your Blueprint...</p>
+        <p className="text-gray-500 text-center">
+          🤖 Our AI is working hard to build your Blueprint...
+        </p>
       )}
 
       {error && (
@@ -196,10 +194,10 @@ function ResultsContent() {
       {/* Report body */}
       <div
         ref={reportRef}
-        className="prose prose-lg max-w-none font-sans mb-10
+        className="prose prose-lg max-w-none font-sans
         prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark
         prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark
-        prose-strong:text-brand-dark"
+        prose-strong:text-brand-dark prose-a:text-brand hover:prose-a:underline"
       >
         {markdown ? (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
@@ -210,8 +208,8 @@ function ResultsContent() {
         )}
       </div>
 
-      {/* Export PDF at bottom */}
-      <div className="flex justify-center">
+      {/* PDF Export button at bottom */}
+      <div className="flex justify-center mt-10">
         <CTAButton onClick={exportPDF} variant="secondary">
           📄 Export as PDF
         </CTAButton>
@@ -219,7 +217,8 @@ function ResultsContent() {
 
       {/* Footer */}
       <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
-        Longevity • Vitality • Energy — <span className="font-semibold">LVE360</span> © 2025
+        Longevity • Vitality • Energy —{" "}
+        <span className="font-semibold">LVE360</span> © 2025
       </footer>
     </div>
   );
@@ -227,7 +226,7 @@ function ResultsContent() {
 
 export default function ResultsPageWrapper() {
   return (
-    <Suspense fallback={<p className="text-center py-8">Loading Blueprint...</p>}>
+    <Suspense fallback={<p className="text-center py-8">Loading report...</p>}>
       <ResultsContent />
     </Suspense>
   );
