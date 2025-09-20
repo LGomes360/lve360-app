@@ -1,110 +1,95 @@
 // app/api/export-pdf/route.ts
 // -----------------------------------------------------------------------------
-// GET /api/export-pdf?submission_id=<uuid or tally_short>
-// Generates a branded PDF of the LVE360 Blueprint and streams it to the client.
+// GET /api/export-pdf?submission_id=UUID
+// Generates a simple branded PDF report from a saved stack
 // -----------------------------------------------------------------------------
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
-export const runtime = "nodejs"; // ✅ force server runtime
+export const runtime = "nodejs";
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
-    const submissionId =
-      req.nextUrl.searchParams.get("submission_id") ?? null;
+    const { searchParams } = new URL(req.url);
+    const submissionId = searchParams.get("submission_id");
+
     if (!submissionId) {
       return NextResponse.json(
-        { ok: false, error: "submission_id is required" },
+        { ok: false, error: "submission_id required" },
         { status: 400 }
       );
     }
 
-    // --- Fetch stack row
-    const { data, error } = await supabaseAdmin
+    // --- Fetch stack from DB ---
+    const { data: stack, error } = await supabaseAdmin
       .from("stacks")
-      .select("id, user_email, sections")
+      .select("sections, summary, user_email")
       .eq("submission_id", submissionId)
       .maybeSingle();
 
-    if (error || !data) {
+    if (error || !stack) {
       return NextResponse.json(
-        { ok: false, error: "No stack found" },
+        { ok: false, error: "Stack not found" },
         { status: 404 }
       );
     }
 
-    const markdown = data.sections?.markdown ?? "No content available.";
-
-    // --- Create PDF
+    // --- Create PDF ---
     const pdfDoc = await PDFDocument.create();
     const page = pdfDoc.addPage([612, 792]); // Letter size
     const { height } = page.getSize();
+
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const titleFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
     // Header
     page.drawText("LVE360 Blueprint", {
       x: 50,
-      y: height - 60,
+      y: height - 80,
       size: 24,
       font: titleFont,
       color: rgb(0.02, 0.11, 0.18), // brand.dark
     });
 
-    // Sub-header
-    page.drawText("Longevity • Vitality • Energy", {
+    page.drawText("Longevity | Vitality | Energy", {
       x: 50,
-      y: height - 90,
+      y: height - 110,
       size: 14,
       font,
       color: rgb(0.02, 0.11, 0.18),
     });
 
-    // Body text (truncated to fit one page for MVP)
-    const safeText = markdown.replace(/[#*_`>-]/g, ""); // strip md syntax
-    const wrapped = wrapText(safeText, 80);
-    page.drawText(wrapped.slice(0, 40).join("\n"), {
+    // Content
+    const text = stack.sections?.markdown ?? stack.summary ?? "No content available.";
+    const wrapped = text.split("\n").slice(0, 50).join("\n"); // keep it short for now
+
+    page.drawText(wrapped, {
       x: 50,
-      y: height - 130,
+      y: height - 150,
       size: 11,
       font,
-      color: rgb(0.02, 0.11, 0.18),
+      color: rgb(0, 0, 0),
       lineHeight: 14,
     });
 
+    // --- Save PDF ---
     const pdfBytes = await pdfDoc.save();
+    const pdfBuffer = Buffer.from(pdfBytes);
 
-    return new NextResponse(pdfBytes, {
+    return new NextResponse(pdfBuffer, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="LVE360_Blueprint.pdf"`,
+        "Content-Disposition": "inline; filename=LVE360_Blueprint.pdf",
       },
     });
   } catch (err: any) {
-    console.error("Export PDF failed:", err);
+    console.error("Export PDF error:", err);
     return NextResponse.json(
       { ok: false, error: String(err?.message ?? err) },
       { status: 500 }
     );
   }
-}
-
-// --- helper to wrap text into lines
-function wrapText(text: string, maxChars: number): string[] {
-  const words = text.split(/\s+/);
-  const lines: string[] = [];
-  let line = "";
-  for (const w of words) {
-    if ((line + " " + w).trim().length > maxChars) {
-      lines.push(line.trim());
-      line = w;
-    } else {
-      line += " " + w;
-    }
-  }
-  if (line.trim()) lines.push(line.trim());
-  return lines;
 }
