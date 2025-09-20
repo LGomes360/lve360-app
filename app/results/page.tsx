@@ -1,8 +1,12 @@
-// app/results/page.tsx
+// -----------------------------------------------------------------------------
+// File: app/results/page.tsx
+// LVE360 Results Page (Blueprint version)
+// -----------------------------------------------------------------------------
+
 "use client";
 
 import { useEffect, useState, useRef, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -14,23 +18,19 @@ const supabase = createClient(
 );
 
 function ResultsContent() {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPremiumUser, setIsPremiumUser] = useState(false);
-  const [generating, setGenerating] = useState(false);
-
   const [items, setItems] = useState<any[] | null>(null);
   const [markdown, setMarkdown] = useState<string | null>(null);
 
   const reportRef = useRef<HTMLDivElement>(null);
-
-  const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
-  const submissionId = searchParams?.get("submission_id") ?? null;
+  const router = useRouter();
+  const submissionId = searchParams?.get("submission_id") ?? searchParams?.get("tally_submission_id") ?? null;
 
   // --- Load user tier (skip in test mode) ---
   async function loadUserTier() {
-    if (testMode) return;
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -39,40 +39,70 @@ function ResultsContent() {
         .from("users")
         .select("tier")
         .eq("id", session.user.id)
-        .single();
+        .maybeSingle();
       setIsPremiumUser(userRow?.tier === "premium");
     }
   }
 
   // --- Fetch stack from API ---
-  async function fetchStack(tier: "free" | "premium" = "free") {
-    if (!submissionId) {
-      setError("Missing submission_id in URL");
-      setLoading(false);
-      return;
-    }
+  async function fetchStack() {
+    if (!submissionId) return;
     try {
       setLoading(true);
+      setError(null);
+      const res = await fetch(
+        `/api/get-stack?submission_id=${encodeURIComponent(submissionId)}`
+      );
+      const data = await res.json();
+
+      if (res.ok && data?.ok && data?.stack) {
+        const stack = data.stack;
+        setItems(stack.items ?? null);
+        setMarkdown(
+          stack.sections?.markdown ?? stack.ai?.markdown ?? stack.summary ?? null
+        );
+      } else {
+        setError(data?.error ?? "No stack found");
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // --- Regenerate stack (free or premium) ---
+  async function regenerateStack(mode: "free" | "premium") {
+    if (!submissionId) {
+      setError("Missing submission_id in URL");
+      return;
+    }
+
+    if (mode === "premium" && !isPremiumUser) {
+      router.push("/pricing");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
       const res = await fetch("/api/generate-stack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           submission_id: submissionId,
           tally_submission_id: submissionId,
-          tier,
+          mode,
         }),
       });
-      if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
-
-      if (data?.ok && data?.stack) {
+      if (res.ok && data?.ok && data?.stack) {
         setItems(data.stack.items ?? null);
         setMarkdown(
-          data.stack.sections?.markdown ?? data.ai?.markdown ?? data.summary ?? null
+          data.stack.sections?.markdown ?? data.ai?.markdown ?? null
         );
-        setError(null);
       } else {
-        setError("No report found.");
+        setError("Report generation failed. Please try again.");
       }
     } catch (err: any) {
       setError(err.message);
@@ -83,17 +113,17 @@ function ResultsContent() {
 
   // --- Export PDF ---
   async function exportPDF() {
-    if (typeof window === "undefined") return; // 🚨 SSR guard
+    if (typeof window === "undefined") return;
     if (!reportRef.current) return;
 
     try {
       const mod = await import("html2pdf.js");
-      const html2pdf = (mod as any).default || mod; // ✅ fallback
+      const html2pdf = (mod as any).default || mod;
       html2pdf()
         .from(reportRef.current)
         .set({
           margin: 0.5,
-          filename: "LVE360_Report.pdf",
+          filename: "LVE360_Blueprint.pdf",
           html2canvas: { scale: 2 },
           jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
         })
@@ -106,6 +136,7 @@ function ResultsContent() {
 
   useEffect(() => {
     loadUserTier();
+    fetchStack();
   }, [submissionId]);
 
   return (
@@ -113,7 +144,7 @@ function ResultsContent() {
       {/* Header */}
       <div className="text-center mb-10">
         <h1 className="text-4xl font-extrabold font-display text-[#041B2D] bg-gradient-to-r from-[#06C1A0] to-[#041B2D] bg-clip-text text-transparent">
-          Your LVE360 Concierge Report
+          Your LVE360 Blueprint
         </h1>
         <p className="text-gray-600 mt-2 font-sans">
           Personalized insights for Longevity • Vitality • Energy
@@ -121,63 +152,62 @@ function ResultsContent() {
       </div>
 
       {/* Action buttons */}
-      <div className="flex flex-col sm:flex-row gap-4 justify-center mb-8 w-full max-w-md mx-auto">
+      <div className="flex flex-wrap gap-4 justify-center mb-8">
         <CTAButton
-          onClick={() => fetchStack("free")}
+          onClick={() => regenerateStack("free")}
           variant="primary"
-          fullWidth
-          disabled={generating}
+          fullWidth={false}
         >
-          {generating ? "⏳ Generating..." : "✨ Generate Free Report"}
+          ✨ Generate Free Report
         </CTAButton>
         <CTAButton
-          onClick={() =>
-            isPremiumUser ? fetchStack("premium") : (window.location.href = "/pricing")
-          }
+          onClick={() => regenerateStack("premium")}
           variant="premium"
-          fullWidth
+          fullWidth={false}
         >
-          👑 Upgrade to Premium Report
+          👑 Upgrade to Premium
         </CTAButton>
       </div>
 
+      {/* Loading/Error */}
       {loading && (
-        <p className="text-gray-500 text-center">
-          🤖 Our AI is working hard to build your report...
+        <p className="text-center text-gray-600 mb-4">
+          🤖 Our AI is working hard to build your Blueprint...
         </p>
       )}
 
-      {error && (
+      {error && !loading && (
         <div className="text-center text-red-600 mb-6">
-          <p className="mb-2">⚠️ Something went wrong: {error}</p>
-          <CTAButton onClick={() => fetchStack("free")} variant="secondary">
+          <p className="mb-2">⚠️ {error}</p>
+          <CTAButton onClick={fetchStack} variant="secondary">
             Retry
           </CTAButton>
         </div>
       )}
 
-      {/* Report body */}
+      {/* Report content */}
       <div
         ref={reportRef}
-        className="prose prose-lg max-w-none font-sans
-        prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark
-        prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark
-        prose-strong:text-brand-dark
-        prose-a:text-brand hover:prose-a:underline
-        prose-table:border prose-table:border-gray-200 prose-table:rounded-lg prose-table:shadow-sm
-        prose-th:bg-brand-light prose-th:text-brand-dark prose-th:font-semibold prose-td:p-3 prose-th:p-3"
+        className="prose prose-lg max-w-none font-sans mb-8
+          prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark
+          prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark
+          prose-strong:text-brand-dark prose-a:text-brand hover:prose-a:underline
+          prose-table:border prose-table:border-gray-200 prose-table:rounded-lg prose-table:shadow-sm
+          prose-th:bg-brand-light prose-th:text-brand-dark prose-th:font-semibold prose-td:p-3 prose-th:p-3"
       >
         {markdown ? (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
         ) : (
-          <p className="text-gray-500 text-center">
-            ⚠️ No report content available. Try generating.
-          </p>
+          !loading && (
+            <p className="text-gray-500 text-center">
+              ⚠️ No report content yet. Try generating above.
+            </p>
+          )
         )}
       </div>
 
-      {/* Export button */}
-      <div className="flex justify-center mt-8">
+      {/* Export PDF at bottom */}
+      <div className="flex justify-center">
         <CTAButton onClick={exportPDF} variant="secondary">
           📄 Export as PDF
         </CTAButton>
@@ -193,7 +223,7 @@ function ResultsContent() {
 
 export default function ResultsPageWrapper() {
   return (
-    <Suspense fallback={<p className="text-center py-8">Loading report...</p>}>
+    <Suspense fallback={<p className="text-center py-8">Loading Blueprint...</p>}>
       <ResultsContent />
     </Suspense>
   );
