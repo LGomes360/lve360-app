@@ -12,45 +12,54 @@ module.exports = {
         brand: {
           DEFAULT: "#06C1A0",   // Teal accent
           dark: "#041B2D",      // Navy base
-          light: "#A8F0E4",     // Soft mint highlight
+          light: "#A8F0E4",     // Mint highlight
         },
         gray: {
-          950: "#0A0A0A", // deep gray for luxury vibe
+          950: "#0A0A0A", // Deep gray
+        },
+        gold: {
+          light: "#FDE68A",
+          DEFAULT: "#D4AF37",
+          dark: "#B8860B",
         },
       },
       fontFamily: {
-        sans: ["Inter", "Arial", "sans-serif"],   // Inter as default
-        display: ["Poppins", "Arial", "sans-serif"], // Poppins for headers
+        sans: ["Poppins", "Inter", "Arial", "sans-serif"], // ✅ brand-first
+        display: ["Poppins", "Inter", "Arial", "sans-serif"],
       },
       boxShadow: {
         luxury: "0 8px 20px rgba(0, 0, 0, 0.12)",
+        premium: "0 4px 12px rgba(212, 175, 55, 0.4)", // gold glow
       },
       typography: {
         DEFAULT: {
           css: {
-            color: "#041B2D", // brand.dark for body text
+            color: "#041B2D",
+            fontFamily: "Poppins, Inter, Arial, sans-serif",
+            lineHeight: "1.7",
             a: {
-              color: "#06C1A0", // brand teal
-              "&:hover": { color: "#041B2D" }, // navy hover
+              color: "#06C1A0",
+              fontWeight: "500",
+              "&:hover": { color: "#041B2D" },
             },
             strong: { color: "#041B2D" },
-            h1: { color: "#041B2D", fontFamily: "Poppins" },
-            h2: { color: "#041B2D", fontFamily: "Poppins" },
-            h3: { color: "#041B2D", fontFamily: "Poppins" },
-            h4: { color: "#041B2D", fontFamily: "Poppins" },
+            h1: { color: "#041B2D", fontWeight: "700" },
+            h2: { color: "#041B2D", fontWeight: "600" },
+            h3: { color: "#041B2D", fontWeight: "600" },
+            h4: { color: "#041B2D", fontWeight: "500" },
             table: {
               width: "100%",
               borderCollapse: "collapse",
               boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
             },
             th: {
-              backgroundColor: "#A8F0E4", // brand.light
+              backgroundColor: "#A8F0E4",
               color: "#041B2D",
               fontWeight: "600",
               padding: "0.5rem",
             },
             td: {
-              border: "1px solid #E5E7EB", // Tailwind gray-200
+              border: "1px solid #E5E7EB",
               padding: "0.5rem",
             },
           },
@@ -68,6 +77,6 @@ module.exports = {
     },
   },
   plugins: [
-    require("@tailwindcss/typography"), // ✅ Markdown styling
+    require("@tailwindcss/typography"),
   ],
 };
