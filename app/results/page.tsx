@@ -1,10 +1,4 @@
-// -----------------------------------------------------------------------------
-// File: app/results/page.tsx
-// LVE360 // Results Page
-// Fetches saved stack from /api/get-stack and displays structured items
-// with premium gating. Adds regenerate + export-to-PDF + UX polish.
-// -----------------------------------------------------------------------------
-
+// app/results/page.tsx
 "use client";
 
 import { useEffect, useState, useRef, Suspense } from "react";
@@ -13,7 +7,6 @@ import { createClient } from "@supabase/supabase-js";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CTAButton from "@/components/CTAButton";
-import ReportSection from "@/components/ReportSection";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -33,12 +26,9 @@ function ResultsContent() {
 
   const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
-  const submissionId =
-    searchParams?.get("submission_id") ??
-    searchParams?.get("tally_submission_id") ??
-    null;
+  const submissionId = searchParams?.get("submission_id") ?? null;
 
-  // --- Load user tier ---
+  // --- Load user tier (skip in test mode) ---
   async function loadUserTier() {
     if (testMode) return;
     const {
@@ -54,7 +44,7 @@ function ResultsContent() {
     }
   }
 
-  // --- Fetch stack ---
+  // --- Fetch stack from API ---
   async function fetchStack() {
     if (!submissionId) {
       setError("Missing submission_id in URL");
@@ -73,10 +63,7 @@ function ResultsContent() {
         const stack = data.stack;
         setItems(stack.items ?? null);
         setMarkdown(
-          stack.sections?.markdown ??
-            data.ai?.markdown ??
-            stack.summary ??
-            null
+          stack.sections?.markdown ?? stack.ai?.markdown ?? stack.summary ?? null
         );
         setError(null);
       } else {
@@ -89,7 +76,7 @@ function ResultsContent() {
     }
   }
 
-  // --- Regenerate stack ---
+  // --- Regenerate stack on demand ---
   async function regenerateStack() {
     if (!submissionId) return;
     try {
@@ -97,7 +84,11 @@ function ResultsContent() {
       const res = await fetch("/api/generate-stack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ submission_id: submissionId }),
+        // 🔑 Send both UUID + Tally short ID for safety
+        body: JSON.stringify({
+          submission_id: submissionId,
+          tally_submission_id: submissionId,
+        }),
       });
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
@@ -117,15 +108,14 @@ function ResultsContent() {
     }
   }
 
-  // --- Export PDF ---
+  // --- Export PDF (dynamic import, browser-only) ---
   async function exportPDF() {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") return; // 🚨 SSR guard
     if (!reportRef.current) return;
 
     try {
-      const html2pdfModule = await import("html2pdf.js");
-      const html2pdf = html2pdfModule.default;
-
+      const mod = await import("html2pdf.js");
+      const html2pdf = (mod as any).default || mod; // ✅ fallback
       html2pdf()
         .from(reportRef.current)
         .set({
@@ -146,51 +136,20 @@ function ResultsContent() {
     fetchStack();
   }, [submissionId]);
 
-  // --- Fallback if no submission_id ---
-  if (!submissionId) {
-    return (
-      <div className="max-w-xl mx-auto py-12 px-6 text-center animate-fadeIn">
-        <h1 className="text-2xl font-semibold mb-4 text-brand-dark">
-          No Report Found
-        </h1>
-        <p className="text-gray-600 mb-6">
-          It looks like you landed here without completing the intake quiz.
-          Please start with the quiz to generate your personalized report.
-        </p>
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <CTAButton href="https://tally.so/r/mOqRBk" variant="primary">
-            Take the Quiz
-          </CTAButton>
-          <CTAButton href="/" variant="secondary">
-            Back to Home
-          </CTAButton>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn">
-      {/* Header */}
+      {/* Header with gradient */}
       <div className="text-center mb-10">
-        <h1 className="text-4xl font-extrabold text-brand-dark bg-gradient-to-r from-brand to-brand-dark bg-clip-text text-transparent">
+        <h1 className="text-4xl font-extrabold font-display text-[#041B2D] bg-gradient-to-r from-[#06C1A0] to-[#041B2D] bg-clip-text text-transparent">
           Your LVE360 Concierge Report
         </h1>
-        <p className="text-gray-600 mt-2">
+        <p className="text-gray-600 mt-2 font-sans">
           Personalized insights for Longevity • Vitality • Energy
         </p>
       </div>
 
       {/* Action buttons */}
       <div className="flex flex-wrap gap-3 justify-center mb-8">
-        {testMode && (
-          <CTAButton
-            onClick={() => setIsPremiumUser((prev) => !prev)}
-            variant="secondary"
-          >
-            Toggle Premium Mode ({isPremiumUser ? "Premium" : "Free"})
-          </CTAButton>
-        )}
         <CTAButton
           onClick={regenerateStack}
           variant="primary"
@@ -215,40 +174,17 @@ function ResultsContent() {
       )}
 
       {/* Report body */}
-      <div ref={reportRef} className="space-y-6">
-        {items && items.length > 0 ? (
-          <div className="grid gap-6">
-            {items.map((item, idx) => (
-              <div
-                key={idx}
-                className="animate-fadeIn border rounded-lg shadow-sm p-4 transition-transform hover:scale-[1.01]"
-              >
-                <ReportSection
-                  header={item.section ?? `Section ${idx + 1}`}
-                  body={item.text}
-                  premiumOnly={false}
-                  isPremiumUser={isPremiumUser}
-                />
-              </div>
-            ))}
-          </div>
-        ) : markdown ? (
-          // ✅ Styled markdown block
-          <div
-            className="prose prose-lg max-w-none
-                       prose-h2:text-brand-dark prose-h2:font-display prose-h2:text-2xl
-                       prose-h3:text-brand-dark prose-h3:text-xl
-                       prose-strong:text-brand-dark
-                       prose-a:text-brand hover:prose-a:underline
-                       prose-table:border prose-table:border-gray-200 prose-table:rounded-lg prose-table:shadow-sm
-                       prose-th:bg-brand-light prose-th:text-brand-dark prose-th:font-semibold prose-td:p-3 prose-th:p-3"
-          >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
-          </div>
+      <div ref={reportRef} className="prose prose-lg max-w-none font-sans
+        prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark
+        prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark
+        prose-strong:text-brand-dark
+        prose-a:text-brand hover:prose-a:underline
+        prose-table:border prose-table:border-gray-200 prose-table:rounded-lg prose-table:shadow-sm
+        prose-th:bg-brand-light prose-th:text-brand-dark prose-th:font-semibold prose-td:p-3 prose-th:p-3">
+        {markdown ? (
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
         ) : (
-          <p className="text-gray-500 text-center">
-            ⚠️ No report content available. Try regenerating.
-          </p>
+          <p className="text-gray-500 text-center">⚠️ No report content available. Try regenerating.</p>
         )}
       </div>
 
