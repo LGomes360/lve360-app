@@ -10,7 +10,6 @@ interface CTAButtonProps {
   variant?: "primary" | "secondary" | "disabled" | "concierge" | "premium";
   fullWidth?: boolean;
   disabled?: boolean;
-  className?: string;
 }
 
 export default function CTAButton({
@@ -20,35 +19,29 @@ export default function CTAButton({
   variant = "primary",
   fullWidth = false,
   disabled = false,
-  className,
 }: CTAButtonProps) {
   const base =
-    "inline-flex justify-center items-center px-6 py-3 rounded-xl font-semibold text-center transition-all duration-200 min-w-[200px]";
-
+    "px-6 py-3 rounded-lg font-medium text-center transition-all duration-200 shadow-md";
   const width = fullWidth ? "w-full" : "";
 
   const variants: Record<string, string> = {
-    primary: "bg-[#06C1A0] text-white hover:bg-[#049b80] shadow-md hover:shadow-lg",
+    primary: "bg-[#06C1A0] text-white hover:bg-[#049b80]",
     secondary:
-      "border border-[#041B2D] text-[#041B2D] hover:bg-[#041B2D] hover:text-white shadow-sm",
+      "border border-[#041B2D] text-[#041B2D] hover:bg-[#041B2D] hover:text-white",
     disabled:
       "bg-gray-200 text-gray-500 cursor-not-allowed border border-gray-300",
     concierge:
-      "bg-black text-[#D4AF37] border border-[#D4AF37] hover:bg-[#D4AF37] hover:text-black shadow-md hover:shadow-lg",
+      "bg-black text-[#D4AF37] border border-[#D4AF37] hover:bg-[#D4AF37] hover:text-black",
     premium:
-      "bg-gradient-to-r from-yellow-400 to-yellow-600 text-white shadow-lg hover:from-yellow-500 hover:to-yellow-700",
+      "bg-[#041B2D] text-white hover:from-[#041B2D] hover:to-[#06C1A0] " +
+      "hover:bg-gradient-to-r shadow-lg hover:shadow-brand/40 border border-transparent",
   };
 
-  const classes = clsx(base, width, variants[variant], className);
+  const className = clsx(base, width, variants[variant]);
 
   if (href) {
     return (
-      <a
-        href={href}
-        className={classes}
-        onClick={onClick}
-        aria-disabled={disabled || variant === "disabled"}
-      >
+      <a href={href} className={className} onClick={onClick}>
         {children}
       </a>
     );
@@ -56,7 +49,7 @@ export default function CTAButton({
 
   return (
     <button
-      className={classes}
+      className={className}
       onClick={onClick}
       disabled={disabled || variant === "disabled"}
     >
