@@ -1,8 +1,8 @@
 // -----------------------------------------------------------------------------
 // File: app/results/page.tsx
 // LVE360 // Results Page
-// Fetches saved stack (with child items) from /api/get-stack and displays
-// supplement cards + markdown sections with premium gating.
+// Shows stack + child items with expandable supplement cards.
+// Premium users see rationale/evidence; free users see gating CTA.
 // -----------------------------------------------------------------------------
 
 "use client";
@@ -27,12 +27,12 @@ interface StackItem {
   timing?: string;
   notes?: string;
   rationale?: string;
+  caution?: string;
   citations?: any;
   link_amazon?: string;
   link_thorne?: string;
   link_fullscript?: string;
   link_other?: string;
-  link_type?: string;
   is_custom?: boolean;
 }
 
@@ -50,7 +50,7 @@ function ResultsContent() {
   const searchParams = useSearchParams();
   const submissionId = searchParams?.get("submission_id") ?? null;
 
-  // --- Load user tier (skip in test mode) ---
+  // --- Load user tier ---
   async function loadUserTier() {
     if (testMode) return;
     const {
@@ -66,7 +66,7 @@ function ResultsContent() {
     }
   }
 
-  // --- Fetch stack from API ---
+  // --- Fetch stack ---
   async function fetchStack() {
     if (!submissionId) {
       setError("Missing submission_id in URL");
@@ -154,7 +154,7 @@ function ResultsContent() {
     fetchStack();
   }, [submissionId]);
 
-  // --- Split fallback markdown into sections ---
+  // --- Split fallback markdown ---
   function splitSections(md: string): Record<string, string> {
     const parts = md.split(/^## /gm);
     const sections: Record<string, string> = {};
@@ -223,36 +223,92 @@ function ResultsContent() {
       {error && <p className="text-center text-red-600 mb-6">⚠️ {error}</p>}
 
       <div ref={reportRef} className="space-y-6">
-        {/* Show supplement items if available */}
+        {/* Supplement items */}
         {items && items.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2">
             {items.map((item) => (
-              <div
+              <details
                 key={item.id}
-                className="border rounded-lg shadow-sm p-4 bg-white hover:shadow-md transition"
+                className="border rounded-lg shadow-sm p-4 bg-white hover:shadow-md transition group"
               >
-                <h3 className="font-semibold text-lg text-[#041B2D]">
+                <summary className="cursor-pointer font-semibold text-lg text-[#041B2D]">
                   {item.name} {item.dose ? `– ${item.dose}` : ""}
-                </h3>
-                {item.brand && (
-                  <p className="text-sm text-gray-500">Brand: {item.brand}</p>
-                )}
-                {item.timing && (
-                  <p className="text-sm text-gray-500">Timing: {item.timing}</p>
-                )}
-                {item.notes && <p className="mt-2 text-gray-700">{item.notes}</p>}
-                {/* Example: show link if present */}
-                {item.link_amazon && (
-                  <a
-                    href={item.link_amazon}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#06C1A0] text-sm underline mt-2 inline-block"
-                  >
-                    Buy on Amazon
-                  </a>
-                )}
-              </div>
+                  {item.timing && (
+                    <span className="ml-2 text-sm text-gray-500">
+                      ({item.timing})
+                    </span>
+                  )}
+                </summary>
+                <div className="mt-2 space-y-2 text-sm text-gray-700">
+                  {item.brand && <p>Brand: {item.brand}</p>}
+                  {item.notes && <p>{item.notes}</p>}
+
+                  {/* Premium gating */}
+                  {isPremiumUser ? (
+                    <>
+                      {item.rationale && (
+                        <p>
+                          <strong>Rationale:</strong> {item.rationale}
+                        </p>
+                      )}
+                      {item.caution && (
+                        <p className="text-red-600">
+                          <strong>Caution:</strong> {item.caution}
+                        </p>
+                      )}
+                      {item.citations && (
+                        <ul className="list-disc ml-5">
+                          {Array.isArray(item.citations)
+                            ? item.citations.map((c: any, i: number) => (
+                                <li key={i}>
+                                  <a
+                                    href={c.url ?? c}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[#06C1A0] underline"
+                                  >
+                                    {c.label ?? c.url ?? c}
+                                  </a>
+                                </li>
+                              ))
+                            : null}
+                        </ul>
+                      )}
+                    </>
+                  ) : (
+                    <div className="mt-2 p-3 border rounded bg-gray-50 text-center">
+                      <p className="text-gray-600 mb-2">
+                        Rationale & Evidence available with Premium.
+                      </p>
+                      <CTAButton href="/pricing" variant="primary" size="sm">
+                        Upgrade
+                      </CTAButton>
+                    </div>
+                  )}
+
+                  {/* Shopping links */}
+                  {item.link_amazon && (
+                    <a
+                      href={item.link_amazon}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#06C1A0] text-sm underline block"
+                    >
+                      Buy on Amazon
+                    </a>
+                  )}
+                  {item.link_fullscript && (
+                    <a
+                      href={item.link_fullscript}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#06C1A0] text-sm underline block"
+                    >
+                      Buy on Fullscript
+                    </a>
+                  )}
+                </div>
+              </details>
             ))}
           </div>
         ) : markdown ? (
@@ -266,7 +322,9 @@ function ResultsContent() {
                     key={header}
                     className="border border-gray-200 rounded-xl p-6 bg-gray-50 text-center shadow-sm"
                   >
-                    <h2 className="text-xl font-semibold mb-2 text-[#041B2D]">{header}</h2>
+                    <h2 className="text-xl font-semibold mb-2 text-[#041B2D]">
+                      {header}
+                    </h2>
                     <p className="text-gray-600 mb-4">This section is Premium only.</p>
                     <CTAButton href="/pricing" variant="primary">
                       Upgrade
