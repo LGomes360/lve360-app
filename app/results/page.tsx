@@ -26,15 +26,16 @@ function ResultsContent() {
 
   const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
-  const submissionId = searchParams?.get("submission_id") ?? null;
-  const tallyId = searchParams?.get("tally_submission_id") ?? null;
+
+  // Support both submission_id and tally_submission_id
+  const submissionId = searchParams?.get("submission_id");
+  const tallyId = searchParams?.get("tally_submission_id");
+  const effectiveId = submissionId ?? tallyId;
 
   // --- Load user tier (skip in test mode) ---
   async function loadUserTier() {
     if (testMode) return;
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    const { data: { session } } = await supabase.auth.getSession();
     if (session?.user?.id) {
       const { data: userRow } = await supabase
         .from("users")
@@ -47,21 +48,16 @@ function ResultsContent() {
 
   // --- Fetch stack from API ---
   async function fetchStack() {
-    if (!submissionId && !tallyId) {
+    if (!effectiveId) {
       setError("Missing submission_id or tally_submission_id in URL");
       setLoading(false);
       return;
     }
-
     try {
       setLoading(true);
-
-      // ✅ API get-stack already supports both UUID + shortId
-      const param = submissionId
-        ? `submission_id=${encodeURIComponent(submissionId)}`
-        : `submission_id=${encodeURIComponent(tallyId!)}`;
-
-      const res = await fetch(`/api/get-stack?${param}`);
+      const res = await fetch(
+        `/api/get-stack?submission_id=${encodeURIComponent(effectiveId)}`
+      );
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
 
@@ -69,7 +65,10 @@ function ResultsContent() {
         const stack = data.stack;
         setItems(stack.items ?? null);
         setMarkdown(
-          stack.sections?.markdown ?? stack.ai?.markdown ?? stack.summary ?? null
+          stack.sections?.markdown ??
+          stack.ai?.markdown ??
+          stack.summary ??
+          null
         );
         setError(null);
       } else {
@@ -82,15 +81,14 @@ function ResultsContent() {
     }
   }
 
-  // --- Regenerate stack on demand ---
+  // --- Regenerate stack ---
   async function regenerateStack() {
-    if (!submissionId && !tallyId) return;
+    if (!effectiveId) return;
     try {
       setRegenerating(true);
       const res = await fetch("/api/generate-stack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // ✅ Send both for safety
         body: JSON.stringify({
           submission_id: submissionId,
           tally_submission_id: tallyId,
@@ -114,14 +112,13 @@ function ResultsContent() {
     }
   }
 
-  // --- Export PDF (dynamic import, browser-only) ---
+  // --- Export PDF (browser-only) ---
   async function exportPDF() {
-    if (typeof window === "undefined") return; // 🚨 SSR guard
+    if (typeof window === "undefined") return;
     if (!reportRef.current) return;
-
     try {
       const mod = await import("html2pdf.js");
-      const html2pdf = (mod as any).default || mod; // ✅ fallback
+      const html2pdf = (mod as any).default || mod;
       html2pdf()
         .from(reportRef.current)
         .set({
@@ -140,11 +137,11 @@ function ResultsContent() {
   useEffect(() => {
     loadUserTier();
     fetchStack();
-  }, [submissionId, tallyId]);
+  }, [effectiveId]);
 
   return (
     <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn">
-      {/* Header with gradient */}
+      {/* header */}
       <div className="text-center mb-10">
         <h1 className="text-4xl font-extrabold font-display text-[#041B2D] bg-gradient-to-r from-[#06C1A0] to-[#041B2D] bg-clip-text text-transparent">
           Your LVE360 Concierge Report
@@ -154,14 +151,14 @@ function ResultsContent() {
         </p>
       </div>
 
-      {/* Action buttons */}
+      {/* buttons */}
       <div className="flex flex-wrap gap-3 justify-center mb-8">
         <CTAButton
           onClick={regenerateStack}
           variant="primary"
           disabled={regenerating}
         >
-          {regenerating ? "⏳ Refreshing..." : "🔄 Refresh Report"}
+          {regenerating ? "🤖 Our AI is working hard..." : "🔄 Refresh Report"}
         </CTAButton>
         <CTAButton onClick={exportPDF} variant="secondary">
           📄 Export PDF
@@ -170,7 +167,7 @@ function ResultsContent() {
 
       {loading && (
         <p className="text-gray-500 text-center">
-          🤖 Our AI assistants are working hard to build your report...
+          🤖 The robots are crunching your data... please wait.
         </p>
       )}
 
@@ -183,30 +180,24 @@ function ResultsContent() {
         </div>
       )}
 
-      {/* Report body */}
+      {/* report */}
       <div
         ref={reportRef}
-        className="prose prose-lg max-w-none font-sans
-        prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark
-        prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark
-        prose-strong:text-brand-dark
-        prose-a:text-brand hover:prose-a:underline
-        prose-table:border prose-table:border-gray-200 prose-table:rounded-lg prose-table:shadow-sm
-        prose-th:bg-brand-light prose-th:text-brand-dark prose-th:font-semibold prose-td:p-3 prose-th:p-3"
+        className="prose prose-lg max-w-none font-sans prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark prose-strong:text-brand-dark prose-a:text-brand hover:prose-a:underline"
       >
         {markdown ? (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
         ) : (
-          <p className="text-gray-500 text-center">
-            ⚠️ No report content available. Try regenerating.
-          </p>
+          !loading && (
+            <p className="text-gray-500 text-center">
+              ⚠️ No report content available. Try regenerating.
+            </p>
+          )
         )}
       </div>
 
-      {/* Footer */}
       <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
-        Longevity • Vitality • Energy —{" "}
-        <span className="font-semibold">LVE360</span> © 2025
+        Longevity • Vitality • Energy — <span className="font-semibold">LVE360</span> © 2025
       </footer>
     </div>
   );
