@@ -100,8 +100,10 @@ export async function POST(req: NextRequest) {
       const resp: any = await query;
       if (!resp?.error && resp?.data?.length) {
         submissionRow = resp.data[0];
-        // Normalize to always use UUID
-        submissionId = submissionRow.id;
+        if (submissionRow?.id) {
+          // Normalize to always use UUID
+          submissionId = submissionRow.id;
+        }
       }
     } catch (e) {
       console.warn("Ignored error loading submission:", e);
