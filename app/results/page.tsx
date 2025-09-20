@@ -1,14 +1,13 @@
 // app/results/page.tsx
 "use client";
 
-import { useState, useRef, Suspense } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CTAButton from "@/components/CTAButton";
 
-// Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -17,24 +16,36 @@ const supabase = createClient(
 function ResultsContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [markdown, setMarkdown] = useState<string | null>(null);
   const [isPremiumUser, setIsPremiumUser] = useState(false);
+  const [markdown, setMarkdown] = useState<string | null>(null);
 
   const reportRef = useRef<HTMLDivElement>(null);
-  const searchParams = useSearchParams();
   const router = useRouter();
-
-  // We only need tally_submission_id at first
+  const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
 
-  // --- Handle generate stack (free or premium) ---
+  // --- Load user tier (skip if no auth) ---
+  async function loadUserTier() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (session?.user?.id) {
+      const { data: userRow } = await supabase
+        .from("users")
+        .select("tier")
+        .eq("id", session.user.id)
+        .single();
+      setIsPremiumUser(userRow?.tier === "premium");
+    }
+  }
+
+  // --- Generate stack (free or premium) ---
   async function generateStack(type: "free" | "premium") {
     if (!tallyId) {
       setError("Missing tally_submission_id in URL");
       return;
     }
 
-    // If user clicks Premium but isn’t subscribed → redirect
     if (type === "premium" && !isPremiumUser) {
       router.push("/pricing");
       return;
@@ -44,20 +55,19 @@ function ResultsContent() {
       setLoading(true);
       setError(null);
 
-      // Call generate API
       const res = await fetch("/api/generate-stack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tally_submission_id: tallyId,
+          submission_id: tallyId, // 👈 mirror for safety
           mode: type,
         }),
       });
 
-      if (!res.ok) throw new Error(`API error ${res.status}`);
+      if (!res.ok) throw new Error(`Fetch error ${res.status}`);
       const data = await res.json();
 
-      // Fetch latest stack after generation
       if (data?.ok) {
         const fetchRes = await fetch(
           `/api/get-stack?tally_submission_id=${encodeURIComponent(tallyId)}`
@@ -81,11 +91,9 @@ function ResultsContent() {
     }
   }
 
-  // --- Export PDF (html2pdf) ---
+  // --- Export PDF ---
   async function exportPDF() {
-    if (typeof window === "undefined") return;
-    if (!reportRef.current) return;
-
+    if (typeof window === "undefined" || !reportRef.current) return;
     try {
       const mod = await import("html2pdf.js");
       const html2pdf = (mod as any).default || (window as any).html2pdf;
@@ -99,31 +107,35 @@ function ResultsContent() {
         })
         .save();
     } catch (err) {
-      console.error("PDF export failed:", err);
+      console.error("PDF export failed", err);
       setError("PDF export failed");
     }
   }
 
+  useEffect(() => {
+    loadUserTier();
+  }, []);
+
   return (
-    <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn font-sans">
+    <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn">
       {/* Header */}
       <div className="text-center mb-10">
-        <h1 className="text-4xl font-extrabold font-display text-brand-dark">
+        <h1 className="text-4xl font-extrabold font-display text-[#041B2D]">
           Your LVE360 Blueprint
         </h1>
-        <p className="text-gray-600 mt-2">
+        <p className="text-gray-600 mt-2 font-sans">
           Personalized insights for Longevity • Vitality • Energy
         </p>
       </div>
 
       {/* Action buttons */}
-      <div className="flex flex-wrap gap-4 justify-center mb-8">
+      <div className="flex flex-wrap gap-3 justify-center mb-8">
         <CTAButton
           onClick={() => generateStack("free")}
           variant="primary"
           disabled={loading}
         >
-          {loading ? "🤖 Our AI is working hard..." : "✨ Generate Free Report"}
+          {loading ? "⏳ Generating..." : "✨ Generate Free Report"}
         </CTAButton>
 
         <CTAButton
@@ -135,29 +147,30 @@ function ResultsContent() {
         </CTAButton>
       </div>
 
-      {/* Error display */}
+      {/* Errors */}
       {error && (
         <div className="text-center text-red-600 mb-6">
-          <p>⚠️ {error}</p>
+          <p>{error}</p>
         </div>
       )}
 
-      {/* Report */}
+      {/* Report body */}
       <div
         ref={reportRef}
-        className="prose prose-lg max-w-none font-sans prose-h2:font-display prose-h2:text-brand-dark prose-strong:text-brand-dark"
+        className="prose prose-lg max-w-none font-sans prose-h2:font-display prose-h2:text-brand-dark prose-strong:text-brand-dark prose-a:text-brand hover:prose-a:underline"
       >
         {markdown ? (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
         ) : (
           <p className="text-gray-500 text-center">
-            ⚠️ No report content available yet. Click a button above to
-            generate your Blueprint.
+            🤖 No report yet. Click{" "}
+            <span className="font-semibold">Generate Free Report</span> above to
+            get your Blueprint!
           </p>
         )}
       </div>
 
-      {/* Export PDF button */}
+      {/* Export button */}
       <div className="flex justify-center mt-8">
         <CTAButton onClick={exportPDF} variant="secondary">
           📄 Export as PDF
@@ -166,7 +179,8 @@ function ResultsContent() {
 
       {/* Footer */}
       <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
-        Longevity • Vitality • Energy — <span className="font-semibold">LVE360</span> © 2025
+        Longevity • Vitality • Energy —{" "}
+        <span className="font-semibold">LVE360</span> © 2025
       </footer>
     </div>
   );
@@ -174,7 +188,7 @@ function ResultsContent() {
 
 export default function ResultsPageWrapper() {
   return (
-    <Suspense fallback={<p className="text-center py-8">Loading Blueprint...</p>}>
+    <Suspense fallback={<p className="text-center py-8">Loading...</p>}>
       <ResultsContent />
     </Suspense>
   );
