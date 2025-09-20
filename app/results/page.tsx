@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState, useRef, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -22,15 +22,40 @@ function ResultsContent() {
 
   const reportRef = useRef<HTMLDivElement>(null);
   const searchParams = useSearchParams();
-  const router = useRouter();
 
-  // We now only use tally_submission_id from the URL
+  // Always prefer tally_submission_id in URL
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
+
+  // --- Pre-check: see if a stack already exists ---
+  async function fetchStack() {
+    if (!tallyId) return;
+    try {
+      setLoading(true);
+      const res = await fetch(
+        `/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`
+      );
+      if (!res.ok) throw new Error(`API error ${res.status}`);
+      const data = await res.json();
+
+      if (data?.ok && data?.stack) {
+        setItems(data.stack.items ?? null);
+        setMarkdown(
+          data.stack.sections?.markdown ??
+            data.stack.summary ??
+            null
+        );
+      }
+    } catch (err: any) {
+      console.warn("No existing stack found:", err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   // --- Generate stack (free) ---
   async function generateStack() {
     if (!tallyId) {
-      setError("Missing submission id. Please try again from the intake form.");
+      setError("Missing submission ID. Please try again from the intake form.");
       return;
     }
     try {
@@ -66,14 +91,12 @@ function ResultsContent() {
 
   // --- Export PDF ---
   async function exportPDF() {
-    if (typeof window === "undefined") return;
-    if (!reportRef.current) return;
-
+    if (typeof window === "undefined" || !reportRef.current) return;
     try {
       const mod = await import("html2pdf.js");
       const html2pdf = (mod as any).default || mod;
 
-      html2pdf()
+      await html2pdf()
         .from(reportRef.current)
         .set({
           margin: 0.5,
@@ -84,9 +107,16 @@ function ResultsContent() {
         .save();
     } catch (err) {
       console.error("PDF export failed:", err);
-      setError("PDF export failed. Please try again.");
+      setError(
+        "PDF export failed. Please refresh and try again, or contact support."
+      );
     }
   }
+
+  // Run pre-check once on mount
+  useEffect(() => {
+    fetchStack();
+  }, [tallyId]);
 
   return (
     <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn font-sans">
@@ -116,16 +146,14 @@ function ResultsContent() {
 
       {/* Messages */}
       {error && (
-        <div className="text-center text-red-600 mb-6">
-          ⚠️ {error}
-        </div>
+        <div className="text-center text-red-600 mb-6">{error}</div>
       )}
 
-      {!markdown && !error && (
+      {!markdown && !error && !loading && (
         <div className="text-center text-gray-600 mb-6">
-          🤖 No report yet. Click{" "}
+          🤖 Your Blueprint isn’t ready yet. Click{" "}
           <span className="font-semibold">Generate Free Report</span> above to
-          get your Blueprint!
+          let our AI robots get to work!
         </div>
       )}
 
@@ -133,7 +161,13 @@ function ResultsContent() {
       {markdown && (
         <div
           ref={reportRef}
-          className="prose prose-lg max-w-none font-sans prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark prose-strong:text-brand-dark prose-a:text-brand hover:prose-a:underline prose-table:border prose-table:border-gray-200 prose-table:rounded-lg prose-table:shadow-sm prose-th:bg-brand-light prose-th:text-brand-dark prose-th:font-semibold prose-td:p-3 prose-th:p-3"
+          className="prose prose-lg max-w-none font-sans
+            prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark
+            prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark
+            prose-strong:text-brand-dark
+            prose-a:text-brand hover:prose-a:underline
+            prose-table:border prose-table:border-gray-200 prose-table:rounded-lg prose-table:shadow-sm
+            prose-th:bg-brand-light prose-th:text-brand-dark prose-th:font-semibold prose-td:p-3 prose-th:p-3"
         >
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {markdown}
@@ -142,11 +176,13 @@ function ResultsContent() {
       )}
 
       {/* Export button */}
-      <div className="flex justify-center mt-10">
-        <CTAButton onClick={exportPDF} variant="secondary">
-          📄 Export as PDF
-        </CTAButton>
-      </div>
+      {markdown && (
+        <div className="flex justify-center mt-10">
+          <CTAButton onClick={exportPDF} variant="secondary">
+            📄 Export as PDF
+          </CTAButton>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
