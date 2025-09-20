@@ -1,31 +1,24 @@
+// -----------------------------------------------------------------------------
+// File: app/results/page.tsx
+// LVE360 // Results Page
+// Fetches saved stack from /api/get-stack and displays structured items
+// with premium gating. Adds regenerate + export-to-PDF + UX polish.
+// ----------------------------------------------------------------------------- 
+
 "use client";
 
 import { useEffect, useState, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
+import ReactMarkdown from "react-markdown"; // ✅ New
 import CTAButton from "@/components/CTAButton";
 import ReportSection from "@/components/ReportSection";
 import { sectionsConfig } from "@/config/reportSections";
-import { ChevronDown } from "lucide-react";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
-
-interface StackItem {
-  id: string;
-  name: string;
-  brand?: string;
-  dose?: string;
-  timing?: string;
-  notes?: string;
-  rationale?: string;
-  caution?: string;
-  citations?: any;
-  link_amazon?: string;
-  link_fullscript?: string;
-}
 
 function ResultsContent() {
   const [loading, setLoading] = useState(true);
@@ -33,21 +26,16 @@ function ResultsContent() {
   const [isPremiumUser, setIsPremiumUser] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
 
-  const [items, setItems] = useState<StackItem[]>([]);
+  const [items, setItems] = useState<any[] | null>(null);
   const [markdown, setMarkdown] = useState<string | null>(null);
 
   const reportRef = useRef<HTMLDivElement>(null);
+
   const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
-  const submissionId = searchParams?.get("submission_id") ?? null;
+  const submissionId = searchParams?.get("submission_id") ?? searchParams?.get("tally_submission_id") ?? null;
 
-  const [openIds, setOpenIds] = useState<string[]>([]);
-  const toggleOpen = (id: string) => {
-    setOpenIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  };
-
+  // --- Load user tier (skip in test mode) ---
   async function loadUserTier() {
     if (testMode) return;
     const {
@@ -63,6 +51,7 @@ function ResultsContent() {
     }
   }
 
+  // --- Fetch stack from API ---
   async function fetchStack() {
     if (!submissionId) {
       setError("Missing submission_id in URL");
@@ -79,12 +68,12 @@ function ResultsContent() {
 
       if (data?.ok && data?.stack) {
         const stack = data.stack;
-        setItems(stack.items ?? []);
+        setItems(stack.items ?? null);
         setMarkdown(
-          stack.sections?.markdown ?? // ✅ FIX: use sections.markdown first
-          stack.ai?.markdown ??
-          stack.summary ??
-          null
+          stack.sections?.markdown ??
+            data.ai?.markdown ??
+            stack.summary ??
+            null
         );
         setError(null);
       } else {
@@ -97,6 +86,7 @@ function ResultsContent() {
     }
   }
 
+  // --- Regenerate stack on demand ---
   async function regenerateStack() {
     if (!submissionId) return;
     try {
@@ -109,12 +99,9 @@ function ResultsContent() {
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
       if (data?.ok && data?.stack) {
-        setItems(data.stack.items ?? []);
+        setItems(data.stack.items ?? null);
         setMarkdown(
-          data.stack.sections?.markdown ?? // ✅ FIX: use sections.markdown first
-          data.ai?.markdown ??
-          data.stack.summary ??
-          null
+          data.stack.sections?.markdown ?? data.ai?.markdown ?? null
         );
         setError(null);
       } else {
@@ -127,13 +114,16 @@ function ResultsContent() {
     }
   }
 
+  // --- Export PDF (dynamic import, browser-only) ---
   async function exportPDF() {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") return; // 🚨 SSR guard
     if (!reportRef.current) return;
+
     try {
       const html2pdfModule = await import("html2pdf.js");
-      html2pdfModule
-        .default()
+      const html2pdf = html2pdfModule.default;
+
+      html2pdf()
         .from(reportRef.current)
         .set({
           margin: 0.5,
@@ -153,6 +143,7 @@ function ResultsContent() {
     fetchStack();
   }, [submissionId]);
 
+  // --- Split fallback markdown into sections ---
   function splitSections(md: string): Record<string, string> {
     const parts = md.split(/^## /gm);
     const sections: Record<string, string> = {};
@@ -166,119 +157,108 @@ function ResultsContent() {
 
   const sections: Record<string, string> = markdown ? splitSections(markdown) : {};
 
+  // --- Fallback if no submission_id ---
   if (!submissionId) {
     return (
       <div className="max-w-xl mx-auto py-12 px-6 text-center animate-fadeIn">
-        <h1 className="text-2xl font-semibold mb-4 text-[#041B2D]">No Report Found</h1>
-        <CTAButton href="https://tally.so/r/mOqRBk" variant="primary">
-          Take the Quiz
-        </CTAButton>
+        <h1 className="text-2xl font-semibold mb-4 text-[#041B2D]">
+          No Report Found
+        </h1>
+        <p className="text-gray-600 mb-6">
+          It looks like you landed here without completing the intake quiz.
+          Please start with the quiz to generate your personalized report.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <CTAButton href="https://tally.so/r/mOqRBk" variant="primary">
+            Take the Quiz
+          </CTAButton>
+          <CTAButton href="/" variant="secondary">
+            Back to Home
+          </CTAButton>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn">
+      {/* Header */}
       <div className="text-center mb-10">
         <h1 className="text-4xl font-extrabold text-[#041B2D] bg-gradient-to-r from-[#06C1A0] to-[#041B2D] bg-clip-text text-transparent">
           Your LVE360 Concierge Report
         </h1>
-        <p className="text-gray-600 mt-2">Longevity • Vitality • Energy</p>
+        <p className="text-gray-600 mt-2">
+          Personalized insights for Longevity • Vitality • Energy
+        </p>
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex flex-wrap gap-3 justify-center mb-8">
+        {testMode && (
+          <CTAButton
+            onClick={() => setIsPremiumUser((prev) => !prev)}
+            variant="secondary"
+          >
+            Toggle Premium Mode ({isPremiumUser ? "Premium" : "Free"})
+          </CTAButton>
+        )}
+        <CTAButton
+          onClick={regenerateStack}
+          variant="primary"
+          disabled={regenerating}
+        >
+          {regenerating ? "⏳ Refreshing..." : "🔄 Refresh Report"}
+        </CTAButton>
+        <CTAButton onClick={exportPDF} variant="secondary">
+          📄 Export PDF
+        </CTAButton>
       </div>
 
       {loading && <p className="text-gray-500 text-center">Loading your report...</p>}
-      {error && <p className="text-center text-red-600 mb-6">⚠️ {error}</p>}
 
+      {error && (
+        <div className="text-center text-red-600 mb-6">
+          <p className="mb-2">⚠️ Something went wrong: {error}</p>
+          <CTAButton onClick={fetchStack} variant="secondary">
+            Retry
+          </CTAButton>
+        </div>
+      )}
+
+      {/* Report body */}
       <div ref={reportRef} className="space-y-6">
-        {/* Show supplement items if available */}
         {items && items.length > 0 ? (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {items.map((item) => {
-              const isOpen = openIds.includes(item.id);
-              return (
-                <div
-                  key={item.id}
-                  className="border rounded-lg shadow-sm bg-white overflow-hidden"
-                >
-                  <button
-                    onClick={() => toggleOpen(item.id)}
-                    className="w-full flex items-center justify-between p-4 text-left"
-                    aria-expanded={isOpen}
-                  >
-                    <div>
-                      <h3 className="font-semibold text-lg text-[#041B2D]">
-                        {item.name} {item.dose ? `– ${item.dose}` : ""}
-                      </h3>
-                      {item.timing && (
-                        <p className="text-sm text-gray-500">Timing: {item.timing}</p>
-                      )}
-                    </div>
-                    <ChevronDown
-                      className={`w-5 h-5 text-gray-500 transform transition-transform duration-300 ${
-                        isOpen ? "rotate-180" : ""
-                      }`}
-                    />
-                  </button>
-
-                  <div
-                    className={`transition-all duration-500 ease-in-out ${
-                      isOpen ? "max-h-screen p-4" : "max-h-0"
-                    } overflow-hidden`}
-                  >
-                    {item.brand && <p className="text-sm">Brand: {item.brand}</p>}
-                    {item.notes && <p className="mt-2 text-gray-700">{item.notes}</p>}
-
-                    {!isPremiumUser && (
-                      <div className="mt-3 p-3 border rounded bg-gray-50 text-center">
-                        <p className="text-gray-600 mb-2">
-                          Rationale & Evidence available with Premium.
-                        </p>
-                        <CTAButton href="/pricing" variant="primary">
-                          Upgrade
-                        </CTAButton>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : markdown ? (
-          // Fallback to markdown sections
-          <div className="prose prose-lg space-y-6">
-            {sectionsConfig.map(({ header, premiumOnly }) => {
-              if (!sections[header]) return null;
-              if (premiumOnly && !isPremiumUser) {
-                return (
-                  <div
-                    key={header}
-                    className="border border-gray-200 rounded-xl p-6 bg-gray-50 text-center shadow-sm"
-                  >
-                    <h2 className="text-xl font-semibold mb-2 text-[#041B2D]">
-                      {header}
-                    </h2>
-                    <p className="text-gray-600 mb-4">This section is Premium only.</p>
-                    <CTAButton href="/pricing" variant="primary">
-                      Upgrade
-                    </CTAButton>
-                  </div>
-                );
-              }
-              return (
+          <div className="grid gap-6">
+            {items.map((item, idx) => (
+              <div
+                key={idx}
+                className="animate-fadeIn border rounded-lg shadow-sm p-4 transition-transform hover:scale-[1.01]"
+              >
                 <ReportSection
-                  key={header}
-                  header={header}
-                  body={sections[header]}
-                  premiumOnly={premiumOnly}
+                  header={item.section ?? `Section ${idx + 1}`}
+                  body={item.text}
+                  premiumOnly={false}
                   isPremiumUser={isPremiumUser}
                 />
-              );
-            })}
+              </div>
+            ))}
+          </div>
+        ) : markdown ? (
+          // ✅ Fallback: raw markdown renderer
+          <div className="prose prose-lg max-w-none">
+            <ReactMarkdown>{markdown}</ReactMarkdown>
           </div>
         ) : (
-          <p className="text-gray-500 text-center">⚠️ No report content available.</p>
+          <p className="text-gray-500 text-center">
+            ⚠️ No report content available. Try regenerating.
+          </p>
         )}
       </div>
+
+      {/* Footer */}
+      <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
+        Longevity • Vitality • Energy — <span className="font-semibold">LVE360</span> © 2025
+      </footer>
     </div>
   );
 }
