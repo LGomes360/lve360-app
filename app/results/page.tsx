@@ -26,7 +26,11 @@ function ResultsContent() {
 
   const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
+
+  // ✅ Support both query params
   const submissionId = searchParams?.get("submission_id") ?? null;
+  const tallySubmissionId = searchParams?.get("tally_submission_id") ?? null;
+  const effectiveId = submissionId || tallySubmissionId;
 
   // --- Load user tier (skip in test mode) ---
   async function loadUserTier() {
@@ -46,15 +50,15 @@ function ResultsContent() {
 
   // --- Fetch stack from API ---
   async function fetchStack() {
-    if (!submissionId) {
-      setError("Missing submission_id in URL");
+    if (!effectiveId) {
+      setError("Missing submission ID in URL");
       setLoading(false);
       return;
     }
     try {
       setLoading(true);
       const res = await fetch(
-        `/api/get-stack?submission_id=${encodeURIComponent(submissionId)}`
+        `/api/get-stack?submission_id=${encodeURIComponent(effectiveId)}`
       );
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
@@ -78,9 +82,8 @@ function ResultsContent() {
 
   // --- Regenerate stack on demand ---
   async function regenerateStack(mode: "free" | "premium") {
-    if (!submissionId) return;
+    if (!effectiveId) return;
 
-    // 🚨 Premium requires upgrade
     if (mode === "premium" && !isPremiumUser) {
       window.location.href = "/pricing";
       return;
@@ -92,8 +95,8 @@ function ResultsContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          submission_id: submissionId,
-          tally_submission_id: submissionId,
+          submission_id: submissionId, // UUID if available
+          tally_submission_id: tallySubmissionId, // short ID fallback
         }),
       });
       if (!res.ok) throw new Error(`API error ${res.status}`);
@@ -120,9 +123,8 @@ function ResultsContent() {
     if (!reportRef.current) return;
 
     try {
-      const mod = await import("html2pdf.js");
+      const mod = await import("html2pdf.js/dist/html2pdf.bundle.min.js");
       const html2pdf = (mod as any).default || (window as any).html2pdf;
-
       html2pdf()
         .from(reportRef.current)
         .set({
@@ -141,11 +143,11 @@ function ResultsContent() {
   useEffect(() => {
     loadUserTier();
     fetchStack();
-  }, [submissionId]);
+  }, [effectiveId]);
 
   return (
     <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn">
-      {/* Header with gradient */}
+      {/* Header */}
       <div className="text-center mb-10">
         <h1 className="text-4xl font-extrabold font-display text-[#041B2D] bg-gradient-to-r from-[#06C1A0] to-[#041B2D] bg-clip-text text-transparent">
           Your LVE360 Blueprint
@@ -160,15 +162,13 @@ function ResultsContent() {
         <CTAButton
           onClick={() => regenerateStack("free")}
           variant="primary"
-          fullWidth={false}
           disabled={regenerating}
         >
-          {regenerating ? "⏳ Working..." : "🔄 Generate Free Report"}
+          {regenerating ? "⏳ Generating..." : "✨ Generate Free Report"}
         </CTAButton>
         <CTAButton
           onClick={() => regenerateStack("premium")}
           variant="premium"
-          fullWidth={false}
         >
           👑 Upgrade to Premium
         </CTAButton>
@@ -176,7 +176,7 @@ function ResultsContent() {
 
       {loading && (
         <p className="text-gray-500 text-center">
-          🤖 Our AI is working hard on your personalized report…
+          🤖 Our AI is working hard to build your report...
         </p>
       )}
 
@@ -209,13 +209,14 @@ function ResultsContent() {
         )}
       </div>
 
-      {/* Footer with Export */}
-      <div className="mt-10 flex justify-center">
+      {/* Export PDF */}
+      <div className="flex justify-center mt-10">
         <CTAButton onClick={exportPDF} variant="secondary">
           📄 Export as PDF
         </CTAButton>
       </div>
 
+      {/* Footer */}
       <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
         Longevity • Vitality • Energy —{" "}
         <span className="font-semibold">LVE360</span> © 2025
