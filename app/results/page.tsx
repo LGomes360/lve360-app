@@ -17,7 +17,7 @@ function ResultsContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isPremiumUser, setIsPremiumUser] = useState(false);
-  const [regenerating, setRegenerating] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   const [items, setItems] = useState<any[] | null>(null);
   const [markdown, setMarkdown] = useState<string | null>(null);
@@ -45,7 +45,7 @@ function ResultsContent() {
   }
 
   // --- Fetch stack from API ---
-  async function fetchStack() {
+  async function fetchStack(tier: "free" | "premium" = "free") {
     if (!submissionId) {
       setError("Missing submission_id in URL");
       setLoading(false);
@@ -53,21 +53,26 @@ function ResultsContent() {
     }
     try {
       setLoading(true);
-      const res = await fetch(
-        `/api/get-stack?submission_id=${encodeURIComponent(submissionId)}`
-      );
+      const res = await fetch("/api/generate-stack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          submission_id: submissionId,
+          tally_submission_id: submissionId,
+          tier,
+        }),
+      });
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
 
       if (data?.ok && data?.stack) {
-        const stack = data.stack;
-        setItems(stack.items ?? null);
+        setItems(data.stack.items ?? null);
         setMarkdown(
-          stack.sections?.markdown ?? stack.ai?.markdown ?? stack.summary ?? null
+          data.stack.sections?.markdown ?? data.ai?.markdown ?? data.summary ?? null
         );
         setError(null);
       } else {
-        setError(data?.error ?? "No stack found");
+        setError("No report found.");
       }
     } catch (err: any) {
       setError(err.message);
@@ -76,50 +81,14 @@ function ResultsContent() {
     }
   }
 
-  // --- Regenerate stack (free or premium) ---
-  async function regenerateStack(type: "free" | "premium") {
-    if (!submissionId) return;
-
-    if (type === "premium" && !isPremiumUser) {
-      // 🚨 Redirect non-premium users to pricing
-      window.location.href = "/pricing";
-      return;
-    }
-
-    try {
-      setRegenerating(true);
-      const res = await fetch("/api/generate-stack", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          submission_id: submissionId,
-          tally_submission_id: submissionId,
-          premium: type === "premium",
-        }),
-      });
-      if (!res.ok) throw new Error(`API error ${res.status}`);
-      const data = await res.json();
-      if (data?.ok && data?.stack) {
-        setItems(data.stack.items ?? null);
-        setMarkdown(data.stack.sections?.markdown ?? data.ai?.markdown ?? null);
-        setError(null);
-      } else {
-        setError("Regenerate failed.");
-      }
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setRegenerating(false);
-    }
-  }
-
   // --- Export PDF ---
   async function exportPDF() {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") return; // 🚨 SSR guard
     if (!reportRef.current) return;
 
     try {
-      const html2pdf = (await import("html2pdf.js")).default;
+      const mod = await import("html2pdf.js");
+      const html2pdf = (mod as any).default || mod; // ✅ fallback
       html2pdf()
         .from(reportRef.current)
         .set({
@@ -137,12 +106,11 @@ function ResultsContent() {
 
   useEffect(() => {
     loadUserTier();
-    fetchStack();
   }, [submissionId]);
 
   return (
     <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn">
-      {/* Header with gradient */}
+      {/* Header */}
       <div className="text-center mb-10">
         <h1 className="text-4xl font-extrabold font-display text-[#041B2D] bg-gradient-to-r from-[#06C1A0] to-[#041B2D] bg-clip-text text-transparent">
           Your LVE360 Concierge Report
@@ -153,30 +121,32 @@ function ResultsContent() {
       </div>
 
       {/* Action buttons */}
-      <div className="flex flex-wrap gap-4 justify-center mb-8">
+      <div className="flex flex-col sm:flex-row gap-4 justify-center mb-8 w-full max-w-md mx-auto">
         <CTAButton
-          onClick={() => regenerateStack("free")}
+          onClick={() => fetchStack("free")}
           variant="primary"
-          disabled={regenerating}
+          fullWidth
+          disabled={generating}
         >
-          {regenerating ? "🤖 Generating..." : "✨ Generate Free Report"}
+          {generating ? "⏳ Generating..." : "✨ Generate Free Report"}
         </CTAButton>
         <CTAButton
-          onClick={() => regenerateStack("premium")}
+          onClick={() =>
+            isPremiumUser ? fetchStack("premium") : (window.location.href = "/pricing")
+          }
           variant="premium"
+          fullWidth
         >
           👑 Premium Report
         </CTAButton>
       </div>
 
-      {loading && (
-        <p className="text-gray-500 text-center">🤖 Our AI is working hard...</p>
-      )}
+      {loading && <p className="text-gray-500 text-center">🤖 Our AI is working hard to build your report...</p>}
 
       {error && (
         <div className="text-center text-red-600 mb-6">
           <p className="mb-2">⚠️ Something went wrong: {error}</p>
-          <CTAButton onClick={fetchStack} variant="secondary">
+          <CTAButton onClick={() => fetchStack("free")} variant="secondary">
             Retry
           </CTAButton>
         </div>
@@ -202,19 +172,16 @@ function ResultsContent() {
         )}
       </div>
 
-      {/* Export at bottom */}
-      {markdown && (
-        <div className="mt-10 text-center">
-          <CTAButton onClick={exportPDF} variant="secondary">
-            📄 Export as PDF
-          </CTAButton>
-        </div>
-      )}
+      {/* Export button */}
+      <div className="flex justify-center mt-8">
+        <CTAButton onClick={exportPDF} variant="secondary">
+          📄 Export as PDF
+        </CTAButton>
+      </div>
 
       {/* Footer */}
       <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
-        Longevity • Vitality • Energy —{" "}
-        <span className="font-semibold">LVE360</span> © 2025
+        Longevity • Vitality • Energy — <span className="font-semibold">LVE360</span> © 2025
       </footer>
     </div>
   );
