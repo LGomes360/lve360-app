@@ -26,7 +26,7 @@ function ResultsContent() {
 
   const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
-  const submissionId = searchParams?.get("tally_submission_id") ?? null;
+  const submissionId = searchParams?.get("submission_id") ?? null;
 
   // --- Load user tier (skip in test mode) ---
   async function loadUserTier() {
@@ -54,7 +54,7 @@ function ResultsContent() {
     try {
       setLoading(true);
       const res = await fetch(
-        `/api/get-stack?tally_submission_id=${encodeURIComponent(submissionId)}`
+        `/api/get-stack?submission_id=${encodeURIComponent(submissionId)}`
       );
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
@@ -79,20 +79,21 @@ function ResultsContent() {
   // --- Regenerate stack on demand ---
   async function regenerateStack(mode: "free" | "premium") {
     if (!submissionId) return;
+
+    // 🚨 Premium requires upgrade
+    if (mode === "premium" && !isPremiumUser) {
+      window.location.href = "/pricing";
+      return;
+    }
+
     try {
       setRegenerating(true);
-      if (mode === "premium" && !isPremiumUser) {
-        window.location.href = "/pricing"; // redirect to upgrade
-        return;
-      }
-
       const res = await fetch("/api/generate-stack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           submission_id: submissionId,
           tally_submission_id: submissionId,
-          premium: mode === "premium",
         }),
       });
       if (!res.ok) throw new Error(`API error ${res.status}`);
@@ -113,13 +114,13 @@ function ResultsContent() {
     }
   }
 
-  // --- Export PDF ---
+  // --- Export PDF (dynamic import, browser-only) ---
   async function exportPDF() {
-    if (typeof window === "undefined") return; // ✅ SSR guard
+    if (typeof window === "undefined") return; // 🚨 SSR guard
     if (!reportRef.current) return;
 
     try {
-      const mod = await import("html2pdf.js/dist/html2pdf.bundle.min.js");
+      const mod = await import("html2pdf.js");
       const html2pdf = (mod as any).default || (window as any).html2pdf;
 
       html2pdf()
@@ -155,23 +156,29 @@ function ResultsContent() {
       </div>
 
       {/* Action buttons */}
-      <div className="flex flex-wrap gap-3 justify-center mb-8">
+      <div className="flex flex-wrap gap-4 justify-center mb-8">
         <CTAButton
           onClick={() => regenerateStack("free")}
           variant="primary"
+          fullWidth={false}
           disabled={regenerating}
         >
-          {regenerating ? "⏳ Generating..." : "✨ Generate Free Report"}
+          {regenerating ? "⏳ Working..." : "🔄 Generate Free Report"}
         </CTAButton>
         <CTAButton
           onClick={() => regenerateStack("premium")}
           variant="premium"
+          fullWidth={false}
         >
           👑 Upgrade to Premium
         </CTAButton>
       </div>
 
-      {loading && <p className="text-gray-500 text-center">🤖 Our AI is working hard to build your report...</p>}
+      {loading && (
+        <p className="text-gray-500 text-center">
+          🤖 Our AI is working hard on your personalized report…
+        </p>
+      )}
 
       {error && (
         <div className="text-center text-red-600 mb-6">
@@ -196,20 +203,22 @@ function ResultsContent() {
         {markdown ? (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
         ) : (
-          <p className="text-gray-500 text-center">⚠️ No report content available. Try generating.</p>
+          <p className="text-gray-500 text-center">
+            ⚠️ No report content available yet. Try generating your Blueprint.
+          </p>
         )}
       </div>
 
-      {/* PDF export at bottom */}
-      <div className="flex justify-center mt-8">
+      {/* Footer with Export */}
+      <div className="mt-10 flex justify-center">
         <CTAButton onClick={exportPDF} variant="secondary">
           📄 Export as PDF
         </CTAButton>
       </div>
 
-      {/* Footer */}
       <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
-        Longevity • Vitality • Energy — <span className="font-semibold">LVE360</span> © 2025
+        Longevity • Vitality • Energy —{" "}
+        <span className="font-semibold">LVE360</span> © 2025
       </footer>
     </div>
   );
