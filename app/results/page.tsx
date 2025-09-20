@@ -16,7 +16,6 @@ const supabase = createClient(
 function ResultsContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isPremiumUser, setIsPremiumUser] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
 
   const [items, setItems] = useState<any[] | null>(null);
@@ -24,41 +23,20 @@ function ResultsContent() {
 
   const reportRef = useRef<HTMLDivElement>(null);
 
-  const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
-
-  // ✅ Support both query params
   const submissionId = searchParams?.get("submission_id") ?? null;
-  const tallySubmissionId = searchParams?.get("tally_submission_id") ?? null;
-  const effectiveId = submissionId || tallySubmissionId;
-
-  // --- Load user tier (skip in test mode) ---
-  async function loadUserTier() {
-    if (testMode) return;
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (session?.user?.id) {
-      const { data: userRow } = await supabase
-        .from("users")
-        .select("tier")
-        .eq("id", session.user.id)
-        .single();
-      setIsPremiumUser(userRow?.tier === "premium");
-    }
-  }
 
   // --- Fetch stack from API ---
   async function fetchStack() {
-    if (!effectiveId) {
-      setError("Missing submission ID in URL");
+    if (!submissionId) {
+      setError("Missing submission_id in URL");
       setLoading(false);
       return;
     }
     try {
       setLoading(true);
       const res = await fetch(
-        `/api/get-stack?submission_id=${encodeURIComponent(effectiveId)}`
+        `/api/get-stack?submission_id=${encodeURIComponent(submissionId)}`
       );
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
@@ -81,22 +59,16 @@ function ResultsContent() {
   }
 
   // --- Regenerate stack on demand ---
-  async function regenerateStack(mode: "free" | "premium") {
-    if (!effectiveId) return;
-
-    if (mode === "premium" && !isPremiumUser) {
-      window.location.href = "/pricing";
-      return;
-    }
-
+  async function regenerateStack() {
+    if (!submissionId) return;
     try {
       setRegenerating(true);
       const res = await fetch("/api/generate-stack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          submission_id: submissionId, // UUID if available
-          tally_submission_id: tallySubmissionId, // short ID fallback
+          submission_id: submissionId,
+          tally_submission_id: submissionId,
         }),
       });
       if (!res.ok) throw new Error(`API error ${res.status}`);
@@ -117,14 +89,16 @@ function ResultsContent() {
     }
   }
 
-  // --- Export PDF (dynamic import, browser-only) ---
+  // --- Export PDF ---
   async function exportPDF() {
-    if (typeof window === "undefined") return; // 🚨 SSR guard
+    if (typeof window === "undefined") return;
     if (!reportRef.current) return;
 
     try {
-      const mod = await import("html2pdf.js/dist/html2pdf.bundle.min.js");
+      // ✅ Import plain package (no dist path, no typings needed)
+      const mod = await import("html2pdf.js");
       const html2pdf = (mod as any).default || (window as any).html2pdf;
+
       html2pdf()
         .from(reportRef.current)
         .set({
@@ -141,9 +115,8 @@ function ResultsContent() {
   }
 
   useEffect(() => {
-    loadUserTier();
     fetchStack();
-  }, [effectiveId]);
+  }, [submissionId]);
 
   return (
     <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn">
@@ -158,27 +131,20 @@ function ResultsContent() {
       </div>
 
       {/* Action buttons */}
-      <div className="flex flex-wrap gap-4 justify-center mb-8">
+      <div className="flex flex-wrap gap-3 justify-center mb-8">
         <CTAButton
-          onClick={() => regenerateStack("free")}
+          onClick={regenerateStack}
           variant="primary"
           disabled={regenerating}
         >
           {regenerating ? "⏳ Generating..." : "✨ Generate Free Report"}
         </CTAButton>
-        <CTAButton
-          onClick={() => regenerateStack("premium")}
-          variant="premium"
-        >
+        <CTAButton href="/pricing" variant="premium">
           👑 Upgrade to Premium
         </CTAButton>
       </div>
 
-      {loading && (
-        <p className="text-gray-500 text-center">
-          🤖 Our AI is working hard to build your report...
-        </p>
-      )}
+      {loading && <p className="text-gray-500 text-center">🤖 Our AI is working hard to prepare your results...</p>}
 
       {error && (
         <div className="text-center text-red-600 mb-6">
@@ -192,34 +158,32 @@ function ResultsContent() {
       {/* Report body */}
       <div
         ref={reportRef}
-        className="prose prose-lg max-w-none font-sans
-        prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark
-        prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark
-        prose-strong:text-brand-dark
-        prose-a:text-brand hover:prose-a:underline
-        prose-table:border prose-table:border-gray-200 prose-table:rounded-lg prose-table:shadow-sm
-        prose-th:bg-brand-light prose-th:text-brand-dark prose-th:font-semibold prose-td:p-3 prose-th:p-3"
+        className="prose prose-lg max-w-none font-sans font-[Poppins]
+          prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark
+          prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark
+          prose-strong:text-brand-dark prose-a:text-brand hover:prose-a:underline
+          prose-table:border prose-table:border-gray-200 prose-table:rounded-lg prose-table:shadow-sm
+          prose-th:bg-brand-light prose-th:text-brand-dark prose-th:font-semibold prose-td:p-3 prose-th:p-3"
       >
         {markdown ? (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
         ) : (
           <p className="text-gray-500 text-center">
-            ⚠️ No report content available yet. Try generating your Blueprint.
+            ⚠️ No report content available. Try regenerating.
           </p>
         )}
       </div>
 
-      {/* Export PDF */}
+      {/* Export button moved to bottom */}
       <div className="flex justify-center mt-10">
         <CTAButton onClick={exportPDF} variant="secondary">
-          📄 Export as PDF
+          📄 Export to PDF
         </CTAButton>
       </div>
 
       {/* Footer */}
       <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
-        Longevity • Vitality • Energy —{" "}
-        <span className="font-semibold">LVE360</span> © 2025
+        Longevity • Vitality • Energy — <span className="font-semibold">LVE360</span> © 2025
       </footer>
     </div>
   );
