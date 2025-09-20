@@ -1,8 +1,8 @@
 // -----------------------------------------------------------------------------
 // File: app/results/page.tsx
 // LVE360 // Results Page
-// Fetches saved stack from /api/get-stack and displays structured items
-// with premium gating. Adds regenerate + export-to-PDF + UX polish.
+// Fetches saved stack (with child items) from /api/get-stack and displays
+// supplement cards + markdown sections with premium gating.
 // -----------------------------------------------------------------------------
 
 "use client";
@@ -19,17 +19,33 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+interface StackItem {
+  id: string;
+  name: string;
+  brand?: string;
+  dose?: string;
+  timing?: string;
+  notes?: string;
+  rationale?: string;
+  citations?: any;
+  link_amazon?: string;
+  link_thorne?: string;
+  link_fullscript?: string;
+  link_other?: string;
+  link_type?: string;
+  is_custom?: boolean;
+}
+
 function ResultsContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isPremiumUser, setIsPremiumUser] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
 
-  const [items, setItems] = useState<any[] | null>(null);
+  const [items, setItems] = useState<StackItem[]>([]);
   const [markdown, setMarkdown] = useState<string | null>(null);
 
   const reportRef = useRef<HTMLDivElement>(null);
-
   const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
   const submissionId = searchParams?.get("submission_id") ?? null;
@@ -67,7 +83,7 @@ function ResultsContent() {
 
       if (data?.ok && data?.stack) {
         const stack = data.stack;
-        setItems(stack.items ?? null);
+        setItems(stack.items ?? []);
         setMarkdown(
           stack.sections?.markdown ??
             stack.ai?.markdown ??
@@ -85,7 +101,7 @@ function ResultsContent() {
     }
   }
 
-  // --- Regenerate stack on demand ---
+  // --- Regenerate stack ---
   async function regenerateStack() {
     if (!submissionId) return;
     try {
@@ -98,10 +114,8 @@ function ResultsContent() {
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
       if (data?.ok && data?.stack) {
-        setItems(data.stack.items ?? null);
-        setMarkdown(
-          data.stack.sections?.markdown ?? data.ai?.markdown ?? null
-        );
+        setItems(data.stack.items ?? []);
+        setMarkdown(data.stack.sections?.markdown ?? data.ai?.markdown ?? null);
         setError(null);
       } else {
         setError("Regenerate failed.");
@@ -113,16 +127,14 @@ function ResultsContent() {
     }
   }
 
-  // --- Export PDF (dynamic import, browser-only) ---
+  // --- Export PDF ---
   async function exportPDF() {
-    if (typeof window === "undefined") return; // 🚨 SSR guard
+    if (typeof window === "undefined") return;
     if (!reportRef.current) return;
-
     try {
       const html2pdfModule = await import("html2pdf.js");
-      const html2pdf = html2pdfModule.default;
-
-      html2pdf()
+      html2pdfModule
+        .default()
         .from(reportRef.current)
         .set({
           margin: 0.5,
@@ -165,23 +177,17 @@ function ResultsContent() {
         </h1>
         <p className="text-gray-600 mb-6">
           It looks like you landed here without completing the intake quiz.
-          Please start with the quiz to generate your personalized report.
         </p>
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <CTAButton href="https://tally.so/r/mOqRBk" variant="primary">
-            Take the Quiz
-          </CTAButton>
-          <CTAButton href="/" variant="secondary">
-            Back to Home
-          </CTAButton>
-        </div>
+        <CTAButton href="https://tally.so/r/mOqRBk" variant="primary">
+          Take the Quiz
+        </CTAButton>
       </div>
     );
   }
 
   return (
     <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn">
-      {/* Header with gradient */}
+      {/* Header */}
       <div className="text-center mb-10">
         <h1 className="text-4xl font-extrabold text-[#041B2D] bg-gradient-to-r from-[#06C1A0] to-[#041B2D] bg-clip-text text-transparent">
           Your LVE360 Concierge Report
@@ -214,84 +220,75 @@ function ResultsContent() {
       </div>
 
       {loading && <p className="text-gray-500 text-center">Loading your report...</p>}
+      {error && <p className="text-center text-red-600 mb-6">⚠️ {error}</p>}
 
-      {error && (
-        <div className="text-center text-red-600 mb-6">
-          <p className="mb-2">⚠️ Something went wrong: {error}</p>
-          <CTAButton onClick={fetchStack} variant="secondary">
-            Retry
-          </CTAButton>
-        </div>
-      )}
-
-      {/* Report body */}
       <div ref={reportRef} className="space-y-6">
+        {/* Show supplement items if available */}
         {items && items.length > 0 ? (
-          <div className="grid gap-6">
-            {items.map((item, idx) => (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {items.map((item) => (
               <div
-                key={idx}
-                className="animate-fadeIn border rounded-lg shadow-sm p-4 transition-transform hover:scale-[1.01]"
+                key={item.id}
+                className="border rounded-lg shadow-sm p-4 bg-white hover:shadow-md transition"
               >
-                <ReportSection
-                  header={item.section ?? `Section ${idx + 1}`}
-                  body={item.text}
-                  premiumOnly={false}
-                  isPremiumUser={isPremiumUser}
-                />
+                <h3 className="font-semibold text-lg text-[#041B2D]">
+                  {item.name} {item.dose ? `– ${item.dose}` : ""}
+                </h3>
+                {item.brand && (
+                  <p className="text-sm text-gray-500">Brand: {item.brand}</p>
+                )}
+                {item.timing && (
+                  <p className="text-sm text-gray-500">Timing: {item.timing}</p>
+                )}
+                {item.notes && <p className="mt-2 text-gray-700">{item.notes}</p>}
+                {/* Example: show link if present */}
+                {item.link_amazon && (
+                  <a
+                    href={item.link_amazon}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#06C1A0] text-sm underline mt-2 inline-block"
+                  >
+                    Buy on Amazon
+                  </a>
+                )}
               </div>
             ))}
           </div>
         ) : markdown ? (
+          // Fallback to markdown sections
           <div className="prose prose-lg space-y-6">
             {sectionsConfig.map(({ header, premiumOnly }) => {
               if (!sections[header]) return null;
-
               if (premiumOnly && !isPremiumUser) {
                 return (
                   <div
                     key={header}
-                    className="animate-fadeIn border border-gray-200 rounded-xl p-6 bg-gray-50 text-center shadow-sm"
+                    className="border border-gray-200 rounded-xl p-6 bg-gray-50 text-center shadow-sm"
                   >
-                    <h2 className="text-xl font-semibold mb-2 text-[#041B2D]">
-                      {header}
-                    </h2>
-                    <p className="text-gray-600 mb-4">
-                      This section is available with Premium.
-                    </p>
+                    <h2 className="text-xl font-semibold mb-2 text-[#041B2D]">{header}</h2>
+                    <p className="text-gray-600 mb-4">This section is Premium only.</p>
                     <CTAButton href="/pricing" variant="primary">
-                      Upgrade to Premium
+                      Upgrade
                     </CTAButton>
                   </div>
                 );
               }
-
               return (
-                <div
+                <ReportSection
                   key={header}
-                  className="animate-fadeIn transition-transform hover:scale-[1.01]"
-                >
-                  <ReportSection
-                    header={header}
-                    body={sections[header]}
-                    premiumOnly={premiumOnly}
-                    isPremiumUser={isPremiumUser}
-                  />
-                </div>
+                  header={header}
+                  body={sections[header]}
+                  premiumOnly={premiumOnly}
+                  isPremiumUser={isPremiumUser}
+                />
               );
             })}
           </div>
         ) : (
-          <p className="text-gray-500 text-center">
-            ⚠️ No report content available. Try regenerating.
-          </p>
+          <p className="text-gray-500 text-center">⚠️ No report content available.</p>
         )}
       </div>
-
-      {/* Footer */}
-      <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
-        Longevity • Vitality • Energy — <span className="font-semibold">LVE360</span> © 2025
-      </footer>
     </div>
   );
 }
