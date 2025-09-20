@@ -1,7 +1,7 @@
 // app/api/get-stack/route.ts
 // -----------------------------------------------------------------------------
 // Reader endpoint: given a submission_id (UUID or short Tally ID),
-// fetches the already-generated stack from Supabase.
+// fetches the already-generated stack + child items from Supabase.
 // -----------------------------------------------------------------------------
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -17,7 +17,7 @@ function isUUID(id: string) {
 /**
  * GET /api/get-stack?submission_id=<uuid or short_id>
  * Response:
- *   { ok: true, found: true, stack: {...} }
+ *   { ok: true, found: true, stack: {..., items: [...] } }
  *   { ok: true, found: false, stack: null }
  *   { ok: false, error: "..." }
  */
@@ -31,11 +31,39 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Build query
+    // Build query: stacks + related stacks_items
     let query = supabaseAdmin
       .from("stacks")
-      // be explicit: only return the fields the frontend actually needs
-      .select("id, submission_id, tally_submission_id, user_email, summary, items, sections, created_at, updated_at")
+      .select(`
+        id,
+        submission_id,
+        tally_submission_id,
+        user_email,
+        summary,
+        sections,
+        created_at,
+        updated_at,
+        items: stacks_items (
+          id,
+          name,
+          brand,
+          dose,
+          timing,
+          notes,
+          rationale,
+          caution,
+          citations,
+          cost_estimate,
+          link_amazon,
+          link_thorne,
+          link_fullscript,
+          link_other,
+          link_type,
+          is_custom,
+          created_at,
+          updated_at
+        )
+      `)
       .limit(1);
 
     query = isUUID(submissionId)
@@ -65,4 +93,3 @@ export async function GET(req: NextRequest) {
     );
   }
 }
-
