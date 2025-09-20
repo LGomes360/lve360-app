@@ -14,7 +14,7 @@ const supabase = createClient(
 );
 
 function ResultsContent() {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPremiumUser, setIsPremiumUser] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
@@ -23,19 +23,14 @@ function ResultsContent() {
   const [markdown, setMarkdown] = useState<string | null>(null);
 
   const reportRef = useRef<HTMLDivElement>(null);
-
-  const [testMode] = useState(process.env.NODE_ENV !== "production");
   const searchParams = useSearchParams();
+  const submissionId = searchParams?.get("submission_id") ?? searchParams?.get("tally_submission_id") ?? null;
 
-  // Support both submission_id and tally_submission_id
-  const submissionId = searchParams?.get("submission_id");
-  const tallyId = searchParams?.get("tally_submission_id");
-  const effectiveId = submissionId ?? tallyId;
-
-  // --- Load user tier (skip in test mode) ---
+  // --- Load user tier ---
   async function loadUserTier() {
-    if (testMode) return;
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     if (session?.user?.id) {
       const { data: userRow } = await supabase
         .from("users")
@@ -46,17 +41,16 @@ function ResultsContent() {
     }
   }
 
-  // --- Fetch stack from API ---
+  // --- Fetch stack (read only) ---
   async function fetchStack() {
-    if (!effectiveId) {
-      setError("Missing submission_id or tally_submission_id in URL");
-      setLoading(false);
+    if (!submissionId) {
+      setError("Missing submission_id in URL");
       return;
     }
     try {
       setLoading(true);
       const res = await fetch(
-        `/api/get-stack?submission_id=${encodeURIComponent(effectiveId)}`
+        `/api/get-stack?submission_id=${encodeURIComponent(submissionId)}`
       );
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
@@ -65,14 +59,11 @@ function ResultsContent() {
         const stack = data.stack;
         setItems(stack.items ?? null);
         setMarkdown(
-          stack.sections?.markdown ??
-          stack.ai?.markdown ??
-          stack.summary ??
-          null
+          stack.sections?.markdown ?? stack.ai?.markdown ?? stack.summary ?? null
         );
         setError(null);
       } else {
-        setError(data?.error ?? "No stack found");
+        setError(data?.error ?? "No stack found yet. Generate a report below.");
       }
     } catch (err: any) {
       setError(err.message);
@@ -81,17 +72,27 @@ function ResultsContent() {
     }
   }
 
-  // --- Regenerate stack ---
-  async function regenerateStack() {
-    if (!effectiveId) return;
+  // --- Generate (free or premium) ---
+  async function regenerateStack(mode: "free" | "premium") {
+    if (!submissionId) {
+      setError("Missing submission_id in URL");
+      return;
+    }
+    if (mode === "premium" && !isPremiumUser) {
+      window.location.href = "/pricing";
+      return;
+    }
+
     try {
       setRegenerating(true);
+      setError(null);
       const res = await fetch("/api/generate-stack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           submission_id: submissionId,
-          tally_submission_id: tallyId,
+          tally_submission_id: submissionId,
+          mode,
         }),
       });
       if (!res.ok) throw new Error(`API error ${res.status}`);
@@ -103,7 +104,7 @@ function ResultsContent() {
         );
         setError(null);
       } else {
-        setError("Regenerate failed.");
+        setError("Report generation failed.");
       }
     } catch (err: any) {
       setError(err.message);
@@ -112,10 +113,11 @@ function ResultsContent() {
     }
   }
 
-  // --- Export PDF (browser-only) ---
+  // --- Export PDF ---
   async function exportPDF() {
     if (typeof window === "undefined") return;
     if (!reportRef.current) return;
+
     try {
       const mod = await import("html2pdf.js");
       const html2pdf = (mod as any).default || mod;
@@ -137,11 +139,11 @@ function ResultsContent() {
   useEffect(() => {
     loadUserTier();
     fetchStack();
-  }, [effectiveId]);
+  }, [submissionId]);
 
   return (
     <div className="max-w-4xl mx-auto py-10 px-6 animate-fadeIn">
-      {/* header */}
+      {/* Header */}
       <div className="text-center mb-10">
         <h1 className="text-4xl font-extrabold font-display text-[#041B2D] bg-gradient-to-r from-[#06C1A0] to-[#041B2D] bg-clip-text text-transparent">
           Your LVE360 Concierge Report
@@ -151,53 +153,67 @@ function ResultsContent() {
         </p>
       </div>
 
-      {/* buttons */}
+      {/* Generate buttons */}
       <div className="flex flex-wrap gap-3 justify-center mb-8">
         <CTAButton
-          onClick={regenerateStack}
+          onClick={() => regenerateStack("free")}
           variant="primary"
           disabled={regenerating}
         >
-          {regenerating ? "🤖 Our AI is working hard..." : "🔄 Refresh Report"}
+          {regenerating ? "🤖 Generating..." : "✨ Generate Free Report"}
         </CTAButton>
-        <CTAButton onClick={exportPDF} variant="secondary">
-          📄 Export PDF
+        <CTAButton
+          onClick={() => regenerateStack("premium")}
+          variant="secondary"
+        >
+          🌟 Generate Premium Report
         </CTAButton>
       </div>
 
-      {loading && (
-        <p className="text-gray-500 text-center">
-          🤖 The robots are crunching your data... please wait.
-        </p>
-      )}
+      {loading && <p className="text-gray-500 text-center">Loading your report...</p>}
 
       {error && (
         <div className="text-center text-red-600 mb-6">
-          <p className="mb-2">⚠️ Something went wrong: {error}</p>
+          <p className="mb-2">⚠️ {error}</p>
           <CTAButton onClick={fetchStack} variant="secondary">
             Retry
           </CTAButton>
         </div>
       )}
 
-      {/* report */}
+      {/* Report */}
       <div
         ref={reportRef}
-        className="prose prose-lg max-w-none font-sans prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark prose-strong:text-brand-dark prose-a:text-brand hover:prose-a:underline"
+        className="prose prose-lg max-w-none font-sans
+        prose-h2:font-display prose-h2:text-2xl prose-h2:text-brand-dark
+        prose-h3:font-display prose-h3:text-xl prose-h3:text-brand-dark
+        prose-strong:text-brand-dark
+        prose-a:text-brand hover:prose-a:underline
+        prose-table:border prose-table:border-gray-200 prose-table:rounded-lg prose-table:shadow-sm
+        prose-th:bg-brand-light prose-th:text-brand-dark prose-th:font-semibold prose-td:p-3 prose-th:p-3"
       >
         {markdown ? (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
         ) : (
-          !loading && (
-            <p className="text-gray-500 text-center">
-              ⚠️ No report content available. Try regenerating.
-            </p>
-          )
+          <p className="text-gray-500 text-center">
+            No report yet. Click a button above to generate.
+          </p>
         )}
       </div>
 
+      {/* Export button moved to bottom */}
+      {markdown && (
+        <div className="mt-10 text-center">
+          <CTAButton onClick={exportPDF} variant="secondary">
+            📄 Export as PDF
+          </CTAButton>
+        </div>
+      )}
+
+      {/* Footer */}
       <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
-        Longevity • Vitality • Energy — <span className="font-semibold">LVE360</span> © 2025
+        Longevity • Vitality • Energy —{" "}
+        <span className="font-semibold">LVE360</span> © 2025
       </footer>
     </div>
   );
