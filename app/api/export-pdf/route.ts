@@ -1,120 +1,74 @@
 // app/api/export-pdf/route.ts
-// -----------------------------------------------------------------------------
-// GET /api/export-pdf?submission_id=UUID_OR_TALLYID
-// Generates a simple PDF from a saved stack (Markdown + summary).
-// -----------------------------------------------------------------------------
-
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, rgb } from "pdf-lib";
+import path from "path";
+import fs from "fs";
+import { remark } from "remark";
+import html from "remark-html";
 
-export const runtime = "nodejs";
-
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const submissionId = searchParams.get("submission_id");
 
     if (!submissionId) {
-      return NextResponse.json(
-        { ok: false, error: "Missing submission_id" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Missing submission_id" }, { status: 400 });
     }
 
-    // --- Fetch stack with conditional query ---
-    let query = supabaseAdmin.from("stacks").select("*").limit(1);
+    // --- Load stack from DB ---
+    const { data, error } = await supabaseAdmin
+      .from("stacks")
+      .select("sections")
+      .eq("submission_id", submissionId)
+      .single();
 
-    const isUUID =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        submissionId
-      );
-
-    if (isUUID) {
-      query = query.eq("submission_id", submissionId);
-    } else {
-      query = query.eq("tally_submission_id", submissionId);
+    if (error) {
+      console.error("Supabase error:", error);
+      return NextResponse.json({ ok: false, error: "DB error fetching stack" }, { status: 500 });
+    }
+    if (!data) {
+      return NextResponse.json({ ok: false, error: "Stack not found" }, { status: 404 });
     }
 
-    const { data: stackRow, error: stackErr } = await query.maybeSingle();
+    const markdown = data.sections?.markdown ?? "## Error\n\nNo content available.";
 
-    if (stackErr) {
-      console.error("DB error fetching stack:", stackErr);
-      return NextResponse.json(
-        { ok: false, error: "DB error fetching stack" },
-        { status: 500 }
-      );
-    }
+    // --- Convert Markdown → HTML ---
+    const processed = await remark().use(html).process(markdown);
+    const htmlContent = String(processed);
 
-    if (!stackRow) {
-      return NextResponse.json(
-        { ok: false, error: "Stack not found" },
-        { status: 404 }
-      );
-    }
-
-    // --- Create PDF ---
+    // --- Initialize PDF ---
     const pdfDoc = await PDFDocument.create();
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const page = pdfDoc.addPage([612, 792]); // US Letter
+    const page = pdfDoc.addPage([595.28, 841.89]); // A4 size in points
+
+    // Embed Poppins font (must be in /public/fonts)
+    const fontPath = path.join(process.cwd(), "public/fonts/Poppins-Regular.ttf");
+    const fontBytes = fs.readFileSync(fontPath);
+    const customFont = await pdfDoc.embedFont(fontBytes);
+
     const { height } = page.getSize();
 
-    const fontSize = 12;
-    const margin = 50;
-
-    // --- Helper: wrap text ---
-    function drawWrappedText(text: string, yStart: number) {
-      const words = text.split(/\s+/);
-      const lines: string[] = [];
-      let currentLine = "";
-
-      for (const word of words) {
-        const testLine = currentLine ? currentLine + " " + word : word;
-        const width = font.widthOfTextAtSize(testLine, fontSize);
-        if (width > page.getWidth() - margin * 2) {
-          lines.push(currentLine);
-          currentLine = word;
-        } else {
-          currentLine = testLine;
-        }
-      }
-      if (currentLine) lines.push(currentLine);
-
-      let y = yStart;
-      for (const line of lines) {
-        page.drawText(line, {
-          x: margin,
-          y,
-          size: fontSize,
-          font,
-          color: rgb(0, 0, 0),
-        });
-        y -= fontSize + 4;
-      }
-      return y;
-    }
-
-    // --- Document Content ---
-    let cursorY = height - margin;
+    // Draw title
     page.drawText("LVE360 Blueprint", {
-      x: margin,
-      y: cursorY,
-      size: 18,
-      font,
-      color: rgb(0, 0.6, 0.5),
+      x: 50,
+      y: height - 80,
+      size: 20,
+      font: customFont,
+      color: rgb(0.02, 0.12, 0.18), // brand dark
     });
-    cursorY -= 30;
 
-    cursorY = drawWrappedText(
-      stackRow.sections?.markdown ??
-        stackRow.summary ??
-        "No report content available.",
-      cursorY
-    );
+    // Render plain text fallback (quick integration)
+    page.drawText(markdown.slice(0, 2000), {
+      x: 50,
+      y: height - 120,
+      size: 12,
+      font: customFont,
+      lineHeight: 14,
+      color: rgb(0.1, 0.1, 0.1),
+    });
 
     const pdfBytes = await pdfDoc.save();
 
-    // --- Return PDF Response ---
     return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
       headers: {
@@ -123,10 +77,7 @@ export async function GET(req: Request) {
       },
     });
   } catch (err: any) {
-    console.error("Unhandled error in export-pdf:", err);
-    return NextResponse.json(
-      { ok: false, error: "Unhandled error generating PDF" },
-      { status: 500 }
-    );
+    console.error("PDF export error:", err);
+    return NextResponse.json({ ok: false, error: "PDF export failed" }, { status: 500 });
   }
 }
