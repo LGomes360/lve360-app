@@ -8,7 +8,6 @@ import CTAButton from "@/components/CTAButton";
 
 /* ----------------------------- helpers ----------------------------- */
 
-// Strip outer code fences like ```markdown ... ``` and trim
 function sanitizeMarkdown(md: string): string {
   if (!md) return md;
   let out = md.replace(/^```[a-z]*\n/i, "").replace(/```$/, "");
@@ -19,10 +18,8 @@ function escapeRegExp(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Extract a section from markdown by heading variants
 function extractSection(md: string, headingVariants: string[]): string | null {
   if (!md) return null;
-
   let startIdx = -1;
   let matchedHeading = "";
   for (const h of headingVariants) {
@@ -34,18 +31,15 @@ function extractSection(md: string, headingVariants: string[]): string | null {
     }
   }
   if (startIdx === -1) return null;
-
   const tail = md.slice(startIdx + 1);
   const next = /\n##\s+/m.exec(tail);
   const endIdx = next ? startIdx + 1 + next.index : md.length;
-
   const slice = md.slice(startIdx, endIdx);
   return slice.includes(`## ${matchedHeading}`)
     ? slice
     : `## ${matchedHeading}\n${slice}`;
 }
 
-// Render markdown safely
 function Prose({ children }: { children: string }) {
   return (
     <div className="prose prose-gray max-w-none">
@@ -76,7 +70,6 @@ function ResultsContent() {
   const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
 
-  // ---- Pre-check
   async function fetchStack() {
     if (!tallyId) return;
     try {
@@ -85,10 +78,7 @@ function ResultsContent() {
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
       if (data?.ok && data?.stack) {
-        const raw =
-          data.stack.sections?.markdown ??
-          data.stack.summary ??
-          "";
+        const raw = data.stack.sections?.markdown ?? data.stack.summary ?? "";
         setMarkdown(sanitizeMarkdown(raw));
       }
     } catch (err: any) {
@@ -98,7 +88,6 @@ function ResultsContent() {
     }
   }
 
-  // ---- Generate
   async function generateStack() {
     if (!tallyId) {
       setError("Missing submission ID. Please try again from the intake form.");
@@ -131,7 +120,6 @@ function ResultsContent() {
     }
   }
 
-  // ---- Export PDF
   async function exportPDF() {
     if (!tallyId) {
       setError("Missing submission ID. Please refresh and try again.");
@@ -209,47 +197,8 @@ function ResultsContent() {
           <CTAButton onClick={generateStack} variant="gradient" disabled={generating}>
             {generating ? "🤖 Generating..." : "✨ Generate Free Report"}
           </CTAButton>
-
           <CTAButton href="/pricing" variant="premium">
             👑 Upgrade to Premium
-          </CTAButton>
-
-          {/* Enhanced Export PDF button with custom SVG */}
-          <CTAButton onClick={exportPDF} variant="subtle" size="sm" iconOnly aria-label="Export PDF">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-6 h-6">
-              {/* Document outline */}
-              <rect
-                x="2"
-                y="2"
-                width="20"
-                height="20"
-                rx="2"
-                ry="2"
-                fill="white"
-                stroke="#041B2D"
-                strokeWidth="1.5"
-              />
-              {/* PDF badge */}
-              <rect x="6" y="14" width="12" height="6" rx="2" fill="#E63946" />
-              <text
-                x="12"
-                y="18"
-                textAnchor="middle"
-                fontSize="7"
-                fontWeight="bold"
-                fill="white"
-              >
-                PDF
-              </text>
-              {/* Teal arrow */}
-              <path
-                d="M12 6v5m0 0l-2-2m2 2l2-2"
-                stroke="#06C1A0"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
           </CTAButton>
         </div>
       </SectionCard>
@@ -356,6 +305,51 @@ function ResultsContent() {
               </tbody>
             </table>
           </SectionCard>
+
+          {/* Export PDF at bottom */}
+          <div className="flex justify-center mt-10">
+            <CTAButton onClick={exportPDF} variant="subtle" size="md" iconOnly aria-label="Export PDF">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                className="w-7 h-7 transition-transform transform hover:scale-110"
+              >
+                {/* Document outline */}
+                <rect
+                  x="2"
+                  y="2"
+                  width="20"
+                  height="20"
+                  rx="2"
+                  ry="2"
+                  fill="white"
+                  stroke="#041B2D"
+                  strokeWidth="1.5"
+                />
+                {/* PDF badge */}
+                <rect x="6" y="14" width="12" height="6" rx="2" fill="#E63946" className="transition-colors hover:fill-red-600" />
+                <text
+                  x="12"
+                  y="18"
+                  textAnchor="middle"
+                  fontSize="7"
+                  fontWeight="bold"
+                  fill="white"
+                >
+                  PDF
+                </text>
+                {/* Teal arrow */}
+                <path
+                  d="M12 6v5m0 0l-2-2m2 2l2-2"
+                  stroke="#06C1A0"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="transition-colors hover:stroke-emerald-500"
+                />
+              </svg>
+            </CTAButton>
+          </div>
         </div>
       )}
 
