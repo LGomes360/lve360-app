@@ -1,4 +1,3 @@
-// src/components/CTAButton.tsx
 "use client";
 
 import React from "react";
@@ -19,6 +18,7 @@ interface CTAButtonProps {
   size?: "sm" | "md" | "lg";
   fullWidth?: boolean;
   disabled?: boolean;
+  iconOnly?: boolean; // 🔑 added
 }
 
 export default function CTAButton({
@@ -29,18 +29,19 @@ export default function CTAButton({
   size = "md",
   fullWidth = false,
   disabled = false,
+  iconOnly = false, // 🔑 default false
 }: CTAButtonProps) {
-  // Base + size
   const base =
-    "rounded-lg font-medium text-center transition-colors duration-200";
+    "rounded-lg font-medium text-center transition-colors duration-200 flex items-center justify-center";
+
   const sizes: Record<NonNullable<CTAButtonProps["size"]>, string> = {
     sm: "px-3 py-1.5 text-sm min-w-[100px]",
     md: "px-6 py-3 text-base min-w-[200px]",
     lg: "px-8 py-4 text-lg min-w-[240px]",
   };
+
   const width = fullWidth ? "w-full" : "";
 
-  // Variants
   const variants: Record<NonNullable<CTAButtonProps["variant"]>, string> = {
     primary: "bg-[#06C1A0] text-white hover:bg-[#049b80] shadow-md",
     secondary:
@@ -54,10 +55,17 @@ export default function CTAButton({
     gradient:
       "bg-gradient-to-r from-[#06C1A0] to-emerald-500 text-white shadow-md hover:opacity-90",
     subtle:
-      "px-4 py-2 text-sm rounded-full border border-gray-300 text-gray-700 bg-gradient-to-r from-gray-50 to-white hover:from-white hover:to-gray-50 shadow-sm",
+      "border border-gray-300 text-gray-700 bg-gradient-to-r from-gray-50 to-white hover:from-white hover:to-gray-50 shadow-sm",
   };
 
-  const className = clsx(base, sizes[size], width, variants[variant]);
+  const className = clsx(
+    base,
+    sizes[size],
+    width,
+    variants[variant],
+    iconOnly &&
+      "rounded-full p-2 min-w-0 w-10 h-10 text-sm" // 🔑 circle mode for icon-only buttons
+  );
 
   if (href) {
     return (
