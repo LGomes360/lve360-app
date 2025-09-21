@@ -8,39 +8,51 @@ import CTAButton from "@/components/CTAButton";
 
 /* ----------------------------- helpers ----------------------------- */
 
+/** Remove code fences added by models/tools */
 function sanitizeMarkdown(md: string): string {
   if (!md) return md;
   let out = md.replace(/^```[a-z]*\n/i, "").replace(/```$/, "");
   return out.trim();
 }
 
-function escapeRegExp(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Normalize whitespace so header detection is reliable across PDFs/LLM quirks */
+function normalize(md: string): string {
+  return (md || "")
+    .replace(/\r\n?/g, "\n")                 // CRLF/CR -> LF
+    .replace(/[\u00A0\u2000-\u200B]/g, " ")  // NBSP & thin spaces -> space
+    .replace(/[ \t]+\n/g, "\n");             // strip trailing spaces before newline
 }
 
+/** Robust section extractor:
+ *  1) Build an index of all level-2 headings
+ *  2) Find the requested heading by normalized text
+ *  3) Slice from its start to the next heading start
+ */
 function extractSection(md: string, headingVariants: string[]): string | null {
   if (!md) return null;
-  let startIdx = -1;
+  const text = normalize(md);
 
-  for (const h of headingVariants) {
-    const re = new RegExp(`^##\\s*${escapeRegExp(h)}\\b.*`, "mi");
-    const m = re.exec(md);
-    if (m && (startIdx === -1 || (m.index ?? -1) < startIdx)) {
-      startIdx = m.index;
-    }
+  // Index all H2 headings
+  const headingRe = /^##\s+([^\n]+?)\s*$/gmi;
+  const hits: Array<{ name: string; index: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = headingRe.exec(text)) !== null) {
+    hits.push({ name: m[1].trim(), index: m.index });
   }
+  if (hits.length === 0) return null;
 
-  if (startIdx === -1) return null;
+  const wanted = headingVariants.map((v) => v.toLowerCase().replace(/\s+/g, " "));
+  const foundIdx = hits.findIndex((h) =>
+    wanted.includes(h.name.toLowerCase().replace(/\s+/g, " "))
+  );
+  if (foundIdx === -1) return null;
 
-  const tail = md.slice(startIdx + 1);
-  const next = /\n##\s+/m.exec(tail);
-  const endIdx = next ? startIdx + 1 + next.index : md.length;
-  let slice = md.slice(startIdx, endIdx);
+  const start = hits[foundIdx].index;
+  const end = foundIdx < hits.length - 1 ? hits[foundIdx + 1].index : text.length;
 
-  // Strip the leading "## Heading"
-  slice = slice.replace(/^##\s*[^\n]+\n?/, "");
-
-  return slice.trim();
+  // Remove the heading line itself
+  const body = text.slice(start, end).replace(/^##\s+[^\n]+\n?/, "");
+  return body.trim();
 }
 
 function Prose({ children }: { children: string }) {
@@ -50,6 +62,8 @@ function Prose({ children }: { children: string }) {
     </div>
   );
 }
+
+/* --------------------------- UI primitives ------------------------- */
 
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -80,7 +94,7 @@ function ResultsContent() {
       const data = await res.json();
       if (data?.ok && data?.stack) {
         const raw = data.stack.sections?.markdown ?? data.stack.summary ?? "";
-        setMarkdown(sanitizeMarkdown(raw));
+        setMarkdown(normalize(sanitizeMarkdown(raw)));
       }
     } catch (err: any) {
       console.warn("No existing stack found:", err?.message ?? err);
@@ -110,7 +124,7 @@ function ResultsContent() {
           data.ai?.markdown ??
           data.stack.summary ??
           "";
-        setMarkdown(sanitizeMarkdown(raw));
+        setMarkdown(normalize(sanitizeMarkdown(raw)));
       } else {
         setError(data?.error ?? "No stack returned");
       }
@@ -157,6 +171,7 @@ function ResultsContent() {
         "Contraindications",
       ]),
       current: extractSection(md, ["Current Stack", "Current Supplements"]),
+      // Strict to the enforced LLM header
       blueprintRecs: extractSection(md, ["Your Blueprint Recommendations"]),
       recommended: extractSection(md, ["Recommended Stack"]),
       dosing: extractSection(md, ["Dosing & Notes", "Notes"]),
@@ -205,25 +220,87 @@ function ResultsContent() {
       {/* Report sections */}
       {markdown && (
         <div>
-          {sections.summary && <SectionCard title="Summary"><Prose>{sections.summary}</Prose></SectionCard>}
-          {sections.goals && <SectionCard title="Goals"><Prose>{sections.goals}</Prose></SectionCard>}
-          {sections.contra && <SectionCard title="Contraindications & Med Interactions"><Prose>{sections.contra}</Prose></SectionCard>}
-          {sections.current && <SectionCard title="Current Stack"><Prose>{sections.current}</Prose></SectionCard>}
+          {sections.summary && (
+            <SectionCard title="Summary">
+              <Prose>{sections.summary}</Prose>
+            </SectionCard>
+          )}
+
+          {sections.goals && (
+            <SectionCard title="Goals">
+              <Prose>{sections.goals}</Prose>
+            </SectionCard>
+          )}
+
+          {sections.contra && (
+            <SectionCard title="Contraindications & Med Interactions">
+              <Prose>{sections.contra}</Prose>
+            </SectionCard>
+          )}
+
+          {sections.current && (
+            <SectionCard title="Current Stack">
+              <Prose>{sections.current}</Prose>
+            </SectionCard>
+          )}
+
           <SectionCard title="Your Blueprint Recommendations">
             {sections.blueprintRecs ? (
               <Prose>{sections.blueprintRecs}</Prose>
             ) : (
-              <p className="text-gray-500">No Blueprint Recommendations were generated.</p>
+              <p className="text-gray-500">
+                No Blueprint Recommendations were generated.
+              </p>
             )}
           </SectionCard>
-          {sections.recommended && <SectionCard title="Recommended Stack"><Prose>{sections.recommended}</Prose></SectionCard>}
-          {sections.dosing && <SectionCard title="Dosing & Notes"><Prose>{sections.dosing}</Prose></SectionCard>}
-          {sections.evidence && <SectionCard title="Evidence & References"><Prose>{sections.evidence}</Prose></SectionCard>}
-          {sections.shopping && <SectionCard title="Shopping Links"><Prose>{sections.shopping}</Prose></SectionCard>}
-          {sections.follow && <SectionCard title="Follow-up Plan"><Prose>{sections.follow}</Prose></SectionCard>}
-          {sections.lifestyle && <SectionCard title="Lifestyle Prescriptions"><Prose>{sections.lifestyle}</Prose></SectionCard>}
-          {sections.longevity && <SectionCard title="Longevity Levers"><Prose>{sections.longevity}</Prose></SectionCard>}
-          {sections.try && <SectionCard title="This Week Try"><Prose>{sections.try}</Prose></SectionCard>}
+
+          {sections.recommended && (
+            <SectionCard title="Recommended Stack">
+              <Prose>{sections.recommended}</Prose>
+            </SectionCard>
+          )}
+
+          {sections.dosing && (
+            <SectionCard title="Dosing & Notes">
+              <Prose>{sections.dosing}</Prose>
+            </SectionCard>
+          )}
+
+          {sections.evidence && (
+            <SectionCard title="Evidence & References">
+              <Prose>{sections.evidence}</Prose>
+            </SectionCard>
+          )}
+
+          {sections.shopping && (
+            <SectionCard title="Shopping Links">
+              <Prose>{sections.shopping}</Prose>
+            </SectionCard>
+          )}
+
+          {sections.follow && (
+            <SectionCard title="Follow-up Plan">
+              <Prose>{sections.follow}</Prose>
+            </SectionCard>
+          )}
+
+          {sections.lifestyle && (
+            <SectionCard title="Lifestyle Prescriptions">
+              <Prose>{sections.lifestyle}</Prose>
+            </SectionCard>
+          )}
+
+          {sections.longevity && (
+            <SectionCard title="Longevity Levers">
+              <Prose>{sections.longevity}</Prose>
+            </SectionCard>
+          )}
+
+          {sections.try && (
+            <SectionCard title="This Week Try">
+              <Prose>{sections.try}</Prose>
+            </SectionCard>
+          )}
 
           {/* Export PDF at bottom */}
           <div className="flex justify-center mt-8">
