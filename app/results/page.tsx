@@ -308,11 +308,11 @@ function ResultsContent() {
 
           {/* Export PDF at bottom */}
           <div className="flex justify-center mt-10">
-            <CTAButton onClick={exportPDF} variant="subtle" size="md" iconOnly aria-label="Export PDF">
+            <CTAButton onClick={exportPDF} variant="subtle" iconOnly aria-label="Export PDF">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 24 24"
-                className="w-7 h-7 transition-transform transform hover:scale-110"
+                className="w-9 h-9 transition-transform transform hover:scale-110"
               >
                 {/* Document outline */}
                 <rect
@@ -327,7 +327,15 @@ function ResultsContent() {
                   strokeWidth="1.5"
                 />
                 {/* PDF badge */}
-                <rect x="6" y="14" width="12" height="6" rx="2" fill="#E63946" className="transition-colors hover:fill-red-600" />
+                <rect
+                  x="6"
+                  y="14"
+                  width="12"
+                  height="6"
+                  rx="2"
+                  fill="#E63946"
+                  className="transition-colors hover:fill-red-600"
+                />
                 <text
                   x="12"
                   y="18"
