@@ -18,7 +18,7 @@ interface CTAButtonProps {
   size?: "sm" | "md" | "lg";
   fullWidth?: boolean;
   disabled?: boolean;
-  iconOnly?: boolean; // 🔑 added
+  iconOnly?: boolean;
 }
 
 export default function CTAButton({
@@ -29,7 +29,7 @@ export default function CTAButton({
   size = "md",
   fullWidth = false,
   disabled = false,
-  iconOnly = false, // 🔑 default false
+  iconOnly = false,
 }: CTAButtonProps) {
   const base =
     "rounded-lg font-medium text-center transition-colors duration-200 flex items-center justify-center";
@@ -63,8 +63,7 @@ export default function CTAButton({
     sizes[size],
     width,
     variants[variant],
-    iconOnly &&
-      "rounded-full p-2 min-w-0 w-10 h-10 text-sm" // 🔑 circle mode for icon-only buttons
+    iconOnly && "rounded-full p-0 w-12 h-12 flex items-center justify-center"
   );
 
   if (href) {
