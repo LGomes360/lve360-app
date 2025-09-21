@@ -1,7 +1,7 @@
 // src/lib/generateStack.ts
 // -----------------------------------------------------------------------------
 // Generate a supplement "stack" report (Markdown with 13 strict sections)
-// for a submission using OpenAI, following the LVE360 StrictWrap style.
+// for a submission using OpenAI, following the LVE360 Blueprint style.
 // -----------------------------------------------------------------------------
 //
 // Sections (strict order):
@@ -9,7 +9,7 @@
 //   ## Goals
 //   ## Contraindications & Med Interactions
 //   ## Current Stack
-//   ## Bang-for-Buck Additions
+//   ## Your Blueprint Recommendations
 //   ## Recommended Stack
 //   ## Dosing & Notes
 //   ## Evidence & References
@@ -34,12 +34,11 @@ function safeStringify(obj: any) {
   }
 }
 
-// Compute age from DOB string
 function calculateAge(dob: string | null): number | null {
   if (!dob) return null;
   const birthDate = new Date(dob);
   if (isNaN(birthDate.getTime())) return null;
-  const today = new Date("2025-09-21"); // lock to current context
+  const today = new Date("2025-09-21"); // lock for consistency
   let age = today.getFullYear() - birthDate.getFullYear();
   const m = today.getMonth() - birthDate.getMonth();
   if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
@@ -52,10 +51,10 @@ function buildPrompt(sub: SubmissionWithChildren) {
   const age = calculateAge((sub as any).dob ?? null);
 
   const parts = [
-    "# LVE360 Strict Report Request",
+    "# LVE360 Blueprint Report Request",
 
-    "Please generate a Markdown report with **exactly 13 sections**, in the " +
-      "order listed below. Do not omit any section. If you omit one, the report is invalid.",
+    "Generate a Markdown report with **exactly 13 sections**, in the order below. " +
+      "Do not omit or rename any section. If a section is missing or renamed, the report is invalid.",
 
     "## Sections (strict order)",
     [
@@ -63,7 +62,7 @@ function buildPrompt(sub: SubmissionWithChildren) {
       "2. ## Goals",
       "3. ## Contraindications & Med Interactions",
       "4. ## Current Stack",
-      "5. ## Bang-for-Buck Additions",
+      "5. ## Your Blueprint Recommendations",
       "6. ## Recommended Stack",
       "7. ## Dosing & Notes",
       "8. ## Evidence & References",
@@ -77,35 +76,26 @@ function buildPrompt(sub: SubmissionWithChildren) {
     "",
     "## Formatting & Content Rules",
     "- Each section must start with a level-2 heading (##).",
-    "- In **Summary**, you MUST display both Date of Birth and Age. " +
-      "Always trust the `age` field provided in JSON. Do not recalc age yourself.",
-    "- In **Contraindications & Med Interactions**, output a **table** with " +
-      "columns: Medication | Concern | Guardrail.",
-    "- In **Bang-for-Buck Additions**, output a **Markdown table** with at least 3 ranked items. " +
-      "Columns: Rank | Supplement | Why it matters. " +
-      "If you omit this section, the report is invalid.",
-    "- In **Recommended Stack**, include ALL Bang-for-Buck items (mark them clearly, e.g., '(Bang-for-Buck)'). " +
-      "Output as a **Markdown table** with columns: Supplement | Dose | Timing | Notes.",
+    "- In **Summary**, display all demographics: Name, Date of Birth, Age (trust `age`), Weight, Height, Sex, Email.",
+    "- In **Contraindications & Med Interactions**, output a table: Medication | Concern | Guardrail.",
+    "- In **Your Blueprint Recommendations**, output a Markdown table with at least 3 ranked items. " +
+      "Header must be exactly '## Your Blueprint Recommendations'. " +
+      "Columns: Rank | Supplement | Why it matters. If omitted or renamed, the report is invalid.",
+    "- In **Recommended Stack**, include ALL 'Blueprint Recommendations' items (mark them clearly). " +
+      "Table format: Supplement | Dose | Timing | Notes.",
     "- In **Dosing & Notes**, include medications + hormones with timing/notes.",
-    "- In **Evidence & References**, provide at least one citation per " +
-      "supplement (PubMed link or SR/MA preferred). If evidence is limited, " +
-      "state 'Evidence limited'.",
-    "- In **Shopping Links**, include a placeholder URL or '[Link unavailable]' " +
-      "for each item unless actual links are provided.",
-    "- In **Follow-up Plan**, include concrete cadence (e.g., labs every 6–12 " +
-      "months, recheck after 8–12 weeks).",
-    "- In **Lifestyle Prescriptions**, break down into Nutrition, Sleep, " +
-      "Exercise, Focus, Monitoring subsections with bullet points.",
-    "- In **Longevity Levers**, give 3–4 concise habits that improve " +
-      "lifespan/healthspan.",
-    "- In **This Week Try**, give exactly 1 practical experiment for the " +
-      "next 7 days.",
+    "- In **Evidence & References**, provide ≥1 citation per supplement (PubMed/SR/MA preferred). " +
+      "If evidence is limited, state 'Evidence limited'.",
+    "- In **Shopping Links**, include placeholder URL or '[Link unavailable]' if missing.",
+    "- In **Follow-up Plan**, include cadence (labs every 6–12 months, recheck after 8–12 weeks).",
+    "- In **Lifestyle Prescriptions**, break into Nutrition, Sleep, Exercise, Focus, Monitoring subsections.",
+    "- In **Longevity Levers**, give 3–4 concise habits that improve healthspan.",
+    "- In **This Week Try**, give exactly 1 practical 7-day experiment.",
 
     "",
     "## Constraints",
     "- ASCII-safe characters only; wrap lines at ~80 chars.",
     "- Return Markdown only in the response body.",
-    "- Do not include any private keys or environment values.",
 
     "",
     "## Submission Data (JSON)",
@@ -146,13 +136,9 @@ export async function generateStackForSubmission(submissionId: string) {
   if (!process.env.OPENAI_API_KEY)
     throw new Error("OPENAI_API_KEY is not configured");
 
-  // 1) Load submission + children
   const submission = await getSubmissionWithChildren(submissionId);
-
-  // 2) Build prompt
   const prompt = buildPrompt(submission);
 
-  // 3) Lazy-init OpenAI client
   let openai: any = null;
   try {
     const localMod: any = await import("./openai").catch(() => null);
@@ -182,13 +168,11 @@ export async function generateStackForSubmission(submissionId: string) {
     throw new Error(`OpenAI init failed: ${String(e?.message ?? e)}`);
   }
 
-  // 4) Call OpenAI
   const response = await openai.responses.create({
     model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
     input: prompt,
   });
 
-  // 5) Extract Markdown
   let markdown = "";
   try {
     const outputs = (response as any).output;
@@ -215,7 +199,6 @@ export async function generateStackForSubmission(submissionId: string) {
     markdown = safeStringify(response);
   }
 
-  // 6) Fallback
   if (!markdown || markdown.trim().length === 0) {
     markdown = `## Report Unavailable
 
