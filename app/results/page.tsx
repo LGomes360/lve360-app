@@ -1,7 +1,7 @@
 // app/results/page.tsx
 "use client";
 
-import { useEffect, useState, useRef, Suspense } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import ReactMarkdown from "react-markdown";
@@ -86,6 +86,32 @@ function ResultsContent() {
     }
   }
 
+  // --- Export PDF (server-side) ---
+  async function exportPDF() {
+    if (!tallyId) {
+      setError("Missing submission ID. Please refresh and try again.");
+      return;
+    }
+
+    try {
+      setError(null);
+      const res = await fetch(`/api/export-pdf?submission_id=${tallyId}`);
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson?.error || `PDF export failed (status ${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => window.URL.revokeObjectURL(url), 5000);
+    } catch (err: any) {
+      console.error("PDF export failed:", err);
+      setError("🚨 PDF export failed. Please try again, or contact support if it persists.");
+    }
+  }
+
   // Run pre-check once on mount
   useEffect(() => {
     fetchStack();
@@ -147,19 +173,10 @@ function ResultsContent() {
         </div>
       )}
 
-      {/* Export button (server-side only) */}
+      {/* Export button */}
       {markdown && (
         <div className="flex justify-center mt-10">
-          <CTAButton
-            onClick={() => {
-              if (tallyId) {
-                window.open(`/api/export-pdf?submission_id=${tallyId}`, "_blank");
-              } else {
-                alert("Missing submission ID — please refresh and try again.");
-              }
-            }}
-            variant="secondary"
-          >
+          <CTAButton onClick={exportPDF} variant="secondary">
             📄 Export as PDF
           </CTAButton>
         </div>
