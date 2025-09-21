@@ -19,12 +19,10 @@ function escapeRegExp(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Find the first section whose heading matches any of the provided variants.
-// Returns the full slice from its "## Heading" line up to (but not including) the next "## ".
+// Extract a section from markdown by heading variants
 function extractSection(md: string, headingVariants: string[]): string | null {
   if (!md) return null;
 
-  // Find the earliest heading match among variants
   let startIdx = -1;
   let matchedHeading = "";
   for (const h of headingVariants) {
@@ -37,17 +35,17 @@ function extractSection(md: string, headingVariants: string[]): string | null {
   }
   if (startIdx === -1) return null;
 
-  // Find the start of the next "## " heading after startIdx
   const tail = md.slice(startIdx + 1);
   const next = /\n##\s+/m.exec(tail);
   const endIdx = next ? startIdx + 1 + next.index : md.length;
 
-  // Ensure the heading label is present; if not, prepend it
   const slice = md.slice(startIdx, endIdx);
-  return slice.includes(`## ${matchedHeading}`) ? slice : `## ${matchedHeading}\n${slice}`;
+  return slice.includes(`## ${matchedHeading}`)
+    ? slice
+    : `## ${matchedHeading}\n${slice}`;
 }
 
-// Render markdown inside a styled wrapper to avoid passing className directly to ReactMarkdown
+// Render markdown safely
 function Prose({ children }: { children: string }) {
   return (
     <div className="prose prose-gray max-w-none">
@@ -78,7 +76,7 @@ function ResultsContent() {
   const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
 
-  // ---- Pre-check: load existing stack if present
+  // ---- Pre-check
   async function fetchStack() {
     if (!tallyId) return;
     try {
@@ -94,14 +92,13 @@ function ResultsContent() {
         setMarkdown(sanitizeMarkdown(raw));
       }
     } catch (err: any) {
-      // Soft-fail: show no existing stack message
       console.warn("No existing stack found:", err?.message ?? err);
     } finally {
       setLoading(false);
     }
   }
 
-  // ---- Generate (free)
+  // ---- Generate
   async function generateStack() {
     if (!tallyId) {
       setError("Missing submission ID. Please try again from the intake form.");
@@ -110,14 +107,12 @@ function ResultsContent() {
     try {
       setGenerating(true);
       setError(null);
-
       const res = await fetch("/api/generate-stack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tally_submission_id: tallyId }),
       });
       if (!res.ok) throw new Error(`API error ${res.status}`);
-
       const data = await res.json();
       if (data?.ok && data?.stack) {
         const raw =
@@ -164,7 +159,6 @@ function ResultsContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tallyId]);
 
-  // ---- Section extraction (robust to minor heading variations)
   const sections = useMemo(() => {
     const md = markdown ?? "";
     return {
@@ -184,7 +178,13 @@ function ResultsContent() {
         "Optimized Plan (AM / PM / Bedtime)",
         "Busy-Pro Friendly Plan (2 doses/day)",
       ]),
-      dosing: extractSection(md, ["Dosing & Notes", "Dosing and Notes", "Dosing", "Notes", "Bang-for-Buck Additions (Ranked)"]),
+      dosing: extractSection(md, [
+        "Dosing & Notes",
+        "Dosing and Notes",
+        "Dosing",
+        "Notes",
+        "Bang-for-Buck Additions (Ranked)",
+      ]),
       evidence: extractSection(md, ["Evidence & References", "References", "Evidence"]),
       shopping: extractSection(md, ["Shopping Links", "Shopping", "Links"]),
       follow: extractSection(md, ["Follow-up Plan", "Follow Up Plan", "Follow-up Plan", "Follow-up"]),
@@ -206,11 +206,7 @@ function ResultsContent() {
       {/* Actions */}
       <SectionCard title="Actions">
         <div className="flex flex-wrap gap-4 justify-center">
-          <CTAButton
-            onClick={generateStack}
-            variant="gradient"
-            disabled={generating}
-          >
+          <CTAButton onClick={generateStack} variant="gradient" disabled={generating}>
             {generating ? "🤖 Generating..." : "✨ Generate Free Report"}
           </CTAButton>
 
@@ -218,8 +214,42 @@ function ResultsContent() {
             👑 Upgrade to Premium
           </CTAButton>
 
-          <CTAButton onClick={exportPDF} variant="subtle" size="sm">
-            📄 Export PDF
+          {/* Enhanced Export PDF button with custom SVG */}
+          <CTAButton onClick={exportPDF} variant="subtle" size="sm" iconOnly aria-label="Export PDF">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-6 h-6">
+              {/* Document outline */}
+              <rect
+                x="2"
+                y="2"
+                width="20"
+                height="20"
+                rx="2"
+                ry="2"
+                fill="white"
+                stroke="#041B2D"
+                strokeWidth="1.5"
+              />
+              {/* PDF badge */}
+              <rect x="6" y="14" width="12" height="6" rx="2" fill="#E63946" />
+              <text
+                x="12"
+                y="18"
+                textAnchor="middle"
+                fontSize="7"
+                fontWeight="bold"
+                fill="white"
+              >
+                PDF
+              </text>
+              {/* Teal arrow */}
+              <path
+                d="M12 6v5m0 0l-2-2m2 2l2-2"
+                stroke="#06C1A0"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </CTAButton>
         </div>
       </SectionCard>
@@ -241,56 +271,48 @@ function ResultsContent() {
               <Prose>{sections.summary}</Prose>
             </SectionCard>
           )}
-
           {sections.goals && (
             <SectionCard title="Goals">
               <Prose>{sections.goals}</Prose>
             </SectionCard>
           )}
-
           {sections.contra && (
             <SectionCard title="Contraindications & Med Interactions">
               <Prose>{sections.contra}</Prose>
             </SectionCard>
           )}
-
           {sections.current && (
             <SectionCard title="Current Stack">
               <Prose>{sections.current}</Prose>
             </SectionCard>
           )}
-
           {sections.recommended && (
             <SectionCard title="Recommended Stack">
               <Prose>{sections.recommended}</Prose>
             </SectionCard>
           )}
-
           {sections.dosing && (
             <SectionCard title="Dosing & Notes">
               <Prose>{sections.dosing}</Prose>
             </SectionCard>
           )}
-
           {sections.evidence && (
             <SectionCard title="Evidence & References">
               <Prose>{sections.evidence}</Prose>
             </SectionCard>
           )}
-
           {sections.shopping && (
             <SectionCard title="Shopping Links">
               <Prose>{sections.shopping}</Prose>
             </SectionCard>
           )}
-
           {sections.follow && (
             <SectionCard title="Follow-up Plan">
               <Prose>{sections.follow}</Prose>
             </SectionCard>
           )}
 
-          {/* Extra beautified, static sections (spec-aligned) */}
+          {/* Static sections */}
           <SectionCard title="Lifestyle Prescriptions">
             <ul className="list-disc pl-6 text-gray-700 space-y-1">
               <li>Protein: aim 120–150 g/day (palm of protein each meal + shake).</li>
