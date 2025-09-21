@@ -21,14 +21,12 @@ function escapeRegExp(s: string) {
 function extractSection(md: string, headingVariants: string[]): string | null {
   if (!md) return null;
   let startIdx = -1;
-  let matchedHeading = "";
 
   for (const h of headingVariants) {
     const re = new RegExp(`^##\\s*${escapeRegExp(h)}\\b.*`, "mi");
     const m = re.exec(md);
     if (m && (startIdx === -1 || (m.index ?? -1) < startIdx)) {
       startIdx = m.index;
-      matchedHeading = h;
     }
   }
 
@@ -156,9 +154,18 @@ function ResultsContent() {
     return {
       summary: extractSection(md, ["Summary"]),
       goals: extractSection(md, ["Goals"]),
-      contra: extractSection(md, ["Contraindications & Med Interactions", "Contraindications/Med-Interactions", "Contraindications"]),
+      contra: extractSection(md, [
+        "Contraindications & Med Interactions",
+        "Contraindications/Med-Interactions",
+        "Contraindications",
+      ]),
       current: extractSection(md, ["Current Stack", "Current Supplements"]),
-      bang: extractSection(md, ["Bang-for-Buck Additions", "Bang for Buck", "Bang-for-Buck"]),
+      bang: extractSection(md, [
+        "Bang-for-Buck Additions",
+        "Bang for Buck Additions",
+        "Bang-for-Buck",
+        "Bang for Buck",
+      ]),
       recommended: extractSection(md, ["Recommended Stack"]),
       dosing: extractSection(md, ["Dosing & Notes", "Notes"]),
       evidence: extractSection(md, ["Evidence & References"]),
@@ -175,7 +182,9 @@ function ResultsContent() {
       {/* Header */}
       <div className="text-center mb-10">
         <h1 className="text-4xl font-extrabold font-display text-[#041B2D]">Your LVE360 Blueprint</h1>
-        <p className="text-gray-600 mt-2">Personalized insights for Longevity • Vitality • Energy</p>
+        <p className="text-gray-600 mt-2">
+          Personalized insights for Longevity • Vitality • Energy
+        </p>
       </div>
 
       {/* Actions */}
@@ -202,19 +211,75 @@ function ResultsContent() {
       {/* Report sections */}
       {markdown && (
         <div>
-          {sections.summary && <SectionCard title="Summary"><Prose>{sections.summary}</Prose></SectionCard>}
-          {sections.goals && <SectionCard title="Goals"><Prose>{sections.goals}</Prose></SectionCard>}
-          {sections.contra && <SectionCard title="Contraindications & Med Interactions"><Prose>{sections.contra}</Prose></SectionCard>}
-          {sections.current && <SectionCard title="Current Stack"><Prose>{sections.current}</Prose></SectionCard>}
-          {sections.bang && <SectionCard title="Bang-for-Buck Additions"><Prose>{sections.bang}</Prose></SectionCard>}
-          {sections.recommended && <SectionCard title="Recommended Stack"><Prose>{sections.recommended}</Prose></SectionCard>}
-          {sections.dosing && <SectionCard title="Dosing & Notes"><Prose>{sections.dosing}</Prose></SectionCard>}
-          {sections.evidence && <SectionCard title="Evidence & References"><Prose>{sections.evidence}</Prose></SectionCard>}
-          {sections.shopping && <SectionCard title="Shopping Links"><Prose>{sections.shopping}</Prose></SectionCard>}
-          {sections.follow && <SectionCard title="Follow-up Plan"><Prose>{sections.follow}</Prose></SectionCard>}
-          {sections.lifestyle && <SectionCard title="Lifestyle Prescriptions"><Prose>{sections.lifestyle}</Prose></SectionCard>}
-          {sections.longevity && <SectionCard title="Longevity Levers"><Prose>{sections.longevity}</Prose></SectionCard>}
-          {sections.try && <SectionCard title="This Week Try"><Prose>{sections.try}</Prose></SectionCard>}
+          {sections.summary && (
+            <SectionCard title="Summary">
+              <Prose>{sections.summary}</Prose>
+            </SectionCard>
+          )}
+          {sections.goals && (
+            <SectionCard title="Goals">
+              <Prose>{sections.goals}</Prose>
+            </SectionCard>
+          )}
+          {sections.contra && (
+            <SectionCard title="Contraindications & Med Interactions">
+              <Prose>{sections.contra}</Prose>
+            </SectionCard>
+          )}
+          {sections.current && (
+            <SectionCard title="Current Stack">
+              <Prose>{sections.current}</Prose>
+            </SectionCard>
+          )}
+          <SectionCard title="Bang-for-Buck Additions">
+            {sections.bang ? (
+              <Prose>{sections.bang}</Prose>
+            ) : (
+              <p className="text-gray-500">
+                No prioritized additions were generated for this report.
+              </p>
+            )}
+          </SectionCard>
+          {sections.recommended && (
+            <SectionCard title="Recommended Stack">
+              <Prose>{sections.recommended}</Prose>
+            </SectionCard>
+          )}
+          {sections.dosing && (
+            <SectionCard title="Dosing & Notes">
+              <Prose>{sections.dosing}</Prose>
+            </SectionCard>
+          )}
+          {sections.evidence && (
+            <SectionCard title="Evidence & References">
+              <Prose>{sections.evidence}</Prose>
+            </SectionCard>
+          )}
+          {sections.shopping && (
+            <SectionCard title="Shopping Links">
+              <Prose>{sections.shopping}</Prose>
+            </SectionCard>
+          )}
+          {sections.follow && (
+            <SectionCard title="Follow-up Plan">
+              <Prose>{sections.follow}</Prose>
+            </SectionCard>
+          )}
+          {sections.lifestyle && (
+            <SectionCard title="Lifestyle Prescriptions">
+              <Prose>{sections.lifestyle}</Prose>
+            </SectionCard>
+          )}
+          {sections.longevity && (
+            <SectionCard title="Longevity Levers">
+              <Prose>{sections.longevity}</Prose>
+            </SectionCard>
+          )}
+          {sections.try && (
+            <SectionCard title="This Week Try">
+              <Prose>{sections.try}</Prose>
+            </SectionCard>
+          )}
 
           {/* Export PDF at bottom */}
           <div className="flex justify-center mt-8">
@@ -224,11 +289,49 @@ function ResultsContent() {
                 aria-label="Export PDF"
                 className="w-10 h-10 flex items-center justify-center rounded-md border border-gray-300 bg-white shadow-sm hover:shadow-md transition"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-6 h-6 transition-transform transform hover:scale-110">
-                  <rect x="2" y="2" width="20" height="20" rx="2" ry="2" fill="white" stroke="#041B2D" strokeWidth="1.5" />
-                  <rect x="6" y="14" width="12" height="6" rx="2" fill="#E63946" className="transition-colors group-hover:fill-red-600" />
-                  <text x="12" y="18" textAnchor="middle" fontSize="7" fontWeight="bold" fill="white">PDF</text>
-                  <path d="M12 6v5m0 0l-2-2m2 2l2-2" stroke="#06C1A0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="transition-colors group-hover:stroke-emerald-500" />
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  className="w-6 h-6 transition-transform transform hover:scale-110"
+                >
+                  <rect
+                    x="2"
+                    y="2"
+                    width="20"
+                    height="20"
+                    rx="2"
+                    ry="2"
+                    fill="white"
+                    stroke="#041B2D"
+                    strokeWidth="1.5"
+                  />
+                  <rect
+                    x="6"
+                    y="14"
+                    width="12"
+                    height="6"
+                    rx="2"
+                    fill="#E63946"
+                    className="transition-colors group-hover:fill-red-600"
+                  />
+                  <text
+                    x="12"
+                    y="18"
+                    textAnchor="middle"
+                    fontSize="7"
+                    fontWeight="bold"
+                    fill="white"
+                  >
+                    PDF
+                  </text>
+                  <path
+                    d="M12 6v5m0 0l-2-2m2 2l2-2"
+                    stroke="#06C1A0"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="transition-colors group-hover:stroke-emerald-500"
+                  />
                 </svg>
               </button>
               <div className="absolute -top-9 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 bg-gray-800 text-white text-xs px-2 py-1 rounded shadow-md transition-opacity">
@@ -243,9 +346,15 @@ function ResultsContent() {
       <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
         Longevity • Vitality • Energy — <span className="font-semibold">LVE360</span> © 2025
         <div className="mt-2 space-x-4">
-          <a href="/terms" className="hover:underline">Terms</a>
-          <a href="/privacy" className="hover:underline">Privacy</a>
-          <a href="/contact" className="hover:underline">Contact</a>
+          <a href="/terms" className="hover:underline">
+            Terms
+          </a>
+          <a href="/privacy" className="hover:underline">
+            Privacy
+          </a>
+          <a href="/contact" className="hover:underline">
+            Contact
+          </a>
         </div>
       </footer>
     </div>
