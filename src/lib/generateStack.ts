@@ -1,31 +1,25 @@
 // src/lib/generateStack.ts
+// -----------------------------------------------------------------------------
 // Generate a supplement "stack" report (Markdown with 13 strict sections)
 // for a submission using OpenAI.
-//
-// - Lazy-inits OpenAI client at runtime to avoid build-time errors.
 // - Uses getSubmissionWithChildren to load submission + child rows.
-// - Saves output in stacks.sections.markdown via /api/generate-stack.
-//
-// Contract: ALWAYS 13 sections in this exact order.
-//   ## Summary
-//   ## Goals
-//   ## Contraindications & Med Interactions
-//   ## Current Stack
-//   ## Recommended Stack
-//   ## Dosing & Notes
-//   ## Evidence & References
-//   ## Shopping Links
-//   ## Follow-up Plan
-//   ## Lifestyle Prescriptions
-//   ## Longevity Levers
-//   ## This Week Try
-//   ## Self-Tracking Dashboard
+// - Enhances prompt to follow LVE360 "StrictWrap" style:
+//   * Computes age from DOB
+//   * Requires Medication & Contraindication Review table
+//   * Requires Bang-for-Buck Additions (ranked)
+//   * Requires Optimized vs Busy-Pro Friendly plan
+//   * Expands Lifestyle Prescriptions into Nutrition / Sleep / Exercise / Focus / Monitoring
+//   * Requires at least one evidence reference per supplement
+//   * Requires Self-Tracking Dashboard with logical columns (no fake dates)
+// - Returns { markdown, raw } where markdown is the AI output
+// -----------------------------------------------------------------------------
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 
 const MAX_PROMPT_CHARS = 28_000;
 
+// Utility: safe JSON.stringify
 function safeStringify(obj: any) {
   try {
     return JSON.stringify(obj, null, 2);
@@ -34,19 +28,31 @@ function safeStringify(obj: any) {
   }
 }
 
+// Utility: compute age from DOB (YYYY-MM-DD string)
+function calculateAge(dob: string | null): number | null {
+  if (!dob) return null;
+  const birthDate = new Date(dob);
+  if (isNaN(birthDate.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age;
+}
+
 function buildPrompt(sub: SubmissionWithChildren) {
+  const age = calculateAge((sub as any).dob ?? null);
+
   const parts = [
-    "# LVE360 Personalized Stack Report Request",
+    "# LVE360 Strict Report Request",
 
-    "Please generate a Markdown report with **exactly 13 sections**. " +
-      "Each section must appear, even if content is minimal. " +
-      "Use the submission JSON below as the only source of truth. " +
-      "If information is missing, explicitly state that. Do not hallucinate data.",
+    "Please generate a Markdown report with **exactly 13 sections**, in the order listed below. " +
+      "Do not omit any section, even if minimal. Use the provided submission JSON as the only source of truth. " +
+      "If information is missing, explicitly state it. Do not hallucinate.",
 
-    "## Output Format (Markdown, strict headers)",
-    "Each section must start with a level-2 heading (##). " +
-      "The sections, in order, are:",
-
+    "## Sections (strict order)",
     [
       "1. ## Summary",
       "2. ## Goals",
@@ -64,17 +70,29 @@ function buildPrompt(sub: SubmissionWithChildren) {
     ].join("\n"),
 
     "",
-    "Important formatting rules:",
-    "- Return **Markdown only** in the response body.",
-    "- ASCII-safe characters only; wrap lines at ~80 chars.",
-    "- Each section must have at least 1–2 sentences or a table/list.",
-    "- In 'Recommended Stack', output a Markdown table with columns: " +
-      "`Supplement | Dose | Timing | Notes`.",
-    "- In 'Self-Tracking Dashboard', output a Markdown table with columns: " +
-      "`Date | Energy (1-10) | Sleep (1-10) | Weight | Notes` with 3 sample rows.",
+    "## Formatting & Content Rules",
+    "- Each section must start with a level-2 heading (##).",
+    "- In **Summary**, include: Name, Sex, Date of Birth, computed Age (use provided DOB), Height, Weight, Email.",
+    "- In **Contraindications & Med Interactions**, include a **table** with columns: Medication | Concern | Guardrail.",
+    "- In **Recommended Stack**, include a **Markdown table** with columns: Supplement | Dose | Timing | Notes.",
+    "- In **Dosing & Notes**, include medications + hormones with timing/notes.",
+    "- In **Evidence & References**, provide at least one citation per supplement (PubMed link or SR/MA preferred). If evidence is limited, state 'Evidence limited'.",
+    "- In **Shopping Links**, include placeholder URLs or '[Link unavailable]' for each item unless actual links are provided.",
+    "- In **Follow-up Plan**, include concrete cadence (e.g., labs every 6–12 months, recheck after 8–12 weeks).",
+    "- In **Lifestyle Prescriptions**, break down into Nutrition, Sleep, Exercise, Focus, Monitoring subsections with bullet points.",
+    "- In **Longevity Levers**, give 3–4 concise habits that improve lifespan/healthspan.",
+    "- In **This Week Try**, give exactly 1 practical experiment for the next 7 days.",
+    "- In **Self-Tracking Dashboard**, create a Markdown table with columns: Metric | How to Track | Target Range. " +
+      "Do not invent calendar dates. Include metrics: Energy (1–10), Sleep (1–5 stars), Steps/day, Mood, Blood Pressure, Weight.",
 
     "",
-    "Submission (JSON):",
+    "## Important Constraints",
+    "- ASCII-safe characters only; wrap lines at ~80 chars.",
+    "- Return Markdown only in the response body.",
+    "- Do not include any private keys or environment values.",
+
+    "",
+    "## Submission Data (JSON)",
     "```json",
     safeStringify({
       submission: {
@@ -82,10 +100,12 @@ function buildPrompt(sub: SubmissionWithChildren) {
         name: (sub as any).name ?? null,
         sex: (sub as any).sex ?? null,
         dob: (sub as any).dob ?? null,
+        age: age,
         weight: (sub as any).weight ?? null,
         height: (sub as any).height ?? null,
         goals: (sub as any).goals ?? null,
         answers: (sub as any).answers ?? null,
+        email: (sub as any).user_email ?? null,
       },
       medications: sub.medications ?? [],
       supplements: sub.supplements ?? [],
@@ -116,7 +136,7 @@ export async function generateStackForSubmission(submissionId: string) {
   // 2) Build prompt
   const prompt = buildPrompt(submission);
 
-  // 3) Lazy-init OpenAI client at runtime
+  // 3) Lazy-init OpenAI client
   let openai: any = null;
   try {
     const localMod: any = await import("./openai").catch(() => null);
