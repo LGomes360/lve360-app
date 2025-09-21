@@ -52,15 +52,19 @@ export async function GET(req: Request) {
       if (y < 50) break; // prevent overflow for now
     }
 
-    const pdfBytes = await pdfDoc.save();
+const pdfBytes = await pdfDoc.save();
 
-    return new NextResponse(pdfBytes, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": 'attachment; filename="LVE360_Blueprint.pdf"',
-      },
-    });
+// Wrap Uint8Array into a Buffer for NextResponse
+const pdfBuffer = Buffer.from(pdfBytes);
+
+return new NextResponse(pdfBuffer, {
+  status: 200,
+  headers: {
+    "Content-Type": "application/pdf",
+    "Content-Disposition": 'attachment; filename="LVE360_Blueprint.pdf"',
+  },
+});
+
   } catch (err: any) {
     console.error("Unhandled error in export-pdf:", err);
     return NextResponse.json({ ok: false, error: "PDF export failed" }, { status: 500 });
