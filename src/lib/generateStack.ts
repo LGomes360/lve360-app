@@ -1,6 +1,6 @@
 // src/lib/generateStack.ts
 // -----------------------------------------------------------------------------
-// Generate a supplement "stack" report (Markdown with 12 strict sections)
+// Generate a supplement "stack" report (Markdown with 13 strict sections)
 // for a submission using OpenAI, following the LVE360 StrictWrap style.
 // -----------------------------------------------------------------------------
 //
@@ -9,6 +9,7 @@
 //   ## Goals
 //   ## Contraindications & Med Interactions
 //   ## Current Stack
+//   ## Bang-for-Buck Additions
 //   ## Recommended Stack
 //   ## Dosing & Notes
 //   ## Evidence & References
@@ -53,7 +54,7 @@ function buildPrompt(sub: SubmissionWithChildren) {
   const parts = [
     "# LVE360 Strict Report Request",
 
-    "Please generate a Markdown report with **exactly 12 sections**, in the " +
+    "Please generate a Markdown report with **exactly 13 sections**, in the " +
       "order listed below. Do not omit any section, even if minimal. " +
       "Use the provided submission JSON as the only source of truth. " +
       "If information is missing, explicitly state it. Do not hallucinate.",
@@ -64,14 +65,15 @@ function buildPrompt(sub: SubmissionWithChildren) {
       "2. ## Goals",
       "3. ## Contraindications & Med Interactions",
       "4. ## Current Stack",
-      "5. ## Recommended Stack",
-      "6. ## Dosing & Notes",
-      "7. ## Evidence & References",
-      "8. ## Shopping Links",
-      "9. ## Follow-up Plan",
-      "10. ## Lifestyle Prescriptions",
-      "11. ## Longevity Levers",
-      "12. ## This Week Try",
+      "5. ## Bang-for-Buck Additions",
+      "6. ## Recommended Stack",
+      "7. ## Dosing & Notes",
+      "8. ## Evidence & References",
+      "9. ## Shopping Links",
+      "10. ## Follow-up Plan",
+      "11. ## Lifestyle Prescriptions",
+      "12. ## Longevity Levers",
+      "13. ## This Week Try",
     ].join("\n"),
 
     "",
@@ -81,8 +83,10 @@ function buildPrompt(sub: SubmissionWithChildren) {
       "Weight, Email.",
     "- In **Contraindications & Med Interactions**, output a **table** with " +
       "columns: Medication | Concern | Guardrail.",
-    "- In **Recommended Stack**, output a **Markdown table** with columns: " +
-      "`Supplement | Dose | Timing | Notes`.",
+    "- In **Bang-for-Buck Additions**, output a ranked list (Rank | Supplement | Why it matters). " +
+      "Focus on top 3–5 items with the greatest ROI toward user goals.",
+    "- In **Recommended Stack**, include all core and bang-for-buck items. " +
+      "Output as a **Markdown table** with columns: Supplement | Dose | Timing | Notes.",
     "- In **Dosing & Notes**, include medications + hormones with timing/notes.",
     "- In **Evidence & References**, provide at least one citation per " +
       "supplement (PubMed link or SR/MA preferred). If evidence is limited, " +
