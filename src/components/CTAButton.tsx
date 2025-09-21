@@ -54,7 +54,6 @@ export default function CTAButton({
     gradient:
       "bg-gradient-to-r from-[#06C1A0] to-emerald-500 text-white shadow-md hover:opacity-90",
     subtle:
-      subtle:
       "px-4 py-2 text-sm rounded-full border border-gray-300 text-gray-700 bg-gradient-to-r from-gray-50 to-white hover:from-white hover:to-gray-50 shadow-sm",
   };
 
