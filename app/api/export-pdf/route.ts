@@ -33,13 +33,11 @@ export async function GET(req: Request) {
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-    // Page + cursor management
     let currentPage = pdfDoc.addPage([612, 792]); // US Letter
     let cursorY = currentPage.getSize().height - 72; // 1" top margin
     const marginX = 50;
     const lineHeight = 14;
 
-    // --- Helper: add new page if needed ---
     function ensureSpace(required: number) {
       if (cursorY - required < 72) {
         currentPage = pdfDoc.addPage([612, 792]);
@@ -47,7 +45,6 @@ export async function GET(req: Request) {
       }
     }
 
-    // --- Helper: draw wrapped text ---
     function drawWrapped(text: string, size = 12, color = rgb(0, 0, 0), indent = 0) {
       const words = text.split(/\s+/);
       let line = "";
@@ -55,7 +52,6 @@ export async function GET(req: Request) {
         const testLine = line ? line + " " + word : word;
         const w = font.widthOfTextAtSize(testLine, size);
         if (w > currentPage.getSize().width - 2 * marginX - indent) {
-          // flush line
           ensureSpace(lineHeight);
           currentPage.drawText(line, { x: marginX + indent, y: cursorY, size, font, color });
           cursorY -= lineHeight;
@@ -75,10 +71,17 @@ export async function GET(req: Request) {
     drawWrapped("LVE360 | Longevity | Vitality | Energy", 16, rgb(0.03, 0.76, 0.63));
     cursorY -= 12;
 
-    // --- Render content ---
-    const content = stackRow.sections?.markdown ?? stackRow.summary ?? "No report content available.";
-    const lines = content.split("\n");
+    // --- Prepare & sanitize content ---
+    let content =
+      stackRow.sections?.markdown ??
+      stackRow.summary ??
+      "No report content available.";
 
+    // Strip triple backtick fences (```markdown ... ```)
+    content = content.replace(/^```[a-z]*\n/, "").replace(/```$/, "");
+
+    // --- Render content ---
+    const lines = content.split("\n");
     for (const line of lines) {
       if (!line.trim()) {
         cursorY -= lineHeight / 2;
@@ -104,7 +107,6 @@ export async function GET(req: Request) {
     drawWrapped("Supplements are not intended to diagnose, treat, cure, or prevent disease.", 10);
     drawWrapped("Consult your clinician before changes, especially with prescriptions or hormones.", 10);
 
-    // --- Return response ---
     const pdfBytes = await pdfDoc.save();
     return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
