@@ -1,17 +1,23 @@
 // src/lib/generateStack.ts
 // -----------------------------------------------------------------------------
-// Generate a supplement "stack" report (Markdown with 13 strict sections)
-// for a submission using OpenAI.
-// - Uses getSubmissionWithChildren to load submission + child rows.
-// - Enhances prompt to follow LVE360 "StrictWrap" style:
-//   * Computes age from DOB
-//   * Requires Medication & Contraindication Review table
-//   * Requires Bang-for-Buck Additions (ranked)
-//   * Requires Optimized vs Busy-Pro Friendly plan
-//   * Expands Lifestyle Prescriptions into Nutrition / Sleep / Exercise / Focus / Monitoring
-//   * Requires at least one evidence reference per supplement
-//   * Requires Self-Tracking Dashboard with logical columns (no fake dates)
-// - Returns { markdown, raw } where markdown is the AI output
+// Generate a supplement "stack" report (Markdown with 12 strict sections)
+// for a submission using OpenAI, following the LVE360 StrictWrap style.
+// -----------------------------------------------------------------------------
+//
+// Sections (strict order):
+//   ## Summary
+//   ## Goals
+//   ## Contraindications & Med Interactions
+//   ## Current Stack
+//   ## Recommended Stack
+//   ## Dosing & Notes
+//   ## Evidence & References
+//   ## Shopping Links
+//   ## Follow-up Plan
+//   ## Lifestyle Prescriptions
+//   ## Longevity Levers
+//   ## This Week Try
+//
 // -----------------------------------------------------------------------------
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
@@ -19,7 +25,6 @@ import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 
 const MAX_PROMPT_CHARS = 28_000;
 
-// Utility: safe JSON.stringify
 function safeStringify(obj: any) {
   try {
     return JSON.stringify(obj, null, 2);
@@ -28,7 +33,7 @@ function safeStringify(obj: any) {
   }
 }
 
-// Utility: compute age from DOB (YYYY-MM-DD string)
+// Compute age from DOB string
 function calculateAge(dob: string | null): number | null {
   if (!dob) return null;
   const birthDate = new Date(dob);
@@ -48,8 +53,9 @@ function buildPrompt(sub: SubmissionWithChildren) {
   const parts = [
     "# LVE360 Strict Report Request",
 
-    "Please generate a Markdown report with **exactly 13 sections**, in the order listed below. " +
-      "Do not omit any section, even if minimal. Use the provided submission JSON as the only source of truth. " +
+    "Please generate a Markdown report with **exactly 12 sections**, in the " +
+      "order listed below. Do not omit any section, even if minimal. " +
+      "Use the provided submission JSON as the only source of truth. " +
       "If information is missing, explicitly state it. Do not hallucinate.",
 
     "## Sections (strict order)",
@@ -66,27 +72,34 @@ function buildPrompt(sub: SubmissionWithChildren) {
       "10. ## Lifestyle Prescriptions",
       "11. ## Longevity Levers",
       "12. ## This Week Try",
-      "13. ## Self-Tracking Dashboard",
     ].join("\n"),
 
     "",
     "## Formatting & Content Rules",
     "- Each section must start with a level-2 heading (##).",
-    "- In **Summary**, include: Name, Sex, Date of Birth, computed Age (use provided DOB), Height, Weight, Email.",
-    "- In **Contraindications & Med Interactions**, include a **table** with columns: Medication | Concern | Guardrail.",
-    "- In **Recommended Stack**, include a **Markdown table** with columns: Supplement | Dose | Timing | Notes.",
+    "- In **Summary**, include: Name, Sex, Date of Birth, computed Age, Height, " +
+      "Weight, Email.",
+    "- In **Contraindications & Med Interactions**, output a **table** with " +
+      "columns: Medication | Concern | Guardrail.",
+    "- In **Recommended Stack**, output a **Markdown table** with columns: " +
+      "`Supplement | Dose | Timing | Notes`.",
     "- In **Dosing & Notes**, include medications + hormones with timing/notes.",
-    "- In **Evidence & References**, provide at least one citation per supplement (PubMed link or SR/MA preferred). If evidence is limited, state 'Evidence limited'.",
-    "- In **Shopping Links**, include placeholder URLs or '[Link unavailable]' for each item unless actual links are provided.",
-    "- In **Follow-up Plan**, include concrete cadence (e.g., labs every 6–12 months, recheck after 8–12 weeks).",
-    "- In **Lifestyle Prescriptions**, break down into Nutrition, Sleep, Exercise, Focus, Monitoring subsections with bullet points.",
-    "- In **Longevity Levers**, give 3–4 concise habits that improve lifespan/healthspan.",
-    "- In **This Week Try**, give exactly 1 practical experiment for the next 7 days.",
-    "- In **Self-Tracking Dashboard**, create a Markdown table with columns: Metric | How to Track | Target Range. " +
-      "Do not invent calendar dates. Include metrics: Energy (1–10), Sleep (1–5 stars), Steps/day, Mood, Blood Pressure, Weight.",
+    "- In **Evidence & References**, provide at least one citation per " +
+      "supplement (PubMed link or SR/MA preferred). If evidence is limited, " +
+      "state 'Evidence limited'.",
+    "- In **Shopping Links**, include a placeholder URL or '[Link unavailable]' " +
+      "for each item unless actual links are provided.",
+    "- In **Follow-up Plan**, include concrete cadence (e.g., labs every 6–12 " +
+      "months, recheck after 8–12 weeks).",
+    "- In **Lifestyle Prescriptions**, break down into Nutrition, Sleep, " +
+      "Exercise, Focus, Monitoring subsections with bullet points.",
+    "- In **Longevity Levers**, give 3–4 concise habits that improve " +
+      "lifespan/healthspan.",
+    "- In **This Week Try**, give exactly 1 practical experiment for the " +
+      "next 7 days.",
 
     "",
-    "## Important Constraints",
+    "## Constraints",
     "- ASCII-safe characters only; wrap lines at ~80 chars.",
     "- Return Markdown only in the response body.",
     "- Do not include any private keys or environment values.",
