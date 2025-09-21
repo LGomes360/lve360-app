@@ -1,13 +1,11 @@
 // app/api/export-pdf/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { PDFDocument, rgb } from "pdf-lib";
-import path from "path";
-import fs from "fs";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { remark } from "remark";
 import html from "remark-html";
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const submissionId = searchParams.get("submission_id");
@@ -16,68 +14,55 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Missing submission_id" }, { status: 400 });
     }
 
-    // --- Load stack from DB ---
+    // 1. Fetch stack from Supabase
     const { data, error } = await supabaseAdmin
       .from("stacks")
       .select("sections")
-      .eq("submission_id", submissionId)
+      .or(`submission_id.eq.${submissionId},tally_submission_id.eq.${submissionId}`)
+      .limit(1)
       .single();
 
     if (error) {
-      console.error("Supabase error:", error);
+      console.error("DB error fetching stack:", error);
       return NextResponse.json({ ok: false, error: "DB error fetching stack" }, { status: 500 });
     }
     if (!data) {
       return NextResponse.json({ ok: false, error: "Stack not found" }, { status: 404 });
     }
 
-    const markdown = data.sections?.markdown ?? "## Error\n\nNo content available.";
+    const markdown = data.sections?.markdown ?? "## No content available";
 
-    // --- Convert Markdown → HTML ---
+    // 2. Convert Markdown → HTML
     const processed = await remark().use(html).process(markdown);
-    const htmlContent = String(processed);
+    const htmlContent = processed.toString();
 
-    // --- Initialize PDF ---
+    // 3. Create PDF
     const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([595.28, 841.89]); // A4 size in points
-
-    // Embed Poppins font (must be in /public/fonts)
-    const fontPath = path.join(process.cwd(), "public/fonts/Poppins-Regular.ttf");
-    const fontBytes = fs.readFileSync(fontPath);
-    const customFont = await pdfDoc.embedFont(fontBytes);
-
+    const page = pdfDoc.addPage([612, 792]); // Letter size
     const { height } = page.getSize();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-    // Draw title
-    page.drawText("LVE360 Blueprint", {
-      x: 50,
-      y: height - 80,
-      size: 20,
-      font: customFont,
-      color: rgb(0.02, 0.12, 0.18), // brand dark
-    });
-
-    // Render plain text fallback (quick integration)
-    page.drawText(markdown.slice(0, 2000), {
-      x: 50,
-      y: height - 120,
-      size: 12,
-      font: customFont,
-      lineHeight: 14,
-      color: rgb(0.1, 0.1, 0.1),
-    });
+    // Simple text version (for now); HTML renderer could be added later
+    const text = markdown.replace(/[#*]/g, ""); // Strip Markdown syntax
+    const lines = text.split("\n");
+    let y = height - 50;
+    for (const line of lines) {
+      page.drawText(line, { x: 50, y, size: 12, font, color: rgb(0, 0, 0) });
+      y -= 18;
+      if (y < 50) break; // prevent overflow for now
+    }
 
     const pdfBytes = await pdfDoc.save();
 
-    return new NextResponse(Buffer.from(pdfBytes), {
+    return new NextResponse(pdfBytes, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="LVE360_Blueprint.pdf"`,
+        "Content-Disposition": 'attachment; filename="LVE360_Blueprint.pdf"',
       },
     });
   } catch (err: any) {
-    console.error("PDF export error:", err);
+    console.error("Unhandled error in export-pdf:", err);
     return NextResponse.json({ ok: false, error: "PDF export failed" }, { status: 500 });
   }
 }
