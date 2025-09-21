@@ -156,8 +156,9 @@ function ResultsContent() {
     return {
       summary: extractSection(md, ["Summary"]),
       goals: extractSection(md, ["Goals"]),
-      contra: extractSection(md, ["Contraindications/Med-Interactions", "Contraindications"]),
+      contra: extractSection(md, ["Contraindications & Med Interactions", "Contraindications/Med-Interactions", "Contraindications"]),
       current: extractSection(md, ["Current Stack", "Current Supplements"]),
+      bang: extractSection(md, ["Bang-for-Buck Additions", "Bang for Buck", "Bang-for-Buck"]),
       recommended: extractSection(md, ["Recommended Stack"]),
       dosing: extractSection(md, ["Dosing & Notes", "Notes"]),
       evidence: extractSection(md, ["Evidence & References"]),
@@ -166,7 +167,6 @@ function ResultsContent() {
       lifestyle: extractSection(md, ["Lifestyle Prescriptions"]),
       longevity: extractSection(md, ["Longevity Levers"]),
       try: extractSection(md, ["This Week Try", "Weekly Experiment"]),
-      dashboard: extractSection(md, ["Self-Tracking Dashboard"]),
     };
   }, [markdown]);
 
@@ -206,6 +206,7 @@ function ResultsContent() {
           {sections.goals && <SectionCard title="Goals"><Prose>{sections.goals}</Prose></SectionCard>}
           {sections.contra && <SectionCard title="Contraindications & Med Interactions"><Prose>{sections.contra}</Prose></SectionCard>}
           {sections.current && <SectionCard title="Current Stack"><Prose>{sections.current}</Prose></SectionCard>}
+          {sections.bang && <SectionCard title="Bang-for-Buck Additions"><Prose>{sections.bang}</Prose></SectionCard>}
           {sections.recommended && <SectionCard title="Recommended Stack"><Prose>{sections.recommended}</Prose></SectionCard>}
           {sections.dosing && <SectionCard title="Dosing & Notes"><Prose>{sections.dosing}</Prose></SectionCard>}
           {sections.evidence && <SectionCard title="Evidence & References"><Prose>{sections.evidence}</Prose></SectionCard>}
@@ -214,7 +215,6 @@ function ResultsContent() {
           {sections.lifestyle && <SectionCard title="Lifestyle Prescriptions"><Prose>{sections.lifestyle}</Prose></SectionCard>}
           {sections.longevity && <SectionCard title="Longevity Levers"><Prose>{sections.longevity}</Prose></SectionCard>}
           {sections.try && <SectionCard title="This Week Try"><Prose>{sections.try}</Prose></SectionCard>}
-          {sections.dashboard && <SectionCard title="Self-Tracking Dashboard"><Prose>{sections.dashboard}</Prose></SectionCard>}
 
           {/* Export PDF at bottom */}
           <div className="flex justify-center mt-8">
