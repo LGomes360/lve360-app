@@ -1,19 +1,64 @@
 // app/results/page.tsx
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CTAButton from "@/components/CTAButton";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+/* ----------------------------- helpers ----------------------------- */
 
-// --- Simple card wrapper ---
+// Strip outer code fences like ```markdown ... ``` and trim
+function sanitizeMarkdown(md: string): string {
+  if (!md) return md;
+  let out = md.replace(/^```[a-z]*\n/i, "").replace(/```$/, "");
+  return out.trim();
+}
+
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Find the first section whose heading matches any of the provided variants.
+// Returns the full slice from its "## Heading" line up to (but not including) the next "## ".
+function extractSection(md: string, headingVariants: string[]): string | null {
+  if (!md) return null;
+
+  // Find the earliest heading match among variants
+  let startIdx = -1;
+  let matchedHeading = "";
+  for (const h of headingVariants) {
+    const re = new RegExp(`^##\\s*${escapeRegExp(h)}\\b.*`, "mi");
+    const m = re.exec(md);
+    if (m && (startIdx === -1 || (m.index ?? -1) < startIdx)) {
+      startIdx = m.index;
+      matchedHeading = h;
+    }
+  }
+  if (startIdx === -1) return null;
+
+  // Find the start of the next "## " heading after startIdx
+  const tail = md.slice(startIdx + 1);
+  const next = /\n##\s+/m.exec(tail);
+  const endIdx = next ? startIdx + 1 + next.index : md.length;
+
+  // Ensure the heading label is present; if not, prepend it
+  const slice = md.slice(startIdx, endIdx);
+  return slice.includes(`## ${matchedHeading}`) ? slice : `## ${matchedHeading}\n${slice}`;
+}
+
+// Render markdown inside a styled wrapper to avoid passing className directly to ReactMarkdown
+function Prose({ children }: { children: string }) {
+  return (
+    <div className="prose prose-gray max-w-none">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+    </div>
+  );
+}
+
+/* --------------------------- UI primitives ------------------------- */
+
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
@@ -22,6 +67,8 @@ function SectionCard({ title, children }: { title: string; children: React.React
     </div>
   );
 }
+
+/* ------------------------------ page ------------------------------- */
 
 function ResultsContent() {
   const [loading, setLoading] = useState(false);
@@ -32,7 +79,7 @@ function ResultsContent() {
   const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
 
-  // --- Pre-check existing stack ---
+  // ---- Pre-check: load existing stack if present
   async function fetchStack() {
     if (!tallyId) return;
     try {
@@ -41,20 +88,21 @@ function ResultsContent() {
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
       if (data?.ok && data?.stack) {
-        setMarkdown(
+        const raw =
           data.stack.sections?.markdown ??
-            data.stack.summary ??
-            null
-        );
+          data.stack.summary ??
+          "";
+        setMarkdown(sanitizeMarkdown(raw));
       }
     } catch (err: any) {
-      console.warn("No existing stack found:", err.message);
+      // Soft-fail: show no existing stack message
+      console.warn("No existing stack found:", err?.message ?? err);
     } finally {
       setLoading(false);
     }
   }
 
-  // --- Generate new stack ---
+  // ---- Generate (free)
   async function generateStack() {
     if (!tallyId) {
       setError("Missing submission ID. Please try again from the intake form.");
@@ -63,31 +111,33 @@ function ResultsContent() {
     try {
       setGenerating(true);
       setError(null);
+
       const res = await fetch("/api/generate-stack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tally_submission_id: tallyId }),
       });
       if (!res.ok) throw new Error(`API error ${res.status}`);
+
       const data = await res.json();
       if (data?.ok && data?.stack) {
-        setMarkdown(
+        const raw =
           data.stack.sections?.markdown ??
-            data.ai?.markdown ??
-            data.stack.summary ??
-            null
-        );
+          data.ai?.markdown ??
+          data.stack.summary ??
+          "";
+        setMarkdown(sanitizeMarkdown(raw));
       } else {
         setError(data?.error ?? "No stack returned");
       }
     } catch (err: any) {
-      setError(err.message);
+      setError(err?.message ?? "Unknown error");
     } finally {
       setGenerating(false);
     }
   }
 
-  // --- Export PDF ---
+  // ---- Export PDF
   async function exportPDF() {
     if (!tallyId) {
       setError("Missing submission ID. Please refresh and try again.");
@@ -112,7 +162,35 @@ function ResultsContent() {
 
   useEffect(() => {
     fetchStack();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tallyId]);
+
+  // ---- Section extraction (robust to minor heading variations)
+  const sections = useMemo(() => {
+    const md = markdown ?? "";
+    return {
+      summary: extractSection(md, ["Summary"]),
+      goals: extractSection(md, ["Goals"]),
+      contra: extractSection(md, [
+        "Contraindications/Med-Interactions",
+        "Contraindications & Med-Interactions",
+        "Contraindications",
+        "Medication & Contraindication Review",
+        "Medication & Contraindications",
+      ]),
+      current: extractSection(md, ["Current Stack", "Current Supplements"]),
+      recommended: extractSection(md, [
+        "Recommended Stack",
+        "Full Recommended Stack",
+        "Optimized Plan (AM / PM / Bedtime)",
+        "Busy-Pro Friendly Plan (2 doses/day)",
+      ]),
+      dosing: extractSection(md, ["Dosing & Notes", "Dosing and Notes", "Dosing", "Notes", "Bang-for-Buck Additions (Ranked)"]),
+      evidence: extractSection(md, ["Evidence & References", "References", "Evidence"]),
+      shopping: extractSection(md, ["Shopping Links", "Shopping", "Links"]),
+      follow: extractSection(md, ["Follow-up Plan", "Follow Up Plan", "Follow-up Plan", "Follow-up"]),
+    };
+  }, [markdown]);
 
   return (
     <div className="max-w-4xl mx-auto py-10 px-6 font-sans">
@@ -126,7 +204,7 @@ function ResultsContent() {
         </p>
       </div>
 
-      {/* Action bar */}
+      {/* Actions */}
       <SectionCard title="Actions">
         <div className="flex flex-wrap gap-4 justify-center">
           <CTAButton onClick={generateStack} variant="primary" disabled={generating}>
@@ -150,97 +228,100 @@ function ResultsContent() {
         </div>
       )}
 
-      {/* Report body */}
+      {/* Report sections */}
       {markdown && (
-        <div className="space-y-6">
-          <SectionCard title="Summary">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-gray max-w-none">
-              {markdown.split("## Goals")[0]}
-            </ReactMarkdown>
-          </SectionCard>
+        <div>
+          {sections.summary && (
+            <SectionCard title="Summary">
+              <Prose>{sections.summary}</Prose>
+            </SectionCard>
+          )}
 
-          <SectionCard title="Goals">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-gray max-w-none">
-              {"## Goals" + markdown.split("## Goals")[1].split("## Contra")[0]}
-            </ReactMarkdown>
-          </SectionCard>
+          {sections.goals && (
+            <SectionCard title="Goals">
+              <Prose>{sections.goals}</Prose>
+            </SectionCard>
+          )}
 
-          <SectionCard title="Contraindications & Med Interactions">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-gray max-w-none">
-              {"## Contraindications" + markdown.split("## Contra")[1].split("## Current")[0]}
-            </ReactMarkdown>
-          </SectionCard>
+          {sections.contra && (
+            <SectionCard title="Contraindications & Med Interactions">
+              <Prose>{sections.contra}</Prose>
+            </SectionCard>
+          )}
 
-          <SectionCard title="Current Stack">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-gray max-w-none">
-              {"## Current" + markdown.split("## Current")[1].split("## Recommended")[0]}
-            </ReactMarkdown>
-          </SectionCard>
+          {sections.current && (
+            <SectionCard title="Current Stack">
+              <Prose>{sections.current}</Prose>
+            </SectionCard>
+          )}
 
-          <SectionCard title="Recommended Stack">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-gray max-w-none">
-              {"## Recommended" + markdown.split("## Recommended")[1].split("## Dosing")[0]}
-            </ReactMarkdown>
-          </SectionCard>
+          {sections.recommended && (
+            <SectionCard title="Recommended Stack">
+              <Prose>{sections.recommended}</Prose>
+            </SectionCard>
+          )}
 
-          <SectionCard title="Dosing & Notes">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-gray max-w-none">
-              {"## Dosing" + markdown.split("## Dosing")[1].split("## Evidence")[0]}
-            </ReactMarkdown>
-          </SectionCard>
+          {sections.dosing && (
+            <SectionCard title="Dosing & Notes">
+              <Prose>{sections.dosing}</Prose>
+            </SectionCard>
+          )}
 
-          <SectionCard title="Evidence & References">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-gray max-w-none">
-              {"## Evidence" + markdown.split("## Evidence")[1].split("## Shopping")[0]}
-            </ReactMarkdown>
-          </SectionCard>
+          {sections.evidence && (
+            <SectionCard title="Evidence & References">
+              <Prose>{sections.evidence}</Prose>
+            </SectionCard>
+          )}
 
-          <SectionCard title="Shopping Links">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-gray max-w-none">
-              {"## Shopping" + markdown.split("## Shopping")[1].split("## Follow")[0]}
-            </ReactMarkdown>
-          </SectionCard>
+          {sections.shopping && (
+            <SectionCard title="Shopping Links">
+              <Prose>{sections.shopping}</Prose>
+            </SectionCard>
+          )}
 
-          <SectionCard title="Follow-up Plan">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-gray max-w-none">
-              {"## Follow" + markdown.split("## Follow")[1]}
-            </ReactMarkdown>
-          </SectionCard>
+          {sections.follow && (
+            <SectionCard title="Follow-up Plan">
+              <Prose>{sections.follow}</Prose>
+            </SectionCard>
+          )}
 
-          {/* Extra beautified sections */}
+          {/* Extra beautified, static sections (spec-aligned) */}
           <SectionCard title="Lifestyle Prescriptions">
             <ul className="list-disc pl-6 text-gray-700 space-y-1">
-              <li>Protein: aim 120–150 g/day.</li>
-              <li>Breakfast anchor: 30+ g protein within 2h of waking.</li>
-              <li>Fiber: 25–35 g/day; add chia/flax.</li>
-              <li>Sleep: lights-down 60 min before bed.</li>
-              <li>Exercise: 2–3 strength + 2–3 cardio days/week.</li>
+              <li>Protein: aim 120–150 g/day (palm of protein each meal + shake).</li>
+              <li>Breakfast anchor: 30+ g protein within 2 hours of waking.</li>
+              <li>Fiber: 25–35 g/day; veggies/legumes/chia/flax; add 1 tbsp chia to yogurt or shake.</li>
+              <li>Sleep: lights-down 60 min before bed; cool, dark, quiet room.</li>
+              <li>Exercise: 2–3 strength + 2–3 cardio/steps days per week.</li>
+              <li>After-meal walks: 10 min after dinner for glucose control.</li>
             </ul>
           </SectionCard>
 
           <SectionCard title="Longevity Levers">
             <ul className="list-disc pl-6 text-gray-700 space-y-1">
-              <li>Resistance training 2x/week preserves lean mass.</li>
-              <li>7–8 hrs consistent sleep for repair.</li>
-              <li>120–150 g protein daily supports metabolism.</li>
-              <li>Daily walks improve cardiovascular & brain health.</li>
+              <li>Resistance training 2x/week preserves lean mass and bone density.</li>
+              <li>Prioritize 7–8 hours of consistent sleep for cellular repair.</li>
+              <li>120–150 g protein daily supports metabolism and healthy aging.</li>
+              <li>Add short daily walks to boost cardiovascular and brain health.</li>
             </ul>
           </SectionCard>
 
           <SectionCard title="This Week Try">
-            <p className="text-gray-700">Lights down + screens off 60 minutes before bed for 5 nights. Track sleep quality and morning energy.</p>
+            <p className="text-gray-700">
+              Lights down + screens off 60 minutes before bed for 5 nights. Track sleep quality and next-morning energy.
+            </p>
           </SectionCard>
 
           <SectionCard title="Self-Tracking Dashboard">
             <table className="w-full border border-gray-200 text-sm">
               <thead className="bg-[#06C1A0] text-white">
                 <tr>
-                  <th className="p-2">Metric</th>
-                  <th className="p-2">Target</th>
+                  <th className="p-2 text-left">Metric</th>
+                  <th className="p-2 text-left">Target</th>
                 </tr>
               </thead>
               <tbody>
-                <tr><td className="border p-2">Energy</td><td className="border p-2">1–10 daily</td></tr>
+                <tr><td className="border p-2">Energy</td><td className="border p-2">1–10 (daily)</td></tr>
                 <tr><td className="border p-2">Sleep</td><td className="border p-2">1–5 stars</td></tr>
                 <tr><td className="border p-2">Steps</td><td className="border p-2">7–10k/day</td></tr>
                 <tr><td className="border p-2">Mood</td><td className="border p-2">Emoji/word</td></tr>
