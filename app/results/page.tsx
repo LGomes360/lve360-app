@@ -173,14 +173,16 @@ function ResultsContent() {
         </div>
       )}
 
-      {/* Export button */}
-      {markdown && (
-        <div className="flex justify-center mt-10">
-          <CTAButton onClick={exportPDF} variant="secondary">
-            📄 Export as PDF
-          </CTAButton>
-        </div>
-      )}
+{/* Export button */}
+{markdown && (
+  <div className="flex justify-center mt-10">
+    <CTAButton onClick={exportPDF} variant="secondary">
+      <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm">
+        📄 <span>Export PDF</span>
+      </span>
+    </CTAButton>
+  </div>
+)}
 
       {/* Footer */}
       <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
