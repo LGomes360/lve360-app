@@ -50,7 +50,13 @@ function Prose({ children }: { children: string }) {
 
 /* --------------------------- UI primitives ------------------------- */
 
-function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+function SectionCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
       <h2 className="text-xl font-semibold text-[#06C1A0] mb-4">{title}</h2>
@@ -74,7 +80,9 @@ function ResultsContent() {
     if (!tallyId) return;
     try {
       setLoading(true);
-      const res = await fetch(`/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`);
+      const res = await fetch(
+        `/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`
+      );
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
       if (data?.ok && data?.stack) {
@@ -130,7 +138,9 @@ function ResultsContent() {
       const res = await fetch(`/api/export-pdf?submission_id=${tallyId}`);
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson?.error || `PDF export failed (status ${res.status})`);
+        throw new Error(
+          errJson?.error || `PDF export failed (status ${res.status})`
+        );
       }
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -138,13 +148,14 @@ function ResultsContent() {
       setTimeout(() => window.URL.revokeObjectURL(url), 5000);
     } catch (err: any) {
       console.error("PDF export failed:", err);
-      setError("🚨 PDF export failed. Please try again, or contact support if it persists.");
+      setError(
+        "🚨 PDF export failed. Please try again, or contact support if it persists."
+      );
     }
   }
 
   useEffect(() => {
     fetchStack();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tallyId]);
 
   const sections = useMemo(() => {
@@ -175,7 +186,12 @@ function ResultsContent() {
       ]),
       evidence: extractSection(md, ["Evidence & References", "References", "Evidence"]),
       shopping: extractSection(md, ["Shopping Links", "Shopping", "Links"]),
-      follow: extractSection(md, ["Follow-up Plan", "Follow Up Plan", "Follow-up Plan", "Follow-up"]),
+      follow: extractSection(md, [
+        "Follow-up Plan",
+        "Follow Up Plan",
+        "Follow-up Plan",
+        "Follow-up",
+      ]),
     };
   }, [markdown]);
 
@@ -194,7 +210,11 @@ function ResultsContent() {
       {/* Actions */}
       <SectionCard title="Actions">
         <div className="flex flex-wrap gap-4 justify-center">
-          <CTAButton onClick={generateStack} variant="gradient" disabled={generating}>
+          <CTAButton
+            onClick={generateStack}
+            variant="gradient"
+            disabled={generating}
+          >
             {generating ? "🤖 Generating..." : "✨ Generate Free Report"}
           </CTAButton>
           <CTAButton href="/pricing" variant="premium">
@@ -208,7 +228,8 @@ function ResultsContent() {
       {!markdown && !error && !loading && (
         <div className="text-center text-gray-600 mb-6">
           🤖 Your Blueprint isn’t ready yet. Click{" "}
-          <span className="font-semibold">Generate Free Report</span> to let our AI get to work!
+          <span className="font-semibold">Generate Free Report</span> to let our
+          AI get to work!
         </div>
       )}
 
@@ -264,27 +285,45 @@ function ResultsContent() {
           {/* Static sections */}
           <SectionCard title="Lifestyle Prescriptions">
             <ul className="list-disc pl-6 text-gray-700 space-y-1">
-              <li>Protein: aim 120–150 g/day (palm of protein each meal + shake).</li>
+              <li>
+                Protein: aim 120–150 g/day (palm of protein each meal + shake).
+              </li>
               <li>Breakfast anchor: 30+ g protein within 2 hours of waking.</li>
-              <li>Fiber: 25–35 g/day; veggies/legumes/chia/flax; add 1 tbsp chia to yogurt or shake.</li>
-              <li>Sleep: lights-down 60 min before bed; cool, dark, quiet room.</li>
-              <li>Exercise: 2–3 strength + 2–3 cardio/steps days per week.</li>
+              <li>
+                Fiber: 25–35 g/day; veggies/legumes/chia/flax; add 1 tbsp chia
+                to yogurt or shake.
+              </li>
+              <li>
+                Sleep: lights-down 60 min before bed; cool, dark, quiet room.
+              </li>
+              <li>
+                Exercise: 2–3 strength + 2–3 cardio/steps days per week.
+              </li>
               <li>After-meal walks: 10 min after dinner for glucose control.</li>
             </ul>
           </SectionCard>
 
           <SectionCard title="Longevity Levers">
             <ul className="list-disc pl-6 text-gray-700 space-y-1">
-              <li>Resistance training 2x/week preserves lean mass and bone density.</li>
-              <li>Prioritize 7–8 hours of consistent sleep for cellular repair.</li>
-              <li>120–150 g protein daily supports metabolism and healthy aging.</li>
-              <li>Add short daily walks to boost cardiovascular and brain health.</li>
+              <li>
+                Resistance training 2x/week preserves lean mass and bone density.
+              </li>
+              <li>
+                Prioritize 7–8 hours of consistent sleep for cellular repair.
+              </li>
+              <li>
+                120–150 g protein daily supports metabolism and healthy aging.
+              </li>
+              <li>
+                Add short daily walks to boost cardiovascular and brain health.
+              </li>
             </ul>
           </SectionCard>
 
           <SectionCard title="This Week Try">
             <p className="text-gray-700">
-              Lights down + screens off 60 minutes before bed for 5 nights. Track sleep quality and next-morning energy.
+              Lights down + screens off 60 minutes before bed for 5 nights.
+              Track sleep quality and next-morning energy.
             </p>
           </SectionCard>
 
@@ -297,77 +336,109 @@ function ResultsContent() {
                 </tr>
               </thead>
               <tbody>
-                <tr><td className="border p-2">Energy</td><td className="border p-2">1–10 (daily)</td></tr>
-                <tr><td className="border p-2">Sleep</td><td className="border p-2">1–5 stars</td></tr>
-                <tr><td className="border p-2">Steps</td><td className="border p-2">7–10k/day</td></tr>
-                <tr><td className="border p-2">Mood</td><td className="border p-2">Emoji/word</td></tr>
-                <tr><td className="border p-2">Blood Pressure</td><td className="border p-2">3x/week</td></tr>
+                <tr>
+                  <td className="border p-2">Energy</td>
+                  <td className="border p-2">1–10 (daily)</td>
+                </tr>
+                <tr>
+                  <td className="border p-2">Sleep</td>
+                  <td className="border p-2">1–5 stars</td>
+                </tr>
+                <tr>
+                  <td className="border p-2">Steps</td>
+                  <td className="border p-2">7–10k/day</td>
+                </tr>
+                <tr>
+                  <td className="border p-2">Mood</td>
+                  <td className="border p-2">Emoji/word</td>
+                </tr>
+                <tr>
+                  <td className="border p-2">Blood Pressure</td>
+                  <td className="border p-2">3x/week</td>
+                </tr>
               </tbody>
             </table>
           </SectionCard>
 
           {/* Export PDF at bottom */}
-          <div className="flex justify-center mt-10">
-            <CTAButton onClick={exportPDF} variant="subtle" iconOnly aria-label="Export PDF">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                className="w-9 h-9 transition-transform transform hover:scale-110"
+          <div className="flex justify-center mt-8">
+            <div className="relative group">
+              <button
+                onClick={exportPDF}
+                aria-label="Export PDF"
+                className="w-10 h-10 flex items-center justify-center rounded-md border border-gray-300 bg-white shadow-sm hover:shadow-md transition"
               >
-                {/* Document outline */}
-                <rect
-                  x="2"
-                  y="2"
-                  width="20"
-                  height="20"
-                  rx="2"
-                  ry="2"
-                  fill="white"
-                  stroke="#041B2D"
-                  strokeWidth="1.5"
-                />
-                {/* PDF badge */}
-                <rect
-                  x="6"
-                  y="14"
-                  width="12"
-                  height="6"
-                  rx="2"
-                  fill="#E63946"
-                  className="transition-colors hover:fill-red-600"
-                />
-                <text
-                  x="12"
-                  y="18"
-                  textAnchor="middle"
-                  fontSize="7"
-                  fontWeight="bold"
-                  fill="white"
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  className="w-6 h-6 transition-transform transform hover:scale-110"
                 >
-                  PDF
-                </text>
-                {/* Teal arrow */}
-                <path
-                  d="M12 6v5m0 0l-2-2m2 2l2-2"
-                  stroke="#06C1A0"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="transition-colors hover:stroke-emerald-500"
-                />
-              </svg>
-            </CTAButton>
+                  <rect
+                    x="2"
+                    y="2"
+                    width="20"
+                    height="20"
+                    rx="2"
+                    ry="2"
+                    fill="white"
+                    stroke="#041B2D"
+                    strokeWidth="1.5"
+                  />
+                  <rect
+                    x="6"
+                    y="14"
+                    width="12"
+                    height="6"
+                    rx="2"
+                    fill="#E63946"
+                    className="transition-colors group-hover:fill-red-600"
+                  />
+                  <text
+                    x="12"
+                    y="18"
+                    textAnchor="middle"
+                    fontSize="7"
+                    fontWeight="bold"
+                    fill="white"
+                  >
+                    PDF
+                  </text>
+                  <path
+                    d="M12 6v5m0 0l-2-2m2 2l2-2"
+                    stroke="#06C1A0"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="transition-colors group-hover:stroke-emerald-500"
+                  />
+                </svg>
+              </button>
+              {/* Tooltip */}
+              <div
+                className="absolute -top-9 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100
+                           bg-gray-800 text-white text-xs px-2 py-1 rounded shadow-md transition-opacity"
+              >
+                Export PDF
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {/* Footer */}
       <footer className="mt-12 pt-6 border-t text-center text-sm text-gray-500">
-        Longevity • Vitality • Energy — <span className="font-semibold">LVE360</span> © 2025
+        Longevity • Vitality • Energy —{" "}
+        <span className="font-semibold">LVE360</span> © 2025
         <div className="mt-2 space-x-4">
-          <a href="/terms" className="hover:underline">Terms</a>
-          <a href="/privacy" className="hover:underline">Privacy</a>
-          <a href="/contact" className="hover:underline">Contact</a>
+          <a href="/terms" className="hover:underline">
+            Terms
+          </a>
+          <a href="/privacy" className="hover:underline">
+            Privacy
+          </a>
+          <a href="/contact" className="hover:underline">
+            Contact
+          </a>
         </div>
       </footer>
     </div>
