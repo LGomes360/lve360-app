@@ -39,7 +39,7 @@ function calculateAge(dob: string | null): number | null {
   if (!dob) return null;
   const birthDate = new Date(dob);
   if (isNaN(birthDate.getTime())) return null;
-  const today = new Date();
+  const today = new Date("2025-09-21"); // lock to current context
   let age = today.getFullYear() - birthDate.getFullYear();
   const m = today.getMonth() - birthDate.getMonth();
   if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
@@ -55,9 +55,7 @@ function buildPrompt(sub: SubmissionWithChildren) {
     "# LVE360 Strict Report Request",
 
     "Please generate a Markdown report with **exactly 13 sections**, in the " +
-      "order listed below. Do not omit any section, even if minimal. " +
-      "Use the provided submission JSON as the only source of truth. " +
-      "If information is missing, explicitly state it. Do not hallucinate.",
+      "order listed below. Do not omit any section. If you omit one, the report is invalid.",
 
     "## Sections (strict order)",
     [
@@ -79,13 +77,14 @@ function buildPrompt(sub: SubmissionWithChildren) {
     "",
     "## Formatting & Content Rules",
     "- Each section must start with a level-2 heading (##).",
-    "- In **Summary**, include: Name, Sex, Date of Birth, computed Age, Height, " +
-      "Weight, Email.",
+    "- In **Summary**, you MUST display both Date of Birth and Age. " +
+      "Always trust the `age` field provided in JSON. Do not recalc age yourself.",
     "- In **Contraindications & Med Interactions**, output a **table** with " +
       "columns: Medication | Concern | Guardrail.",
-    "- In **Bang-for-Buck Additions**, output a ranked list (Rank | Supplement | Why it matters). " +
-      "Focus on top 3–5 items with the greatest ROI toward user goals.",
-    "- In **Recommended Stack**, include all core and bang-for-buck items. " +
+    "- In **Bang-for-Buck Additions**, output a **Markdown table** with at least 3 ranked items. " +
+      "Columns: Rank | Supplement | Why it matters. " +
+      "If you omit this section, the report is invalid.",
+    "- In **Recommended Stack**, include ALL Bang-for-Buck items (mark them clearly, e.g., '(Bang-for-Buck)'). " +
       "Output as a **Markdown table** with columns: Supplement | Dose | Timing | Notes.",
     "- In **Dosing & Notes**, include medications + hormones with timing/notes.",
     "- In **Evidence & References**, provide at least one citation per " +
