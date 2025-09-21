@@ -15,19 +15,15 @@ function sanitizeMarkdown(md: string): string {
   return out.trim();
 }
 
-/** Normalize whitespace so header detection is reliable across PDFs/LLM quirks */
+/** Normalize whitespace so header detection is reliable */
 function normalize(md: string): string {
   return (md || "")
-    .replace(/\r\n?/g, "\n")                 // CRLF/CR -> LF
-    .replace(/[\u00A0\u2000-\u200B]/g, " ")  // NBSP & thin spaces -> space
-    .replace(/[ \t]+\n/g, "\n");             // strip trailing spaces before newline
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u00A0\u2000-\u200B]/g, " ")
+    .replace(/[ \t]+\n/g, "\n");
 }
 
-/** Robust section extractor:
- *  1) Build an index of all level-2 headings
- *  2) Find the requested heading by normalized text
- *  3) Slice from its start to the next heading start
- */
+/** Robust section extractor */
 function extractSection(md: string, headingVariants: string[]): string | null {
   if (!md) return null;
   const text = normalize(md);
@@ -166,13 +162,14 @@ function ResultsContent() {
     return {
       summary: extractSection(md, ["Summary"]),
       goals: extractSection(md, ["Goals"]),
-      contra: extractSection(md, [
-        "Contraindications & Med Interactions",
-        "Contraindications",
-      ]),
+      contra: extractSection(md, ["Contraindications & Med Interactions", "Contraindications"]),
       current: extractSection(md, ["Current Stack", "Current Supplements"]),
-      // Strict to the enforced LLM header
-      blueprintRecs: extractSection(md, ["Your Blueprint Recommendations"]),
+      blueprintRecs: extractSection(md, [
+        "Your Blueprint Recommendations",
+        "Blueprint Recommendations",
+        "Your Recommendations",
+        "Blueprint Recs",
+      ]),
       recommended: extractSection(md, ["Recommended Stack"]),
       dosing: extractSection(md, ["Dosing & Notes", "Notes"]),
       evidence: extractSection(md, ["Evidence & References"]),
@@ -248,9 +245,7 @@ function ResultsContent() {
             {sections.blueprintRecs ? (
               <Prose>{sections.blueprintRecs}</Prose>
             ) : (
-              <p className="text-gray-500">
-                No Blueprint Recommendations were generated.
-              </p>
+              <p className="text-gray-500">No Blueprint Recommendations were generated.</p>
             )}
           </SectionCard>
 
