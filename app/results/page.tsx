@@ -22,6 +22,7 @@ function extractSection(md: string, headingVariants: string[]): string | null {
   if (!md) return null;
   let startIdx = -1;
   let matchedHeading = "";
+
   for (const h of headingVariants) {
     const re = new RegExp(`^##\\s*${escapeRegExp(h)}\\b.*`, "mi");
     const m = re.exec(md);
@@ -30,14 +31,18 @@ function extractSection(md: string, headingVariants: string[]): string | null {
       matchedHeading = h;
     }
   }
+
   if (startIdx === -1) return null;
+
   const tail = md.slice(startIdx + 1);
   const next = /\n##\s+/m.exec(tail);
   const endIdx = next ? startIdx + 1 + next.index : md.length;
-  const slice = md.slice(startIdx, endIdx);
-  return slice.includes(`## ${matchedHeading}`)
-    ? slice
-    : `## ${matchedHeading}\n${slice}`;
+  let slice = md.slice(startIdx, endIdx);
+
+  // 🚀 Strip the leading "## Heading" line so it doesn’t duplicate SectionCard title
+  slice = slice.replace(/^##\s*[^\n]+\n?/, "");
+
+  return slice.trim();
 }
 
 function Prose({ children }: { children: string }) {
