@@ -1,4 +1,3 @@
-// app/results/page.tsx
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -207,13 +206,19 @@ function ResultsContent() {
       {/* Actions */}
       <SectionCard title="Actions">
         <div className="flex flex-wrap gap-4 justify-center">
-          <CTAButton onClick={generateStack} variant="primary" disabled={generating}>
+          <CTAButton
+            onClick={generateStack}
+            variant="gradient"
+            disabled={generating}
+          >
             {generating ? "🤖 Generating..." : "✨ Generate Free Report"}
           </CTAButton>
+
           <CTAButton href="/pricing" variant="premium">
             👑 Upgrade to Premium
           </CTAButton>
-          <CTAButton onClick={exportPDF} variant="secondary">
+
+          <CTAButton onClick={exportPDF} variant="subtle" size="sm">
             📄 Export PDF
           </CTAButton>
         </div>
