@@ -1,34 +1,42 @@
 // app/api/export-pdf/route.ts
 // -----------------------------------------------------------------------------
-// GET /api/export-pdf?submission_id=<uuid or tallyId>
-// Generates a simple branded PDF for the given stack.
+// GET /api/export-pdf?submission_id=UUID_OR_TALLYID
+// Generates a simple PDF from a saved stack (Markdown + summary).
 // -----------------------------------------------------------------------------
+
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
+export const runtime = "nodejs";
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const submissionId =
-      searchParams.get("submission_id") ||
-      searchParams.get("tally_submission_id");
+    const submissionId = searchParams.get("submission_id");
 
     if (!submissionId) {
       return NextResponse.json(
-        { ok: false, error: "submission_id is required" },
+        { ok: false, error: "Missing submission_id" },
         { status: 400 }
       );
     }
 
-    // --- Fetch stack ---
-    const { data: stackRow, error: stackErr } = await supabaseAdmin
-      .from("stacks")
-      .select("*")
-      .or(
-        `submission_id.eq.${submissionId},tally_submission_id.eq.${submissionId}`
-      )
-      .maybeSingle();
+    // --- Fetch stack with conditional query ---
+    let query = supabaseAdmin.from("stacks").select("*").limit(1);
+
+    const isUUID =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        submissionId
+      );
+
+    if (isUUID) {
+      query = query.eq("submission_id", submissionId);
+    } else {
+      query = query.eq("tally_submission_id", submissionId);
+    }
+
+    const { data: stackRow, error: stackErr } = await query.maybeSingle();
 
     if (stackErr) {
       console.error("DB error fetching stack:", stackErr);
@@ -47,68 +55,77 @@ export async function GET(req: Request) {
 
     // --- Create PDF ---
     const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([612, 792]); // Letter size
-    const { height } = page.getSize();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const page = pdfDoc.addPage([612, 792]); // US Letter
+    const { height } = page.getSize();
 
-    // Header
-    page.drawText("LVE360 Blueprint", {
-      x: 50,
-      y: height - 50,
-      size: 22,
-      font: fontBold,
-      color: rgb(0.02, 0.11, 0.18), // brand.dark
-    });
+    const fontSize = 12;
+    const margin = 50;
 
-    // Subheader
-    page.drawText("Longevity • Vitality • Energy", {
-      x: 50,
-      y: height - 80,
-      size: 12,
-      font,
-      color: rgb(0.0, 0.76, 0.63), // brand teal
-    });
+    // --- Helper: wrap text ---
+    function drawWrappedText(text: string, yStart: number) {
+      const words = text.split(/\s+/);
+      const lines: string[] = [];
+      let currentLine = "";
 
-    // Body (Markdown summary fallback)
-    const summary = stackRow?.sections?.markdown || stackRow?.summary || "";
-    const lines = summary.split("\n").slice(0, 40); // Limit for first pass
-    let cursorY = height - 120;
-    for (const line of lines) {
-      page.drawText(line, {
-        x: 50,
-        y: cursorY,
-        size: 10,
-        font,
-        color: rgb(0, 0, 0),
-      });
-      cursorY -= 14;
-      if (cursorY < 50) break; // simple cutoff
+      for (const word of words) {
+        const testLine = currentLine ? currentLine + " " + word : word;
+        const width = font.widthOfTextAtSize(testLine, fontSize);
+        if (width > page.getWidth() - margin * 2) {
+          lines.push(currentLine);
+          currentLine = word;
+        } else {
+          currentLine = testLine;
+        }
+      }
+      if (currentLine) lines.push(currentLine);
+
+      let y = yStart;
+      for (const line of lines) {
+        page.drawText(line, {
+          x: margin,
+          y,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+        });
+        y -= fontSize + 4;
+      }
+      return y;
     }
 
-    // Footer
-    page.drawText("© 2025 LVE360 — All Rights Reserved", {
-      x: 50,
-      y: 30,
-      size: 8,
+    // --- Document Content ---
+    let cursorY = height - margin;
+    page.drawText("LVE360 Blueprint", {
+      x: margin,
+      y: cursorY,
+      size: 18,
       font,
-      color: rgb(0.4, 0.4, 0.4),
+      color: rgb(0, 0.6, 0.5),
     });
+    cursorY -= 30;
+
+    cursorY = drawWrappedText(
+      stackRow.sections?.markdown ??
+        stackRow.summary ??
+        "No report content available.",
+      cursorY
+    );
 
     const pdfBytes = await pdfDoc.save();
-    const pdfBuffer = Buffer.from(pdfBytes); // ✅ FIX
 
-    return new NextResponse(pdfBuffer, {
+    // --- Return PDF Response ---
+    return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": "inline; filename=LVE360_Blueprint.pdf",
+        "Content-Disposition": `inline; filename="LVE360_Blueprint.pdf"`,
       },
     });
   } catch (err: any) {
-    console.error("PDF export fatal error:", err);
+    console.error("Unhandled error in export-pdf:", err);
     return NextResponse.json(
-      { ok: false, error: String(err?.message ?? err) },
+      { ok: false, error: "Unhandled error generating PDF" },
       { status: 500 }
     );
   }
