@@ -1,3 +1,4 @@
+// src/components/CTAButton.tsx
 "use client";
 
 import React from "react";
@@ -49,7 +50,7 @@ export default function CTAButton({
     concierge:
       "bg-black text-[#D4AF37] border border-[#D4AF37] hover:bg-[#D4AF37] hover:text-black shadow-md",
     premium:
-      "bg-[#041B2D] text-[#FFD700] border border-[#FFD700] hover:bg-[#FFD700] hover:text-[#041B2D] shadow-md",
+      "bg-gradient-to-r from-purple-600 to-indigo-800 text-white shadow-md hover:opacity-90",
     gradient:
       "bg-gradient-to-r from-[#06C1A0] to-emerald-500 text-white shadow-md hover:opacity-90",
     subtle:
