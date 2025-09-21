@@ -1,13 +1,30 @@
 // src/lib/generateStack.ts
-// Generate a supplement "stack" (Markdown) for a submission using OpenAI.
-// - Lazy-inits OpenAI at runtime to avoid throwing at build-time.
-// - Uses getSubmissionWithChildren to load the submission and children.
-// - Returns { markdown, raw } where raw is the OpenAI response object.
+// Generate a supplement "stack" report (Markdown with 13 strict sections)
+// for a submission using OpenAI.
+//
+// - Lazy-inits OpenAI client at runtime to avoid build-time errors.
+// - Uses getSubmissionWithChildren to load submission + child rows.
+// - Saves output in stacks.sections.markdown via /api/generate-stack.
+//
+// Contract: ALWAYS 13 sections in this exact order.
+//   ## Summary
+//   ## Goals
+//   ## Contraindications & Med Interactions
+//   ## Current Stack
+//   ## Recommended Stack
+//   ## Dosing & Notes
+//   ## Evidence & References
+//   ## Shopping Links
+//   ## Follow-up Plan
+//   ## Lifestyle Prescriptions
+//   ## Longevity Levers
+//   ## This Week Try
+//   ## Self-Tracking Dashboard
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 
-const MAX_PROMPT_CHARS = 28_000; // keep prompt comfortably under model input limits
+const MAX_PROMPT_CHARS = 28_000;
 
 function safeStringify(obj: any) {
   try {
@@ -19,11 +36,43 @@ function safeStringify(obj: any) {
 
 function buildPrompt(sub: SubmissionWithChildren) {
   const parts = [
-    "# LVE360 Stack Generation Request",
-    "Please return a single Markdown-formatted supplement stack with exactly 9 sections. Sections should be labeled and in this order:",
-    "1) Summary\n2) Goals\n3) Contraindications/Med-Interactions\n4) Current Stack\n5) Recommended Stack (AM/PM/Bedtime)\n6) Dosing & Notes\n7) Evidence & References\n8) Shopping Links\n9) Follow-up Plan",
+    "# LVE360 Personalized Stack Report Request",
+
+    "Please generate a Markdown report with **exactly 13 sections**. " +
+      "Each section must appear, even if content is minimal. " +
+      "Use the submission JSON below as the only source of truth. " +
+      "If information is missing, explicitly state that. Do not hallucinate data.",
+
+    "## Output Format (Markdown, strict headers)",
+    "Each section must start with a level-2 heading (##). " +
+      "The sections, in order, are:",
+
+    [
+      "1. ## Summary",
+      "2. ## Goals",
+      "3. ## Contraindications & Med Interactions",
+      "4. ## Current Stack",
+      "5. ## Recommended Stack",
+      "6. ## Dosing & Notes",
+      "7. ## Evidence & References",
+      "8. ## Shopping Links",
+      "9. ## Follow-up Plan",
+      "10. ## Lifestyle Prescriptions",
+      "11. ## Longevity Levers",
+      "12. ## This Week Try",
+      "13. ## Self-Tracking Dashboard",
+    ].join("\n"),
+
     "",
-    "Use the submission below as the ONLY source of truth. Do NOT hallucinate additional conditions or medications. If data is missing, explicitly note it.",
+    "Important formatting rules:",
+    "- Return **Markdown only** in the response body.",
+    "- ASCII-safe characters only; wrap lines at ~80 chars.",
+    "- Each section must have at least 1–2 sentences or a table/list.",
+    "- In 'Recommended Stack', output a Markdown table with columns: " +
+      "`Supplement | Dose | Timing | Notes`.",
+    "- In 'Self-Tracking Dashboard', output a Markdown table with columns: " +
+      "`Date | Energy (1-10) | Sleep (1-10) | Weight | Notes` with 3 sample rows.",
+
     "",
     "Submission (JSON):",
     "```json",
@@ -31,8 +80,11 @@ function buildPrompt(sub: SubmissionWithChildren) {
       submission: {
         id: sub.id,
         name: (sub as any).name ?? null,
-        age: (sub as any).age ?? null,
         sex: (sub as any).sex ?? null,
+        dob: (sub as any).dob ?? null,
+        weight: (sub as any).weight ?? null,
+        height: (sub as any).height ?? null,
+        goals: (sub as any).goals ?? null,
         answers: (sub as any).answers ?? null,
       },
       medications: sub.medications ?? [],
@@ -40,17 +92,7 @@ function buildPrompt(sub: SubmissionWithChildren) {
       hormones: sub.hormones ?? [],
     }),
     "```",
-    "",
-    "Important constraints:",
-    "- Return Markdown only in the response body.",
-    "- Use ASCII-safe characters and strict line wrapping ~80 chars max.",
-    "- Do NOT include any private keys or environment values.",
-    "",
-    "Output rules:",
-    "- Exactly 9 sections as listed above.",
-    "- Each section must have a short header (like \"## Summary\") and 2-6 bullet points where appropriate.",
-    "",
-    "Produce the recommended stack in a table where columns are: Supplement | Dose | Timing | Notes",
+
     "",
     "End of instructions.",
   ];
@@ -78,7 +120,6 @@ export async function generateStackForSubmission(submissionId: string) {
   let openai: any = null;
   try {
     const localMod: any = await import("./openai").catch(() => null);
-
     if (localMod) {
       if (typeof localMod.getOpenAiClient === "function") {
         openai = localMod.getOpenAiClient();
@@ -92,7 +133,6 @@ export async function generateStackForSubmission(submissionId: string) {
             : Def;
       }
     }
-
     if (!openai) {
       const OpenAIMod: any = await import("openai");
       const OpenAIDef = OpenAIMod?.default ?? OpenAIMod;
@@ -101,19 +141,18 @@ export async function generateStackForSubmission(submissionId: string) {
           ? new OpenAIDef({ apiKey: process.env.OPENAI_API_KEY })
           : OpenAIDef;
     }
-
     if (!openai) throw new Error("OpenAI initialization failed");
   } catch (e: any) {
     throw new Error(`OpenAI init failed: ${String(e?.message ?? e)}`);
   }
 
-  // 4) Call OpenAI response API
+  // 4) Call OpenAI
   const response = await openai.responses.create({
     model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
     input: prompt,
   });
 
-  // 5) Extract primary text output
+  // 5) Extract Markdown
   let markdown = "";
   try {
     const outputs = (response as any).output;
@@ -123,9 +162,7 @@ export async function generateStackForSubmission(submissionId: string) {
       else if (first?.content) {
         if (Array.isArray(first.content)) {
           markdown = first.content
-            .map(
-              (c: any) => c.text ?? c.parts?.join?.("") ?? ""
-            )
+            .map((c: any) => c.text ?? c.parts?.join?.("") ?? "")
             .join("\n");
         } else if (typeof first.content === "string") {
           markdown = first.content;
@@ -142,12 +179,12 @@ export async function generateStackForSubmission(submissionId: string) {
     markdown = safeStringify(response);
   }
 
-  // ✅ Fallback for user-facing clarity
+  // 6) Fallback
   if (!markdown || markdown.trim().length === 0) {
     markdown = `## Report Unavailable
 
-Sorry — our AI assistant couldn’t generate your blueprint this time.  
-Please [contact support](https://lve360.com/helpdesk) and share your submission ID so we can help.`;
+Sorry — our AI assistant couldn’t generate your report this time.  
+Please [contact support](https://lve360.com/helpdesk) and share your submission ID.`;
   }
 
   return { markdown, raw: response };
