@@ -1,11 +1,13 @@
 /* eslint-disable @typescript-eslint/consistent-type-imports */
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
-const TODAY = "2025-09-21";
-const MIN_WORDS = 1600;
-const MIN_BP_ROWS = 10;
 
-function age(dob: string | null) {
+const TODAY        = "2025-09-21";
+const MIN_WORDS    = 1600;
+const MIN_BP_ROWS  = 10;
+
+/* ---------- helpers ---------- */
+function calcAge(dob: string | null) {
   if (!dob) return null;
   const d = new Date(dob), t = new Date(TODAY);
   let a = t.getFullYear() - d.getFullYear();
@@ -13,14 +15,16 @@ function age(dob: string | null) {
   return a;
 }
 
+/* ---------- prompt builders ---------- */
 function systemPrompt() {
   return `You are **LVE360 Concierge AI**.
-Return Markdown only, with headings exactly:
+
+Return **Markdown only** with headings exactly:
 ## Summary
 ## Goals
 ## Contraindications & Med Interactions
 ## Current Stack
-## High-Impact “Bang-for-Buck” Additions   ← ≥10 ranked rows
+## High-Impact “Bang-for-Buck” Additions
 ## Recommended Stack
 ## Dosing & Notes
 ## Evidence & References
@@ -31,87 +35,121 @@ Return Markdown only, with headings exactly:
 ## This Week Try
 ## END
 
-Rules
-• ≥${MIN_WORDS} words total or regenerate.
-• Every supplement (sections 5-7) has ≥1 citation inline like 【PMID 123456†10-12】.
-• In **Recommended Stack** mark any item already in Current Stack with *(already using)*.
-• Finish with a line containing only "## END".`;
+Quality rules
+• ≥${MIN_WORDS} words total or regenerate.  
+• “High-Impact” must be a Markdown table **Rank | Supplement | Why it matters** with **≥${MIN_BP_ROWS} rows**.  
+• Every supplement (sections 5-7) needs ≥1 inline citation that contains a **clickable PubMed or DOI URL**, e.g. https://pubmed.ncbi.nlm.nih.gov/12345678/  
+• In *Recommended Stack* mark items already in *Current Stack* with **(already using)**.  
+• Finish with a line containing only \`## END\`.`;
 }
 
-function userPrompt(s: SubmissionWithChildren) {
+function userPrompt(sub: SubmissionWithChildren) {
   return `
 ### CLIENT PROFILE
-${JSON.stringify({ ...s, age: age((s as any).dob ?? null), today: TODAY }, null, 2)}
+\`\`\`json
+${JSON.stringify({ ...sub, age: calcAge((sub as any).dob ?? null), today: TODAY }, null, 2)}
+\`\`\`
 
 ### TASK
 Write the full report following the headings above.`;
 }
 
-async function callOpenAI(messagePairs: any[]) {
+/* ---------- OpenAI call ---------- */
+async function callLLM(messages: any[]) {
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
   return openai.chat.completions.create({
     model: process.env.OPENAI_MODEL ?? "gpt-4o",
     temperature: 0.8,
     max_tokens: 4096,
-    messages: messagePairs,
+    messages,
   });
 }
 
-/* ------- post-gen guards ------- */
-function hasBlueprint(md: string) {
+/* ---------- post-gen guards ---------- */
+const hasBlueprint = (md: string) => {
   const m = md.match(/## High-Impact[\s\S]*?\n\|/i);
   if (!m) return false;
-  const rows = m[0].split("\n").filter(r => r.startsWith("|"));
-  return rows.length >= MIN_BP_ROWS + 1; // +1 header row
-}
-function wordCount(md: string) {
-  return md.split(/\s+/).length;
-}
-function forceEnd(md: string) {
-  return md.includes("## END") ? md : md + "\n\n## END";
-}
-function salvageBlueprint(md: string) {
-  const recBlock = md.match(/## Recommended Stack([\s\S]*?)(\n## |$)/i);
-  if (!recBlock) return md;
-  const rows = recBlock[1]
+  const rows = m[0].split("\n").filter(l => l.startsWith("|"));
+  return rows.length >= MIN_BP_ROWS + 1; // +1 header
+};
+
+const wordCount = (md: string) => md.split(/\s+/).length;
+
+const ensureEnd = (md: string) => (md.includes("## END") ? md : md + "\n\n## END");
+
+/* build fallback table from Recommended Stack (table **or** bullets) */
+function fallbackBlueprint(md: string) {
+  const block = md.match(/## Recommended Stack([\s\S]*?)(\n## |\n## END|$)/i);
+  if (!block) return null;
+
+  const lines = block[1]
     .split("\n")
-    .filter(l => l.startsWith("|"))
+    .map(l => l.trim())
+    .filter(Boolean)
+    .filter(l => l.startsWith("|") || l.startsWith("-") || /^\d+\./.test(l))
     .slice(0, MIN_BP_ROWS);
-  if (!rows.length) return md;
-  const table = [
+
+  if (!lines.length) return null;
+
+  const rows = lines.map((l, i) => {
+    // strip table pipes or list markers
+    const clean = l
+      .replace(/^\|/,"")
+      .replace(/^\d+\.\s*/,"")
+      .replace(/^-+\s*/,"")
+      .split("|")[0]
+      .trim();
+    return `| ${i + 1} | ${clean} | Auto-generated placeholder |`;
+  });
+
+  return [
+    "## High-Impact “Bang-for-Buck” Additions",
+    "",
     "| Rank | Supplement | Why it matters |",
     "| ---- | ---------- | -------------- |",
-    ...rows.map((r, i) => r.replace(/^(\|[^|]*\|)/, `| ${i + 1} |`)),
+    ...rows,
+    ""
   ].join("\n");
-  return md.replace(
-    "## Recommended Stack",
-    "## High-Impact “Bang-for-Buck” Additions\n\n" + table + "\n\n## Recommended Stack"
-  );
 }
 
-export async function generateStackForSubmission(submissionId: string) {
-  if (!submissionId) throw new Error("submissionId required");
-  const sub = await getSubmissionWithChildren(submissionId);
+/* enforce word-count, blueprint, END sentinel */
+function enforceGuards(md: string) {
+  if (wordCount(md) < MIN_WORDS)
+    md += `\n\n<!-- TOO SHORT – regenerate with ≥${MIN_WORDS} words -->`;
 
-  const messages = [
-    { role: "system" as const, content: systemPrompt() },
-    { role: "user" as const, content: userPrompt(sub) },
-  ];
-
-  /* --- first attempt --- */
-  let rsp = await callOpenAI(messages);
-  let md = rsp.choices[0]?.message?.content ?? "";
-
-  /* --- retry once if guards fail --- */
-  if (wordCount(md) < MIN_WORDS || !hasBlueprint(md)) {
-    rsp = await callOpenAI(messages);
-    md = rsp.choices[0]?.message?.content ?? "";
+  if (!hasBlueprint(md)) {
+    const bp = fallbackBlueprint(md);
+    if (bp) md = md.replace(/## High-Impact[\s\S]*?(?=\n## |\n## END|$)/i, bp);
+    else if (!md.includes("## High-Impact"))
+      md = md.replace("## Recommended Stack", bp! + "\n\n## Recommended Stack");
   }
 
-  /* --- final guardrail patch --- */
-  if (!hasBlueprint(md)) md = salvageBlueprint(md);
-  md = forceEnd(md);
+  return ensureEnd(md);
+}
+
+/* ---------- main export ---------- */
+export async function generateStackForSubmission(submissionId: string) {
+  if (!submissionId) throw new Error("submissionId required");
+
+  const sub = await getSubmissionWithChildren(submissionId);
+
+  const msgs = [
+    { role: "system" as const, content: systemPrompt() },
+    { role: "user"   as const, content: userPrompt(sub) }
+  ];
+
+  // attempt #1
+  let rsp = await callLLM(msgs);
+  let md  = rsp.choices[0]?.message?.content ?? "";
+
+  // retry once if guards fail
+  if (wordCount(md) < MIN_WORDS || !hasBlueprint(md)) {
+    rsp = await callLLM(msgs);
+    md  = rsp.choices[0]?.message?.content ?? "";
+  }
+
+  md = enforceGuards(md);
   if (!md.trim()) md = "## Report Unavailable\n\n## END";
 
   return { markdown: md, raw: rsp };
