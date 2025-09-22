@@ -1,12 +1,15 @@
 /* eslint-disable @typescript-eslint/consistent-type-imports */
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
+import { ChatCompletionMessageParam } from "openai/resources";
 
-const TODAY        = "2025-09-21";
-const MIN_WORDS    = 1600;
-const MIN_BP_ROWS  = 10;
+// ------- constants -------
+const TODAY          = "2025-09-21";
+const MIN_WORDS      = 1600;
+const MIN_BP_ROWS    = 10;
+const MAX_RETRIES    = 2;      // one retry + final throw
 
-/* ---------- helpers ---------- */
+// ------- helpers -------
 function calcAge(dob: string | null) {
   if (!dob) return null;
   const d = new Date(dob), t = new Date(TODAY);
@@ -15,9 +18,14 @@ function calcAge(dob: string | null) {
   return a;
 }
 
-/* ---------- prompt builders ---------- */
+function firstName(full: string | null) {
+  return full ? full.split(/\s+/)[0] : "there";
+}
+
+// ------- prompt builders -------
 function systemPrompt() {
-  return `You are **LVE360 Concierge AI**.
+  return `
+You are **LVE360 Concierge AI**.
 
 Return **Markdown only** with headings exactly:
 ## Summary
@@ -35,27 +43,37 @@ Return **Markdown only** with headings exactly:
 ## This Week Try
 ## END
 
-Quality rules
-• ≥${MIN_WORDS} words total or regenerate.  
-• “High-Impact” must be a Markdown table **Rank | Supplement | Why it matters** with **≥${MIN_BP_ROWS} rows**.  
-• Every supplement (sections 5-7) needs ≥1 inline citation that contains a **clickable PubMed or DOI URL**, e.g. https://pubmed.ncbi.nlm.nih.gov/12345678/  
-• In *Recommended Stack* mark items already in *Current Stack* with **(already using)**.  
-• Finish with a line containing only \`## END\`.`;
+### Quality rules
+• ≥ ${MIN_WORDS} words total.  
+• “High-Impact” **must** be a Markdown table \`| Rank | Supplement | Why it matters |\` with **≥ ${MIN_BP_ROWS} rows**.  
+• Every supplement listed in sections 5–7 requires ≥1 inline citation containing a **clickable PubMed or DOI URL** (e.g. https://pubmed.ncbi.nlm.nih.gov/12345678/).  
+• In *Recommended Stack* tag items that exist in *Current Stack* with **(already using)**.  
+• After *Current Stack* table include a paragraph titled **“How your current stack is working”** summarising benefits & gaps.  
+• After *Recommended Stack* table include a paragraph titled **“Synergy & Timing”** describing how items work together and when to take them.  
+• Write the Summary in **second person**, greet the client by first name, and start with an encouraging sentence that contains at most **one emoji**.  
+• Tone: supportive, DSHEA-compliant.  
+• Finish with a line containing only \`## END\`.
+
+If any rule is unmet, regenerate internally.`;
 }
 
 function userPrompt(sub: SubmissionWithChildren) {
   return `
 ### CLIENT PROFILE
 \`\`\`json
-${JSON.stringify({ ...sub, age: calcAge((sub as any).dob ?? null), today: TODAY }, null, 2)}
+${JSON.stringify(
+  { ...sub, age: calcAge((sub as any).dob ?? null), today: TODAY },
+  null,
+  2
+)}
 \`\`\`
 
 ### TASK
-Write the full report following the headings above.`;
+Produce the full report following the headings & rules above.`;
 }
 
-/* ---------- OpenAI call ---------- */
-async function callLLM(messages: any[]) {
+// ------- OpenAI call -------
+async function openAI(messages: ChatCompletionMessageParam[]) {
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
   return openai.chat.completions.create({
@@ -66,21 +84,25 @@ async function callLLM(messages: any[]) {
   });
 }
 
-/* ---------- post-gen guards ---------- */
-const hasBlueprint = (md: string) => {
+// ------- post-generation guards -------
+const wc      = (txt: string) => txt.trim().split(/\s+/).length;
+const hasEnd  = (md: string) => md.includes("## END");
+const blueprintOK = (md: string) => {
   const m = md.match(/## High-Impact[\s\S]*?\n\|/i);
   if (!m) return false;
-  const rows = m[0].split("\n").filter(l => l.startsWith("|"));
-  return rows.length >= MIN_BP_ROWS + 1; // +1 header
+  const rows = m[0].split("\n").filter(r => r.startsWith("|"));
+  return rows.length >= MIN_BP_ROWS + 1; // header + rows
 };
 
-const wordCount = (md: string) => md.split(/\s+/).length;
+function ensureEnd(md: string) {
+  return hasEnd(md) ? md : md + "\n\n## END";
+}
 
-const ensureEnd = (md: string) => (md.includes("## END") ? md : md + "\n\n## END");
-
-/* build fallback table from Recommended Stack (table **or** bullets) */
-function fallbackBlueprint(md: string) {
-  const block = md.match(/## Recommended Stack([\s\S]*?)(\n## |\n## END|$)/i);
+function salvageBlueprint(md: string) {
+  // pull first 10 items (table row OR bullet) from Recommended Stack
+  const block = md.match(
+    /## Recommended Stack([\s\S]*?)(\n## |\n## END|$)/i
+  );
   if (!block) return null;
 
   const lines = block[1]
@@ -93,7 +115,6 @@ function fallbackBlueprint(md: string) {
   if (!lines.length) return null;
 
   const rows = lines.map((l, i) => {
-    // strip table pipes or list markers
     const clean = l
       .replace(/^\|/,"")
       .replace(/^\d+\.\s*/,"")
@@ -113,46 +134,47 @@ function fallbackBlueprint(md: string) {
   ].join("\n");
 }
 
-/* enforce word-count, blueprint, END sentinel */
-function enforceGuards(md: string) {
-  if (wordCount(md) < MIN_WORDS)
-    md += `\n\n<!-- TOO SHORT – regenerate with ≥${MIN_WORDS} words -->`;
-
-  if (!hasBlueprint(md)) {
-    const bp = fallbackBlueprint(md);
-    if (bp) md = md.replace(/## High-Impact[\s\S]*?(?=\n## |\n## END|$)/i, bp);
-    else if (!md.includes("## High-Impact"))
-      md = md.replace("## Recommended Stack", bp! + "\n\n## Recommended Stack");
-  }
-
-  return ensureEnd(md);
-}
-
-/* ---------- main export ---------- */
+// ------- main export -------
 export async function generateStackForSubmission(submissionId: string) {
   if (!submissionId) throw new Error("submissionId required");
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
 
   const sub = await getSubmissionWithChildren(submissionId);
 
-  const msgs = [
-    { role: "system" as const, content: systemPrompt() },
-    { role: "user"   as const, content: userPrompt(sub) }
+  const messages: ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt() },
+    { role: "user",   content: userPrompt(sub)  }
   ];
 
-  // attempt #1
-  let rsp = await callLLM(msgs);
-  let md  = rsp.choices[0]?.message?.content ?? "";
+  let attempt = 0;
+  let md      = "";
+  let rawResp: any = null;
 
-  // retry once if guards fail
-  if (wordCount(md) < MIN_WORDS || !hasBlueprint(md)) {
-    rsp = await callLLM(msgs);
-    md  = rsp.choices[0]?.message?.content ?? "";
+  while (attempt < MAX_RETRIES) {
+    const resp = await openAI(messages);
+    rawResp = resp;
+    md = resp.choices[0]?.message?.content ?? "";
+    if (
+      wc(md) >= MIN_WORDS &&
+      blueprintOK(md) &&
+      hasEnd(md)
+    )
+      break;            // passes all guards
+    attempt++;
   }
 
-  md = enforceGuards(md);
+  // final salvage if blueprint still missing
+  if (!blueprintOK(md)) {
+    const fallback = salvageBlueprint(md);
+    if (fallback)
+      md = md.replace(/## High-Impact[\s\S]*?(?=\n## |\n## END|$)/i, fallback)
+             .replace("## Recommended Stack", fallback + "\n\n## Recommended Stack");
+  }
+
+  md = ensureEnd(md);
   if (!md.trim()) md = "## Report Unavailable\n\n## END";
 
-  return { markdown: md, raw: rsp };
+  return { markdown: md, raw: rawResp };
 }
 
 export default generateStackForSubmission;
