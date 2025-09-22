@@ -3,14 +3,17 @@ import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 import { ChatCompletionMessageParam } from "openai/resources";
 
+// future stubs (currently no-ops)
+import { applySafetyChecks } from "@/lib/safetyCheck";
+import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
+
 // ── constants ──────────────────────────────────────────
 const TODAY           = "2025-09-21";
 const MIN_WORDS       = 1800;
 const MIN_BP_ROWS     = 10;
-const MAX_RETRIES     = 2;
+const MAX_RETRIES     = 3;
 const CITE_RE         = /(https?:\/\/(?:pubmed\.|doi\.org)[^\s)]+)/i;
 
-// exact headings
 const HEADINGS = [
   "## Intro Summary",
   "## Goals",
@@ -29,12 +32,11 @@ const HEADINGS = [
   "## END",
 ];
 
-// helpers
+// ── helpers ──────────────────────────────────────────
 const wc     = (t: string) => t.trim().split(/\s+/).length;
 const hasEnd = (t: string) => t.includes("## END");
 const seeDN  = "See Dosing & Notes";
 
-// age calc
 function age(dob: string | null) {
   if (!dob) return null;
   const d = new Date(dob), t = new Date(TODAY);
@@ -43,14 +45,7 @@ function age(dob: string | null) {
   return a;
 }
 
-// simple affiliate stub
-async function enrichLinks(md: string) {
-  return md.replace(/https?:\/\/www\.amazon\.com\/s\?[^)\s]*/g, m =>
-    `https://mytag.example.com?url=${encodeURIComponent(m)}`
-  );
-}
-
-// ── prompt builders ───────────────────────────────────
+// ── prompt builders ──────────────────────────────────
 function systemPrompt() {
   return `
 You are **LVE360 Concierge AI**, a friendly but professional wellness coach.  
@@ -68,10 +63,10 @@ Every table/list MUST be followed by **Analysis** ≥3 sentences that:
 • Give practical implication  
 
 ### Special rules
-• Section **Your Blueprint Recommendations** → table with ≥${MIN_BP_ROWS} rows (Rank 1-10, Supplement, Why it Matters ≤12 words, no placeholders/auto).  
+• Section **Your Blueprint Recommendations** → table with ≥${MIN_BP_ROWS} rows.  
   Exclude items tagged *(already using)* unless it is Rank 1.  
 
-• Section **Full Recommended Stack** MUST merge the user’s **Current Stack** (minus any contraindicated/removed items) with the **Blueprint Additions**.  
+• Section **Full Recommended Stack** MUST merge the user’s Current Stack (minus contraindicated/removed) with the Blueprint Additions.  
   Always output as a pipe table with ≥5 total supplements.  
   Columns: Supplement | Dose & Timing | Notes.  
   If Dose/Timing unknown → use “${seeDN}”.  
@@ -81,7 +76,15 @@ Every table/list MUST be followed by **Analysis** ≥3 sentences that:
 If internal check fails, regenerate before responding.`;
 }
 
-function userPrompt(sub: SubmissionWithChildren) {
+function userPrompt(sub: SubmissionWithChildren, attempt = 0) {
+  let reminder = "";
+  if (attempt === 1) {
+    reminder = "\n\n⚠️ Reminder: Include ≥10 unique Blueprint rows and a Full Recommended Stack table.";
+  }
+  if (attempt === 2) {
+    reminder = "\n\n‼️ STRICT: Must include all 14 headings, ≥10 Blueprint rows, and a Full Recommended Stack table with ≥5 items.";
+  }
+
   return `
 ### CLIENT
 \`\`\`json
@@ -89,10 +92,10 @@ ${JSON.stringify({ ...sub, age: age((sub as any).dob ?? null), today: TODAY }, n
 \`\`\`
 
 ### TASK
-Generate the full 14-section report per the rules above.`;
+Generate the full 14-section report per the rules above.${reminder}`;
 }
 
-// ── openai wrapper ───────────────────────────────────
+// ── openai wrapper ──────────────────────────────────
 async function callLLM(messages: ChatCompletionMessageParam[]) {
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
@@ -104,7 +107,7 @@ async function callLLM(messages: ChatCompletionMessageParam[]) {
   });
 }
 
-// ── validation helpers ───────────────────────────────
+// ── validation helpers ──────────────────────────────
 function headingsOK(md: string) {
   return HEADINGS.slice(0, -1).every(h => md.includes(h));
 }
@@ -125,9 +128,20 @@ function citationsOK(md: string) {
     .filter(l => l.trim().startsWith("-"))
     .every(l => CITE_RE.test(l));
 }
+
+// section-level narrative check (≥3 sentences)
+function narrativesOK(md: string) {
+  const sections = md.split("\n## ").slice(1); // skip preamble
+  return sections.every(sec => {
+    const lines = sec.split("\n");
+    const textBlock = lines.filter(l => !l.startsWith("|") && !l.startsWith("-")).join(" ");
+    const sentences = textBlock.split(/[.!?]/).filter(s => s.trim().length > 0);
+    return sentences.length >= 3;
+  });
+}
+
 function ensureEnd(md: string) { return hasEnd(md) ? md : md + "\n\n## END"; }
 
-// convert bullet lists in Recommended → pipe table
 function ensureRecTable(md: string) {
   return md.replace(
     /## Full Recommended Stack([\s\S]*?)(\n## |\n## END|$)/i,
@@ -160,43 +174,45 @@ export async function generateStackForSubmission(id: string) {
   if (!id) throw new Error("submissionId required");
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
 
-  const sub  = await getSubmissionWithChildren(id);
-  const msgs: ChatCompletionMessageParam[] = [
-    { role: "system", content: systemPrompt() },
-    { role: "user",   content: userPrompt(sub) },
-  ];
+  const sub = await getSubmissionWithChildren(id);
 
   let md = "";
   let raw: any = null;
+  let passes = false;
+
   for (let i = 0; i < MAX_RETRIES; i++) {
+    const msgs: ChatCompletionMessageParam[] = [
+      { role: "system", content: systemPrompt() },
+      { role: "user",   content: userPrompt(sub, i) },
+    ];
     const resp = await callLLM(msgs);
     raw = resp;
     md  = resp.choices[0]?.message?.content ?? "";
+
     if (
       wc(md) >= MIN_WORDS &&
       headingsOK(md) &&
       blueprintOK(md) &&
       citationsOK(md) &&
+      narrativesOK(md) &&
       hasEnd(md)
-    ) break;
+    ) {
+      passes = true;
+      break;
+    }
   }
 
-  // salvage minimal: fix missing end + ensure rec table
+  // salvage minimal
   md = ensureRecTable(md);
   md = ensureEnd(md);
 
-  // final soft-guard banner
-  const fails: string[] = [];
-  if (wc(md) < MIN_WORDS) fails.push("word-count");
-  if (!headingsOK(md))   fails.push("headings");
-  if (!blueprintOK(md))  fails.push("blueprint");
-  if (!citationsOK(md))  fails.push("citations");
+  // apply hooks
+  md = await applySafetyChecks(md, sub);
+  md = await enrichAffiliateLinks(md);
 
-  if (fails.length)
-    md = `> **⚠️ Draft needs review** – failed: ${fails.join(", ")}\n\n` + md;
-
-  // add affiliate links
-  md = await enrichLinks(md);
+  if (!passes) {
+    md = `> **⚠️ Draft flagged for review (internal)** – some validations failed.\n\n` + md;
+  }
 
   return { markdown: md, raw };
 }
