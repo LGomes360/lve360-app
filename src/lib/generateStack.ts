@@ -20,7 +20,6 @@ const HEADINGS = [
   "## Contraindications & Med Interactions",
   "## Current Stack",
   "## Your Blueprint Recommendations",
-  "## Full Recommended Stack",
   "## Dosing & Notes",
   "## Evidence & References",
   "## Shopping Links",
@@ -64,13 +63,11 @@ Every table/list MUST be followed by **Analysis** ≥3 sentences that:
 • Give practical implication  
 
 ### Special rules
-
 • Section **Your Blueprint Recommendations** → table with ≥${MIN_BP_ROWS} rows.  
   Exclude items tagged *(already using)* unless it is Rank 1.  
 
-• Section **Full Recommended Stack** → table with the user’s **Current Stack** (minus supplements with **Contraindications & Med Interactions**/removed) with the **Your Blueprint Recommendations**.  
- 
 • Section **Evidence & References** – every bullet ends with PubMed/DOI URL.  
+• If Dose/Timing unknown → use “${seeDN}”.  
 • Finish with line \`## END\`.  
 If internal check fails, regenerate before responding.`;
 }
@@ -78,10 +75,10 @@ If internal check fails, regenerate before responding.`;
 function userPrompt(sub: SubmissionWithChildren, attempt = 0) {
   let reminder = "";
   if (attempt === 1) {
-    reminder = "\n\n⚠️ Reminder: Include ≥10 unique Blueprint rows, a Full Recommended Stack table, and ≥3 sentences of Analysis per section in friendly coach tone.";
+    reminder = "\n\n⚠️ Reminder: Include ≥10 unique Blueprint rows and ≥3 sentences of Analysis per section in friendly coach tone.";
   }
   if (attempt === 2) {
-    reminder = "\n\n‼️ STRICT: Must include all 14 headings, ≥10 Blueprint rows, a Full Recommended Stack table with ≥5 items, and ≥3 sentences of Analysis per section.";
+    reminder = "\n\n‼️ STRICT: Must include all 13 headings, ≥10 Blueprint rows, and ≥3 sentences of Analysis per section.";
   }
 
   return `
@@ -91,7 +88,7 @@ ${JSON.stringify({ ...sub, age: age((sub as any).dob ?? null), today: TODAY }, n
 \`\`\`
 
 ### TASK
-Generate the full 14-section report per the rules above.${reminder}`;
+Generate the full 13-section report per the rules above.${reminder}`;
 }
 
 // ── openai wrapper ──────────────────────────────────
@@ -141,40 +138,6 @@ function narrativesOK(md: string) {
 
 function ensureEnd(md: string) { return hasEnd(md) ? md : md + "\n\n## END"; }
 
-// fallback: rebuild Full Recommended Stack if empty
-function ensureRecTable(md: string) {
-  return md.replace(
-    /## Full Recommended Stack([\s\S]*?)(\n## |\n## END|$)/i,
-    (_, body: string, tail: string) => {
-      if (/\n\|.+\|\s*Notes\s*\|/i.test(body)) return "## Full Recommended Stack" + body + tail;
-
-      // try to salvage rows from Current Stack + Blueprint
-      const current = md.match(/## Current Stack([\s\S]*?)(\n## |\n## END|$)/i);
-      const blueprint = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |\n## END|$)/i);
-      const rows: string[] = [];
-
-      if (current) {
-        current[1].split("\n").forEach(line => {
-          if (line.startsWith("|")) rows.push(line.trim());
-        });
-      }
-      if (blueprint) {
-        blueprint[1].split("\n").forEach(line => {
-          if (line.startsWith("|")) rows.push(line.trim() + " | — |");
-        });
-      }
-
-      const tbl = [
-        "| Supplement | Dose & Timing | Notes |",
-        "| ---------- | ------------- | ----- |",
-        ...(rows.length ? rows : ["| (no items generated) | — | — |"]),
-      ].join("\n");
-
-      return `## Full Recommended Stack\n\n${tbl}\n\n${tail.trimStart()}`;
-    }
-  );
-}
-
 // ── main export ─────────────────────────────────────
 export async function generateStackForSubmission(id: string) {
   if (!id) throw new Error("submissionId required");
@@ -209,7 +172,6 @@ export async function generateStackForSubmission(id: string) {
   }
 
   // salvage minimal
-  md = ensureRecTable(md);
   md = ensureEnd(md);
 
   // apply hooks
@@ -217,7 +179,6 @@ export async function generateStackForSubmission(id: string) {
   md = await enrichAffiliateLinks(md);
 
   if (!passes) {
-    // internal flag, user-facing report stays graceful
     console.warn("⚠️ Draft validation failed, review needed.");
   }
 
