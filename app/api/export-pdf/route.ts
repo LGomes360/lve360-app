@@ -16,6 +16,7 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const submissionId = searchParams.get("submission_id");
+
     if (!submissionId) {
       return NextResponse.json(
         { ok: false, error: "Missing submission_id" },
@@ -23,37 +24,53 @@ export async function GET(req: Request) {
       );
     }
 
-    // --- Fetch stack row ---
+    // --- Detect UUID vs short Tally ID ---
     const isUUID =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
         submissionId
       );
 
+    // --- Fetch stack row ---
     const { data: stackRow, error: stackErr } = await supabaseAdmin
       .from("stacks")
       .select("*")
       .eq(isUUID ? "submission_id" : "tally_submission_id", submissionId)
       .maybeSingle();
 
-    if (stackErr) throw new Error("DB error fetching stack");
-    if (!stackRow)
+    if (stackErr) {
+      console.error("Supabase error:", stackErr);
       return NextResponse.json(
-        { ok: false, error: "Stack not found" },
+        { ok: false, error: stackErr.message },
+        { status: 500 }
+      );
+    }
+
+    if (!stackRow) {
+      return NextResponse.json(
+        { ok: false, error: `Stack not found for ID ${submissionId}` },
         { status: 404 }
       );
+    }
 
     // --- PDF setup ---
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    // Load logo (place logo file in /public/logo.png or adjust path)
-    const logoPath = path.resolve("./public/logo.png");
-    const logoBytes = fs.readFileSync(logoPath);
-    const logoImage = await pdfDoc.embedPng(logoBytes);
+    // Try loading logo
+    let logoImage: any = null;
+    try {
+      const logoPath = path.resolve("./public/logo.png");
+      if (fs.existsSync(logoPath)) {
+        const logoBytes = fs.readFileSync(logoPath);
+        logoImage = await pdfDoc.embedPng(logoBytes);
+      }
+    } catch (e) {
+      console.warn("⚠️ Logo not found or failed to load. Continuing without logo.");
+    }
 
     let currentPage = pdfDoc.addPage([612, 792]); // US Letter
-    let cursorY = currentPage.getSize().height - 90; // space for logo+title
+    let cursorY = currentPage.getSize().height - 90;
     const marginX = 50;
     const lineHeight = 14;
 
@@ -156,28 +173,37 @@ export async function GET(req: Request) {
     }
 
     function drawHeader(page: any) {
-      // Logo at left, lockup text at right
       const { width, height } = page.getSize();
-      const logoDims = logoImage.scale(0.15);
-      page.drawImage(logoImage, {
-        x: marginX,
-        y: height - logoDims.height - 40,
-        width: logoDims.width,
-        height: logoDims.height,
-      });
-      page.drawText("LVE360 | Longevity | Vitality | Energy", {
-        x: marginX + logoDims.width + 10,
-        y: height - 60,
-        size: 16,
-        font: boldFont,
-        color: rgb(0.03, 0.76, 0.63),
-      });
+      if (logoImage) {
+        const logoDims = logoImage.scale(0.15);
+        page.drawImage(logoImage, {
+          x: marginX,
+          y: height - logoDims.height - 40,
+          width: logoDims.width,
+          height: logoDims.height,
+        });
+        page.drawText("LVE360 | Longevity | Vitality | Energy", {
+          x: marginX + logoDims.width + 10,
+          y: height - 60,
+          size: 16,
+          font: boldFont,
+          color: rgb(0.03, 0.76, 0.63),
+        });
+      } else {
+        page.drawText("LVE360 | Longevity | Vitality | Energy", {
+          x: marginX,
+          y: height - 60,
+          size: 16,
+          font: boldFont,
+          color: rgb(0.03, 0.76, 0.63),
+        });
+      }
     }
 
     // --- Render first page header ---
     drawHeader(currentPage);
 
-    // --- Content ---
+    // --- Render content ---
     let content =
       stackRow.sections?.markdown ??
       stackRow.summary ??
@@ -212,19 +238,14 @@ export async function GET(req: Request) {
     }
     if (buffer.length) drawTable(buffer);
 
-    // --- Footer disclaimer ---
+    // --- Footer disclaimers ---
     ensureSpace(80);
     drawWrapped("Important Wellness Disclaimers", 12, rgb(0.03, 0.76, 0.63), 0, true);
     drawWrapped("This report is educational and not medical advice.", 10);
-    drawWrapped(
-      "Supplements are not intended to diagnose, treat, cure, or prevent disease.",
-      10
-    );
-    drawWrapped(
-      "Consult your clinician before changes, especially with prescriptions or hormones.",
-      10
-    );
+    drawWrapped("Supplements are not intended to diagnose, treat, cure, or prevent disease.", 10);
+    drawWrapped("Consult your clinician before changes, especially with prescriptions or hormones.", 10);
 
+    // --- Return PDF ---
     const pdfBytes = await pdfDoc.save();
     return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
