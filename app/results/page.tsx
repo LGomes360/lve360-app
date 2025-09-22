@@ -8,6 +8,13 @@ import CTAButton from "@/components/CTAButton";
 
 /* ───────── helpers ───────── */
 
+const STATIC_DISCLAIMER = `
+This report is for **educational purposes only** and is not medical advice.
+Dietary supplements are not intended to diagnose, treat, cure, or prevent disease.
+Always consult your licensed healthcare professional before changing
+medications, hormones, or supplements.
+`;
+
 function sanitizeMarkdown(md: string): string {
   return md
     ? md.replace(/^```[a-z]*\n/i, "").replace(/```$/, "").trim()
@@ -67,17 +74,18 @@ function ResultsContent() {
   const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
 
-  async function callApi(path: string, body?: any) {
-    const opts =
-      body === undefined
-        ? {}
-        : {
+  async function api(path: string, body?: any) {
+    const res = await fetch(
+      path,
+      body
+        ? {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
-          };
-    const res = await fetch(path, opts);
-    if (!res.ok) throw new Error(`API error ${res.status}`);
+          }
+        : {}
+    );
+    if (!res.ok) throw new Error(`API ${res.status}`);
     return res.json();
   }
 
@@ -85,7 +93,7 @@ function ResultsContent() {
     if (!tallyId) return;
     (async () => {
       try {
-        const data = await callApi(
+        const data = await api(
           `/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`
         );
         const raw = data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
@@ -101,7 +109,7 @@ function ResultsContent() {
     try {
       setGenerating(true);
       setError(null);
-      const data = await callApi("/api/generate-stack", {
+      const data = await api("/api/generate-stack", {
         tally_submission_id: tallyId,
       });
       const raw =
@@ -131,7 +139,7 @@ function ResultsContent() {
     }
   }
 
-  /* ---- extract all 14 headings ---- */
+  /* ---- extract 14 sections ---- */
   const sec = useMemo(() => {
     const md = markdown ?? "";
     return {
@@ -152,7 +160,7 @@ function ResultsContent() {
       lifestyle:   extractSection(md, ["Lifestyle Prescriptions"]),
       longevity:   extractSection(md, ["Longevity Levers"]),
       weekTry:     extractSection(md, ["This Week Try", "Weekly Experiment"]),
-      disclaimers: extractSection(md, ["Disclaimers"]),
+      disclaimers: extractSection(md, ["Disclaimers"]) ?? STATIC_DISCLAIMER,
     };
   }, [markdown]);
 
@@ -195,7 +203,6 @@ function ResultsContent() {
       {sec.weekTry     && <SectionCard title="This Week Try"><Prose>{sec.weekTry}</Prose></SectionCard>}
       {sec.disclaimers && <SectionCard title="Disclaimers"><Prose>{sec.disclaimers}</Prose></SectionCard>}
 
-      {/* Export PDF */}
       <div className="flex justify-center mt-8">
         <button
           onClick={exportPDF}
