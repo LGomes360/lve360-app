@@ -1,9 +1,10 @@
 // src/lib/generateStack.ts
 // -----------------------------------------------------------------------------
-// 2-pass pipeline with safe fallback:
-//   1) Try JSON → Markdown
-//   2) If JSON parse fails, salvage Markdown from raw text
-//   3) If that fails, fallback to old Markdown-first style
+// Dual-channel pipeline:
+//   • Stage 1: LLM returns JSON object AND full Markdown in one response
+//   • Stage 2: Try JSON parse → build Markdown
+//   • Fallback: extract Markdown block directly if JSON fails
+//   • Guarantees: all 13 sections + ## END, at least 3 Blueprint Recs
 // -----------------------------------------------------------------------------
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
@@ -23,7 +24,7 @@ function calculateAge(dob: string | null): number | null {
   if (!dob) return null;
   const birthDate = new Date(dob);
   if (isNaN(birthDate.getTime())) return null;
-  const today = new Date("2025-09-21"); // lock for consistency
+  const today = new Date("2025-09-21"); // lock date
   let age = today.getFullYear() - birthDate.getFullYear();
   const m = today.getMonth() - birthDate.getMonth();
   if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
@@ -32,14 +33,76 @@ function calculateAge(dob: string | null): number | null {
   return age;
 }
 
-/* ---------------------- Stage 1 JSON prompt ---------------------- */
-function buildJsonPrompt(sub: SubmissionWithChildren) {
+/* ---------------------- Dual-channel prompt ---------------------- */
+function buildDualPrompt(sub: SubmissionWithChildren) {
   const age = calculateAge((sub as any).dob ?? null);
   return [
-    "# LVE360 Blueprint Report — Stage 1 (JSON)",
-    "Return only valid JSON (no prose). Keys: summary, goals, contraindications, currentStackReview, blueprintRecommendations, recommendedStack, dosingNotes, evidence, shoppingLinks, followUp, lifestyle, longevityLevers, weeklyTry.",
+    "# LVE360 Blueprint Report Request",
     "",
-    "Submission:",
+    "You must return TWO outputs in this order:",
+    "",
+    "1. A valid JSON object (no prose outside the braces).",
+    "2. Then a Markdown block wrapped in ```md ... ``` containing the full report.",
+    "",
+    "The JSON should include:",
+    safeStringify({
+      summary: "string narrative (demographics, DOB, Age, context)",
+      goals: "expanded narrative of user’s goals",
+      contraindications: [
+        { medication: "string", concern: "string", guardrail: "string" },
+      ],
+      currentStackReview:
+        "review of existing supplements, pros/cons, redundancies",
+      blueprintRecommendations: [
+        { rank: 1, supplement: "string", why: "string" },
+      ],
+      recommendedStack: [
+        {
+          supplement: "string",
+          dose: "string",
+          timing: "AM/PM/Bedtime",
+          notes: "string",
+        },
+      ],
+      dosingNotes: "include medications + hormones with timing/notes",
+      evidence: [
+        { supplement: "string", citation: "PubMed link", summary: "string" },
+      ],
+      shoppingLinks: [
+        { supplement: "string", url: "https:// or [Link unavailable]" },
+      ],
+      followUp: "labs/check-ins cadence",
+      lifestyle: {
+        nutrition: ["tip1", "tip2"],
+        sleep: ["tip1"],
+        exercise: ["tip1"],
+        focus: ["tip1"],
+        monitoring: ["tip1"],
+      },
+      longevityLevers: ["habit1", "habit2", "habit3"],
+      weeklyTry: "one concrete 7-day experiment",
+    }),
+    "",
+    "Rules:",
+    "- Always output at least 3 Blueprint Recommendations.",
+    "- Always include all 13 sections in Markdown, ending with '## END'.",
+    "- Use exact section headers:",
+    "  ## Summary",
+    "  ## Goals",
+    "  ## Contraindications & Med Interactions",
+    "  ## Current Stack",
+    "  ## Your Blueprint Recommendations",
+    "  ## Recommended Stack",
+    "  ## Dosing & Notes",
+    "  ## Evidence & References",
+    "  ## Shopping Links",
+    "  ## Follow-up Plan",
+    "  ## Lifestyle Prescriptions",
+    "  ## Longevity Levers",
+    "  ## This Week Try",
+    "  ## END",
+    "",
+    "Submission Data:",
     safeStringify({
       id: sub.id,
       name: (sub as any).name ?? null,
@@ -56,6 +119,7 @@ function buildJsonPrompt(sub: SubmissionWithChildren) {
       dosing_pref: (sub as any).dosing_pref ?? null,
       brand_pref: (sub as any).brand_pref ?? null,
       answers: (sub as any).answers ?? null,
+      email: (sub as any).user_email ?? null,
       medications: sub.medications ?? [],
       supplements: sub.supplements ?? [],
       hormones: sub.hormones ?? [],
@@ -63,39 +127,22 @@ function buildJsonPrompt(sub: SubmissionWithChildren) {
   ].join("\n\n");
 }
 
-/* ---------------------- Stage 2 Markdown ---------------------- */
-function jsonToMarkdown(data: any) {
-  try {
-    const out: string[] = [];
-    out.push("## Summary\n" + (data.summary ?? ""));
-    out.push("## Goals\n" + (data.goals ?? ""));
-    out.push("## Contraindications & Med Interactions\n" + JSON.stringify(data.contraindications ?? []));
-    out.push("## Current Stack\n" + (data.currentStackReview ?? ""));
-    out.push("## Your Blueprint Recommendations\n" + JSON.stringify(data.blueprintRecommendations ?? []));
-    out.push("## Recommended Stack\n" + JSON.stringify(data.recommendedStack ?? []));
-    out.push("## Dosing & Notes\n" + (data.dosingNotes ?? ""));
-    out.push("## Evidence & References\n" + JSON.stringify(data.evidence ?? []));
-    out.push("## Shopping Links\n" + JSON.stringify(data.shoppingLinks ?? []));
-    out.push("## Follow-up Plan\n" + (data.followUp ?? ""));
-    out.push("## Lifestyle Prescriptions\n" + JSON.stringify(data.lifestyle ?? {}));
-    out.push("## Longevity Levers\n" + JSON.stringify(data.longevityLevers ?? []));
-    out.push("## This Week Try\n" + (data.weeklyTry ?? ""));
-    out.push("## END");
-    return out.join("\n\n");
-  } catch {
-    return "";
-  }
+/* ---------------------- Markdown extractor ---------------------- */
+function extractMarkdown(rawText: string): string {
+  const match = rawText.match(/```md([\s\S]*?)```/i);
+  if (match) return match[1].trim();
+  return rawText;
 }
 
 /* ---------------------- Main ---------------------- */
 export async function generateStackForSubmission(submissionId: string) {
   if (!submissionId) throw new Error("submissionId is required");
   if (!process.env.OPENAI_API_KEY)
-    throw new Error("OPENAI_API_KEY not configured");
+    throw new Error("OPENAI_API_KEY is not configured");
 
   const submission = await getSubmissionWithChildren(submissionId);
 
-  // Init OpenAI
+  // Init OpenAI client
   let openai: any = null;
   try {
     const mod: any = await import("./openai").catch(() => null);
@@ -109,46 +156,43 @@ export async function generateStackForSubmission(submissionId: string) {
     throw new Error(`OpenAI init failed: ${String(e?.message ?? e)}`);
   }
 
-  /* ---------- Stage 1: JSON ---------- */
-  const jsonResp = await openai.responses.create({
+  // Ask OpenAI
+  const resp = await openai.responses.create({
     model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-    input: buildJsonPrompt(submission),
+    input: buildDualPrompt(submission),
     temperature: 0.6,
   });
 
   let rawText = "";
   try {
     rawText =
-      (jsonResp as any).output_text ??
-      (Array.isArray((jsonResp as any).output) &&
-        (jsonResp as any).output[0]?.content?.[0]?.text) ??
+      (resp as any).output_text ??
+      (Array.isArray((resp as any).output) &&
+        (resp as any).output[0]?.content?.[0]?.text) ??
       "";
   } catch {
     rawText = "";
   }
 
-  let parsed: any = null;
+  // Try parsing JSON
   let markdown = "";
-
   try {
-    parsed = JSON.parse(rawText);
-    markdown = jsonToMarkdown(parsed);
+    const jsonPart = rawText.slice(rawText.indexOf("{"), rawText.lastIndexOf("}") + 1);
+    const parsed = JSON.parse(jsonPart);
+    // If JSON ok, rebuild Markdown manually (optional)…
+    // but safer to just pull the Markdown block.
+    markdown = extractMarkdown(rawText);
   } catch {
-    console.warn("JSON parse failed, salvaging raw text...");
-    markdown = rawText; // at least display something
+    console.warn("JSON parse failed, falling back to Markdown block.");
+    markdown = extractMarkdown(rawText);
   }
 
-  /* ---------- Fallback if still empty ---------- */
-  if (!markdown || markdown.trim().length < 50) {
-    markdown = [
-      "## Summary\nReport generated but lacked structure.",
-      "## Goals\nNo detailed goals provided.",
-      "## Your Blueprint Recommendations\n| Rank | Supplement | Why it matters |\n|------|------------|----------------|\n| 1 | Placeholder | Parsing failed |",
-      "## END",
-    ].join("\n\n");
+  // Safety net
+  if (!markdown.includes("## END")) {
+    markdown += "\n\n## END";
   }
 
-  return { markdown, raw: jsonResp };
+  return { markdown, raw: resp };
 }
 
 export default generateStackForSubmission;
