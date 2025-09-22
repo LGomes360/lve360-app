@@ -8,13 +8,6 @@ import CTAButton from "@/components/CTAButton";
 
 /* ───────── helpers ───────── */
 
-const STATIC_DISCLAIMER = `
-This report is for **educational purposes only** and is not medical advice.
-Dietary supplements are not intended to diagnose, treat, cure, or prevent disease.
-Always consult your licensed healthcare professional before changing
-medications, hormones, or supplements.
-`;
-
 function sanitizeMarkdown(md: string): string {
   return md
     ? md.replace(/^```[a-z]*\n/i, "").replace(/```$/, "").trim()
@@ -139,7 +132,7 @@ function ResultsContent() {
     }
   }
 
-  /* ---- extract 14 sections ---- */
+  /* ---- extract sections (no disclaimers) ---- */
   const sec = useMemo(() => {
     const md = markdown ?? "";
     return {
@@ -152,7 +145,6 @@ function ResultsContent() {
         'High-Impact "Bang-for-Buck" Additions',
         "High-Impact Bang-for-Buck Additions",
       ]),
-      fullStack:   extractSection(md, ["Full Recommended Stack", "Recommended Stack"]),
       dosing:      extractSection(md, ["Dosing & Notes", "Dosing"]),
       evidence:    extractSection(md, ["Evidence & References"]),
       shopping:    extractSection(md, ["Shopping Links"]),
@@ -160,7 +152,6 @@ function ResultsContent() {
       lifestyle:   extractSection(md, ["Lifestyle Prescriptions"]),
       longevity:   extractSection(md, ["Longevity Levers"]),
       weekTry:     extractSection(md, ["This Week Try", "Weekly Experiment"]),
-      disclaimers: extractSection(md, ["Disclaimers"]) ?? STATIC_DISCLAIMER,
     };
   }, [markdown]);
 
@@ -193,7 +184,6 @@ function ResultsContent() {
       {sec.contra      && <SectionCard title="Contraindications & Med Interactions"><Prose>{sec.contra}</Prose></SectionCard>}
       {sec.current     && <SectionCard title="Current Stack"><Prose>{sec.current}</Prose></SectionCard>}
       {sec.blueprint   && <SectionCard title="Your Blueprint Recommendations"><Prose>{sec.blueprint}</Prose></SectionCard>}
-      {sec.fullStack   && <SectionCard title="Full Recommended Stack"><Prose>{sec.fullStack}</Prose></SectionCard>}
       {sec.dosing      && <SectionCard title="Dosing & Notes"><Prose>{sec.dosing}</Prose></SectionCard>}
       {sec.evidence    && <SectionCard title="Evidence & References"><Prose>{sec.evidence}</Prose></SectionCard>}
       {sec.shopping    && <SectionCard title="Shopping Links"><Prose>{sec.shopping}</Prose></SectionCard>}
@@ -201,7 +191,22 @@ function ResultsContent() {
       {sec.lifestyle   && <SectionCard title="Lifestyle Prescriptions"><Prose>{sec.lifestyle}</Prose></SectionCard>}
       {sec.longevity   && <SectionCard title="Longevity Levers"><Prose>{sec.longevity}</Prose></SectionCard>}
       {sec.weekTry     && <SectionCard title="This Week Try"><Prose>{sec.weekTry}</Prose></SectionCard>}
-      {sec.disclaimers && <SectionCard title="Disclaimers"><Prose>{sec.disclaimers}</Prose></SectionCard>}
+
+      {/* Static Disclaimer (always rendered at bottom) */}
+      <SectionCard title="Important Wellness Disclaimer">
+        <p className="text-sm text-gray-700 leading-relaxed">
+          This plan from <strong>LVE360 (Longevity | Vitality | Energy)</strong> is for
+          educational purposes only and is not medical advice. It is not intended to diagnose,
+          treat, cure, or prevent any disease. Always consult with your healthcare provider
+          before starting new supplements or making significant lifestyle changes, especially
+          if you are pregnant, nursing, managing a medical condition, or taking prescriptions.
+          Supplements are regulated under the Dietary Supplement Health and Education Act
+          (DSHEA); results vary and no outcomes are guaranteed. If you experience unexpected
+          effects, discontinue use and seek professional care. By using this report, you agree
+          that decisions about your health remain your responsibility and that LVE360 is not
+          liable for how information is applied.
+        </p>
+      </SectionCard>
 
       <div className="flex justify-center mt-8">
         <button
