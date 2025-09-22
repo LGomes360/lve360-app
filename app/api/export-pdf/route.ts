@@ -1,12 +1,14 @@
 // app/api/export-pdf/route.ts
 // -----------------------------------------------------------------------------
 // GET /api/export-pdf?submission_id=UUID_OR_TALLYID
-// Generates a styled, multi-page PDF from a saved stack (tables + narrative).
+// Generates a styled, branded multi-page PDF with logo, tables, and disclaimers.
 // -----------------------------------------------------------------------------
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import fs from "fs";
+import path from "path";
 
 export const runtime = "nodejs";
 
@@ -45,15 +47,21 @@ export async function GET(req: Request) {
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
+    // Load logo (place logo file in /public/logo.png or adjust path)
+    const logoPath = path.resolve("./public/logo.png");
+    const logoBytes = fs.readFileSync(logoPath);
+    const logoImage = await pdfDoc.embedPng(logoBytes);
+
     let currentPage = pdfDoc.addPage([612, 792]); // US Letter
-    let cursorY = currentPage.getSize().height - 72;
+    let cursorY = currentPage.getSize().height - 90; // space for logo+title
     const marginX = 50;
     const lineHeight = 14;
 
     function ensureSpace(required: number) {
       if (cursorY - required < 72) {
         currentPage = pdfDoc.addPage([612, 792]);
-        cursorY = currentPage.getSize().height - 72;
+        drawHeader(currentPage);
+        cursorY = currentPage.getSize().height - 90;
       }
     }
 
@@ -118,9 +126,9 @@ export async function GET(req: Request) {
         ensureSpace(rowHeight + 6);
         const isHeader = i === 0;
         const bgColor = isHeader
-          ? rgb(0.03, 0.76, 0.63)
+          ? rgb(0.03, 0.76, 0.63) // teal
           : i % 2 === 0
-          ? rgb(0.95, 0.95, 0.95)
+          ? rgb(0.95, 0.95, 0.95) // zebra
           : rgb(1, 1, 1);
 
         row.forEach((cell, j) => {
@@ -147,9 +155,27 @@ export async function GET(req: Request) {
       cursorY -= 8;
     }
 
-    // --- Title ---
-    drawWrapped("LVE360 | Longevity | Vitality | Energy", 16, rgb(0.03, 0.76, 0.63), 0, true);
-    cursorY -= 16;
+    function drawHeader(page: any) {
+      // Logo at left, lockup text at right
+      const { width, height } = page.getSize();
+      const logoDims = logoImage.scale(0.15);
+      page.drawImage(logoImage, {
+        x: marginX,
+        y: height - logoDims.height - 40,
+        width: logoDims.width,
+        height: logoDims.height,
+      });
+      page.drawText("LVE360 | Longevity | Vitality | Energy", {
+        x: marginX + logoDims.width + 10,
+        y: height - 60,
+        size: 16,
+        font: boldFont,
+        color: rgb(0.03, 0.76, 0.63),
+      });
+    }
+
+    // --- Render first page header ---
+    drawHeader(currentPage);
 
     // --- Content ---
     let content =
@@ -163,7 +189,6 @@ export async function GET(req: Request) {
 
     for (const line of lines) {
       if (line.startsWith("## ")) {
-        // flush any buffered table
         if (buffer.length) {
           drawTable(buffer);
           buffer = [];
@@ -191,8 +216,14 @@ export async function GET(req: Request) {
     ensureSpace(80);
     drawWrapped("Important Wellness Disclaimers", 12, rgb(0.03, 0.76, 0.63), 0, true);
     drawWrapped("This report is educational and not medical advice.", 10);
-    drawWrapped("Supplements are not intended to diagnose, treat, cure, or prevent disease.", 10);
-    drawWrapped("Consult your clinician before changes, especially with prescriptions or hormones.", 10);
+    drawWrapped(
+      "Supplements are not intended to diagnose, treat, cure, or prevent disease.",
+      10
+    );
+    drawWrapped(
+      "Consult your clinician before changes, especially with prescriptions or hormones.",
+      10
+    );
 
     const pdfBytes = await pdfDoc.save();
     return new NextResponse(Buffer.from(pdfBytes), {
