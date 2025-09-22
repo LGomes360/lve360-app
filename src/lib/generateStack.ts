@@ -27,8 +27,7 @@ const HEADINGS = [
   "## Lifestyle Prescriptions",
   "## Longevity Levers",
   "## This Week Try",
-  "## Disclaimers",
-  "## END",
+  "## END", // Disclaimers removed, END is last
 ];
 
 // ── helpers ──────────────────────────────────────────
@@ -78,7 +77,7 @@ function userPrompt(sub: SubmissionWithChildren, attempt = 0) {
     reminder = "\n\n⚠️ Reminder: Include ≥10 unique Blueprint rows and ≥3 sentences of Analysis per section in friendly coach tone.";
   }
   if (attempt === 2) {
-    reminder = "\n\n‼️ STRICT: Must include all 13 headings, ≥10 Blueprint rows, and ≥3 sentences of Analysis per section.";
+    reminder = "\n\n‼️ STRICT: Must include all 12 headings, ≥10 Blueprint rows, and ≥3 sentences of Analysis per section.";
   }
 
   return `
@@ -88,7 +87,7 @@ ${JSON.stringify({ ...sub, age: age((sub as any).dob ?? null), today: TODAY }, n
 \`\`\`
 
 ### TASK
-Generate the full 13-section report per the rules above.${reminder}`;
+Generate the full report per the rules above.${reminder}`;
 }
 
 // ── openai wrapper ──────────────────────────────────
@@ -124,10 +123,8 @@ function citationsOK(md: string) {
     .filter(l => l.trim().startsWith("-"))
     .every(l => CITE_RE.test(l));
 }
-
-// section-level narrative check (≥3 sentences)
 function narrativesOK(md: string) {
-  const sections = md.split("\n## ").slice(1); // skip preamble
+  const sections = md.split("\n## ").slice(1);
   return sections.every(sec => {
     const lines = sec.split("\n");
     const textBlock = lines.filter(l => !l.startsWith("|") && !l.startsWith("-")).join(" ");
@@ -171,10 +168,8 @@ export async function generateStackForSubmission(id: string) {
     }
   }
 
-  // salvage minimal
   md = ensureEnd(md);
 
-  // apply hooks
   md = await applySafetyChecks(md, sub);
   md = await enrichAffiliateLinks(md);
 
