@@ -1,114 +1,209 @@
 // app/api/export-pdf/route.ts
 // -----------------------------------------------------------------------------
-// GET /api/export-pdf?submission_id=<uuid-or-tallyID>
-// Renders the saved Markdown → styled HTML → PDF (teal headers, zebra rows,
-// logo), then streams it back.
-// -----------------------------------------------------------------------------
-//
-// • Uses Supabase service-role client to load the stack.
-// • Converts Markdown → HTML via “marked” (ASCII-safe already).
-// • Styles per LVE360 brand: teal #06C1A0 header rows, navy #041B2D headings,
-//   zebra striping, Inter font, logo in header.
-// • Generates the PDF in headless Chrome (puppeteer-core + @sparticuz/chromium).
-// • Falls back gracefully — any error returns JSON { ok:false, error }.
+// GET /api/export-pdf?submission_id=UUID_OR_TALLYID
+// Generates a styled, multi-page PDF from a saved stack (tables + narrative).
 // -----------------------------------------------------------------------------
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { marked } from "marked";
-import chromium from "@sparticuz/chromium";
-import puppeteer from "puppeteer-core";
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 
-export const runtime = "nodejs"; // keep on Node runtime (needs Chrome)
+export const runtime = "nodejs";
 
-function markdownToHtml(md: string): string {
-  const css = /* tailwind-like inline CSS */ `
-    @font-face{font-family:Inter;src:url(https://rsms.me/inter/font-files/Inter-Regular.woff2) format("woff2");}
-    body{font-family:Inter,Arial,sans-serif;margin:0 auto;max-width:7.1in;padding:24px;font-size:11px;line-height:1.45;color:#000}
-    h1,h2,h3{color:#041B2D;margin:24px 0 12px 0}
-    h2{font-size:18px}
-    table{width:100%;border-collapse:collapse;margin:8px 0;font-size:11px}
-    th{background:#06C1A0;color:#fff;font-weight:700;padding:6px;border:1px solid #ddd}
-    td{padding:6px;border:1px solid #ddd}
-    tr:nth-child(even) td{background:#f5f5f5}
-    em{font-style:italic}
-    header{display:flex;align-items:center;margin-bottom:24px}
-    header img{height:40px;margin-right:12px}
-  `;
-  const sanitized = md.replace(/^```[a-z]*\n/i, "").replace(/```$/, "");
-  return `
-    <!doctype html><html><head>
-      <meta charset="utf-8" />
-      <style>${css}</style>
-      <title>LVE360 Blueprint</title>
-    </head><body>
-      <header>
-        <img src="https://lve360.com/logo.png" alt="LVE360 logo" />
-        <h1 style="margin:0;color:#041B2D;font-size:22px">
-          LVE360 • Longevity • Vitality • Energy
-        </h1>
-      </header>
-      ${marked.parse(sanitized)}
-    </body></html>
-  `;
-}
-
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
-    const submissionId = new URL(req.url).searchParams.get("submission_id");
-    if (!submissionId)
+    const { searchParams } = new URL(req.url);
+    const submissionId = searchParams.get("submission_id");
+    if (!submissionId) {
       return NextResponse.json(
-        { ok: false, error: "submission_id required" },
+        { ok: false, error: "Missing submission_id" },
         { status: 400 }
       );
+    }
 
-    /* ---------- fetch saved stack ---------- */
+    // --- Fetch stack row ---
     const isUUID =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
         submissionId
       );
 
-    const { data: stack, error } = await supabaseAdmin
+    const { data: stackRow, error: stackErr } = await supabaseAdmin
       .from("stacks")
-      .select("sections,summary")
-      .limit(1)
-      .maybeSingle()
-      .eq(isUUID ? "submission_id" : "tally_submission_id", submissionId);
+      .select("*")
+      .eq(isUUID ? "submission_id" : "tally_submission_id", submissionId)
+      .maybeSingle();
 
-    if (error) throw error;
-    if (!stack)
-      return NextResponse.json({ ok: false, error: "Stack not found" }, { status: 404 });
+    if (stackErr) throw new Error("DB error fetching stack");
+    if (!stackRow)
+      return NextResponse.json(
+        { ok: false, error: "Stack not found" },
+        { status: 404 }
+      );
 
-    const markdown =
-      stack.sections?.markdown ?? stack.summary ?? "No report content available.";
-    const html = markdownToHtml(markdown);
+    // --- PDF setup ---
+    const pdfDoc = await PDFDocument.create();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    /* ---------- launch headless chrome ---------- */
-    const browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
-    });
+    let currentPage = pdfDoc.addPage([612, 792]); // US Letter
+    let cursorY = currentPage.getSize().height - 72;
+    const marginX = 50;
+    const lineHeight = 14;
 
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
-    const pdf = await page.pdf({
-      printBackground: true,
-      format: "Letter",
-      margin: { top: "25mm", bottom: "25mm", left: "18mm", right: "18mm" },
-    });
-    await browser.close();
+    function ensureSpace(required: number) {
+      if (cursorY - required < 72) {
+        currentPage = pdfDoc.addPage([612, 792]);
+        cursorY = currentPage.getSize().height - 72;
+      }
+    }
 
-    return new NextResponse(pdf, {
+    function drawWrapped(
+      text: string,
+      size = 11,
+      color = rgb(0, 0, 0),
+      indent = 0,
+      useBold = false
+    ) {
+      const f = useBold ? boldFont : font;
+      const words = text.split(/\s+/);
+      let line = "";
+      for (const word of words) {
+        const testLine = line ? line + " " + word : word;
+        const w = f.widthOfTextAtSize(testLine, size);
+        if (w > currentPage.getSize().width - 2 * marginX - indent) {
+          ensureSpace(lineHeight);
+          currentPage.drawText(line, {
+            x: marginX + indent,
+            y: cursorY,
+            size,
+            font: f,
+            color,
+          });
+          cursorY -= lineHeight;
+          line = word;
+        } else {
+          line = testLine;
+        }
+      }
+      if (line) {
+        ensureSpace(lineHeight);
+        currentPage.drawText(line, {
+          x: marginX + indent,
+          y: cursorY,
+          size,
+          font: f,
+          color,
+        });
+        cursorY -= lineHeight;
+      }
+    }
+
+    function drawTable(tableLines: string[]) {
+      if (tableLines.length < 2) return;
+      const rows = tableLines
+        .map((line) =>
+          line
+            .split("|")
+            .map((c) => c.trim())
+            .filter(Boolean)
+        )
+        .filter((r) => r.length > 0);
+
+      const colCount = rows[0].length;
+      const colWidth =
+        (currentPage.getSize().width - 2 * marginX) / Math.max(1, colCount);
+      const rowHeight = 18;
+
+      rows.forEach((row, i) => {
+        ensureSpace(rowHeight + 6);
+        const isHeader = i === 0;
+        const bgColor = isHeader
+          ? rgb(0.03, 0.76, 0.63)
+          : i % 2 === 0
+          ? rgb(0.95, 0.95, 0.95)
+          : rgb(1, 1, 1);
+
+        row.forEach((cell, j) => {
+          const x = marginX + j * colWidth;
+          currentPage.drawRectangle({
+            x,
+            y: cursorY - rowHeight,
+            width: colWidth,
+            height: rowHeight,
+            color: bgColor,
+          });
+          currentPage.drawText(cell, {
+            x: x + 4,
+            y: cursorY - rowHeight + 5,
+            size: 9,
+            font: isHeader ? boldFont : font,
+            color: isHeader ? rgb(1, 1, 1) : rgb(0, 0, 0),
+            maxWidth: colWidth - 8,
+          });
+        });
+        cursorY -= rowHeight;
+      });
+
+      cursorY -= 8;
+    }
+
+    // --- Title ---
+    drawWrapped("LVE360 | Longevity | Vitality | Energy", 16, rgb(0.03, 0.76, 0.63), 0, true);
+    cursorY -= 16;
+
+    // --- Content ---
+    let content =
+      stackRow.sections?.markdown ??
+      stackRow.summary ??
+      "No report content available.";
+    content = content.replace(/^```[a-z]*\n/, "").replace(/```$/, "");
+
+    const lines = content.split("\n");
+    let buffer: string[] = [];
+
+    for (const line of lines) {
+      if (line.startsWith("## ")) {
+        // flush any buffered table
+        if (buffer.length) {
+          drawTable(buffer);
+          buffer = [];
+        }
+        cursorY -= 10;
+        drawWrapped(line.replace(/^## /, ""), 14, rgb(0.1, 0.2, 0.4), 0, true);
+        cursorY -= 6;
+      } else if (line.includes("|")) {
+        buffer.push(line);
+      } else {
+        if (buffer.length) {
+          drawTable(buffer);
+          buffer = [];
+        }
+        if (line.startsWith("- ")) {
+          drawWrapped("• " + line.slice(2), 11, rgb(0, 0, 0), 15);
+        } else {
+          drawWrapped(line, 11);
+        }
+      }
+    }
+    if (buffer.length) drawTable(buffer);
+
+    // --- Footer disclaimer ---
+    ensureSpace(80);
+    drawWrapped("Important Wellness Disclaimers", 12, rgb(0.03, 0.76, 0.63), 0, true);
+    drawWrapped("This report is educational and not medical advice.", 10);
+    drawWrapped("Supplements are not intended to diagnose, treat, cure, or prevent disease.", 10);
+    drawWrapped("Consult your clinician before changes, especially with prescriptions or hormones.", 10);
+
+    const pdfBytes = await pdfDoc.save();
+    return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": 'inline; filename="LVE360_Blueprint.pdf"',
+        "Content-Disposition": `inline; filename="LVE360_Blueprint.pdf"`,
       },
     });
   } catch (err: any) {
-    console.error("export-pdf error:", err);
-    return NextResponse.json({ ok: false, error: String(err.message ?? err) }, { status: 500 });
+    console.error("Unhandled error in export-pdf:", err);
+    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
   }
 }
