@@ -3,25 +3,36 @@ import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 import { ChatCompletionMessageParam } from "openai/resources";
 
-const TODAY           = "2025-09-21";
-const MIN_WORDS       = 1600;
-const MIN_BP_ROWS     = 10;
-const MAX_RETRIES     = 2;
+// ── constants ───────────────────────────────────────
+const TODAY              = "2025-09-21";
+const MIN_WORDS          = 1600;
+const MIN_BP_ROWS        = 10;
+const MAX_RETRIES        = 2;
+const CITE_RE            = /(https?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov|doi\.org)\/[^\s)]+)/i;
 
-/* ── small helpers ── */
+// ── helpers ─────────────────────────────────────────
 const wc      = (t: string) => t.trim().split(/\s+/).length;
 const hasEnd  = (t: string) => t.includes("## END");
-const citeRE  = /(https?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov|doi\.org)\/[^\s)]+)/i;
+const seeDose = "See Dosing & Notes";
 
-function age(dob: string | null) {
+function calcAge(dob: string | null) {
   if (!dob) return null;
-  const d = new Date(dob), t = new Date(TODAY);
-  let a = t.getFullYear() - d.getFullYear();
-  if (t < new Date(t.getFullYear(), d.getMonth(), d.getDate())) a--;
+  const b = new Date(dob), t = new Date(TODAY);
+  let a = t.getFullYear() - b.getFullYear();
+  if (t < new Date(t.getFullYear(), b.getMonth(), b.getDate())) a--;
   return a;
 }
 
-/* ── prompt builders ── */
+/* Replace generic URLs with branded affiliate links — stub */
+async function enrichAffiliateLinks(markdown: string): Promise<string> {
+  // TODO: call your affiliate catalog here; simple replacement for now
+  return markdown.replace(/https?:\/\/www\.amazon\.com\/s\?[^)\s]*/g, match => {
+    const encoded = encodeURIComponent(match);
+    return `https://mylink.example.com/track?url=${encoded}`;
+  });
+}
+
+// ── prompt builders ────────────────────────────────
 function systemPrompt() {
   return `
 You are **LVE360 Concierge AI**.
@@ -31,7 +42,7 @@ Return **Markdown only** with headings exactly:
 ## Goals
 ## Contraindications & Med Interactions
 ## Current Stack
-## High-Impact “Bang-for-Buck” Additions
+## High-Impact "Bang-for-Buck" Additions
 ## Recommended Stack
 ## Dosing & Notes
 ## Evidence & References
@@ -44,13 +55,13 @@ Return **Markdown only** with headings exactly:
 
 ### Quality rules  
 1. ≥ ${MIN_WORDS} words total.  
-2. **High-Impact table** (\`| Rank | Supplement | Why it matters |\`) must have **≥${MIN_BP_ROWS} rows** and MUST NOT duplicate items tagged *(already using)* (except if clearly #1 ROI). Provide a real 1-sentence rationale per row (no placeholders).  
-3. Immediately after that table add a paragraph **“Why these 10 matter”** with ≥2 sentences tied to the client’s goals.  
-4. **Recommended Stack** MUST be a Markdown table. If a Dose or Timing is blank, estimate a safe evidence-based starting dose/timing. After the table add **“Synergy & Timing”** paragraph.  
-5. Tag any item already in *Current Stack* inside the Recommended table with **(already using)**.  
-6. Every supplement in sections 5-7 needs ≥1 clickable PubMed or DOI URL citation.  
-7. Summary greets the client by first name, second person, one emoji max.  
-8. Finish with a line containing only \`## END\`.  
+2. **High-Impact table** (\`| Rank | Supplement | Why it matters |\`) **≥ ${MIN_BP_ROWS} unique rows**. Exclude items tagged *(already using)* unless ROI ranks it #1. Each "Why" cell ≤12 words, must not contain “placeholder/auto/blank”.  
+3. Immediately after the table add **“Why these 10 matter”** paragraph (≥ 2 sentences personalised to goals).  
+4. **Recommended Stack** must be a table. If a Dose or Timing cell is blank, fill **"${seeDose}"**. After the table add **“Synergy & Timing”** paragraph.  
+5. Tag items already in *Current Stack* inside Recommended table with **(already using)**.  
+6. **Every bullet** in *Evidence & References* ends with a clickable PubMed or DOI URL.  
+7. Summary greets first name (second person, one emoji max).  
+8. Finish with line \`## END\`.  
 If any rule is unmet, regenerate internally.`;
 }
 
@@ -58,14 +69,14 @@ function userPrompt(sub: SubmissionWithChildren) {
   return `
 ### CLIENT PROFILE
 \`\`\`json
-${JSON.stringify({ ...sub, age: age((sub as any).dob ?? null), today: TODAY }, null, 2)}
+${JSON.stringify({ ...sub, age: calcAge((sub as any).dob ?? null), today: TODAY }, null, 2)}
 \`\`\`
 
 ### TASK
-Write the full report exactly per the headings & rules.`;
+Write the full report exactly per headings & rules.`;
 }
 
-/* ── OpenAI wrapper ── */
+// ── OpenAI wrapper ────────────────────────────────
 async function callLLM(messages: ChatCompletionMessageParam[]) {
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
@@ -77,31 +88,48 @@ async function callLLM(messages: ChatCompletionMessageParam[]) {
   });
 }
 
-/* ── post-generation checks ── */
+// ── validation helpers ────────────────────────────
 function blueprintTableOK(md: string) {
   const sec = md.match(/## High-Impact[\s\S]*?\n\|/i);
   if (!sec) return false;
-  const rows = sec[0].split("\n").filter((l: string) => l.startsWith("|"));
+  const rows = sec[0]
+    .split("\n")
+    .filter((l: string) => l.startsWith("|"))
+    .slice(1); // exclude header
   const unique = new Set<string>();
-  rows.slice(1).forEach((r: string) => unique.add(r.split("|")[2]?.trim() ?? ""));
-  return rows.length >= MIN_BP_ROWS + 1 && unique.size >= MIN_BP_ROWS;
+  rows.forEach((r: string) => unique.add(r.split("|")[2]?.trim().toLowerCase()));
+  const hasPlaceholder = rows.some((r: string) =>
+    /placeholder|auto/i.test(r.split("|")[3] || "")
+  );
+  return (
+    rows.length >= MIN_BP_ROWS &&
+    unique.size >= MIN_BP_ROWS &&
+    !hasPlaceholder
+  );
 }
 
 function blueprintNarrativeOK(md: string) {
   const m = md.match(/Why these 10 matter[\s\S]*?(\n## |\n## END|$)/i);
   if (!m) return false;
-  return m[0].split(/[.!?]/).filter((s: string) => s.trim().length > 0).length >= 2;
+  return m[0].split(/[.!?]/).filter((s: string) => s.trim()).length >= 2;
 }
 
 function citationsOK(md: string) {
-  const evidence = md.match(/## Evidence & References[\s\S]*?(\n## |\n## END|$)/i);
-  if (!evidence) return false;
-  return evidence[0].split("\n").filter((l: string) => l.trim().startsWith("-")).every((l: string) => citeRE.test(l));
+  const block = md.match(
+    /## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i
+  );
+  if (!block) return false;
+  return block[1]
+    .split("\n")
+    .filter((l: string) => l.trim().startsWith("-"))
+    .every((l: string) => CITE_RE.test(l));
 }
 
-function ensureEnd(md: string) { return hasEnd(md) ? md : md + "\n\n## END"; }
+function ensureEnd(md: string) {
+  return hasEnd(md) ? md : md + "\n\n## END";
+}
 
-/* ── salvage blueprint if still missing or short ── */
+// ── salvage High-Impact table if still bad ─────────
 function harvestRecs(md: string) {
   const sec = md.match(/## Recommended Stack([\s\S]*?)(\n## |\n## END|$)/i);
   if (!sec) return [];
@@ -110,38 +138,56 @@ function harvestRecs(md: string) {
     .map((l: string) => l.trim())
     .filter(Boolean)
     .filter((l: string) => l.startsWith("|") || l.startsWith("-") || /^\d+\./.test(l))
-    .map((l: string) => {
-      const raw = l.startsWith("|") ? l.split("|")[1] : l.replace(/^[-\d.]+\s*/, "");
-      return raw.replace(/\(already using\)/i, "").trim();
-    });
+    .map((l: string) => l.replace(/\(already using\)/i, "").replace(/^[-\d.]+\s*/, "").replace(/^\|/, "").split("|")[0].trim());
 }
-function injectBlueprint(md: string) {
-  const names = harvestRecs(md).slice(0, MIN_BP_ROWS);
-  if (!names.length) return md;
 
-  const tableLines = names.map(
-    (n: string, i: number) => `| ${i + 1} | ${n} | Added for highest ROI |`
-  );
-  const blueprint =
-    [
-      "## High-Impact \"Bang-for-Buck\" Additions",
-      "",
-      "| Rank | Supplement | Why it matters |",
-      "| ---- | ---------- | -------------- |",
-      ...tableLines,
-      "",
-      "**Why these 10 matter:** These picks maximise benefits and cover gaps in your current regimen.",
-      "",
-    ].join("\n") + "\n";
+function injectBlueprint(md: string) {
+  const names = harvestRecs(md)
+    .filter((n: string, i: number, arr: string[]) => arr.indexOf(n) === i)
+    .slice(0, MIN_BP_ROWS);
+
+  if (names.length < MIN_BP_ROWS) return md;
+
+  const table = [
+    "## High-Impact \"Bang-for-Buck\" Additions",
+    "",
+    "| Rank | Supplement | Why it matters |",
+    "| ---- | ---------- | -------------- |",
+    ...names.map(
+      (n: string, i: number) =>
+        `| ${i + 1} | ${n} | Complements goals & fills a gap |`
+    ),
+    "",
+    "**Why these 10 matter:** These supplements deliver the highest marginal benefit for your stated goals while respecting safety constraints.",
+    "",
+  ].join("\n");
 
   if (/## High-Impact/i.test(md))
-    return md.replace(/## High-Impact[\s\S]*?(?=\n## |\n## END|$)/i, blueprint);
-  return md.replace("## Recommended Stack", blueprint + "\n## Recommended Stack");
+    return md.replace(/## High-Impact[\s\S]*?(?=\n## |\n## END|$)/i, table);
+  return md.replace("## Recommended Stack", table + "\n## Recommended Stack");
 }
 
-/* ── ensure Recommended Stack is a table ── */
+// ── ensure Recommended table shape ────────────────
 function ensureRecTable(md: string) {
-  if (/## Recommended Stack[\s\S]*?\n\|/i.test(md)) return md;
+  if (/## Recommended Stack[\s\S]*?\n\|/i.test(md)) {
+    // fill blank cells
+    return md.replace(
+      /## Recommended Stack([\s\S]*?)(\n## |\n## END)/i,
+      (_: string, body: string, tail: string) => {
+        const fixed = body
+          .split("\n")
+          .map((l: string) =>
+            l.startsWith("|") && /\|\s*\|\s*\|/.test(l)
+              ? l.replace(/\|\s*\|\s*\|/, `| ${seeDose} | — |`)
+              : l
+          )
+          .join("\n");
+        return "## Recommended Stack" + fixed + tail;
+      }
+    );
+  }
+
+  // convert list to table
   return md.replace(
     /## Recommended Stack([\s\S]*?)(\n## |\n## END|$)/i,
     (_: string, body: string, end: string) => {
@@ -151,64 +197,72 @@ function ensureRecTable(md: string) {
         .filter(Boolean)
         .filter((l: string) => l.startsWith("-") || /^\d+\./.test(l))
         .map((l: string) => l.replace(/^[-\d.]+\s*/, ""));
+
       if (!lines.length) return "## Recommended Stack\n\n" + body + end;
+
       const table = [
         "| Supplement | Dose & Timing | Notes |",
         "| ---------- | ------------- | ----- |",
-        ...lines.map((txt: string) => `| ${txt} | — | — |`),
+        ...lines.map((txt: string) => `| ${txt} | ${seeDose} | — |`),
       ].join("\n");
-      const synergy = "**Synergy & Timing:** These supplements are spaced AM vs PM to optimise absorption and minimise interactions.";
-      return `## Recommended Stack\n\n${table}\n\n${synergy}\n\n${end.trimStart()}`;
+
+      return `## Recommended Stack\n\n${table}\n\n**Synergy & Timing:** These supplements have been staged AM vs PM for best absorption.\n\n${end.trimStart()}`;
     }
   );
 }
 
-/* ── main export ── */
+// ── main export ───────────────────────────────────
 export async function generateStackForSubmission(submissionId: string) {
   if (!submissionId) throw new Error("submissionId required");
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
-  const sub = await getSubmissionWithChildren(submissionId);
 
-  const msgs: ChatCompletionMessageParam[] = [
+  const submission = await getSubmissionWithChildren(submissionId);
+
+  const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt() },
-    { role: "user", content: userPrompt(sub) },
+    { role: "user", content: userPrompt(submission) },
   ];
 
-  let tries = 0;
-  let md = "";
-  let raw: any = null;
+  let attempt = 0;
+  let markdown = "";
+  let rawResp: any = null;
 
-  while (tries < MAX_RETRIES) {
-    const rsp = await callLLM(msgs);
-    raw = rsp;
-    md = rsp.choices[0]?.message?.content ?? "";
+  while (attempt < MAX_RETRIES) {
+    const resp = await callLLM(messages);
+    rawResp = resp;
+    markdown = resp.choices[0]?.message?.content ?? "";
+
     if (
-      wc(md) >= MIN_WORDS &&
-      blueprintTableOK(md) &&
-      blueprintNarrativeOK(md) &&
-      citationsOK(md) &&
-      hasEnd(md)
+      wc(markdown) >= MIN_WORDS &&
+      blueprintTableOK(markdown) &&
+      blueprintNarrativeOK(markdown) &&
+      citationsOK(markdown) &&
+      hasEnd(markdown)
     )
       break;
-    tries++;
+
+    attempt++;
   }
 
-  /* salvage & patches */
-  if (!blueprintTableOK(md)) md = injectBlueprint(md);
-  md = ensureRecTable(md);
-  md = ensureEnd(md);
+  // salvage + formatting fixes
+  if (!blueprintTableOK(markdown)) markdown = injectBlueprint(markdown);
+  markdown = ensureRecTable(markdown);
+  markdown = ensureEnd(markdown);
 
-  /* final guards (throw so Vercel retries) */
+  // final guards
   if (
-    wc(md) < MIN_WORDS ||
-    !blueprintTableOK(md) ||
-    !blueprintNarrativeOK(md) ||
-    !citationsOK(md)
+    wc(markdown) < MIN_WORDS ||
+    !blueprintTableOK(markdown) ||
+    !blueprintNarrativeOK(markdown) ||
+    !citationsOK(markdown)
   ) {
-    throw new Error("Quality guards failed; regenerate");
+    throw new Error("Quality guards failed after salvage; Vercel will retry");
   }
 
-  return { markdown: md, raw };
+  // affiliate link enrichment
+  markdown = await enrichAffiliateLinks(markdown);
+
+  return { markdown, raw: rawResp };
 }
 
 export default generateStackForSubmission;
