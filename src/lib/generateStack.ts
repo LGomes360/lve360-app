@@ -70,8 +70,13 @@ Every table/list MUST be followed by **Analysis** ≥3 sentences that:
 ### Special rules
 • Section **Your Blueprint Recommendations** → table with ≥${MIN_BP_ROWS} rows (Rank 1-10, Supplement, Why it Matters ≤12 words, no placeholders/auto).  
   Exclude items tagged *(already using)* unless it is Rank 1.  
+
+• Section **Full Recommended Stack** MUST merge the user’s **Current Stack** (minus any contraindicated/removed items) with the **Blueprint Additions**.  
+  Always output as a pipe table with ≥5 total supplements.  
+  Columns: Supplement | Dose & Timing | Notes.  
+  If Dose/Timing unknown → use “${seeDN}”.  
+
 • Section **Evidence & References** – every bullet ends with PubMed/DOI URL.  
-• Empty Dose/Timing → “${seeDN}”.  
 • Finish with line \`## END\`.  
 If internal check fails, regenerate before responding.`;
 }
@@ -132,7 +137,14 @@ function ensureRecTable(md: string) {
         .split("\n")
         .filter(l => l.trim() && (l.startsWith("-") || /^\d+\./.test(l)))
         .map(l => l.replace(/^[-\d.]+\s*/, ""));
-      if (!lines.length) return "## Full Recommended Stack\n\n" + body + tail;
+      if (!lines.length) {
+        const tbl = [
+          "| Supplement | Dose & Timing | Notes |",
+          "| ---------- | ------------- | ----- |",
+          "| (no items generated) | — | — |",
+        ].join("\n");
+        return `## Full Recommended Stack\n\n${tbl}\n\n${tail.trimStart()}`;
+      }
       const tbl = [
         "| Supplement | Dose & Timing | Notes |",
         "| ---------- | ------------- | ----- |",
