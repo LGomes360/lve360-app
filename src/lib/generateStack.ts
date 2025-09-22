@@ -50,7 +50,8 @@ function systemPrompt() {
   return `
 You are **LVE360 Concierge AI**, a friendly but professional wellness coach.  
 Tone: encouraging, plain-English, never clinical or robotic.  
-Always explain *why it matters* in a supportive, human way.
+Always explain *why it matters* in a supportive, human way.  
+Always greet the client by name in the Intro Summary if provided.
 
 Return **plain ASCII Markdown only** with headings EXACTLY:
 
@@ -66,7 +67,8 @@ Every table/list MUST be followed by **Analysis** ≥3 sentences that:
 • Section **Your Blueprint Recommendations** → table with ≥${MIN_BP_ROWS} rows.  
   Exclude items tagged *(already using)* unless it is Rank 1.  
 
-• Section **Full Recommended Stack** MUST merge the user’s Current Stack (minus contraindicated/removed) with the Blueprint Additions.  
+• Section **Full Recommended Stack** MUST NOT be blank.  
+  It MUST merge the user’s Current Stack (minus contraindicated/removed) with the Blueprint Additions.  
   Always output as a pipe table with ≥5 total supplements.  
   Columns: Supplement | Dose & Timing | Notes.  
   If Dose/Timing unknown → use “${seeDN}”.  
@@ -79,10 +81,10 @@ If internal check fails, regenerate before responding.`;
 function userPrompt(sub: SubmissionWithChildren, attempt = 0) {
   let reminder = "";
   if (attempt === 1) {
-    reminder = "\n\n⚠️ Reminder: Include ≥10 unique Blueprint rows and a Full Recommended Stack table.";
+    reminder = "\n\n⚠️ Reminder: Include ≥10 unique Blueprint rows, a Full Recommended Stack table, and ≥3 sentences of Analysis per section in friendly coach tone.";
   }
   if (attempt === 2) {
-    reminder = "\n\n‼️ STRICT: Must include all 14 headings, ≥10 Blueprint rows, and a Full Recommended Stack table with ≥5 items.";
+    reminder = "\n\n‼️ STRICT: Must include all 14 headings, ≥10 Blueprint rows, a Full Recommended Stack table with ≥5 items, and ≥3 sentences of Analysis per section.";
   }
 
   return `
@@ -142,28 +144,35 @@ function narrativesOK(md: string) {
 
 function ensureEnd(md: string) { return hasEnd(md) ? md : md + "\n\n## END"; }
 
+// fallback: rebuild Full Recommended Stack if empty
 function ensureRecTable(md: string) {
   return md.replace(
     /## Full Recommended Stack([\s\S]*?)(\n## |\n## END|$)/i,
     (_, body: string, tail: string) => {
       if (/\n\|.+\|\s*Notes\s*\|/i.test(body)) return "## Full Recommended Stack" + body + tail;
-      const lines = body
-        .split("\n")
-        .filter(l => l.trim() && (l.startsWith("-") || /^\d+\./.test(l)))
-        .map(l => l.replace(/^[-\d.]+\s*/, ""));
-      if (!lines.length) {
-        const tbl = [
-          "| Supplement | Dose & Timing | Notes |",
-          "| ---------- | ------------- | ----- |",
-          "| (no items generated) | — | — |",
-        ].join("\n");
-        return `## Full Recommended Stack\n\n${tbl}\n\n${tail.trimStart()}`;
+
+      // try to salvage rows from Current Stack + Blueprint
+      const current = md.match(/## Current Stack([\s\S]*?)(\n## |\n## END|$)/i);
+      const blueprint = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |\n## END|$)/i);
+      const rows: string[] = [];
+
+      if (current) {
+        current[1].split("\n").forEach(line => {
+          if (line.startsWith("|")) rows.push(line.trim());
+        });
       }
+      if (blueprint) {
+        blueprint[1].split("\n").forEach(line => {
+          if (line.startsWith("|")) rows.push(line.trim() + " | — |");
+        });
+      }
+
       const tbl = [
         "| Supplement | Dose & Timing | Notes |",
         "| ---------- | ------------- | ----- |",
-        ...lines.map(txt => `| ${txt} | ${seeDN} | — |`),
+        ...(rows.length ? rows : ["| (no items generated) | — | — |"]),
       ].join("\n");
+
       return `## Full Recommended Stack\n\n${tbl}\n\n${tail.trimStart()}`;
     }
   );
@@ -211,7 +220,8 @@ export async function generateStackForSubmission(id: string) {
   md = await enrichAffiliateLinks(md);
 
   if (!passes) {
-    md = `> **⚠️ Draft flagged for review (internal)** – some validations failed.\n\n` + md;
+    // internal flag, user-facing report stays graceful
+    console.warn("⚠️ Draft validation failed, review needed.");
   }
 
   return { markdown: md, raw };
