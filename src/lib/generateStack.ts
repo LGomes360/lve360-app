@@ -64,15 +64,12 @@ Every table/list MUST be followed by **Analysis** ≥3 sentences that:
 • Give practical implication  
 
 ### Special rules
+
 • Section **Your Blueprint Recommendations** → table with ≥${MIN_BP_ROWS} rows.  
   Exclude items tagged *(already using)* unless it is Rank 1.  
 
-• Section **Full Recommended Stack** MUST NOT be blank.  
-  It MUST merge the user’s Current Stack (minus contraindicated/removed) with the Blueprint Additions.  
-  Always output as a pipe table with ≥5 total supplements.  
-  Columns: Supplement | Dose & Timing | Notes.  
-  If Dose/Timing unknown → use “${seeDN}”.  
-
+• Section **Full Recommended Stack** → table with the user’s **Current Stack** (minus supplements with **Contraindications & Med Interactions**/removed) with the **Your Blueprint Recommendations**.  
+ 
 • Section **Evidence & References** – every bullet ends with PubMed/DOI URL.  
 • Finish with line \`## END\`.  
 If internal check fails, regenerate before responding.`;
