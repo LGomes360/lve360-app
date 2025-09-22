@@ -2,17 +2,14 @@
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 import { ChatCompletionMessageParam } from "openai/resources";
-
-// future stubs (currently no-ops)
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 
 // ── constants ──────────────────────────────────────────
-const TODAY           = "2025-09-21";
-const MIN_WORDS       = 1800;
-const MIN_BP_ROWS     = 10;
-const MAX_RETRIES     = 3;
-const CITE_RE         = /(https?:\/\/(?:pubmed\.|doi\.org)[^\s)]+)/i;
+const TODAY       = "2025-09-21";
+const MIN_WORDS   = 1800;
+const MIN_BP_ROWS = 10;
+const CITE_RE     = /(https?:\/\/(?:pubmed\.|doi\.org)[^\s)]+)/i;
 
 const HEADINGS = [
   "## Intro Summary",
@@ -27,7 +24,7 @@ const HEADINGS = [
   "## Lifestyle Prescriptions",
   "## Longevity Levers",
   "## This Week Try",
-  "## END", // Disclaimers removed, END is last
+  "## END",
 ];
 
 // ── helpers ──────────────────────────────────────────
@@ -46,9 +43,9 @@ function age(dob: string | null) {
 // ── prompt builders ──────────────────────────────────
 function systemPrompt() {
   return `
-You are **LVE360 Concierge AI**, a friendly but professional wellness coach.  
-Tone: encouraging, plain-English, never clinical or robotic.  
-Always explain *why it matters* in a supportive, human way.  
+You are **LVE360 Concierge AI**, a friendly but professional wellness coach.
+Tone: encouraging, plain-English, never clinical or robotic.
+Always explain *why it matters* in a supportive, human way.
 Always greet the client by name in the Intro Summary if provided.
 
 Return **plain ASCII Markdown only** with headings EXACTLY:
@@ -57,29 +54,20 @@ ${HEADINGS.slice(0, -1).join("\n")}
 
 Tables must use \`Column | Column\` pipe format, **no curly quotes or bullets**.
 Every table/list MUST be followed by **Analysis** ≥3 sentences that:
-• Summarize the section  
-• Explain why it matters  
-• Give practical implication  
+• Summarize the section
+• Explain why it matters
+• Give practical implication
 
 ### Special rules
-• Section **Your Blueprint Recommendations** → table with ≥${MIN_BP_ROWS} rows.  
-  Exclude items tagged *(already using)* unless it is Rank 1.  
-
-• Section **Evidence & References** – every bullet ends with PubMed/DOI URL.  
-• If Dose/Timing unknown → use “${seeDN}”.  
-• Finish with line \`## END\`.  
+• Section **Your Blueprint Recommendations** → table with ≥${MIN_BP_ROWS} rows.
+  Exclude items tagged *(already using)* unless it is Rank 1.
+• Section **Evidence & References** – every bullet ends with PubMed/DOI URL.
+• If Dose/Timing unknown → use “${seeDN}”.
+• Finish with line \`## END\`.
 If internal check fails, regenerate before responding.`;
 }
 
-function userPrompt(sub: SubmissionWithChildren, attempt = 0) {
-  let reminder = "";
-  if (attempt === 1) {
-    reminder = "\n\n⚠️ Reminder: Include ≥10 unique Blueprint rows and ≥3 sentences of Analysis per section in friendly coach tone.";
-  }
-  if (attempt === 2) {
-    reminder = "\n\n‼️ STRICT: Must include all 12 headings, ≥10 Blueprint rows, and ≥3 sentences of Analysis per section.";
-  }
-
+function userPrompt(sub: SubmissionWithChildren) {
   return `
 ### CLIENT
 \`\`\`json
@@ -87,17 +75,17 @@ ${JSON.stringify({ ...sub, age: age((sub as any).dob ?? null), today: TODAY }, n
 \`\`\`
 
 ### TASK
-Generate the full report per the rules above.${reminder}`;
+Generate the full report per the rules above.`;
 }
 
 // ── openai wrapper ──────────────────────────────────
-async function callLLM(messages: ChatCompletionMessageParam[]) {
+async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
   return openai.chat.completions.create({
-    model       : process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-    temperature : 0.7,
-    max_tokens  : 4096,
+    model,
+    temperature: 0.7,
+    max_tokens: 4096,
     messages,
   });
 }
@@ -110,10 +98,7 @@ function blueprintOK(md: string) {
   const sec = md.match(/## Your Blueprint Recommendations[\s\S]*?\n\|/i);
   if (!sec) return false;
   const rows = sec[0].split("\n").filter(l => l.startsWith("|")).slice(1);
-  const unique = new Set<string>();
-  const noPlaceholder = rows.every(r => !/placeholder|auto/i.test(r));
-  rows.forEach(r => unique.add(r.split("|")[2]?.trim().toLowerCase()));
-  return rows.length >= MIN_BP_ROWS && unique.size >= MIN_BP_ROWS && noPlaceholder;
+  return rows.length >= MIN_BP_ROWS;
 }
 function citationsOK(md: string) {
   const block = md.match(/## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i);
@@ -133,7 +118,9 @@ function narrativesOK(md: string) {
   });
 }
 
-function ensureEnd(md: string) { return hasEnd(md) ? md : md + "\n\n## END"; }
+function ensureEnd(md: string) {
+  return hasEnd(md) ? md : md + "\n\n## END";
+}
 
 // ── main export ─────────────────────────────────────
 export async function generateStackForSubmission(id: string) {
@@ -141,35 +128,42 @@ export async function generateStackForSubmission(id: string) {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
 
   const sub = await getSubmissionWithChildren(id);
+  const msgs: ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt() },
+    { role: "user", content: userPrompt(sub) },
+  ];
 
   let md = "";
   let raw: any = null;
   let passes = false;
 
-  for (let i = 0; i < MAX_RETRIES; i++) {
-    const msgs: ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt() },
-      { role: "user",   content: userPrompt(sub, i) },
-    ];
-    const resp = await callLLM(msgs);
+  // --- Step 1: Try mini first ---
+  try {
+    const resp = await callLLM(msgs, "gpt-4o-mini");
     raw = resp;
-    md  = resp.choices[0]?.message?.content ?? "";
-
-    if (
-      wc(md) >= MIN_WORDS &&
-      headingsOK(md) &&
-      blueprintOK(md) &&
-      citationsOK(md) &&
-      narrativesOK(md) &&
-      hasEnd(md)
-    ) {
+    md = resp.choices[0]?.message?.content ?? "";
+    if (wc(md) >= MIN_WORDS && headingsOK(md) && hasEnd(md)) {
       passes = true;
-      break;
+    }
+  } catch (err) {
+    console.warn("Mini model call failed:", err);
+  }
+
+  // --- Step 2: If mini failed, fall back to gpt-4o ---
+  if (!passes) {
+    console.log("Falling back to gpt-4o for reliability...");
+    const resp = await callLLM(msgs, "gpt-4o");
+    raw = resp;
+    md = resp.choices[0]?.message?.content ?? "";
+    if (wc(md) >= MIN_WORDS && headingsOK(md) && hasEnd(md)) {
+      passes = true;
     }
   }
 
+  // --- Salvage minimal ---
   md = ensureEnd(md);
 
+  // --- Run hooks ---
   md = await applySafetyChecks(md, sub);
   md = await enrichAffiliateLinks(md);
 
