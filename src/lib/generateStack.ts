@@ -1,7 +1,8 @@
 // src/lib/generateStack.ts
 // -----------------------------------------------------------------------------
-// Generate a supplement "stack" report (Markdown with 13 strict sections)
-// for a submission using OpenAI, following the LVE360 Blueprint style.
+// Generate a supplement "stack" report via a 2-pass pipeline:
+//   1) Ask OpenAI for structured JSON (sections, recs, rationale, citations).
+//   2) Reformat JSON → strict Markdown with 13 sections + sentinel `## END`.
 // -----------------------------------------------------------------------------
 //
 // Sections (strict order):
@@ -18,8 +19,7 @@
 //   ## Lifestyle Prescriptions
 //   ## Longevity Levers
 //   ## This Week Try
-//   ## END (sentinel, must appear last)
-//
+//   ## END
 // -----------------------------------------------------------------------------
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
@@ -35,11 +35,12 @@ function safeStringify(obj: any) {
   }
 }
 
+// Compute age from DOB string
 function calculateAge(dob: string | null): number | null {
   if (!dob) return null;
   const birthDate = new Date(dob);
   if (isNaN(birthDate.getTime())) return null;
-  const today = new Date("2025-09-21"); // lock for consistency
+  const today = new Date("2025-09-21"); // locked for consistency
   let age = today.getFullYear() - birthDate.getFullYear();
   const m = today.getMonth() - birthDate.getMonth();
   if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
@@ -48,91 +49,174 @@ function calculateAge(dob: string | null): number | null {
   return age;
 }
 
-function buildPrompt(sub: SubmissionWithChildren) {
+/* ----------------------------- PROMPTS ----------------------------- */
+
+// Stage 1: JSON-first schema
+function buildJsonPrompt(sub: SubmissionWithChildren) {
   const age = calculateAge((sub as any).dob ?? null);
 
-  const parts = [
-    "# LVE360 Blueprint Report Request",
-
-    "Generate a Markdown report with **exactly 13 sections plus a sentinel `## END`**, in the order below. " +
-      "Do not omit, rename, or reorder any section. If a section is missing, renamed, or out of order, the report is invalid.",
-
-    "## Sections (strict order)",
-    [
-      "1. ## Summary",
-      "2. ## Goals",
-      "3. ## Contraindications & Med Interactions",
-      "4. ## Current Stack",
-      "5. ## Your Blueprint Recommendations",
-      "6. ## Recommended Stack",
-      "7. ## Dosing & Notes",
-      "8. ## Evidence & References",
-      "9. ## Shopping Links",
-      "10. ## Follow-up Plan",
-      "11. ## Lifestyle Prescriptions",
-      "12. ## Longevity Levers",
-      "13. ## This Week Try",
-      "14. ## END",
-    ].join("\n"),
-
-    "",
-    "## Formatting & Content Rules",
-    "- Each section must start with a level-2 heading (##).",
-    "- In **Summary**, display all demographics: Name, Date of Birth, Age (trust `age`), Weight, Height, Sex, Email.",
-    "- In **Contraindications & Med Interactions**, output a table: Medication | Concern | Guardrail.",
-    "- In **Your Blueprint Recommendations**, output a Markdown table with at least 3 ranked items. " +
-      "Header must be exactly '## Your Blueprint Recommendations'. " +
-      "Columns: Rank | Supplement | Why it matters.",
-    "- In **Recommended Stack**, include ALL 'Blueprint Recommendations' items (mark them clearly). " +
-      "Table format: Supplement | Dose | Timing | Notes.",
-    "- In **Dosing & Notes**, include medications + hormones with timing/notes.",
-    "- In **Evidence & References**, provide ≥1 citation per supplement (PubMed/SR/MA preferred). " +
-      "If evidence is limited, state 'Evidence limited'.",
-    "- In **Shopping Links**, include placeholder URL or '[Link unavailable]' if missing.",
-    "- In **Follow-up Plan**, include cadence (labs every 6–12 months, recheck after 8–12 weeks).",
-    "- In **Lifestyle Prescriptions**, break into Nutrition, Sleep, Exercise, Focus, Monitoring subsections.",
-    "- In **Longevity Levers**, give 3–4 concise habits that improve healthspan.",
-    "- In **This Week Try**, give exactly 1 practical 7-day experiment.",
-    "- **Final sentinel:** Always end the report with a line `## END`.",
-
-    "",
-    "## Constraints",
-    "- ASCII-safe characters only; wrap lines at ~80 chars.",
-    "- Return Markdown only in the response body.",
-
-    "",
-    "## Submission Data (JSON)",
-    "```json",
+  return [
+    "# LVE360 Blueprint Report — Stage 1 (JSON)",
+    "Return a single valid JSON object (no prose) with these fields:",
     safeStringify({
-      submission: {
-        id: sub.id,
-        name: (sub as any).name ?? null,
-        sex: (sub as any).sex ?? null,
-        dob: (sub as any).dob ?? null,
-        age: age,
-        weight: (sub as any).weight ?? null,
-        height: (sub as any).height ?? null,
-        goals: (sub as any).goals ?? null,
-        answers: (sub as any).answers ?? null,
-        email: (sub as any).user_email ?? null,
+      summary: "string narrative (demographics, DOB, Age, key context)",
+      goals: "expanded narrative of user’s goals",
+      contraindications: [
+        { medication: "string", concern: "string", guardrail: "string" },
+      ],
+      currentStackReview:
+        "narrative review of supplements they already take, pros/cons, redundancies",
+      blueprintRecommendations: [
+        { rank: 1, supplement: "string", why: "string" },
+      ],
+      recommendedStack: [
+        {
+          supplement: "string",
+          dose: "string",
+          timing: "AM/PM/Bedtime",
+          notes: "string",
+        },
+      ],
+      dosingNotes:
+        "include medications + hormones with timing/notes; clarify integration",
+      evidence: [
+        { supplement: "string", citation: "PubMed ID or link", summary: "string" },
+      ],
+      shoppingLinks: [
+        { supplement: "string", url: "https:// or [Link unavailable]" },
+      ],
+      followUp: "cadence for labs/check-ins; what to monitor",
+      lifestyle: {
+        nutrition: ["bullet1", "bullet2"],
+        sleep: ["bullet1"],
+        exercise: ["bullet1"],
+        focus: ["bullet1"],
+        monitoring: ["bullet1"],
       },
+      longevityLevers: ["habit1", "habit2", "habit3"],
+      weeklyTry: "one concrete 7-day experiment",
+    }),
+    "",
+    "Constraints:",
+    "- Output must be pure JSON, no Markdown, no explanations.",
+    "- Populate fields using submission data provided.",
+    "- Use quiz fields: goals, conditions, allergies, sleep_rating, energy_rating, dosing_pref, brand_pref, etc.",
+    "- Evidence: at least one citation per recommended supplement.",
+    "",
+    "Submission data (for context):",
+    safeStringify({
+      id: sub.id,
+      name: (sub as any).name ?? null,
+      sex: (sub as any).sex ?? null,
+      dob: (sub as any).dob ?? null,
+      age,
+      weight: (sub as any).weight ?? null,
+      height: (sub as any).height ?? null,
+      goals: (sub as any).goals ?? null,
+      energy_rating: (sub as any).energy_rating ?? null,
+      sleep_rating: (sub as any).sleep_rating ?? null,
+      allergies: (sub as any).allergies ?? null,
+      allergy_details: (sub as any).allergy_details ?? null,
+      dosing_pref: (sub as any).dosing_pref ?? null,
+      brand_pref: (sub as any).brand_pref ?? null,
+      answers: (sub as any).answers ?? null,
+      email: (sub as any).user_email ?? null,
       medications: sub.medications ?? [],
       supplements: sub.supplements ?? [],
       hormones: sub.hormones ?? [],
     }),
-    "```",
-
-    "",
-    "End of instructions.",
-  ];
-
-  let prompt = parts.join("\n\n");
-  if (prompt.length > MAX_PROMPT_CHARS) {
-    prompt =
-      prompt.slice(0, MAX_PROMPT_CHARS - 500) + "\n\n...TRUNCATED_FOR_LENGTH";
-  }
-  return prompt;
+  ].join("\n\n");
 }
+
+// Stage 2: Convert JSON → Markdown
+function jsonToMarkdown(data: any) {
+  let out: string[] = [];
+
+  out.push("## Summary\n" + (data.summary ?? ""));
+  out.push("## Goals\n" + (data.goals ?? ""));
+
+  if (data.contraindications?.length) {
+    out.push(
+      "## Contraindications & Med Interactions\n\n| Medication | Concern | Guardrail |\n|------------|---------|-----------|\n" +
+        data.contraindications
+          .map(
+            (c: any) => `| ${c.medication} | ${c.concern} | ${c.guardrail} |`
+          )
+          .join("\n")
+    );
+  }
+
+  out.push("## Current Stack\n" + (data.currentStackReview ?? ""));
+
+  if (data.blueprintRecommendations?.length) {
+    out.push(
+      "## Your Blueprint Recommendations\n\n| Rank | Supplement | Why it matters |\n|------|------------|----------------|\n" +
+        data.blueprintRecommendations
+          .map(
+            (r: any) => `| ${r.rank} | ${r.supplement} | ${r.why ?? ""} |`
+          )
+          .join("\n")
+    );
+  }
+
+  if (data.recommendedStack?.length) {
+    out.push(
+      "## Recommended Stack\n\n| Supplement | Dose | Timing | Notes |\n|------------|------|--------|-------|\n" +
+        data.recommendedStack
+          .map(
+            (r: any) =>
+              `| ${r.supplement} | ${r.dose ?? ""} | ${r.timing ?? ""} | ${r.notes ?? ""} |`
+          )
+          .join("\n")
+    );
+  }
+
+  out.push("## Dosing & Notes\n" + (data.dosingNotes ?? ""));
+
+  if (data.evidence?.length) {
+    out.push(
+      "## Evidence & References\n\n" +
+        data.evidence
+          .map(
+            (e: any) =>
+              `- **${e.supplement}** — ${e.summary ?? ""} ([Link](${e.citation}))`
+          )
+          .join("\n")
+    );
+  }
+
+  if (data.shoppingLinks?.length) {
+    out.push(
+      "## Shopping Links\n\n" +
+        data.shoppingLinks
+          .map((s: any) => `- ${s.supplement}: ${s.url}`)
+          .join("\n")
+    );
+  }
+
+  out.push("## Follow-up Plan\n" + (data.followUp ?? ""));
+
+  if (data.lifestyle) {
+    out.push("## Lifestyle Prescriptions");
+    Object.entries(data.lifestyle).forEach(([k, v]) => {
+      out.push(`### ${k[0].toUpperCase() + k.slice(1)}\n- ${(v as any[]).join("\n- ")}`);
+    });
+  }
+
+  if (data.longevityLevers?.length) {
+    out.push(
+      "## Longevity Levers\n" +
+        data.longevityLevers.map((l: any) => `- ${l}`).join("\n")
+    );
+  }
+
+  out.push("## This Week Try\n" + (data.weeklyTry ?? ""));
+  out.push("## END");
+
+  return out.join("\n\n");
+}
+
+/* ----------------------------- MAIN ----------------------------- */
 
 export async function generateStackForSubmission(submissionId: string) {
   if (!submissionId) throw new Error("submissionId is required");
@@ -140,84 +224,52 @@ export async function generateStackForSubmission(submissionId: string) {
     throw new Error("OPENAI_API_KEY is not configured");
 
   const submission = await getSubmissionWithChildren(submissionId);
-  const prompt = buildPrompt(submission);
 
+  // Init OpenAI client
   let openai: any = null;
   try {
     const localMod: any = await import("./openai").catch(() => null);
     if (localMod) {
-      if (typeof localMod.getOpenAiClient === "function") {
-        openai = localMod.getOpenAiClient();
-      } else if (typeof localMod.getOpenAI === "function") {
-        openai = localMod.getOpenAI();
-      } else if (localMod.default) {
+      if (typeof localMod.getOpenAiClient === "function") openai = localMod.getOpenAiClient();
+      else if (typeof localMod.getOpenAI === "function") openai = localMod.getOpenAI();
+      else if (localMod.default) {
         const Def = localMod.default;
-        openai =
-          typeof Def === "function"
-            ? new Def({ apiKey: process.env.OPENAI_API_KEY })
-            : Def;
+        openai = typeof Def === "function" ? new Def({ apiKey: process.env.OPENAI_API_KEY }) : Def;
       }
     }
     if (!openai) {
       const OpenAIMod: any = await import("openai");
       const OpenAIDef = OpenAIMod?.default ?? OpenAIMod;
-      openai =
-        typeof OpenAIDef === "function"
-          ? new OpenAIDef({ apiKey: process.env.OPENAI_API_KEY })
-          : OpenAIDef;
+      openai = typeof OpenAIDef === "function" ? new OpenAIDef({ apiKey: process.env.OPENAI_API_KEY }) : OpenAIDef;
     }
     if (!openai) throw new Error("OpenAI initialization failed");
   } catch (e: any) {
     throw new Error(`OpenAI init failed: ${String(e?.message ?? e)}`);
   }
 
-  const response = await openai.responses.create({
+  // Stage 1: JSON
+  const jsonResp = await openai.responses.create({
     model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-    input: prompt,
+    input: buildJsonPrompt(submission),
+    temperature: 0.6,
   });
 
-  let markdown = "";
+  let parsed: any = null;
   try {
-    const outputs = (response as any).output;
-    if (Array.isArray(outputs) && outputs.length) {
-      const first = outputs[0];
-      if (typeof first === "string") markdown = first;
-      else if (first?.content) {
-        if (Array.isArray(first.content)) {
-          markdown = first.content
-            .map((c: any) => c.text ?? c.parts?.join?.("") ?? "")
-            .join("\n");
-        } else if (typeof first.content === "string") {
-          markdown = first.content;
-        } else if (first.content?.[0]?.text) {
-          markdown = first.content.map((c: any) => c.text).join("\n");
-        }
-      }
-    } else if ((response as any).output_text) {
-      markdown = (response as any).output_text;
-    } else {
-      markdown = safeStringify(response);
-    }
-  } catch {
-    markdown = safeStringify(response);
+    const rawText =
+      (jsonResp as any).output_text ??
+      (Array.isArray((jsonResp as any).output) && (jsonResp as any).output[0]?.content?.[0]?.text) ??
+      "";
+    parsed = JSON.parse(rawText);
+  } catch (err) {
+    console.warn("Failed to parse JSON, falling back:", err);
+    parsed = {};
   }
 
-  // 🚨 Enforce sentinel
-  if (!markdown.includes("## END")) {
-    markdown += "\n\n## END\n";
-  }
+  // Stage 2: Markdown
+  let markdown = jsonToMarkdown(parsed);
 
-  // 🚨 Enforce Your Blueprint Recommendations placeholder if missing
-  if (!markdown.includes("## Your Blueprint Recommendations")) {
-    markdown =
-      markdown.replace("## Recommended Stack", "") +
-      "\n\n## Your Blueprint Recommendations\n\n" +
-      "| Rank | Supplement | Why it matters |\n" +
-      "|------|------------|----------------|\n" +
-      "| 1    | Placeholder | Not generated |\n\n" +
-      "## Recommended Stack\n\n[Regeneration attempted]";
-  }
-
+  // Fallback if empty
   if (!markdown || markdown.trim().length === 0) {
     markdown = `## Report Unavailable
 
@@ -227,7 +279,7 @@ Please [contact support](https://lve360.com/helpdesk) and share your submission 
 ## END`;
   }
 
-  return { markdown, raw: response };
+  return { markdown, raw: jsonResp };
 }
 
 export default generateStackForSubmission;
