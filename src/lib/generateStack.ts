@@ -5,7 +5,7 @@ import { ChatCompletionMessageParam } from "openai/resources";
 
 // ── constants ──────────────────────────────────────────
 const TODAY           = "2025-09-21";
-const MIN_WORDS       = 1800;          // bigger report
+const MIN_WORDS       = 1800;
 const MIN_BP_ROWS     = 10;
 const MAX_RETRIES     = 2;
 const CITE_RE         = /(https?:\/\/(?:pubmed\.|doi\.org)[^\s)]+)/i;
@@ -53,7 +53,9 @@ async function enrichLinks(md: string) {
 // ── prompt builders ───────────────────────────────────
 function systemPrompt() {
   return `
-You are **LVE360 Concierge AI**.
+You are **LVE360 Concierge AI**, a friendly but professional wellness coach.  
+Tone: encouraging, plain-English, never clinical or robotic.  
+Always explain *why it matters* in a supportive, human way.
 
 Return **plain ASCII Markdown only** with headings EXACTLY:
 
@@ -61,7 +63,9 @@ ${HEADINGS.slice(0, -1).join("\n")}
 
 Tables must use \`Column | Column\` pipe format, **no curly quotes or bullets**.
 Every table/list MUST be followed by **Narrative & Analysis** ≥3 sentences that:
-• Summarise section • Explain why it matters • Give practical implication.
+• Summarize the section  
+• Explain why it matters  
+• Give practical implication  
 
 ### Special rules
 • Section **Your Blueprint Recommendations** → table with ≥${MIN_BP_ROWS} rows (Rank 1-10, Supplement, Why it Matters ≤12 words, no placeholders/auto).  
@@ -123,7 +127,7 @@ function ensureRecTable(md: string) {
   return md.replace(
     /## Full Recommended Stack([\s\S]*?)(\n## |\n## END|$)/i,
     (_, body: string, tail: string) => {
-      if (/\n\|.+\|\s*Notes\s*\|/i.test(body)) return "## Full Recommended Stack" + body + tail; // already table
+      if (/\n\|.+\|\s*Notes\s*\|/i.test(body)) return "## Full Recommended Stack" + body + tail;
       const lines = body
         .split("\n")
         .filter(l => l.trim() && (l.startsWith("-") || /^\d+\./.test(l)))
