@@ -1,228 +1,145 @@
 // src/lib/generateStack.ts
 // -----------------------------------------------------------------------------
-// LVE360 — Generate personalized supplement & lifestyle plan
-// Enhanced with evidence citations, ≥10 Blueprint Recommendations,
-// bullets + narrative, and DSHEA-compliant disclaimers.
+// LVE360 Concierge Report — v3 (two-pass, long-form, ≥10 high-impact items)
 // -----------------------------------------------------------------------------
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 
-const MAX_PROMPT_CHARS = 28000;
+const MAX_PROMPT_CHARS = 26000;
+const TODAY_ISO = "2025-09-21";
 
-function safeStringify(obj: any) {
-  try {
-    return JSON.stringify(obj, null, 2);
-  } catch {
-    return String(obj);
-  }
+function safeJson(obj: any) {
+  try { return JSON.stringify(obj, null, 2); } catch { return String(obj); }
 }
 
-function calculateAge(dob: string | null): number | null {
+function calcAge(dob: string | null) {
   if (!dob) return null;
-  const birthDate = new Date(dob);
-  if (isNaN(birthDate.getTime())) return null;
-  const today = new Date("2025-09-21"); // locked for consistency
-  let age = today.getFullYear() - birthDate.getFullYear();
-  const m = today.getMonth() - birthDate.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-    age--;
-  }
-  return age;
+  const b = new Date(dob), t = new Date(TODAY_ISO);
+  let a = t.getFullYear() - b.getFullYear();
+  if (t < new Date(t.getFullYear(), b.getMonth(), b.getDate())) a--;
+  return a;
 }
 
-function buildPrompt(sub: SubmissionWithChildren) {
-  const age = calculateAge((sub as any).dob ?? null);
+function buildSystemPrompt() {
+  return `
+You are **LVE360**, a wellness-concierge AI (nutritionist/MD hybrid).
 
-  const parts = [
-    "# LVE360 Concierge Report Request",
+## Output Contract (Markdown, strict order)
+1. ## Summary
+2. ## Goals
+3. ## Contraindications & Med Interactions
+4. ## Current Stack
+5. ## High-Impact “Bang-for-Buck” Additions
+6. ## Recommended Stack
+7. ## Dosing & Notes
+8. ## Evidence & References
+9. ## Shopping Links
+10. ## Follow-up Plan
+11. ## Lifestyle Prescriptions
+12. ## Longevity Levers
+13. ## This Week Try
+14. ## END
 
-    "You are a **wellness concierge AI**. Generate a Markdown report that is " +
-      "friendly yet authoritative, like a nutritionist or physician coaching a client.",
+### Mandatory quality bars
+- ≥ 1 600 words **total** (narrative + bullets) or regenerate.
+- **High-Impact section:** ≥ 10 ranked items, table **Rank | Supplement | Why it matters**.
+- Every supplement in sections 5–7 must have ≥ 1 inline citation like \`【PMID 123456†10-12】\`.
+- Use second person, supportive tone, DSHEA-compliant wording (“may help…”).
+- Finish **exactly** with a line containing only \`## END\`.
 
-    "## Structure — Sections (strict order, each required)",
-    [
-      "1. ## Summary",
-      "2. ## Goals",
-      "3. ## Contraindications & Med Interactions",
-      "4. ## Current Stack",
-      "5. ## Your Blueprint Recommendations",
-      "6. ## Recommended Stack",
-      "7. ## Dosing & Notes",
-      "8. ## Evidence & References",
-      "9. ## Shopping Links",
-      "10. ## Follow-up Plan",
-      "11. ## Lifestyle Prescriptions",
-      "12. ## Longevity Levers",
-      "13. ## This Week Try",
-      "14. ## END",
-    ].join("\n"),
+### Style hints
+- Blend short paragraphs (3-5 sentences) with bullets.
+- Tie advice to user data (energy score, sleep rating, allergies, meds, etc.).
+- In **Shopping Links** use \`[Buy on Fullscript](URL)\` or \`[Link unavailable]\`.
+- Include DSHEA disclaimer in **Follow-up Plan**.
 
-    "",
-    "## Formatting & Content Rules",
-    "- Each section starts with a level-2 heading (##).",
-    "- **Summary**: include demographics (Name, DOB, Age—trust `age` field, not recalculated), Weight, Height, Sex, Email.",
-    "- **Contraindications & Med Interactions**: Markdown table with columns Medication | Concern | Guardrail. Must reference user’s meds directly.",
-    "- **Your Blueprint Recommendations**: Markdown table with ≥10 ranked items. Columns: Rank | Supplement | Why it matters. Provide narrative context + at least one citation per item.",
-    "- **Recommended Stack**: Include ALL Blueprint items (mark them clearly) plus other supplements. Table format: Supplement | Dose | Timing | Notes. Provide both bullets and explanatory narrative.",
-    "- **Dosing & Notes**: cover meds + hormones with timing/notes, clarifying how they integrate with the stack.",
-    "- **Evidence & References**: every supplement must have ≥1 citation (prefer PubMed, SR/MA, or RCT). Format inline citations as 【source†lines】.",
-    "- **Shopping Links**: placeholder URL or [Link unavailable] if none provided.",
-    "- **Follow-up Plan**: concrete cadence (labs, recheck intervals).",
-    "- **Lifestyle Prescriptions**: subsections Nutrition, Sleep, Exercise, Focus, Monitoring. Mix bullets + short narrative.",
-    "- **Longevity Levers**: 3–4 concise habits tied to lifespan/healthspan.",
-    "- **This Week Try**: exactly 1 practical 7-day experiment.",
-    "- **END sentinel**: must end with a line `## END`.",
+Return only Markdown.`;
+}
 
-    "",
-    "## Style & Compliance",
-    "- Tone: supportive coach, plain English, motivational but evidence-first.",
-    "- Blend narrative (3–5 sentence paragraphs) with bulleted or numbered lists.",
-    "- Use second person ('you').",
-    "- Avoid medical jargon; no unverified claims. DSHEA/FTC compliant: use phrasing like 'may help', not 'will cure'.",
-    "- Highlight why each rec matters, linking to user’s goals and context.",
-    "- Incorporate affiliate mention subtly (e.g., 'we can provide vetted links').",
+function buildToolPrompt(sub: SubmissionWithChildren) {
+  const age = calcAge((sub as any).dob ?? null);
+  return {
+    role: "user",
+    content: `
+### USER PROFILE (JSON)
+\`\`\`json
+${safeJson({
+  submission_id: sub.id,
+  ...sub,
+  age,
+  today_iso: TODAY_ISO,
+})}
+\`\`\`
 
-    "",
-    "## Submission Data (JSON)",
-    "```json",
-    safeStringify({
-      submission: {
-        id: sub.id,
-        name: (sub as any).name ?? null,
-        sex: (sub as any).sex ?? null,
-        dob: (sub as any).dob ?? null,
-        age,
-        weight: (sub as any).weight ?? null,
-        height: (sub as any).height ?? null,
-        goals: (sub as any).goals ?? null,
-        answers: (sub as any).answers ?? null,
-        email: (sub as any).user_email ?? null,
-      },
-      medications: sub.medications ?? [],
-      supplements: sub.supplements ?? [],
-      hormones: sub.hormones ?? [],
-      allergies: (sub as any).allergies ?? null,
-      lifestyle: {
-        sleep_rating: (sub as any).sleep_rating ?? null,
-        energy_rating: (sub as any).energy_rating ?? null,
-        skip_meals: (sub as any).skip_meals ?? null,
-      },
-    }),
-    "```",
+### TASK
+1. Draft an internal JSON object \`draft\` with keys mirroring the 14 sections \
+(except END) **plus** helper keys (citations array, wordCount).
+2. Immediately transform that \`draft\` into final Markdown \
+following the Output Contract **in the same reply**.
 
-    "",
-    "End of instructions.",
-  ];
+Respond with:
+\`\`\`json
+{ "draft": { ... }, "markdown": "..." }
+\`\`\`
+`};
+}
 
-  let prompt = parts.join("\n\n");
-  if (prompt.length > MAX_PROMPT_CHARS) {
-    prompt =
-      prompt.slice(0, MAX_PROMPT_CHARS - 500) + "\n\n...TRUNCATED_FOR_LENGTH";
-  }
-  return prompt;
+function enforceGuards(md: string) {
+  if (!md.includes("## END")) md += "\n\n## END";
+  // crude word count
+  if (md.split(/\s+/).length < 1600) md +=
+    "\n\n<!-- TOO SHORT — PLEASE REGENERATE WITH ≥1600 WORDS -->";
+  if (!md.includes("## High-Impact")) md =
+    md.replace("## Recommended Stack", "## High-Impact “Bang-for-Buck” Additions\n\n" +
+    "| Rank | Supplement | Why it matters |\n|---|---|---|\n| 1 | Placeholder | TBD |\n\n## Recommended Stack");
+  return md;
 }
 
 export async function generateStackForSubmission(submissionId: string) {
   if (!submissionId) throw new Error("submissionId is required");
-  if (!process.env.OPENAI_API_KEY)
-    throw new Error("OPENAI_API_KEY is not configured");
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
 
   const submission = await getSubmissionWithChildren(submissionId);
-  const prompt = buildPrompt(submission);
 
-  // init OpenAI client
-  let openai: any = null;
-  try {
-    const localMod: any = await import("./openai").catch(() => null);
-    if (localMod) {
-      if (typeof localMod.getOpenAiClient === "function") {
-        openai = localMod.getOpenAiClient();
-      } else if (typeof localMod.getOpenAI === "function") {
-        openai = localMod.getOpenAI();
-      } else if (localMod.default) {
-        const Def = localMod.default;
-        openai =
-          typeof Def === "function"
-            ? new Def({ apiKey: process.env.OPENAI_API_KEY })
-            : Def;
-      }
-    }
-    if (!openai) {
-      const OpenAIMod: any = await import("openai");
-      const OpenAIDef = OpenAIMod?.default ?? OpenAIMod;
-      openai =
-        typeof OpenAIDef === "function"
-          ? new OpenAIDef({ apiKey: process.env.OPENAI_API_KEY })
-          : OpenAIDef;
-    }
-    if (!openai) throw new Error("OpenAI initialization failed");
-  } catch (e: any) {
-    throw new Error(`OpenAI init failed: ${String(e?.message ?? e)}`);
-  }
+  const systemPrompt = buildSystemPrompt();
+  const toolPrompt   = buildToolPrompt(submission);
 
-  const response = await openai.responses.create({
-    model: process.env.OPENAI_MODEL ?? "gpt-4o",
-    input: prompt,
+  // lazy-load OpenAI
+  const { default: OpenAI } = await import("openai");
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const chatRes = await openai.chat.completions.create({
+    model : process.env.OPENAI_MODEL ?? "gpt-4o",
+    messages: [
+      { role: "system", content: systemPrompt },
+      toolPrompt,
+    ],
+    temperature: 0.7,
+    max_tokens: 4096,
   });
 
   let markdown = "";
   try {
-    const outputs = (response as any).output;
-    if (Array.isArray(outputs) && outputs.length) {
-      const first = outputs[0];
-      if (typeof first === "string") markdown = first;
-      else if (first?.content) {
-        if (Array.isArray(first.content)) {
-          markdown = first.content
-            .map((c: any) => c.text ?? c.parts?.join?.("") ?? "")
-            .join("\n");
-        } else if (typeof first.content === "string") {
-          markdown = first.content;
-        } else if (first.content?.[0]?.text) {
-          markdown = first.content.map((c: any) => c.text).join("\n");
-        }
-      }
-    } else if ((response as any).output_text) {
-      markdown = (response as any).output_text;
-    } else {
-      markdown = safeStringify(response);
-    }
+    const raw = chatRes.choices?.[0]?.message?.content ?? "";
+    const parsed = JSON.parse(raw);
+    markdown = parsed.markdown ?? raw; // fallback if parse fails
   } catch {
-    markdown = safeStringify(response);
+    markdown = chatRes.choices?.[0]?.message?.content ?? "";
   }
 
-  // enforce sentinel
-  if (!markdown.includes("## END")) {
-    markdown += "\n\n## END\n";
-  }
+  markdown = enforceGuards(markdown);
 
-  // enforce ≥10 recs placeholder if missing
-  if (!markdown.includes("## Your Blueprint Recommendations")) {
-    markdown =
-      markdown +
-      "\n\n## Your Blueprint Recommendations\n\n" +
-      "| Rank | Supplement | Why it matters |\n" +
-      "|------|------------|----------------|\n" +
-      Array.from({ length: 10 })
-        .map(
-          (_, i) =>
-            `| ${i + 1} | Placeholder ${i + 1} | Not generated, please retry |`
-        )
-        .join("\n") +
-      "\n";
-  }
-
-  if (!markdown || markdown.trim().length === 0) {
+  if (!markdown.trim()) {
     markdown = `## Report Unavailable
 
-Sorry — our AI assistant couldn’t generate your report this time.  
-Please [contact support](https://lve360.com/helpdesk) and share your submission ID.
+Sorry—our AI couldn’t generate your blueprint at this time.  
+Please contact support.
 
 ## END`;
   }
 
-  return { markdown, raw: response };
+  return { markdown, raw: chatRes };
 }
 
 export default generateStackForSubmission;
