@@ -1,10 +1,9 @@
 // src/lib/generateStack.ts
 // -----------------------------------------------------------------------------
-// Dual-channel pipeline:
-//   • Stage 1: LLM returns JSON object AND full Markdown in one response
-//   • Stage 2: Try JSON parse → build Markdown
-//   • Fallback: extract Markdown block directly if JSON fails
-//   • Guarantees: all 13 sections + ## END, at least 3 Blueprint Recs
+// Dual-channel pipeline with strong constraints for LVE360 Blueprint Reports
+//   1) Model outputs JSON object AND full Markdown
+//   2) JSON enforces structure; Markdown ensures readability
+//   3) Hard rules: >=10 Blueprint Recs, bullets+narrative, citations per rec
 // -----------------------------------------------------------------------------
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
@@ -24,7 +23,7 @@ function calculateAge(dob: string | null): number | null {
   if (!dob) return null;
   const birthDate = new Date(dob);
   if (isNaN(birthDate.getTime())) return null;
-  const today = new Date("2025-09-21"); // lock date
+  const today = new Date("2025-09-21"); // lock date for consistency
   let age = today.getFullYear() - birthDate.getFullYear();
   const m = today.getMonth() - birthDate.getMonth();
   if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
@@ -36,57 +35,57 @@ function calculateAge(dob: string | null): number | null {
 /* ---------------------- Dual-channel prompt ---------------------- */
 function buildDualPrompt(sub: SubmissionWithChildren) {
   const age = calculateAge((sub as any).dob ?? null);
+
   return [
     "# LVE360 Blueprint Report Request",
     "",
     "You must return TWO outputs in this order:",
+    "1. A valid JSON object (no prose outside braces).",
+    "2. A Markdown block wrapped in ```md ... ``` with the full report.",
     "",
-    "1. A valid JSON object (no prose outside the braces).",
-    "2. Then a Markdown block wrapped in ```md ... ``` containing the full report.",
-    "",
-    "The JSON should include:",
+    "### JSON Schema (minimum expectations)",
     safeStringify({
-      summary: "string narrative (demographics, DOB, Age, context)",
-      goals: "expanded narrative of user’s goals",
+      summary: "Narrative summary incl. demographics (DOB, Age, Sex, Wt, Ht, Email).",
+      goals: {
+        narrative: "Paragraph coaching tone.",
+        bullets: ["Goal1", "Goal2"],
+      },
       contraindications: [
         { medication: "string", concern: "string", guardrail: "string" },
       ],
-      currentStackReview:
-        "review of existing supplements, pros/cons, redundancies",
-      blueprintRecommendations: [
-        { rank: 1, supplement: "string", why: "string" },
-      ],
-      recommendedStack: [
-        {
-          supplement: "string",
-          dose: "string",
-          timing: "AM/PM/Bedtime",
-          notes: "string",
-        },
-      ],
-      dosingNotes: "include medications + hormones with timing/notes",
-      evidence: [
-        { supplement: "string", citation: "PubMed link", summary: "string" },
-      ],
-      shoppingLinks: [
-        { supplement: "string", url: "https:// or [Link unavailable]" },
-      ],
-      followUp: "labs/check-ins cadence",
-      lifestyle: {
-        nutrition: ["tip1", "tip2"],
-        sleep: ["tip1"],
-        exercise: ["tip1"],
-        focus: ["tip1"],
-        monitoring: ["tip1"],
+      currentStack: {
+        narrative: "Paragraph reviewing current supplements.",
+        bullets: ["Keep", "Adjust", "Remove"],
       },
-      longevityLevers: ["habit1", "habit2", "habit3"],
-      weeklyTry: "one concrete 7-day experiment",
+      blueprintRecommendations: Array.from({ length: 10 }).map((_, i) => ({
+        rank: i + 1,
+        supplement: "string",
+        bullets: ["1-2 key bullet points"],
+        narrative: "1-2 sentence rationale why it matters.",
+        citation: "PubMed/DOI link",
+      })),
+      recommendedStack: [
+        { supplement: "string", dose: "string", timing: "AM/PM/Bedtime", notes: "string" },
+      ],
+      dosingNotes: "Narrative covering AM/PM/Bedtime incl. meds & hormones.",
+      evidence: [
+        { supplement: "string", citation: "PubMed/DOI", summary: "short evidence blurb" },
+      ],
+      shoppingLinks: [{ supplement: "string", url: "https:// or [Link unavailable]" }],
+      followUp: "Concrete cadence (labs, logs, recheck).",
+      lifestyle: {
+        nutrition: ["bullet1", "bullet2", "bullet3"],
+        sleep: ["bullet1", "bullet2"],
+        exercise: ["bullet1", "bullet2"],
+        focus: ["bullet1"],
+        monitoring: ["bullet1"],
+      },
+      longevityLevers: ["habit1", "habit2", "habit3", "habit4"],
+      weeklyTry: "exactly 1 practical 7-day experiment",
     }),
     "",
-    "Rules:",
-    "- Always output at least 3 Blueprint Recommendations.",
-    "- Always include all 13 sections in Markdown, ending with '## END'.",
-    "- Use exact section headers:",
+    "### Markdown Rules",
+    "- Must include all 13 sections below, in this strict order, ending with ## END:",
     "  ## Summary",
     "  ## Goals",
     "  ## Contraindications & Med Interactions",
@@ -102,7 +101,13 @@ function buildDualPrompt(sub: SubmissionWithChildren) {
     "  ## This Week Try",
     "  ## END",
     "",
-    "Submission Data:",
+    "- In **Your Blueprint Recommendations**, output at least 10 rows, ranked 1..N.",
+    "- Each row: Rank | Supplement | Bullets + short narrative | Citation link.",
+    "- In **Goals** and **Current Stack**, combine narrative + bullets.",
+    "- In **Evidence & References**, map each Blueprint item to ≥1 PubMed/DOI with a 1-sentence summary.",
+    "- Tone: professional, supportive, evidence-based, DSHEA/FTC-compliant.",
+    "",
+    "### Submission Data",
     safeStringify({
       id: sub.id,
       name: (sub as any).name ?? null,
@@ -137,13 +142,12 @@ function extractMarkdown(rawText: string): string {
 /* ---------------------- Main ---------------------- */
 export async function generateStackForSubmission(submissionId: string) {
   if (!submissionId) throw new Error("submissionId is required");
-  if (!process.env.OPENAI_API_KEY)
-    throw new Error("OPENAI_API_KEY is not configured");
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not set");
 
   const submission = await getSubmissionWithChildren(submissionId);
 
   // Init OpenAI client
-  let openai: any = null;
+  let openai: any;
   try {
     const mod: any = await import("./openai").catch(() => null);
     if (mod?.getOpenAiClient) openai = mod.getOpenAiClient();
@@ -153,10 +157,10 @@ export async function generateStackForSubmission(submissionId: string) {
       openai = new Def({ apiKey: process.env.OPENAI_API_KEY });
     }
   } catch (e: any) {
-    throw new Error(`OpenAI init failed: ${String(e?.message ?? e)}`);
+    throw new Error("OpenAI init failed: " + String(e?.message ?? e));
   }
 
-  // Ask OpenAI
+  // Call model
   const resp = await openai.responses.create({
     model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
     input: buildDualPrompt(submission),
@@ -174,18 +178,8 @@ export async function generateStackForSubmission(submissionId: string) {
     rawText = "";
   }
 
-  // Try parsing JSON
-  let markdown = "";
-  try {
-    const jsonPart = rawText.slice(rawText.indexOf("{"), rawText.lastIndexOf("}") + 1);
-    const parsed = JSON.parse(jsonPart);
-    // If JSON ok, rebuild Markdown manually (optional)…
-    // but safer to just pull the Markdown block.
-    markdown = extractMarkdown(rawText);
-  } catch {
-    console.warn("JSON parse failed, falling back to Markdown block.");
-    markdown = extractMarkdown(rawText);
-  }
+  // Extract Markdown
+  let markdown = extractMarkdown(rawText);
 
   // Safety net
   if (!markdown.includes("## END")) {
