@@ -62,7 +62,7 @@ Return **plain ASCII Markdown only** with headings EXACTLY:
 ${HEADINGS.slice(0, -1).join("\n")}
 
 Tables must use \`Column | Column\` pipe format, **no curly quotes or bullets**.
-Every table/list MUST be followed by **Narrative & Analysis** ≥3 sentences that:
+Every table/list MUST be followed by **Analysis** ≥3 sentences that:
 • Summarize the section  
 • Explain why it matters  
 • Give practical implication  
