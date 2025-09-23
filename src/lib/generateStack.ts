@@ -219,9 +219,24 @@ export async function generateStackForSubmission(id: string) {
   // --- Salvage minimal ---
   md = ensureEnd(md);
 
-  // --- Run hooks ---
-const { cleaned, notes } = await applySafetyChecks(sub, md);
+// --- Run hooks ---
+const safetyInput = {
+  medications: (sub.medications ?? []).map(m => m.med_name || ""),
+  conditions: (sub.conditions ?? []).map(c => c.condition_name || ""),
+  allergies: (sub.allergies ?? []).map(a => a.allergy_name || ""),
+  pregnant: sub.pregnant ?? null,
+  brand_pref: sub.preferences?.brand_pref ?? null,
+  dosing_pref: sub.preferences?.dosing_pref ?? null,
+};
+
+const { cleaned, notes } = await applySafetyChecks(safetyInput, md);
 const finalStack = await enrichAffiliateLinks(cleaned);
+
+// keep md consistent with rest of code
+md = finalStack;
+
+// Optional: log safety notes
+console.log("safety notes", notes);
 
   // --- Save model + token usage to Supabase ---
   try {
