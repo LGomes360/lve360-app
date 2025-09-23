@@ -91,6 +91,9 @@ export async function GET(req: Request) {
     let content = stackRow.sections?.markdown ?? stackRow.summary ?? "No report content available.";
     content = content.replace(/^```[a-z]*\n/, "").replace(/```$/, "");
 
+    // ✅ Strip guardrail END marker so it never renders
+    content = content.replace(/^## END$/mi, "").trim();
+
     const lines = content.split("\n");
     for (const line of lines) {
       try {
