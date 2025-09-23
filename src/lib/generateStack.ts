@@ -41,6 +41,22 @@ function age(dob: string | null) {
   return a;
 }
 
+// helper to parse stack items from Markdown
+function parseStackFromMarkdown(md: string) {
+  const section = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
+  if (!section) return [];
+  const lines = section[1].split("\n").filter(l => l.trim().startsWith("|"));
+  return lines.slice(1).map((row, i) => {
+    const cols = row.split("|").map(c => c.trim());
+    return {
+      name: cols[2] || `Item ${i+1}`,
+      rationale: cols[3] || undefined,
+      dose: null,
+      timing: null,
+    };
+  });
+}
+
 // ── prompt builders ──────────────────────────────────
 function systemPrompt() {
   return `
@@ -219,58 +235,52 @@ export async function generateStackForSubmission(id: string) {
   // --- Salvage minimal ---
   md = ensureEnd(md);
 
-// --- Run hooks ---
-const safetyInput = {
-  medications: Array.isArray(sub.medications)
-    ? sub.medications.map((m: any) => m.med_name || "")
-    : [],
-  conditions: Array.isArray(sub.conditions)
-    ? sub.conditions.map((c: any) => c.condition_name || "")
-    : [],
-  allergies: Array.isArray(sub.allergies)
-    ? sub.allergies.map((a: any) => a.allergy_name || "")
-    : [],
-  pregnant: typeof sub.pregnant === "boolean" || typeof sub.pregnant === "string"
-    ? sub.pregnant
-    : null,
-  brand_pref: (sub.preferences as any)?.brand_pref ?? null,
-  dosing_pref: (sub.preferences as any)?.dosing_pref ?? null,
-};
+  // --- Run hooks ---
+  const stackItems = parseStackFromMarkdown(md);
 
-const { cleaned, notes } = await applySafetyChecks(safetyInput, md);
-const finalStack = await enrichAffiliateLinks(cleaned);
+  const safetyInput = {
+    medications: Array.isArray(sub.medications) ? sub.medications.map((m: any) => m.med_name || "") : [],
+    conditions: Array.isArray(sub.conditions) ? sub.conditions.map((c: any) => c.condition_name || "") : [],
+    allergies: Array.isArray(sub.allergies) ? sub.allergies.map((a: any) => a.allergy_name || "") : [],
+    pregnant: typeof sub.pregnant === "boolean" || typeof sub.pregnant === "string" ? sub.pregnant : null,
+    brand_pref: (sub.preferences as any)?.brand_pref ?? null,
+    dosing_pref: (sub.preferences as any)?.dosing_pref ?? null,
+  };
 
-// keep md consistent with rest of code
-md = finalStack;
+  const { cleaned, notes } = await applySafetyChecks(safetyInput, stackItems);
+  const finalStack = await enrichAffiliateLinks(cleaned);
 
-// Optional: log safety notes
-console.log("safety notes", notes);
+  console.log("safety notes", notes);
 
-// Optional: log safety notes
-console.log("safety notes", notes);
-
-  // --- Save model + token usage to Supabase ---
   try {
-    const { error, data } = await supabaseAdmin
+    // 1. update parent stack row
+    await supabaseAdmin
       .from("stacks")
       .update({
         version: modelUsed,
         tokens_used: tokensUsed,
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
+        notes: JSON.stringify(notes),
+        items: finalStack, // JSONB array
       })
-      .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`)
-      .select();
+      .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`);
 
-    if (error) {
-      console.error("Supabase update error:", error);
-    } else if (!data || data.length === 0) {
-      console.warn("⚠️ No stack row found for id:", id);
-    } else {
-      console.log("✅ Stack row updated:", data);
+    // 2. upsert children
+    for (const item of finalStack) {
+      await supabaseAdmin.from("stacks_items").upsert({
+        stack_id: id,
+        name: item.name,
+        dose: item.dose ?? null,
+        timing: item.timing ?? null,
+        rationale: item.rationale ?? null,
+        caution: item.caution ?? null,
+        citations: item.citations ? JSON.stringify(item.citations) : null,
+        link_other: item.link ?? null,
+      });
     }
   } catch (err) {
-    console.error("Failed to update Supabase with model/tokens:", err);
+    console.error("Failed to persist stack items:", err);
   }
 
   if (!passes) {
