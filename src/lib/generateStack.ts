@@ -59,12 +59,24 @@ Every table/list MUST be followed by **Analysis** ≥3 sentences that:
 • Explain why it matters
 • Give practical implication
 
-### Special rules
-• Section **Your Blueprint Recommendations** → table with ≥${MIN_BP_ROWS} rows.
-  Exclude items tagged *(already using)* unless it is Rank 1.
-• Section **Evidence & References** – every bullet ends with PubMed/DOI URL.
-• If Dose/Timing unknown → use “${seeDN}”.
-• Finish with line \`## END\`.
+### Section-specific rules
+• **Intro Summary** → Must greet by name (if available) and include ≥2–3 sentences.  
+• **Goals** → Present as table with columns: Goal | Description, followed by Analysis.  
+• **Current Stack** → Always render as table with columns: Medication/Supplement | Purpose | Dosage | Timing.  
+• **Your Blueprint Recommendations** → 3-column table: Rank | Supplement | Why it Matters (≤12 words).  
+  Must include ≥${MIN_BP_ROWS} unique rows. Do NOT include doses or timing here.  
+  Add a single line under the table: *“See Dosing & Notes for amounts and timing.”*  
+  Exclude items tagged *(already using)* unless Rank 1.  
+• **Dosing & Notes** → List + Analysis explaining amounts, timing, and safety notes.  
+• **Evidence & References** → At least 8 bullet points, each ending with a PubMed/DOI URL.  
+• **Shopping Links** → Provide links (Amazon/Fullscript/etc.) and brief Analysis of affordability/access.  
+• **Follow-up Plan** → Must include at least 3 checkpoints: 6 weeks, 3 months, 6 months.  
+• **Lifestyle Prescriptions** → ≥3 actionable lifestyle changes.  
+• **Longevity Levers** → ≥3 strategies (nutrition, exercise, sleep, social, cognitive).  
+• **This Week Try** → Exactly 3 micro-habits, each 1–2 sentences, easy to implement.  
+• If Dose/Timing unknown → use “${seeDN}”.  
+• Finish with line \`## END\`.  
+
 If internal check fails, regenerate before responding.`;
 }
 
@@ -98,14 +110,14 @@ function headingsOK(md: string) {
 }
 
 function blueprintOK(md: string) {
-  const sec = md.match(/## Your Blueprint Recommendations[\s\S]*?\n\|/i);
+  const sec = md.match(/## Your Blueprint Recommendations[\\s\\S]*?\\n\\|/i);
   if (!sec) return false;
   const rows = sec[0].split("\n").filter(l => l.startsWith("|")).slice(1);
   return rows.length >= MIN_BP_ROWS;
 }
 
 function citationsOK(md: string) {
-  const block = md.match(/## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i);
+  const block = md.match(/## Evidence & References([\\s\\S]*?)(\\n## |\\n## END|$)/i);
   if (!block) return false;
   return block[1]
     .split("\n")
