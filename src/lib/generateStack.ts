@@ -230,7 +230,9 @@ const safetyInput = {
   allergies: Array.isArray(sub.allergies)
     ? sub.allergies.map((a: any) => a.allergy_name || "")
     : [],
-  pregnant: sub.pregnant ?? null,
+  pregnant: typeof sub.pregnant === "boolean" || typeof sub.pregnant === "string"
+    ? sub.pregnant
+    : null,
   brand_pref: (sub.preferences as any)?.brand_pref ?? null,
   dosing_pref: (sub.preferences as any)?.dosing_pref ?? null,
 };
@@ -240,6 +242,9 @@ const finalStack = await enrichAffiliateLinks(cleaned);
 
 // keep md consistent with rest of code
 md = finalStack;
+
+// Optional: log safety notes
+console.log("safety notes", notes);
 
 // Optional: log safety notes
 console.log("safety notes", notes);
