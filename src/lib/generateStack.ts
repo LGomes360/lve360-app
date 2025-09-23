@@ -165,6 +165,8 @@ export async function generateStackForSubmission(id: string) {
   let raw: any = null;
   let modelUsed = "unknown";
   let tokensUsed: number | null = null;
+  let promptTokens: number | null = null;
+  let completionTokens: number | null = null;
   let passes = false;
 
   // --- Step 1: Try gpt-4o-mini first ---
@@ -173,7 +175,9 @@ export async function generateStackForSubmission(id: string) {
     raw = resp;
     modelUsed = resp.model ?? "gpt-4o-mini";
     tokensUsed = resp.usage?.total_tokens ?? null;
-    console.log("LLM call used model:", modelUsed, "tokens:", resp.usage);
+    promptTokens = resp.usage?.prompt_tokens ?? null;
+    completionTokens = resp.usage?.completion_tokens ?? null;
+    console.log("LLM call used model:", modelUsed, "usage:", resp.usage);
     md = resp.choices[0]?.message?.content ?? "";
     if (
       wc(md) >= MIN_WORDS &&
@@ -196,7 +200,9 @@ export async function generateStackForSubmission(id: string) {
     raw = resp;
     modelUsed = resp.model ?? "gpt-4o";
     tokensUsed = resp.usage?.total_tokens ?? null;
-    console.log("LLM call used model:", modelUsed, "tokens:", resp.usage);
+    promptTokens = resp.usage?.prompt_tokens ?? null;
+    completionTokens = resp.usage?.completion_tokens ?? null;
+    console.log("LLM call used model:", modelUsed, "usage:", resp.usage);
     md = resp.choices[0]?.message?.content ?? "";
     if (
       wc(md) >= MIN_WORDS &&
@@ -224,6 +230,8 @@ export async function generateStackForSubmission(id: string) {
       .update({
         version: modelUsed,
         tokens_used: tokensUsed,
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
       })
       .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`)
       .select();
@@ -243,7 +251,14 @@ export async function generateStackForSubmission(id: string) {
     console.warn("⚠️ Draft validation failed, review needed.");
   }
 
-  return { markdown: md, raw, model_used: modelUsed, tokens_used: tokensUsed };
+  return {
+    markdown: md,
+    raw,
+    model_used: modelUsed,
+    tokens_used: tokensUsed,
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+  };
 }
 
 export default generateStackForSubmission;
