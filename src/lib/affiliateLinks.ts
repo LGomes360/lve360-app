@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// File: src/lib/affiliate.ts
+// File: src/lib/affiliateLinks.ts
 // Purpose: Attach affiliate links to stack items using `supplements.link`.
 // Strategy: Try exact ingredient match; fall back to fuzzy product_name match.
 // -----------------------------------------------------------------------------
@@ -18,7 +18,9 @@ export type StackItem = {
   link?: string | null;
 };
 
-function lc(x?: string | null) { return (x ?? "").trim().toLowerCase(); }
+function lc(x?: string | null) {
+  return (x ?? "").trim().toLowerCase();
+}
 
 async function findLinkFor(name: string): Promise<string | null> {
   // 1) exact ingredient match
@@ -33,16 +35,16 @@ async function findLinkFor(name: string): Promise<string | null> {
   // 2) fuzzy ingredient match
   const { data: fuzzyIng } = await supa
     .from("supplements")
-    .select("link,ingredient")
+    .select("link, ingredient")
     .ilike("ingredient", `%${name}%`)
     .limit(1);
 
   if (fuzzyIng && fuzzyIng[0]?.link) return fuzzyIng[0].link;
 
-  // 3) fuzzy product_name as last resort
+  // 3) fuzzy product_name match
   const { data: fuzzyProd } = await supa
     .from("supplements")
-    .select("link,product_name")
+    .select("link, product_name")
     .ilike("product_name", `%${name}%`)
     .limit(1);
 
@@ -51,11 +53,10 @@ async function findLinkFor(name: string): Promise<string | null> {
   return null;
 }
 
-/**
- * Attach affiliate links to stack items in-place.
- * Leaves link null if none found (frontend can hide the button).
- */
-export async function attachAffiliateLinks<T extends StackItem>(items: T[]): Promise<T[]> {
+// -----------------------------------------------------------------------------
+// Main export
+// -----------------------------------------------------------------------------
+export async function enrichAffiliateLinks<T extends StackItem>(items: T[]): Promise<T[]> {
   const out: T[] = [];
   for (const it of items) {
     const link = await findLinkFor(it.name);
