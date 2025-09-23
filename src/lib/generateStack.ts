@@ -4,6 +4,7 @@ import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 import { ChatCompletionMessageParam } from "openai/resources";
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
+import { supabaseAdmin } from "@/lib/supabase";  // ✅ added for persistence
 
 // ── constants ──────────────────────────────────────────
 const TODAY       = "2025-09-21";
@@ -24,7 +25,7 @@ const HEADINGS = [
   "## Lifestyle Prescriptions",
   "## Longevity Levers",
   "## This Week Try",
-  "## END",
+  "## END", // disclaimers are now static, END is last
 ];
 
 // ── helpers ──────────────────────────────────────────
@@ -82,12 +83,13 @@ Generate the full report per the rules above.`;
 async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-  return openai.chat.completions.create({
+  const resp = await openai.chat.completions.create({
     model,
     temperature: 0.7,
     max_tokens: 4096,
     messages,
   });
+  return resp;
 }
 
 // ── validation helpers ──────────────────────────────
@@ -135,12 +137,15 @@ export async function generateStackForSubmission(id: string) {
 
   let md = "";
   let raw: any = null;
+  let modelUsed = "unknown";
   let passes = false;
 
-  // --- Step 1: Try mini first ---
+  // --- Step 1: Try gpt-4o-mini first ---
   try {
     const resp = await callLLM(msgs, "gpt-4o-mini");
     raw = resp;
+    modelUsed = resp.model ?? "gpt-4o-mini";
+    console.log("LLM call used model:", modelUsed);
     md = resp.choices[0]?.message?.content ?? "";
     if (wc(md) >= MIN_WORDS && headingsOK(md) && hasEnd(md)) {
       passes = true;
@@ -154,6 +159,8 @@ export async function generateStackForSubmission(id: string) {
     console.log("Falling back to gpt-4o for reliability...");
     const resp = await callLLM(msgs, "gpt-4o");
     raw = resp;
+    modelUsed = resp.model ?? "gpt-4o";
+    console.log("LLM call used model:", modelUsed);
     md = resp.choices[0]?.message?.content ?? "";
     if (wc(md) >= MIN_WORDS && headingsOK(md) && hasEnd(md)) {
       passes = true;
@@ -167,11 +174,21 @@ export async function generateStackForSubmission(id: string) {
   md = await applySafetyChecks(md, sub);
   md = await enrichAffiliateLinks(md);
 
+  // --- Save model_used to Supabase stacks.version ---
+  try {
+    await supabaseAdmin
+      .from("stacks")
+      .update({ version: modelUsed })
+      .eq("submission_id", id);
+  } catch (err) {
+    console.error("Failed to update model_used in Supabase:", err);
+  }
+
   if (!passes) {
     console.warn("⚠️ Draft validation failed, review needed.");
   }
 
-  return { markdown: md, raw };
+  return { markdown: md, raw, model_used: modelUsed };
 }
 
 export default generateStackForSubmission;
