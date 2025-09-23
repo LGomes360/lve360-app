@@ -221,12 +221,18 @@ export async function generateStackForSubmission(id: string) {
 
 // --- Run hooks ---
 const safetyInput = {
-  medications: (sub.medications ?? []).map(m => m.med_name || ""),
-  conditions: (sub.conditions ?? []).map(c => c.condition_name || ""),
-  allergies: (sub.allergies ?? []).map(a => a.allergy_name || ""),
+  medications: Array.isArray(sub.medications)
+    ? sub.medications.map((m: any) => m.med_name || "")
+    : [],
+  conditions: Array.isArray(sub.conditions)
+    ? sub.conditions.map((c: any) => c.condition_name || "")
+    : [],
+  allergies: Array.isArray(sub.allergies)
+    ? sub.allergies.map((a: any) => a.allergy_name || "")
+    : [],
   pregnant: sub.pregnant ?? null,
-  brand_pref: sub.preferences?.brand_pref ?? null,
-  dosing_pref: sub.preferences?.dosing_pref ?? null,
+  brand_pref: (sub.preferences as any)?.brand_pref ?? null,
+  dosing_pref: (sub.preferences as any)?.dosing_pref ?? null,
 };
 
 const { cleaned, notes } = await applySafetyChecks(safetyInput, md);
