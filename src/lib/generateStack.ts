@@ -314,7 +314,7 @@ export async function generateStackForSubmission(id: string) {
     dosing_pref: (sub.preferences as any)?.dosing_pref ?? null,
   };
 
-  const { cleaned, notes } = await runSafetyFilters(safetyInput, items);
+  const { cleaned, notes } = await applySafetyChecks(safetyInput, items);
   const finalStack = await enrichAffiliateLinks(cleaned);
 
   // keep md consistent with rest of code
