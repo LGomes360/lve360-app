@@ -19,7 +19,10 @@ export async function GET(req: Request) {
     const submissionId = searchParams.get("submission_id");
 
     if (!submissionId) {
-      return NextResponse.json({ ok: false, error: "Missing submission_id" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Missing submission_id" },
+        { status: 400 }
+      );
     }
 
     // --- Fetch stack row ---
@@ -37,7 +40,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "DB error" }, { status: 500 });
     }
     if (!stackRow) {
-      return NextResponse.json({ ok: false, error: "Stack not found" }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "Stack not found" },
+        { status: 404 }
+      );
     }
 
     // --- Create PDF ---
@@ -57,11 +63,21 @@ export async function GET(req: Request) {
     }
 
     function drawHeader() {
-      drawText("LVE360 | Longevity • Vitality • Energy", 16, rgb(0.03, 0.76, 0.63), true);
+      drawText(
+        "LVE360 | Longevity • Vitality • Energy",
+        16,
+        rgb(0.03, 0.76, 0.63),
+        true
+      );
       cursorY -= 10;
     }
 
-    function drawText(text: string, size = 11, color = rgb(0, 0, 0), bold = false) {
+    function drawText(
+      text: string,
+      size = 11,
+      color = rgb(0, 0, 0),
+      bold = false
+    ) {
       if (cursorY < margin + size) addPage();
       const f = bold ? boldFont : font;
       page.drawText(text, { x: margin, y: cursorY, size, font: f, color });
@@ -88,11 +104,17 @@ export async function GET(req: Request) {
     drawHeader();
 
     // --- Content ---
-    let content = stackRow.sections?.markdown ?? stackRow.summary ?? "No report content available.";
-    content = content.replace(/^```[a-z]*\n/, "").replace(/```$/, "");
+    let content =
+      stackRow.sections?.markdown ??
+      stackRow.summary ??
+      "No report content available.";
 
     // ✅ Strip guardrail END marker so it never renders
-    content = content.replace(/^## END$/mi, "").trim();
+    content = content
+      .replace(/^```[a-z]*\n/, "")
+      .replace(/```$/, "")
+      .replace(/\n?## END\s*$/i, "")
+      .trim();
 
     const lines = content.split("\n");
     for (const line of lines) {
@@ -106,7 +128,11 @@ export async function GET(req: Request) {
         } else if (line.startsWith("- ")) {
           drawWrapped("• " + line.slice(2), 11);
         } else if (line.includes("|")) {
-          drawWrapped(line, 9, rgb(0.2, 0.2, 0.2));
+          if (line.includes("---")) continue; // skip separator row
+          const isHeader = /^\|?\s*(rank|supplement|dose|timing|notes)/i.test(
+            line
+          );
+          drawWrapped(line, 9, isHeader ? rgb(0, 0, 0) : rgb(0.2, 0.2, 0.2));
         } else {
           drawWrapped(line, 11);
         }
@@ -117,7 +143,12 @@ export async function GET(req: Request) {
 
     // --- Static Disclaimer (always last page) ---
     cursorY -= 20;
-    drawText("Important Wellness Disclaimer", 12, rgb(0.03, 0.76, 0.63), true);
+    drawText(
+      "Important Wellness Disclaimer",
+      12,
+      rgb(0.03, 0.76, 0.63),
+      true
+    );
     DISCLAIMER_TEXT.split(/(?<=\.)\s+/).forEach((sentence) => {
       drawWrapped(sentence.trim(), 10, rgb(0.3, 0.3, 0.3));
     });
@@ -133,6 +164,9 @@ export async function GET(req: Request) {
     });
   } catch (err: any) {
     console.error("Unhandled error in export-pdf:", err);
-    return NextResponse.json({ ok: false, error: err.message ?? "Unhandled error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: err.message ?? "Unhandled error" },
+      { status: 500 }
+    );
   }
 }
