@@ -4,7 +4,7 @@
 // Sources: Supabase tables `rules`, `interactions`, and user submission fields.
 // -----------------------------------------------------------------------------
 
-import { supabaseAdmin as supa } from "@lib/supabaseAdmin";
+import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
 
 export type SafetyIssue = {
   item?: string | null;
