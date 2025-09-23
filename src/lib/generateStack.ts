@@ -2,7 +2,7 @@
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 import { ChatCompletionMessageParam } from "openai/resources";
-import { runSafetyFilters as applySafetyChecks } from "@/lib/safetyCheck";
+import { runSafetyFilters } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { supabaseAdmin } from "@/lib/supabase";  // ✅ Supabase persistence
 
@@ -314,7 +314,7 @@ export async function generateStackForSubmission(id: string) {
     dosing_pref: (sub.preferences as any)?.dosing_pref ?? null,
   };
 
-  const { cleaned, notes } = await applySafetyChecks(safetyInput, items);
+  const { cleaned, notes } = await runSafetyFilters(safetyInput, items);
   const finalStack = await enrichAffiliateLinks(cleaned);
 
   // keep md consistent with rest of code
