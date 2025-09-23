@@ -2,7 +2,7 @@
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 import { ChatCompletionMessageParam } from "openai/resources";
-import { applySafetyChecks } from "@/lib/safetyCheck";
+import { applySafetyChecks } from "@/lib/safety";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { supabaseAdmin } from "@/lib/supabase";  // ✅ Supabase persistence
 
@@ -41,20 +41,85 @@ function age(dob: string | null) {
   return a;
 }
 
-// helper to parse stack items from Markdown
+// ── normalization helpers ────────────────────────────
+function normalizeTiming(raw?: string | null): string | null {
+  if (!raw) return null;
+  const s = raw.toLowerCase();
+  if (/am|morning/.test(s)) return "AM";
+  if (/pm|evening|night/.test(s)) return "PM";
+  if (/am\/pm|both|split|bid/.test(s)) return "AM/PM";
+  return raw.trim();
+}
+
+function normalizeUnit(u?: string | null) {
+  const s = (u ?? "").toLowerCase();
+  if (s === "μg" || s === "mcg" || s === "ug") return "mcg";
+  if (s === "iu") return "IU";
+  if (s === "mg" || s === "g") return s;
+  return s || null;
+}
+
+function parseDose(dose?: string | null): { amount?: number; unit?: string } {
+  if (!dose) return {};
+  const cleaned = dose.replace(/[,]/g, " ").replace(/\s+/g, " ");
+  const matches = cleaned.match(/(\d+(?:\.\d+)?)/g);
+  if (!matches) return {};
+  const amount = parseFloat(matches[matches.length - 1]);
+  const unitMatch = cleaned.match(/(mcg|μg|ug|mg|g|iu)\b/i);
+  const rawUnit = unitMatch ? unitMatch[1] : "";
+  let unit = normalizeUnit(rawUnit);
+  let val = amount;
+  if (unit === "g") { val = amount * 1000; unit = "mg"; }
+  return { amount: val, unit: unit ?? undefined };
+}
+
+// ── parse stack from markdown ─────────────────────────
 function parseStackFromMarkdown(md: string) {
-  const section = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
-  if (!section) return [];
-  const lines = section[1].split("\n").filter(l => l.trim().startsWith("|"));
-  return lines.slice(1).map((row, i) => {
-    const cols = row.split("|").map(c => c.trim());
-    return {
-      name: cols[2] || `Item ${i+1}`,
-      rationale: cols[3] || undefined,
-      dose: null,
-      timing: null,
-    };
-  });
+  const base: Record<string, any> = {};
+
+  // --- 1. Blueprint Recommendations ---
+  const blueprint = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
+  if (blueprint) {
+    const rows = blueprint[1].split("\n").filter(l => l.trim().startsWith("|"));
+    rows.slice(1).forEach((row, i) => {
+      const cols = row.split("|").map(c => c.trim());
+      const name = cols[2] || `Item ${i+1}`;
+      base[name.toLowerCase()] = {
+        name,
+        rationale: cols[3] || undefined,
+        dose: null,
+        dose_parsed: null,
+        timing: null,
+      };
+    });
+  }
+
+  // --- 2. Dosing & Notes ---
+  const dosing = md.match(/## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i);
+  if (dosing) {
+    const lines = dosing[1].split("\n").filter(l => l.trim().length > 0);
+    for (const line of lines) {
+      // Example: "- Vitamin D3 — 2000 IU AM"
+      const m = line.match(/[-*]\s*([^—\-:]+)[—\-:]\s*([^,]+)(?:,\s*(.*))?/);
+      if (m) {
+        const name = m[1].trim();
+        const dose = m[2]?.trim() || null;
+        const timing = normalizeTiming(m[3]);
+        const parsed = parseDose(dose);
+
+        const key = name.toLowerCase();
+        if (base[key]) {
+          base[key].dose = dose;
+          base[key].dose_parsed = parsed;
+          base[key].timing = timing;
+        } else {
+          base[key] = { name, rationale: undefined, dose, dose_parsed: parsed, timing };
+        }
+      }
+    }
+  }
+
+  return Object.values(base);
 }
 
 // ── prompt builders ──────────────────────────────────
@@ -148,15 +213,8 @@ function narrativesOK(md: string) {
     const textBlock = lines.filter(l => !l.startsWith("|") && !l.startsWith("-")).join(" ");
     const sentences = textBlock.split(/[.!?]/).filter(s => s.trim().length > 0);
 
-    // ✅ Special rule: Intro Summary must have ≥2 sentences
-    if (sec.startsWith("Intro Summary") && sentences.length < 2) {
-      return false;
-    }
-
-    // All other sections need ≥3 sentences
-    if (!sec.startsWith("Intro Summary") && sentences.length < 3) {
-      return false;
-    }
+    if (sec.startsWith("Intro Summary") && sentences.length < 2) return false;
+    if (!sec.startsWith("Intro Summary") && sentences.length < 3) return false;
 
     return true;
   });
@@ -235,52 +293,85 @@ export async function generateStackForSubmission(id: string) {
   // --- Salvage minimal ---
   md = ensureEnd(md);
 
-  // --- Run hooks ---
-  const stackItems = parseStackFromMarkdown(md);
+  // --- Parse stack items from Markdown ---
+  const items = parseStackFromMarkdown(md);
 
+  // --- Run hooks ---
   const safetyInput = {
-    medications: Array.isArray(sub.medications) ? sub.medications.map((m: any) => m.med_name || "") : [],
-    conditions: Array.isArray(sub.conditions) ? sub.conditions.map((c: any) => c.condition_name || "") : [],
-    allergies: Array.isArray(sub.allergies) ? sub.allergies.map((a: any) => a.allergy_name || "") : [],
-    pregnant: typeof sub.pregnant === "boolean" || typeof sub.pregnant === "string" ? sub.pregnant : null,
+    medications: Array.isArray(sub.medications)
+      ? sub.medications.map((m: any) => m.med_name || "")
+      : [],
+    conditions: Array.isArray(sub.conditions)
+      ? sub.conditions.map((c: any) => c.condition_name || "")
+      : [],
+    allergies: Array.isArray(sub.allergies)
+      ? sub.allergies.map((a: any) => a.allergy_name || "")
+      : [],
+    pregnant: typeof sub.pregnant === "boolean" || typeof sub.pregnant === "string"
+      ? sub.pregnant
+      : null,
     brand_pref: (sub.preferences as any)?.brand_pref ?? null,
     dosing_pref: (sub.preferences as any)?.dosing_pref ?? null,
   };
 
-  const { cleaned, notes } = await applySafetyChecks(safetyInput, stackItems);
+  const { cleaned, notes } = await applySafetyChecks(safetyInput, items);
   const finalStack = await enrichAffiliateLinks(cleaned);
+
+  // keep md consistent with rest of code
+  md = md; // we return original markdown body; items go to stacks_items
 
   console.log("safety notes", notes);
 
+  // --- Save model + token usage to Supabase ---
   try {
-    // 1. update parent stack row
-    await supabaseAdmin
+    const { data: parentRows, error: parentErr } = await supabaseAdmin
       .from("stacks")
       .update({
         version: modelUsed,
         tokens_used: tokensUsed,
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
-        notes: JSON.stringify(notes),
-        items: finalStack, // JSONB array
       })
-      .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`);
+      .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`)
+      .select();
 
-    // 2. upsert children
-    for (const item of finalStack) {
-      await supabaseAdmin.from("stacks_items").upsert({
-        stack_id: id,
-        name: item.name,
-        dose: item.dose ?? null,
-        timing: item.timing ?? null,
-        rationale: item.rationale ?? null,
-        caution: item.caution ?? null,
-        citations: item.citations ? JSON.stringify(item.citations) : null,
-        link_other: item.link ?? null,
-      });
+    if (parentErr) {
+      console.error("Supabase update error:", parentErr);
+    } else if (!parentRows || parentRows.length === 0) {
+      console.warn("⚠️ No stack row found for id:", id);
+    } else {
+      console.log("✅ Stack row updated:", parentRows);
+
+      // --- Save stack items ---
+      const parent = parentRows[0];
+      if (parent?.id) {
+        await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
+
+        const rows = finalStack.map((it: any) => ({
+          stack_id: parent.id,
+          name: it.name,
+          dose: it.dose,
+          timing: it.timing,
+          notes: it.notes,
+          rationale: it.rationale,
+          caution: it.caution,
+          citations: it.citations ? JSON.stringify(it.citations) : null,
+          link_amazon: it.link_amazon ?? null,
+          link_fullscript: it.link_fullscript ?? null,
+          link_thorne: it.link_thorne ?? null,
+          link_other: it.link_other ?? null,
+          cost_estimate: it.cost_estimate ?? null,
+        }));
+
+        if (rows.length > 0) {
+          const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
+          if (error) console.error("⚠️ Failed to insert stacks_items:", error);
+          else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
+        }
+      }
     }
   } catch (err) {
-    console.error("Failed to persist stack items:", err);
+    console.error("Failed to update Supabase with model/tokens:", err);
   }
 
   if (!passes) {
