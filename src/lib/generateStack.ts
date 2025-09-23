@@ -41,6 +41,11 @@ function age(dob: string | null) {
   return a;
 }
 
+// 👉 Extract user_id for FK insertion into stacks_items
+function extractUserId(sub: any): string | null {
+  return sub?.user_id ?? (typeof sub.user === "object" ? sub.user?.id : null) ?? null;
+}
+
 // ── normalization helpers ────────────────────────────
 function normalizeTiming(raw?: string | null): string | null {
   if (!raw) return null;
@@ -191,7 +196,7 @@ function headingsOK(md: string) {
 }
 
 function blueprintOK(md: string) {
-  const sec = md.match(/## Your Blueprint Recommendations[\s\S]*?\n\|/i);
+  const sec = md.match(/## Your Blueprint Recommendations([\s\S]*?\n\|)/i);
   if (!sec) return false;
   const rows = sec[0].split("\n").filter(l => l.startsWith("|")).slice(1);
   return rows.length >= MIN_BP_ROWS;
@@ -230,6 +235,7 @@ export async function generateStackForSubmission(id: string) {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
 
   const sub = await getSubmissionWithChildren(id);
+  const user_id = extractUserId(sub);
   const msgs: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt() },
     { role: "user", content: userPrompt(sub) },
@@ -344,11 +350,12 @@ export async function generateStackForSubmission(id: string) {
 
       // --- Save stack items ---
       const parent = parentRows[0];
-      if (parent?.id) {
+      if (parent?.id && user_id) {
         await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
         const rows = finalStack.map((it: any) => ({
           stack_id: parent.id,
+          user_id,
           name: it.name,
           dose: it.dose,
           timing: it.timing,
