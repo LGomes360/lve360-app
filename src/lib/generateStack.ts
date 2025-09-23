@@ -4,7 +4,7 @@ import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 import { ChatCompletionMessageParam } from "openai/resources";
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
-import { supabaseAdmin } from "@/lib/supabase";  // ✅ added for persistence
+import { supabaseAdmin } from "@/lib/supabase";  // ✅ Supabase persistence
 
 // ── constants ──────────────────────────────────────────
 const TODAY       = "2025-09-21";
@@ -25,7 +25,7 @@ const HEADINGS = [
   "## Lifestyle Prescriptions",
   "## Longevity Levers",
   "## This Week Try",
-  "## END", // disclaimers are now static, END is last
+  "## END",
 ];
 
 // ── helpers ──────────────────────────────────────────
@@ -48,7 +48,6 @@ You are **LVE360 Concierge AI**, a friendly but professional wellness coach.
 Tone: encouraging, plain-English, never clinical or robotic.
 Always explain *why it matters* in a supportive, human way.
 Always greet the client by name in the Intro Summary if provided.
-Intro Summary MUST include ≥2 sentences.
 
 Return **plain ASCII Markdown only** with headings EXACTLY:
 
@@ -97,12 +96,14 @@ async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
 function headingsOK(md: string) {
   return HEADINGS.slice(0, -1).every(h => md.includes(h));
 }
+
 function blueprintOK(md: string) {
   const sec = md.match(/## Your Blueprint Recommendations[\s\S]*?\n\|/i);
   if (!sec) return false;
   const rows = sec[0].split("\n").filter(l => l.startsWith("|")).slice(1);
   return rows.length >= MIN_BP_ROWS;
 }
+
 function citationsOK(md: string) {
   const block = md.match(/## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i);
   if (!block) return false;
@@ -111,13 +112,25 @@ function citationsOK(md: string) {
     .filter(l => l.trim().startsWith("-"))
     .every(l => CITE_RE.test(l));
 }
+
 function narrativesOK(md: string) {
   const sections = md.split("\n## ").slice(1);
   return sections.every(sec => {
     const lines = sec.split("\n");
     const textBlock = lines.filter(l => !l.startsWith("|") && !l.startsWith("-")).join(" ");
     const sentences = textBlock.split(/[.!?]/).filter(s => s.trim().length > 0);
-    return sentences.length >= 3;
+
+    // ✅ Special rule: Intro Summary must have ≥2 sentences
+    if (sec.startsWith("Intro Summary") && sentences.length < 2) {
+      return false;
+    }
+
+    // All other sections need ≥3 sentences
+    if (!sec.startsWith("Intro Summary") && sentences.length < 3) {
+      return false;
+    }
+
+    return true;
   });
 }
 
@@ -139,6 +152,7 @@ export async function generateStackForSubmission(id: string) {
   let md = "";
   let raw: any = null;
   let modelUsed = "unknown";
+  let tokensUsed: number | null = null;
   let passes = false;
 
   // --- Step 1: Try gpt-4o-mini first ---
@@ -146,9 +160,17 @@ export async function generateStackForSubmission(id: string) {
     const resp = await callLLM(msgs, "gpt-4o-mini");
     raw = resp;
     modelUsed = resp.model ?? "gpt-4o-mini";
-    console.log("LLM call used model:", modelUsed);
+    tokensUsed = resp.usage?.total_tokens ?? null;
+    console.log("LLM call used model:", modelUsed, "tokens:", resp.usage);
     md = resp.choices[0]?.message?.content ?? "";
-    if (wc(md) >= MIN_WORDS && headingsOK(md) && hasEnd(md)) {
+    if (
+      wc(md) >= MIN_WORDS &&
+      headingsOK(md) &&
+      blueprintOK(md) &&
+      citationsOK(md) &&
+      narrativesOK(md) &&
+      hasEnd(md)
+    ) {
       passes = true;
     }
   } catch (err) {
@@ -161,9 +183,17 @@ export async function generateStackForSubmission(id: string) {
     const resp = await callLLM(msgs, "gpt-4o");
     raw = resp;
     modelUsed = resp.model ?? "gpt-4o";
-    console.log("LLM call used model:", modelUsed);
+    tokensUsed = resp.usage?.total_tokens ?? null;
+    console.log("LLM call used model:", modelUsed, "tokens:", resp.usage);
     md = resp.choices[0]?.message?.content ?? "";
-    if (wc(md) >= MIN_WORDS && headingsOK(md) && hasEnd(md)) {
+    if (
+      wc(md) >= MIN_WORDS &&
+      headingsOK(md) &&
+      blueprintOK(md) &&
+      citationsOK(md) &&
+      narrativesOK(md) &&
+      hasEnd(md)
+    ) {
       passes = true;
     }
   }
@@ -175,21 +205,24 @@ export async function generateStackForSubmission(id: string) {
   md = await applySafetyChecks(md, sub);
   md = await enrichAffiliateLinks(md);
 
-  // --- Save model_used to Supabase stacks.version ---
+  // --- Save model + token usage to Supabase ---
   try {
     await supabaseAdmin
       .from("stacks")
-      .update({ version: modelUsed })
+      .update({
+        version: modelUsed,
+        tokens_used: tokensUsed,
+      })
       .eq("submission_id", id);
   } catch (err) {
-    console.error("Failed to update model_used in Supabase:", err);
+    console.error("Failed to update Supabase with model/tokens:", err);
   }
 
   if (!passes) {
     console.warn("⚠️ Draft validation failed, review needed.");
   }
 
-  return { markdown: md, raw, model_used: modelUsed };
+  return { markdown: md, raw, model_used: modelUsed, tokens_used: tokensUsed };
 }
 
 export default generateStackForSubmission;
