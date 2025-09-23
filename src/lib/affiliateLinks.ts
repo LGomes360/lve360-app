@@ -4,7 +4,7 @@
 // Strategy: Try exact ingredient match; fall back to fuzzy product_name match.
 // -----------------------------------------------------------------------------
 
-import { supabaseAdmin as supa } from "@lib/supabaseAdmin";
+import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
 
 export type StackItem = {
   supplement_id?: string;
