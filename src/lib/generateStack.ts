@@ -110,14 +110,14 @@ function headingsOK(md: string) {
 }
 
 function blueprintOK(md: string) {
-  const sec = md.match(/## Your Blueprint Recommendations[\\s\\S]*?\\n\\|/i);
+  const sec = md.match(/## Your Blueprint Recommendations[\s\S]*?\n\|/i);
   if (!sec) return false;
   const rows = sec[0].split("\n").filter(l => l.startsWith("|")).slice(1);
   return rows.length >= MIN_BP_ROWS;
 }
 
 function citationsOK(md: string) {
-  const block = md.match(/## Evidence & References([\\s\\S]*?)(\\n## |\\n## END|$)/i);
+  const block = md.match(/## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i);
   if (!block) return false;
   return block[1]
     .split("\n")
@@ -219,13 +219,22 @@ export async function generateStackForSubmission(id: string) {
 
   // --- Save model + token usage to Supabase ---
   try {
-    await supabaseAdmin
+    const { error, data } = await supabaseAdmin
       .from("stacks")
       .update({
         version: modelUsed,
         tokens_used: tokensUsed,
       })
-      .eq("submission_id", id);
+      .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`)
+      .select();
+
+    if (error) {
+      console.error("Supabase update error:", error);
+    } else if (!data || data.length === 0) {
+      console.warn("⚠️ No stack row found for id:", id);
+    } else {
+      console.log("✅ Stack row updated:", data);
+    }
   } catch (err) {
     console.error("Failed to update Supabase with model/tokens:", err);
   }
