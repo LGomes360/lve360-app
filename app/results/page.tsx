@@ -34,10 +34,50 @@ function extractSection(md: string, heads: string[]): string | null {
   return slice.replace(/^##\s*[^\n]+\n?/, "").trim();
 }
 
+/* Markdown renderer with custom styling */
 function Prose({ children }: { children: string }) {
   return (
     <div className="prose prose-gray max-w-none">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h2: ({node, ...props}) => (
+            <h2
+              className="text-2xl font-bold text-teal-600 mt-8 mb-4 border-b border-gray-200 pb-1"
+              {...props}
+            />
+          ),
+          table: ({node, ...props}) => (
+            <table
+              className="w-full border-collapse my-4 text-sm shadow-sm"
+              {...props}
+            />
+          ),
+          thead: ({node, ...props}) => (
+            <thead className="bg-[#06C1A0] text-white" {...props} />
+          ),
+          th: ({node, ...props}) => (
+            <th
+              className="px-3 py-2 text-left font-semibold"
+              {...props}
+            />
+          ),
+          td: ({node, ...props}) => (
+            <td
+              className="px-3 py-2 border-t border-gray-200"
+              {...props}
+            />
+          ),
+          tr: ({node, ...props}) => (
+            <tr className="even:bg-gray-50" {...props} />
+          ),
+          strong: ({node, ...props}) => (
+            <strong className="font-semibold text-[#041B2D]" {...props} />
+          ),
+        }}
+      >
+        {children}
+      </ReactMarkdown>
     </div>
   );
 }
