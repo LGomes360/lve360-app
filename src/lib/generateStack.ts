@@ -2,7 +2,7 @@
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 import { ChatCompletionMessageParam } from "openai/resources";
-import { applySafetyChecks } from "@/lib/safety";
+import { runSafetyFilters as applySafetyChecks } from "@/lib/safety";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { supabaseAdmin } from "@/lib/supabase";  // ✅ Supabase persistence
 
