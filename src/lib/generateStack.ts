@@ -220,8 +220,8 @@ export async function generateStackForSubmission(id: string) {
   md = ensureEnd(md);
 
   // --- Run hooks ---
-  md = await applySafetyChecks(md, sub);
-  md = await enrichAffiliateLinks(md);
+const { cleaned, notes } = await applySafetyChecks(sub, md);
+const finalStack = await enrichAffiliateLinks(cleaned);
 
   // --- Save model + token usage to Supabase ---
   try {
