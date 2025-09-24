@@ -109,6 +109,15 @@ export async function POST(req: NextRequest) {
       console.warn("Ignored error loading submission:", e);
     }
 
+    // Must have a valid submissionRow, else fail hard
+    if (!submissionRow) {
+      console.error("No submission row found for submissionId:", submissionId);
+      return NextResponse.json(
+        { ok: false, error: "No submission row found." },
+        { status: 404 }
+      );
+    }
+
     // 1) Generate stack with OpenAI
     const {
       markdown,
@@ -117,7 +126,7 @@ export async function POST(req: NextRequest) {
       submissionId
     )) as any;
 
-    // 2) Resolve user_id and canonical user_email (NEW LOGIC)
+    // 2) Resolve user_id and canonical user_email
     let userId: string | null = submissionRow?.user_id ?? null;
     let userEmail: string | null = null;
 
@@ -141,9 +150,13 @@ export async function POST(req: NextRequest) {
       userEmail = submissionRow.user_email;
     }
 
-    // Still not found? Fallback to dummy for debugging
+    // Still not found? Fail the request (don't insert garbage)
     if (!userEmail) {
-      userEmail = `unknown+${Date.now()}@local`;
+      console.error("Could not resolve user_email for submissionId:", submissionId);
+      return NextResponse.json(
+        { ok: false, error: "Could not resolve user_email from users/submission." },
+        { status: 500 }
+      );
     }
 
     // 3) Pick markdown for parsing
