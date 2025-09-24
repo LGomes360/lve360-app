@@ -1,4 +1,12 @@
 // app/api/generate-stack/route.ts
+// -----------------------------------------------------------------------------
+// POST /api/generate-stack
+// Accepts body:
+//   - submissionId: UUID (preferred)
+//   - OR tally_submission_id: short Tally id (e.g. "jaJMeJQ")
+//
+// Returns JSON: { ok: true, saved: true/false, stack?, ai? }
+// -----------------------------------------------------------------------------
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -101,6 +109,20 @@ export async function POST(req: NextRequest) {
       console.warn("Ignored error loading submission:", e);
     }
 
+    // --- ENSURE STACK ROW EXISTS (minimal row upsert) ---
+    if (submissionRow) {
+      await supabaseAdmin
+        .from("stacks")
+        .upsert({
+          submission_id: submissionRow.id,
+          user_id: submissionRow.user_id ?? null,
+          user_email: submissionRow.user_email ?? null,
+          tally_submission_id: submissionRow.tally_submission_id ?? null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "submission_id" });
+    }
+
     // 1) Generate stack with OpenAI
     const {
       markdown,
@@ -111,8 +133,8 @@ export async function POST(req: NextRequest) {
 
     // 2) Determine user_email (only use user_email field!)
     const userEmail = (
-      submissionRow?.user_email ?? 
-      (raw as any)?.user_email ?? 
+      submissionRow?.user_email ??
+      (raw as any)?.user_email ??
       `unknown+${Date.now()}@local`
     ).toString();
 
