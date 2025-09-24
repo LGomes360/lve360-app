@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1) Generate stack with OpenAI (now guaranteed we have submissionRow)
+    // 1) Generate stack with OpenAI
     const {
       markdown,
       raw,
@@ -105,6 +105,7 @@ export async function POST(req: NextRequest) {
 
     // 2) Determine user_email (ONLY from submissionRow!)
     const userEmail = (submissionRow?.user_email || "").toString();
+    console.log("[API] Using user_email for stack:", userEmail);
     if (!userEmail) {
       return NextResponse.json(
         { ok: false, error: "No user_email found in submission row." },
@@ -166,7 +167,7 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
-    // 5) Upsert into stacks, ensure ID is returned
+    // 5) Upsert into stacks
     const respSave: any = await supabaseAdmin
       .from("stacks")
       .upsert(stackRow, { onConflict: "submission_id" })
