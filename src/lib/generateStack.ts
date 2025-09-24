@@ -329,9 +329,10 @@ export async function generateStackForSubmission(id: string) {
   console.log("safety notes", notes);
 
   // --- Save model + token usage to Supabase ---
+  // PATCH: Add retry loop for race-safe fetch of upserted stack
   try {
-    // Update parent row as before
-    await supabaseAdmin
+    // 1. Update or upsert stack metadata
+    const { error: updateErr } = await supabaseAdmin
       .from("stacks")
       .update({
         version: modelUsed,
@@ -341,50 +342,67 @@ export async function generateStackForSubmission(id: string) {
       })
       .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`);
 
-    // --- Always SELECT parent after update/upsert to avoid race conditions ---
-    // (Find by submission_id, but fallback to tally_submission_id for legacy/short IDs)
-    let { data: parentRows, error: parentErr } = await supabaseAdmin
-      .from("stacks")
-      .select("id")
-      .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`)
-      .order("created_at", { ascending: false })
-      .limit(1);
+    if (updateErr) {
+      console.error("Supabase update error:", updateErr);
+      return;
+    }
 
-    if (parentErr) {
-      console.error("Supabase fetch error after upsert:", parentErr);
-    } else if (!parentRows || parentRows.length === 0) {
-      console.warn("⚠️ No stack row found for id:", id, "(race condition?)");
-    } else {
-      const parent = parentRows[0];
-      if (parent?.id && user_id) {
-        await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
+    // 2. Robustly fetch the upserted row (with retry up to 5x)
+    let parentRows = null;
+    let fetchErr = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { data, error } = await supabaseAdmin
+        .from("stacks")
+        .select("*")
+        .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`)
+        .limit(1);
 
-        const rows = finalStack.map((it: any) => ({
-          stack_id: parent.id,
-          user_id,
-          name: it.name,
-          dose: it.dose,
-          timing: it.timing,
-          notes: it.notes,
-          rationale: it.rationale,
-          caution: it.caution,
-          citations: it.citations ? JSON.stringify(it.citations) : null,
-          link_amazon: it.link_amazon ?? null,
-          link_fullscript: it.link_fullscript ?? null,
-          link_thorne: it.link_thorne ?? null,
-          link_other: it.link_other ?? null,
-          cost_estimate: it.cost_estimate ?? null,
-        }));
+      if (error) fetchErr = error;
+      if (data && data.length > 0) {
+        parentRows = data;
+        break;
+      }
+      // Wait 250ms before next attempt
+      await new Promise((res) => setTimeout(res, 250));
+    }
 
-        if (rows.length > 0) {
-          const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
-          if (error) console.error("⚠️ Failed to insert stacks_items:", error);
-          else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
-        }
+    if (!parentRows || parentRows.length === 0) {
+      console.warn("⚠️ No stack row found for id (even after retry):", id, fetchErr);
+      return;
+    }
+
+    console.log("✅ Stack row updated (with retry):", parentRows);
+
+    // --- Save stack items ---
+    const parent = parentRows[0];
+    if (parent?.id && user_id) {
+      await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
+
+      const rows = finalStack.map((it: any) => ({
+        stack_id: parent.id,
+        user_id,
+        name: it.name,
+        dose: it.dose,
+        timing: it.timing,
+        notes: it.notes,
+        rationale: it.rationale,
+        caution: it.caution,
+        citations: it.citations ? JSON.stringify(it.citations) : null,
+        link_amazon: it.link_amazon ?? null,
+        link_fullscript: it.link_fullscript ?? null,
+        link_thorne: it.link_thorne ?? null,
+        link_other: it.link_other ?? null,
+        cost_estimate: it.cost_estimate ?? null,
+      }));
+
+      if (rows.length > 0) {
+        const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
+        if (error) console.error("⚠️ Failed to insert stacks_items:", error);
+        else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
       }
     }
   } catch (err) {
-    console.error("Failed to update Supabase with model/tokens or write stack items:", err);
+    console.error("Failed to update Supabase with model/tokens:", err);
   }
 
   if (!passes) {
