@@ -273,9 +273,9 @@ function getTopCitationsFromJson(key: string, limit = 3): string[] {
 function lookupCuratedForCandidates(candidates: string[], limit = 3): string[] {
   // 1. Exact key check
   for (const key of candidates) {
-    const citations = getTopCitationsFor(key, 2);
-    if (hits.length) return hits;
-  }
+  const citations = getTopCitationsFor(key, 2);
+  if (citations.length) return citations;
+}
 
   // 2. Loose fuzzy match (slugify both candidate and JSON keys)
   const sluggedCandidates = candidates.map(toSlug);
