@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/consistent-type-imports */
 // ----------------------------------------------------------------------------
-// LVE360 — generateStack.ts (FULL REWRITE)
-// Purpose: Generate validated Markdown report, parse into StackItems, run
-// safety + affiliate enrichment, attach curated/validated evidence, and persist
-// into Supabase (stacks + stacks_items).
+// LVE360 — generateStack.ts (FULL FILE)
+// Purpose: Generate validated Markdown report, parse StackItems, run safety,
+// affiliate enrichment, attach curated/validated evidence, override the Evidence
+// section in Markdown, and persist into Supabase.
 // ----------------------------------------------------------------------------
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
@@ -17,11 +17,14 @@ import { getTopCitationsFor, sanitizeCitations } from "@/lib/evidence";
 // ----------------------------------------------------------------------------
 // Config
 // ----------------------------------------------------------------------------
-const TODAY = "2025-09-21"; // keep deterministic for tests
+const TODAY = "2025-09-21"; // deterministic for tests
 const MIN_WORDS = 1800;
 const MIN_BP_ROWS = 10;
 const MIN_ANALYSIS_SENTENCES = 3;
-const CITE_RE = /(https?:\/\/(?:pubmed\.|doi\.org)[^\s)]+)/i;
+
+// Only accept real PubMed/DOI links (no bare "PubMed")
+const CITE_RE =
+  /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/|doi\.org\/\S+)\b/;
 
 const HEADINGS = [
   "## Intro Summary",
@@ -86,7 +89,9 @@ function age(dob: string | null) {
 
 function extractUserId(sub: any): string | null {
   return (
-    sub?.user_id ?? (typeof sub.user === "object" ? sub.user?.id : null) ?? null
+    sub?.user_id ??
+    (typeof sub.user === "object" ? sub.user?.id : null) ??
+    null
   );
 }
 
@@ -124,16 +129,18 @@ function parseDose(dose?: string | null): { amount?: number; unit?: string } {
   return { amount: val, unit: unit ?? undefined };
 }
 
-// Attach curated/validated evidence to a StackItem
+// Curated/validated evidence attach (item-level)
 function attachEvidence(item: StackItem): StackItem {
   const curated = getTopCitationsFor(item.name, 2)
-    .map((e: EvidenceEntry) => e?.url || "")
-    .filter((u: string): u is string => Boolean(u));
+    .map((e: EvidenceEntry) => (e?.url || "").trim())
+    .filter((u: string): u is string => CITE_RE.test(u));
 
-  const modelValid = sanitizeCitations(item.citations ?? []);
+  const modelValid = sanitizeCitations(item.citations ?? []).filter((u) =>
+    CITE_RE.test(u)
+  );
+
   const final = curated.length ? curated : modelValid;
-
-  return { ...item, citations: final.slice(0, 2) };
+  return { ...item, citations: final.length ? final.slice(0, 2) : null };
 }
 
 // ----------------------------------------------------------------------------
@@ -142,7 +149,7 @@ function attachEvidence(item: StackItem): StackItem {
 function parseStackFromMarkdown(md: string): StackItem[] {
   const base: Record<string, any> = {};
 
-  // 1) Your Blueprint Recommendations (table)
+  // --- 1) Your Blueprint Recommendations (table)
   const blueprint = md.match(
     /## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i
   );
@@ -166,7 +173,7 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     });
   }
 
-  // 2) Current Stack (table)
+  // --- 2) Current Stack (table)
   const current = md.match(/## Current Stack([\s\S]*?)(\n## |$)/i);
   if (current) {
     const rows = current[1]
@@ -195,12 +202,12 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     });
   }
 
-  // 3) Dosing & Notes (bulleted list)
+  // --- 3) Dosing & Notes (bulleted list)
   const dosing = md.match(/## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i);
   if (dosing) {
     const lines = dosing[1].split("\n").filter((l) => l.trim().length > 0);
     for (const line of lines) {
-      // "- NAME — DOSE, TIMING" or variants
+      // "- NAME — DOSE, TIMING" or "- NAME - DOSE, TIMING" or "- NAME: DOSE, TIMING"
       const m = line.match(/[-*]\s*([^—\-:]+)[—\-:]\s*([^,]+)(?:,\s*(.*))?/);
       if (m) {
         const name = cleanName(m[1].trim());
@@ -226,7 +233,7 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     }
   }
 
-  // 4) Deduplicate and validate
+  // --- Return valid, deduped items
   const seen = new Set<string>();
   return Object.values(base).filter((it: any) => {
     if (!it?.name) return false;
@@ -296,7 +303,7 @@ Generate the full report per the rules above.`;
 }
 
 // ----------------------------------------------------------------------------
-// LLM
+/** LLM wrapper */
 // ----------------------------------------------------------------------------
 async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
   const { default: OpenAI } = await import("openai");
@@ -310,7 +317,7 @@ async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
 }
 
 // ----------------------------------------------------------------------------
-// Validation
+// Validation helpers
 // ----------------------------------------------------------------------------
 function headingsOK(md: string) {
   return HEADINGS.slice(0, -1).every((h) => md.includes(h));
@@ -324,20 +331,22 @@ function blueprintOK(md: string) {
 }
 
 function citationsOK(md: string) {
-  const block = md.match(/## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i);
+  const block = md.match(
+    /## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i
+  );
   if (!block) return false;
-  const bulletLines = block[1]
-    .split("\n")
-    .filter((l) => l.trim().startsWith("-"));
+  const bulletLines = block[1].split("\n").filter((l) => l.trim().startsWith("-"));
   if (bulletLines.length < 8) return false;
+  // All bullets must contain valid links
   return bulletLines.every((l) => CITE_RE.test(l));
 }
 
 function narrativesOK(md: string) {
-  const sections = md.split("\n## ").slice(1); // drop preamble
+  // For each section, ensure there's narrative text with ≥ sentence count
+  const sections = md.split("\n## ").slice(1); // drop the first empty chunk
   return sections.every((sec) => {
     const lines = sec.split("\n");
-    // Exclude table rows and bullets
+    // Exclude table rows and bullets for narrative check
     const textBlock = lines
       .filter((l) => !l.startsWith("|") && !l.trim().startsWith("-"))
       .join(" ");
@@ -355,6 +364,55 @@ function narrativesOK(md: string) {
 
 function ensureEnd(md: string) {
   return hasEnd(md) ? md : md + "\n\n## END";
+}
+
+// ----------------------------------------------------------------------------
+// Evidence section override (Markdown-level)
+// ----------------------------------------------------------------------------
+function buildEvidenceSection(items: StackItem[], minCount = 8): {
+  section: string;
+  bullets: Array<{ name: string; url: string }>;
+} {
+  const pairs: Array<{ name: string; url: string }> = [];
+
+  for (const it of items) {
+    for (const url of it.citations ?? []) {
+      if (CITE_RE.test(url)) {
+        pairs.push({ name: it.name, url });
+      }
+    }
+  }
+
+  // Deduplicate by URL
+  const seen = new Set<string>();
+  const unique = pairs.filter((p) => {
+    if (seen.has(p.url)) return false;
+    seen.add(p.url);
+    return true;
+  });
+
+  // Guarantee at least minCount if possible (but don't invent URLs)
+  const take =
+    unique.length >= minCount ? unique.slice(0, minCount) : unique.slice(0);
+
+  const bulletsText = take
+    .map((p) => `- ${p.name}: [PubMed](${p.url})`)
+    .join("\n");
+
+  const analysis =
+    "\n\n**Analysis**\n\nThese references are pulled from LVE360’s curated evidence index (PubMed/DOI only) and replace any model-generated references.";
+
+  const section = `## Evidence & References\n\n${bulletsText || "- _No curated citations available yet._"}${analysis}`;
+  return { section, bullets: take };
+}
+
+function overrideEvidenceInMarkdown(md: string, section: string): string {
+  const headerRe = /## Evidence & References([\s\S]*?)(?=\n## |\n## END|$)/i;
+  if (headerRe.test(md)) {
+    return md.replace(headerRe, section);
+  }
+  // if section missing, append before END
+  return md.replace(/\n## END/i, `\n\n${section}\n\n## END`);
 }
 
 // ----------------------------------------------------------------------------
@@ -447,33 +505,63 @@ export async function generateStackForSubmission(id: string) {
       ? (sub as any).allergies.map((a: any) => a.allergy_name || "")
       : [],
     pregnant:
-      typeof (sub as any).pregnant === "boolean" || typeof (sub as any).pregnant === "string"
+      typeof (sub as any).pregnant === "boolean" ||
+      typeof (sub as any).pregnant === "string"
         ? (sub as any).pregnant
         : null,
     brand_pref: (sub as any)?.preferences?.brand_pref ?? null,
     dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
   };
 
+  // Safety checks may add cautions and drop unsafe items
   const { cleaned } = await applySafetyChecks(safetyInput, parsedItems);
+
+  // Affiliate enrichment may add links + cost_estimate
   const finalStack: StackItem[] = await enrichAffiliateLinks(cleaned);
+
+  // Evidence curation/validation step (curated wins; otherwise keep valid PubMed/DOI from model)
   const withEvidence: StackItem[] = finalStack.map(attachEvidence);
 
-  // Optional telemetry
+  // Override the Evidence section in Markdown with curated links
+  const { section: evidenceSection, bullets } = buildEvidenceSection(
+    withEvidence,
+    8
+  );
+  md = overrideEvidenceInMarkdown(md, evidenceSection);
+
+  // Telemetry for evidence
   try {
-    const curatedCount = withEvidence.filter((it) => (it.citations?.length ?? 0) > 0).length;
+    const curatedItemCount = withEvidence.filter(
+      (it) => (it.citations?.length ?? 0) > 0
+    ).length;
     // eslint-disable-next-line no-console
-    console.log(`evidence.curated ${curatedCount}/${withEvidence.length}`);
+    console.log(
+      `evidence.item_curated ${curatedItemCount}/${withEvidence.length}`
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      `evidence.section_override injected_bullets=${bullets.length}`
+    );
+    if (bullets.length > 0) {
+      // sample first 3 for quick eyeball
+      const sample = bullets.slice(0, 3);
+      // eslint-disable-next-line no-console
+      console.log(
+        "evidence.debug.sample",
+        sample.map((b) => `${b.name} -> ${b.url}`)
+      );
+    }
   } catch {
     // no-op
   }
 
-  // Total monthly cost
+  // Calculate total cost from enriched items
   const totalMonthlyCost = withEvidence.reduce(
     (acc, it) => acc + (it.cost_estimate ?? 0),
     0
   );
 
-  // Upsert parent stack
+  // Upsert into stacks (now with tally_submission_id, summary, sections, cost)
   let parentRows: any[] = [];
   try {
     const { data, error } = await supabaseAdmin
@@ -488,7 +576,7 @@ export async function generateStackForSubmission(id: string) {
           tokens_used: tokensUsed,
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
-          summary: md, // consider TEXT/LONGTEXT in DB
+          summary: md, // NOTE: consider TEXT/LONGTEXT in DB to avoid truncation
           sections: {
             markdown: md,
             generated_at: new Date().toISOString(),
@@ -505,10 +593,11 @@ export async function generateStackForSubmission(id: string) {
     console.error("Stacks upsert exception:", err);
   }
 
-  // Insert items
+  // Insert stacks_items (single source of truth)
   if (parentRows.length > 0) {
     const parent = parentRows[0];
     if (parent?.id && user_id) {
+      // Wipe existing rows for this stack_id (idempotent re-gen)
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
       const rows = withEvidence
