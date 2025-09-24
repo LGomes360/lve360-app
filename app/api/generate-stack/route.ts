@@ -26,6 +26,9 @@ export async function POST(req: NextRequest) {
         ""
       )?.toString().trim() || null;
 
+    // --- LOG BODY INPUT ---
+    console.log("[API] generate-stack received:", { submissionId, tallyShort });
+
     // If caller only gave short Tally id, resolve to UUID
     if (!submissionId && tallyShort) {
       try {
@@ -58,6 +61,7 @@ export async function POST(req: NextRequest) {
         }
 
         submissionId = resp.data[0].id;
+        console.log("[API] Resolved tally_submission_id → submissionId:", submissionId);
       } catch (err: any) {
         console.error("Unexpected error resolving tally id:", err);
         return NextResponse.json(
@@ -105,6 +109,7 @@ export async function POST(req: NextRequest) {
           submissionId = submissionRow.id;
         }
       }
+      console.log("[API] Loaded submissionRow:", submissionRow);
     } catch (e) {
       console.warn("Ignored error loading submission:", e);
     }
@@ -117,10 +122,10 @@ export async function POST(req: NextRequest) {
       submissionId
     )) as any;
 
-    // 2) Determine user_email
+    // 2) Determine user_email (only use user_email field!)
     const userEmail = (
-      submissionRow?.user_email ??
-      (raw as any)?.user_email ??
+      submissionRow?.user_email ?? 
+      (raw as any)?.user_email ?? 
       `unknown+${Date.now()}@local`
     ).toString();
 
@@ -152,8 +157,9 @@ export async function POST(req: NextRequest) {
       "";
 
     const items = parseMarkdownToItems(String(markdownForParsing || ""));
+    console.log("[API] Parsed items from markdown:", items.length);
 
-    // 4) Build stack row
+    // 4) Build stack row (NO "email" field anymore)
     const stackRow: any = {
       submission_id: submissionId,
       user_id: userId,
@@ -177,7 +183,7 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
-    // 5) Upsert into stacks
+    // 5) Upsert into stacks, ensure ID is returned
     const respSave: any = await supabaseAdmin
       .from("stacks")
       .upsert(stackRow, { onConflict: "submission_id" })
@@ -199,6 +205,8 @@ export async function POST(req: NextRequest) {
     const saved = Array.isArray(respSave?.data)
       ? respSave.data[0] ?? null
       : respSave?.data ?? null;
+
+    console.log("[API] Upserted stack row:", saved);
 
     return NextResponse.json(
       { ok: true, saved: true, stack: saved, ai: { markdown, raw } },
