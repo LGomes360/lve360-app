@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/consistent-type-imports */
+/* eslint-disable no-console */
 // ----------------------------------------------------------------------------
-// LVE360 — generateStack.ts (FULL FILE, with name normalization + curated evidence override)
+// LVE360 — generateStack.ts (FULL FILE)
 // Purpose: Generate validated Markdown report, parse StackItems, run safety,
 // affiliate enrichment, attach curated/validated evidence (JSON index),
 // override Markdown Evidence section, and persist into Supabase.
@@ -12,7 +13,9 @@ import { ChatCompletionMessageParam } from "openai/resources";
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getTopCitationsFor, sanitizeCitations } from "@/lib/evidence";
+
+// --- Curated evidence index (JSON) ------------------------------------------
+import evidenceIndex from "@/evidence/evidence_index_top3.json";
 
 // ----------------------------------------------------------------------------
 // Config
@@ -22,9 +25,15 @@ const MIN_WORDS = 1800;
 const MIN_BP_ROWS = 10;
 const MIN_ANALYSIS_SENTENCES = 3;
 
-// Accept real PubMed/DOI links only (no bare "PubMed")
-const CITE_RE = /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/|doi\.org\/\S+)\b/;
+// Strict validator for model-generated links (keep PubMed/DOI only)
+const MODEL_CITE_RE =
+  /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/|doi\.org\/\S+)\b/;
 
+// Broader validator for curated JSON links (allow trusted scholarly hosts)
+const CURATED_CITE_RE =
+  /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/|pmc\.ncbi\.nlm\.nih\.gov\/articles\/\S+|doi\.org\/\S+|jamanetwork\.com\/\S+|biomedcentral\.com\/\S+|bmcpsychiatry\.biomedcentral\.com\/\S+|journals\.plos\.org\/\S+|nature\.com\/\S+|sciencedirect\.com\/\S+|amjmed\.com\/\S+|koreascience\.kr\/\S+|dmsjournal\.biomedcentral\.com\/\S+)\b/i;
+
+// Headings contract
 const HEADINGS = [
   "## Intro Summary",
   "## Goals",
@@ -65,8 +74,13 @@ interface EvidenceEntry {
   [key: string]: any;
 }
 
+// Narrow type for the imported JSON
+type EvidenceIndex = Record<string, EvidenceEntry[]>;
+
+const EVIDENCE: EvidenceIndex = (evidenceIndex as unknown) as EvidenceIndex;
+
 // ----------------------------------------------------------------------------
-/** Utilities */
+// Utilities
 // ----------------------------------------------------------------------------
 const wc = (t: string) => t.trim().split(/\s+/).length;
 const hasEnd = (t: string) => t.includes("## END");
@@ -128,13 +142,10 @@ function parseDose(dose?: string | null): { amount?: number; unit?: string } {
   return { amount: val, unit: unit ?? undefined };
 }
 
-// ----------------------------------------------------------------------------
-/** Name normalization for evidence lookup (maps noisy names to curated keys) */
-// ----------------------------------------------------------------------------
+// --- Name normalization for evidence lookup ---------------------------------
 function normalizeSupplementName(name: string): string {
   const n = (name || "").toLowerCase().replace(/[.*_`#]/g, "").trim();
 
-  // Common truncations and variants
   if (n === "l" || n.startsWith("l-thean") || n.includes("theanine")) return "L-Theanine";
   if (n === "b" || n.startsWith("b-complex") || n.includes("b complex")) return "B-Vitamins";
   if (n.startsWith("omega")) return "Omega-3";
@@ -145,47 +156,77 @@ function normalizeSupplementName(name: string): string {
   if (n.startsWith("coq")) return "CoQ10";
   if (n.startsWith("rhodiola")) return "Rhodiola Rosea";
   if (n.startsWith("ginkgo")) return "Ginkgo Biloba";
-
-  // Keep casing as-is for other items (evidence index may still match by fuzzy key in helper)
+  if (n.startsWith("zinc")) return "Zinc";
   return name.trim();
 }
 
-// ----------------------------------------------------------------------------
-/** Curated/validated evidence attach (item-level) */
-// ----------------------------------------------------------------------------
-function attachEvidence(item: StackItem): StackItem {
-  const normName = normalizeSupplementName(item.name);
+// --- Aliases from normalized display → JSON keys -----------------------------
+const ALIAS_MAP: Record<string, string> = {
+  "Omega-3": "omega-3 (epa+dha)",
+  "Vitamin D": "vitamin d3",
+  "B-Vitamins": "b-complex",
+  "B Vitamins Complex": "b-complex",
+  "L-Theanine": "l-theanine",
+  "Magnesium": "magnesium (glycinate)",
+  "Ashwagandha": "ashwagandha (ksm-66 or similar)",
+  "Bacopa Monnieri": "bacopa monnieri (50% bacosides)",
+  "CoQ10": "coq10 (ubiquinone)",
+  "Rhodiola Rosea": "rhodiola rosea (3% rosavins)",
+  "Ginkgo Biloba": "ginkgo biloba (24/6)",
+  "Zinc": "zinc (picolinate)",
+};
 
-  // Curated first
-  const curated = getTopCitationsFor(normName, 2)
-    .map((e: EvidenceEntry) => (e?.url || "").trim())
-    .filter((u: string): u is string => CITE_RE.test(u));
+// Slug helpers (preserve (), +, /, - to match your keys)
+function toSlug(s: string) {
+  return (s || "")
+    .toLowerCase()
+    .replace(/[^\w\s()+/-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  // Validated model links as fallback
-  const modelValid = sanitizeCitations(item.citations ?? []).filter((u) =>
-    CITE_RE.test(u)
-  );
+function buildEvidenceCandidates(normName: string): string[] {
+  const candidates: string[] = [];
+  const alias = ALIAS_MAP[normName];
+  if (alias) candidates.push(alias);
 
-  const final = curated.length ? curated : modelValid;
+  const lower = toSlug(normName);
+  if (lower) candidates.push(lower);
 
-  // Telemetry per item
-  try {
-    // eslint-disable-next-line no-console
-    console.log("evidence.lookup", {
-      rawName: item.name,
-      normName,
-      curatedCount: curated.length,
-      keptFromModel: modelValid.length,
-    });
-  } catch {
-    // no-op
-  }
+  // targeted expansions
+  if (normName === "Omega-3") candidates.push("omega-3 (epa+dha)");
+  if (normName === "Ginkgo Biloba") candidates.push("ginkgo biloba (24/6)");
+  if (normName === "CoQ10") candidates.push("coq10 (ubiquinone)");
+  if (normName === "Bacopa Monnieri") candidates.push("bacopa monnieri (50% bacosides)");
+  if (normName === "Rhodiola Rosea") candidates.push("rhodiola rosea (3% rosavins)");
+  if (normName === "Vitamin D") candidates.push("vitamin d3");
+  if (normName === "Magnesium") candidates.push("magnesium (glycinate)");
+  if (normName === "Zinc") candidates.push("zinc (picolinate)");
+  if (normName === "B-Vitamins" || normName === "B Vitamins Complex") candidates.push("b-complex");
+  if (normName === "L-Theanine") candidates.push("l-theanine");
 
-  return { ...item, citations: final.length ? final.slice(0, 2) : null };
+  return Array.from(new Set(candidates)).filter(Boolean);
+}
+
+// --- Minimal sanitizer for model links (fallback) ----------------------------
+function sanitizeCitationsModel(urls: string[]): string[] {
+  return (urls || [])
+    .map((u) => (typeof u === "string" ? u.trim() : ""))
+    .filter((u) => MODEL_CITE_RE.test(u));
+}
+
+// --- Curated evidence lookup (from JSON) ------------------------------------
+function getTopCitationsFromJson(key: string, limit = 3): string[] {
+  const arr = EVIDENCE[key] as EvidenceEntry[] | undefined;
+  if (!arr || !Array.isArray(arr)) return [];
+  const urls = arr
+    .map((e) => (e?.url || "").trim())
+    .filter((u) => CURATED_CITE_RE.test(u));
+  return urls.slice(0, limit);
 }
 
 // ----------------------------------------------------------------------------
-/** Parser: Markdown → StackItem[] */
+// Parser: Markdown → StackItem[]
 // ----------------------------------------------------------------------------
 function parseStackFromMarkdown(md: string): StackItem[] {
   const base: Record<string, any> = {};
@@ -198,10 +239,9 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     const rows = blueprint[1]
       .split("\n")
       .filter((l) => l.trim().startsWith("|"));
-    // Skip header row
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
-      // Expecting: | Rank | Supplement | Why it Matters |
+      // | Rank | Supplement | Why it Matters |
       const name = cleanName(cols[2] || `Item ${i + 1}`);
       if (!name) return;
       base[name.toLowerCase()] = {
@@ -220,10 +260,9 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     const rows = current[1]
       .split("\n")
       .filter((l) => l.trim().startsWith("|"));
-    // Skip header row
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
-      // Expecting: | Medication/Supplement | Purpose | Dosage | Timing |
+      // | Medication/Supplement | Purpose | Dosage | Timing |
       const name = cleanName(cols[1] || `Current Item ${i + 1}`);
       if (!name) return;
       const rationale = cols[2] || undefined;
@@ -287,7 +326,7 @@ function parseStackFromMarkdown(md: string): StackItem[] {
 }
 
 // ----------------------------------------------------------------------------
-/** Prompts */
+// Prompts
 // ----------------------------------------------------------------------------
 function systemPrompt() {
   return `
@@ -344,7 +383,7 @@ Generate the full report per the rules above.`;
 }
 
 // ----------------------------------------------------------------------------
-/** LLM wrapper */
+// LLM wrapper
 // ----------------------------------------------------------------------------
 async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
   const { default: OpenAI } = await import("openai");
@@ -358,7 +397,7 @@ async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
 }
 
 // ----------------------------------------------------------------------------
-/** Validation helpers */
+// Validation helpers
 // ----------------------------------------------------------------------------
 function headingsOK(md: string) {
   return HEADINGS.slice(0, -1).every((h) => md.includes(h));
@@ -378,13 +417,12 @@ function citationsOK(md: string) {
   if (!block) return false;
   const bulletLines = block[1].split("\n").filter((l) => l.trim().startsWith("-"));
   if (bulletLines.length < 8) return false;
-  // All bullets must contain valid links
-  return bulletLines.every((l) => CITE_RE.test(l));
+  // Strict for model section (we later override with curated anyway)
+  return bulletLines.every((l) => MODEL_CITE_RE.test(l));
 }
 
 function narrativesOK(md: string) {
-  // For each section, ensure there's narrative text with ≥ sentence count
-  const sections = md.split("\n## ").slice(1); // drop the first empty chunk
+  const sections = md.split("\n## ").slice(1);
   return sections.every((sec) => {
     const lines = sec.split("\n");
     // Exclude table rows and bullets for narrative check
@@ -408,8 +446,41 @@ function ensureEnd(md: string) {
 }
 
 // ----------------------------------------------------------------------------
-/** Evidence section override (Markdown-level) */
+// Evidence application & Markdown override
 // ----------------------------------------------------------------------------
+function attachEvidence(item: StackItem): StackItem {
+  const normName = normalizeSupplementName(item.name);
+  const candidates = buildEvidenceCandidates(normName);
+
+  // Curated JSON lookup over all candidate keys
+  let curatedUrls: string[] = [];
+  for (const key of candidates) {
+    const hits = getTopCitationsFromJson(key, 3);
+    if (hits.length) {
+      curatedUrls = hits;
+      break;
+    }
+  }
+
+  // Validated model links (strict) as fallback
+  const modelValid = sanitizeCitationsModel(item.citations ?? []);
+
+  const final = curatedUrls.length ? curatedUrls : modelValid;
+
+  // Telemetry per item
+  try {
+    console.log("evidence.lookup", {
+      rawName: item.name,
+      normName,
+      candidates,
+      curatedCount: curatedUrls.length,
+      keptFromModel: modelValid.length,
+    });
+  } catch (e) {}
+
+  return { ...item, citations: final.length ? final.slice(0, 2) : null };
+}
+
 function buildEvidenceSection(items: StackItem[], minCount = 8): {
   section: string;
   bullets: Array<{ name: string; url: string }>;
@@ -418,13 +489,13 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
 
   for (const it of items) {
     for (const url of it.citations ?? []) {
-      if (CITE_RE.test(url)) {
+      if (CURATED_CITE_RE.test(url)) {
         pairs.push({ name: it.name, url });
       }
     }
   }
 
-  // Deduplicate by URL
+  // Dedup by URL
   const seen = new Set<string>();
   const unique = pairs.filter((p) => {
     if (seen.has(p.url)) return false;
@@ -432,7 +503,6 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
     return true;
   });
 
-  // Guarantee at least minCount if possible (but don't invent URLs)
   const take =
     unique.length >= minCount ? unique.slice(0, minCount) : unique.slice(0);
 
@@ -441,7 +511,7 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
     .join("\n");
 
   const analysis =
-    "\n\n**Analysis**\n\nThese references are pulled from LVE360’s curated evidence index (PubMed/DOI only) and replace any model-generated references.";
+    "\n\n**Analysis**\n\nThese references are pulled from LVE360’s curated evidence index (PubMed/PMC/DOI and other trusted journals) and replace any model-generated references.";
 
   const section = `## Evidence & References\n\n${bulletsText || "- _No curated citations available yet._"}${analysis}`;
   return { section, bullets: take };
@@ -452,12 +522,12 @@ function overrideEvidenceInMarkdown(md: string, section: string): string {
   if (headerRe.test(md)) {
     return md.replace(headerRe, section);
   }
-  // if section missing, append before END
+  // if missing, append just before END
   return md.replace(/\n## END/i, `\n\n${section}\n\n## END`);
 }
 
 // ----------------------------------------------------------------------------
-/** Main Export */
+// Main Export
 // ----------------------------------------------------------------------------
 export async function generateStackForSubmission(id: string) {
   if (!id) throw new Error("submissionId required");
@@ -575,25 +645,16 @@ export async function generateStackForSubmission(id: string) {
     const curatedItemCount = withEvidence.filter(
       (it) => (it.citations?.length ?? 0) > 0
     ).length;
-    // eslint-disable-next-line no-console
-    console.log(
-      `evidence.item_curated ${curatedItemCount}/${withEvidence.length}`
-    );
-    // eslint-disable-next-line no-console
-    console.log(
-      `evidence.section_override injected_bullets=${bullets.length}`
-    );
+    console.log(`evidence.item_curated ${curatedItemCount}/${withEvidence.length}`);
+    console.log(`evidence.section_override injected_bullets=${bullets.length}`);
     if (bullets.length > 0) {
       const sample = bullets.slice(0, 3);
-      // eslint-disable-next-line no-console
       console.log(
         "evidence.debug.sample",
         sample.map((b) => `${b.name} -> ${b.url}`)
       );
     }
-  } catch {
-    // no-op
-  }
+  } catch (e) {}
 
   // Calculate total cost from enriched items
   const totalMonthlyCost = withEvidence.reduce(
@@ -637,7 +698,7 @@ export async function generateStackForSubmission(id: string) {
   if (parentRows.length > 0) {
     const parent = parentRows[0];
     if (parent?.id && user_id) {
-      // Wipe existing rows for this stack_id (idempotent re-gen)
+      // Wipe existing for idempotent re-gen
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
       const rows = withEvidence
