@@ -5,6 +5,7 @@ import { ChatCompletionMessageParam } from "openai/resources";
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getTopCitationsFor, sanitizeCitations } from "@/lib/evidence";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -472,8 +473,8 @@ export async function generateStackForSubmission(id: string) {
   } catch (err) {
     console.error("Stacks upsert exception:", err);
   }
-import { getTopCitationsFor, sanitizeCitations } from "@/lib/evidence";
 
+//Evidence Citations
 function attachEvidence(item: { name: string; citations?: string[] }) {
   // Prefer curated
   const curated = getTopCitationsFor(item.name, 2).map(e => e.url).filter(Boolean) as string[];
