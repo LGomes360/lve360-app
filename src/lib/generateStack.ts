@@ -33,8 +33,10 @@ const HEADINGS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
 /** Final item shape we persist to stacks_items (and pass through safety/affiliates) */
-interface StackItem {
+export interface StackItem {
   name: string;
   dose?: string | null;
   dose_parsed?: { amount?: number; unit?: string };
@@ -48,6 +50,11 @@ interface StackItem {
   link_thorne?: string | null;
   link_other?: string | null;
   cost_estimate?: number | null;
+}
+
+interface EvidenceEntry {
+  url?: string | null;
+  [key: string]: any;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,8 +71,8 @@ function cleanName(raw: string): string {
 
 function age(dob: string | null) {
   if (!dob) return null;
-  const d = new Date(dob),
-    t = new Date(TODAY);
+  const d = new Date(dob);
+  const t = new Date(TODAY);
   let a = t.getFullYear() - d.getFullYear();
   if (t < new Date(t.getFullYear(), d.getMonth(), d.getDate())) a--;
   return a;
@@ -111,6 +118,32 @@ function parseDose(dose?: string | null): { amount?: number; unit?: string } {
     unit = "mg";
   }
   return { amount: val, unit: unit ?? undefined };
+}
+
+// Curated/validated evidence attach
+function attachEvidence(item: { name: string; citations?: string[] }): {
+  name: string;
+  dose?: string | null;
+  dose_parsed?: { amount?: number; unit?: string };
+  timing?: string | null;
+  rationale?: string | null;
+  notes?: string | null;
+  caution?: string | null;
+  citations?: string[] | null;
+  link_amazon?: string | null;
+  link_fullscript?: string | null;
+  link_thorne?: string | null;
+  link_other?: string | null;
+  cost_estimate?: number | null;
+} {
+  const curated = getTopCitationsFor(item.name, 2)
+    .map((e: EvidenceEntry) => e?.url || "")
+    .filter((u: string): u is string => Boolean(u));
+
+  const modelValid = sanitizeCitations(item.citations ?? []);
+  const final = curated.length ? curated : modelValid;
+
+  return { ...item, citations: final.slice(0, 2) };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -412,7 +445,7 @@ export async function generateStackForSubmission(id: string) {
 
   md = ensureEnd(md);
 
-  // Parse → Safety → Affiliate
+  // Parse → Safety → Affiliate → Evidence
   const parsedItems: StackItem[] = parseStackFromMarkdown(md);
 
   const safetyInput = {
@@ -426,20 +459,33 @@ export async function generateStackForSubmission(id: string) {
       ? sub.allergies.map((a: any) => a.allergy_name || "")
       : [],
     pregnant:
-      typeof sub.pregnant === "boolean" || typeof sub.pregnant === "string"
-        ? sub.pregnant
+      typeof (sub as any).pregnant === "boolean" || typeof (sub as any).pregnant === "string"
+        ? (sub as any).pregnant
         : null,
     brand_pref: (sub as any)?.preferences?.brand_pref ?? null,
     dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
   };
 
+  // Safety checks may add cautions and drop unsafe items
   const { cleaned } = await applySafetyChecks(safetyInput, parsedItems);
+
+  // Affiliate enrichment may add links + cost_estimate
   const finalStack: StackItem[] = await enrichAffiliateLinks(cleaned);
-  // Attach curated/validated evidence
+
+  // Evidence curation/validation step (curated wins; otherwise keep valid PubMed/DOI from model)
   const withEvidence: StackItem[] = finalStack.map(attachEvidence);
 
+  // Optional telemetry
+  try {
+    const curatedCount = withEvidence.filter((it) => (it.citations?.length ?? 0) > 0).length;
+    // eslint-disable-next-line no-console
+    console.log(`evidence.curated ${curatedCount}/${withEvidence.length}`);
+  } catch {
+    // no-op
+  }
+
   // Calculate total cost from enriched items
-  const totalMonthlyCost = finalStack.reduce(
+  const totalMonthlyCost = withEvidence.reduce(
     (acc, it) => acc + (it.cost_estimate ?? 0),
     0
   );
@@ -459,7 +505,7 @@ export async function generateStackForSubmission(id: string) {
           tokens_used: tokensUsed,
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
-          summary: md,
+          summary: md, // NOTE: consider TEXT/LONGTEXT in DB to avoid truncation
           sections: {
             markdown: md,
             generated_at: new Date().toISOString(),
@@ -476,34 +522,14 @@ export async function generateStackForSubmission(id: string) {
     console.error("Stacks upsert exception:", err);
   }
 
-//Evidence Citations
-interface EvidenceEntry {
-  url?: string | null;
-  [key: string]: any;
-}
-
-function attachEvidence(item: { name: string; citations?: string[] }) {
-  // Prefer curated
-  const curated = getTopCitationsFor(item.name, 2)
-    .map((e: EvidenceEntry) => e.url || "")
-    .filter((u: string): u is string => Boolean(u));
-
-  // Keep any model links that are valid PubMed/DOI
-  const modelValid = sanitizeCitations(item.citations ?? []);
-
-  // Rule: prefer curated if available
-  const final = curated.length ? curated : modelValid;
-  return { ...item, citations: final.slice(0, 2) };
-}
-
-
   // Insert stacks_items (single source of truth)
   if (parentRows.length > 0) {
     const parent = parentRows[0];
     if (parent?.id && user_id) {
+      // Wipe existing rows for this stack_id (idempotent re-gen)
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
-      const rows = finalStack
+      const rows = withEvidence
         .map((it) => {
           const safeName = cleanName(it?.name ?? "");
           if (!safeName || safeName.toLowerCase() === "null") {
@@ -538,7 +564,7 @@ function attachEvidence(item: { name: string; citations?: string[] }) {
       console.log("✅ Prepared stack_items rows:", rows);
 
       if (rows.length > 0) {
-        const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
+        const { error } = await supabaseAdmin.from("stacks_items").insert(rows as any[]);
         if (error) console.error("⚠️ Failed to insert stacks_items:", error);
         else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
       }
