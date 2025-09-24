@@ -31,6 +31,12 @@ const wc = (t: string) => t.trim().split(/\s+/).length;
 const hasEnd = (t: string) => t.includes("## END");
 const seeDN = "See Dosing & Notes";
 
+// 🔹 New: helper to strip markdown/bad chars from names
+function cleanName(raw: string): string {
+  if (!raw) return "";
+  return raw.replace(/[*_`#]/g, "").trim();
+}
+
 function age(dob: string | null) {
   if (!dob) return null;
   const d = new Date(dob),
