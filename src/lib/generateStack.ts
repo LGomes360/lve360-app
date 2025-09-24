@@ -435,7 +435,8 @@ export async function generateStackForSubmission(id: string) {
 
   const { cleaned } = await applySafetyChecks(safetyInput, parsedItems);
   const finalStack: StackItem[] = await enrichAffiliateLinks(cleaned);
-
+// When mapping parsed items:
+items = items.map(attachEvidence);
   // Calculate total cost from enriched items
   const totalMonthlyCost = finalStack.reduce(
     (acc, it) => acc + (it.cost_estimate ?? 0),
@@ -494,8 +495,6 @@ function attachEvidence(item: { name: string; citations?: string[] }) {
   return { ...item, citations: final.slice(0, 2) };
 }
 
-// When mapping parsed items:
-items = items.map(attachEvidence);
 
   // Insert stacks_items (single source of truth)
   if (parentRows.length > 0) {
