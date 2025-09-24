@@ -31,10 +31,13 @@ const wc = (t: string) => t.trim().split(/\s+/).length;
 const hasEnd = (t: string) => t.includes("## END");
 const seeDN = "See Dosing & Notes";
 
-// 🔹 New: helper to strip markdown/bad chars from names
+// ──────────────────────────────────────────────────────────────────────────────
+// Minimal new helper: strip markdown symbols from names to avoid '**Omega' etc.
+// ──────────────────────────────────────────────────────────────────────────────
 function cleanName(raw: string): string {
   if (!raw) return "";
-  return raw.replace(/[*_`#]/g, "").trim();
+  // Remove bold/italics/backticks/heading markers; collapse inner spaces
+  return raw.replace(/[*_`#]/g, "").replace(/\s+/g, " ").trim();
 }
 
 function age(dob: string | null) {
@@ -97,7 +100,7 @@ function parseStackFromMarkdown(md: string) {
       .filter((l) => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
-      const name = cols[2] || `Item ${i + 1}`;
+      const name = cleanName(cols[2] || `Item ${i + 1}`);
       if (!name) return;
       base[name.toLowerCase()] = {
         name,
@@ -117,7 +120,7 @@ function parseStackFromMarkdown(md: string) {
       .filter((l) => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
-      const name = cols[1] || `Current Item ${i + 1}`;
+      const name = cleanName(cols[1] || `Current Item ${i + 1}`);
       if (!name) return;
       const rationale = cols[2] || undefined;
       const dose = cols[3] || null;
@@ -145,7 +148,7 @@ function parseStackFromMarkdown(md: string) {
         /[-*]\s*([^—\-:]+)[—\-:]\s*([^,]+)(?:,\s*(.*))?/
       );
       if (m) {
-        const name = m[1].trim();
+        const name = cleanName(m[1].trim());
         if (!name) continue;
         const dose = m[2]?.trim() || null;
         const timing = normalizeTiming(m[3]);
@@ -190,7 +193,30 @@ Always greet the client by name in the Intro Summary if provided.
 Return **plain ASCII Markdown only** with headings EXACTLY:
 
 ${HEADINGS.slice(0, -1).join("\n")}
-...
+
+Tables must use \`Column | Column\` pipe format, **no curly quotes or bullets**.
+Every table/list MUST be followed by **Analysis** ≥3 sentences that:
+• Summarize the section
+• Explain why it matters
+• Give practical implication
+
+### Section-specific rules
+• **Intro Summary** → Must greet by name (if available) and include ≥2–3 sentences.  
+• **Goals** → Table: Goal | Description, followed by Analysis.  
+• **Current Stack** → Table: Medication/Supplement | Purpose | Dosage | Timing.  
+• **Your Blueprint Recommendations** → 3-column table: Rank | Supplement | Why it Matters.  
+  Must include ≥${MIN_BP_ROWS} unique rows.  
+  Do NOT include doses or timing here.  
+  Add: *“See Dosing & Notes for amounts and timing.”*  
+  Exclude items tagged *(already using)* unless Rank 1.  
+• **Dosing & Notes** → List + Analysis explaining amounts, timing, and safety notes.  
+• **Evidence & References** → At least 8 bullet points with PubMed/DOI URLs.  
+• **Shopping Links** → Provide links + Analysis.  
+• **Follow-up Plan** → At least 3 checkpoints.  
+• **Lifestyle Prescriptions** → ≥3 actionable changes.  
+• **Longevity Levers** → ≥3 strategies.  
+• **This Week Try** → Exactly 3 micro-habits.  
+• If Dose/Timing unknown → use “${seeDN}”.  
 • Finish with line \`## END\`.  
 
 If internal check fails, regenerate before responding.`;
@@ -386,7 +412,8 @@ export async function generateStackForSubmission(id: string) {
       const rows = finalStack
         .filter((it: any) => it?.name && it.name.trim())
         .map((it: any) => {
-          const safeName = it.name?.trim();
+          // Final safety: sanitize the name going into DB
+          const safeName = cleanName(it.name ?? "");
           if (!safeName) return null;
           return {
             stack_id: parent.id,
@@ -413,7 +440,7 @@ export async function generateStackForSubmission(id: string) {
       if (rows.length > 0) {
         const { error } = await supabaseAdmin
           .from("stacks_items")
-          .insert(rows);
+          .insert(rows as any[]);
         if (error) console.error("⚠️ Failed to insert stacks_items:", error);
         else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
       }
