@@ -184,30 +184,7 @@ Always greet the client by name in the Intro Summary if provided.
 Return **plain ASCII Markdown only** with headings EXACTLY:
 
 ${HEADINGS.slice(0, -1).join("\n")}
-
-Tables must use \`Column | Column\` pipe format, **no curly quotes or bullets**.
-Every table/list MUST be followed by **Analysis** ≥3 sentences that:
-• Summarize the section
-• Explain why it matters
-• Give practical implication
-
-### Section-specific rules
-• **Intro Summary** → Must greet by name (if available) and include ≥2–3 sentences.  
-• **Goals** → Table: Goal | Description, followed by Analysis.  
-• **Current Stack** → Table: Medication/Supplement | Purpose | Dosage | Timing.  
-• **Your Blueprint Recommendations** → 3-column table: Rank | Supplement | Why it Matters.  
-  Must include ≥${MIN_BP_ROWS} unique rows.  
-  Do NOT include doses or timing here.  
-  Add: *“See Dosing & Notes for amounts and timing.”*  
-  Exclude items tagged *(already using)* unless Rank 1.  
-• **Dosing & Notes** → List + Analysis explaining amounts, timing, and safety notes.  
-• **Evidence & References** → At least 8 bullet points with PubMed/DOI URLs.  
-• **Shopping Links** → Provide links + Analysis.  
-• **Follow-up Plan** → At least 3 checkpoints.  
-• **Lifestyle Prescriptions** → ≥3 actionable changes.  
-• **Longevity Levers** → ≥3 strategies.  
-• **This Week Try** → Exactly 3 micro-habits.  
-• If Dose/Timing unknown → use “${seeDN}”.  
+...
 • Finish with line \`## END\`.  
 
 If internal check fails, regenerate before responding.`;
@@ -287,6 +264,11 @@ export async function generateStackForSubmission(id: string) {
   const sub = await getSubmissionWithChildren(id);
   if (!sub) throw new Error(`Submission row not found for id=${id}`);
   const user_id = extractUserId(sub);
+  const userEmail =
+    (sub as any)?.user?.email ??
+    (sub as any)?.user_email ??
+    (sub as any)?.email ??
+    null;
 
   const msgs: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt() },
@@ -375,6 +357,7 @@ export async function generateStackForSubmission(id: string) {
         {
           submission_id: id,
           user_id,
+          user_email: userEmail,
           version: modelUsed,
           tokens_used: tokensUsed,
           prompt_tokens: promptTokens,
@@ -396,22 +379,30 @@ export async function generateStackForSubmission(id: string) {
 
       const rows = finalStack
         .filter((it: any) => it?.name && it.name.trim())
-        .map((it: any) => ({
-          stack_id: parent.id,
-          user_id,
-          name: it.name,
-          dose: it.dose,
-          timing: it.timing,
-          notes: it.notes,
-          rationale: it.rationale,
-          caution: it.caution,
-          citations: it.citations ? JSON.stringify(it.citations) : null,
-          link_amazon: it.link_amazon ?? null,
-          link_fullscript: it.link_fullscript ?? null,
-          link_thorne: it.link_thorne ?? null,
-          link_other: it.link_other ?? null,
-          cost_estimate: it.cost_estimate ?? null,
-        }));
+        .map((it: any) => {
+          const safeName = it.name?.trim();
+          if (!safeName) return null;
+          return {
+            stack_id: parent.id,
+            user_id,
+            user_email: userEmail,
+            name: safeName,
+            dose: it.dose,
+            timing: it.timing,
+            notes: it.notes,
+            rationale: it.rationale,
+            caution: it.caution,
+            citations: it.citations ? JSON.stringify(it.citations) : null,
+            link_amazon: it.link_amazon ?? null,
+            link_fullscript: it.link_fullscript ?? null,
+            link_thorne: it.link_thorne ?? null,
+            link_other: it.link_other ?? null,
+            cost_estimate: it.cost_estimate ?? null,
+          };
+        })
+        .filter((r) => r !== null);
+
+      console.log("✅ Prepared stack_items rows:", rows);
 
       if (rows.length > 0) {
         const { error } = await supabaseAdmin
