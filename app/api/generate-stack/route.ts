@@ -117,29 +117,33 @@ export async function POST(req: NextRequest) {
       submissionId
     )) as any;
 
-    // 2) Determine user_email
-    const userEmail = (
-      submissionRow?.user_email ??
-      (raw as any)?.user_email ??
-      `unknown+${Date.now()}@local`
-    ).toString();
-
-    // 2b) Resolve user_id if possible
+    // 2) Resolve user_id and canonical user_email (NEW LOGIC)
     let userId: string | null = submissionRow?.user_id ?? null;
-    if (!userId && userEmail) {
-      try {
-        const uResp: any = await supabaseAdmin
-          .from("users")
-          .select("id")
-          .eq("email", userEmail)
-          .limit(1);
+    let userEmail: string | null = null;
 
-        if (!uResp?.error && uResp?.data?.length) {
-          userId = uResp.data[0].id;
+    if (userId) {
+      try {
+        const userResp: any = await supabaseAdmin
+          .from("users")
+          .select("email")
+          .eq("id", userId)
+          .limit(1);
+        if (!userResp?.error && userResp?.data?.length) {
+          userEmail = userResp.data[0].email;
         }
       } catch (e) {
-        console.warn("Non-fatal: user lookup by email failed", e);
+        console.warn("Non-fatal: user lookup by id failed", e);
       }
+    }
+
+    // Fallback to submissionRow.user_email if user record not found
+    if (!userEmail && submissionRow?.user_email) {
+      userEmail = submissionRow.user_email;
+    }
+
+    // Still not found? Fallback to dummy for debugging
+    if (!userEmail) {
+      userEmail = `unknown+${Date.now()}@local`;
     }
 
     // 3) Pick markdown for parsing
@@ -153,12 +157,11 @@ export async function POST(req: NextRequest) {
 
     const items = parseMarkdownToItems(String(markdownForParsing || ""));
 
-    // 4) Build stack row
+    // 4) Build stack row (NO "email" field anymore)
     const stackRow: any = {
       submission_id: submissionId,
       user_id: userId,
       user_email: userEmail,
-      email: userEmail,
       version: process.env.OPENAI_MODEL ?? null,
       summary:
         typeof markdownForParsing === "string"
