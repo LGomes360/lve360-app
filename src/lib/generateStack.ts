@@ -509,7 +509,7 @@ export async function generateStackForSubmission(id: string) {
             cost_estimate: it.cost_estimate ?? null,
           };
         })
-        .filter((r): r is Record<string, unknown> => r !== null);
+        .filter((r) => r !== null);
 
       console.log("✅ Prepared stack_items rows:", rows);
 
