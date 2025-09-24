@@ -1,12 +1,3 @@
-// app/api/generate-stack/route.ts
-// -----------------------------------------------------------------------------
-// POST /api/generate-stack
-// Accepts body:
-//   - submissionId: UUID (preferred)
-//   - OR tally_submission_id: short Tally id (e.g. "jaJMeJQ")
-//
-// Returns JSON: { ok: true, saved: true/false, stack?, ai? }
-// -----------------------------------------------------------------------------
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -26,53 +17,30 @@ export async function POST(req: NextRequest) {
         ""
       )?.toString().trim() || null;
 
-    // --- LOG BODY INPUT ---
     console.log("[API] generate-stack received:", { submissionId, tallyShort });
 
     // If caller only gave short Tally id, resolve to UUID
     if (!submissionId && tallyShort) {
-      try {
-        const resp: any = await supabaseAdmin
-          .from("submissions")
-          .select("id,tally_submission_id,user_email")
-          .eq("tally_submission_id", tallyShort)
-          .limit(1);
-
-        if (resp?.error) {
-          console.error("Error resolving tally_submission_id:", resp.error);
-          return NextResponse.json(
-            {
-              ok: false,
-              error: "Failed to resolve tally_submission_id",
-              details: String(resp.error?.message ?? resp.error),
-            },
-            { status: 500 }
-          );
-        }
-
-        if (!resp?.data?.length) {
-          return NextResponse.json(
-            {
-              ok: false,
-              error: `Submission not found for tally_submission_id=${tallyShort}`,
-            },
-            { status: 404 }
-          );
-        }
-
-        submissionId = resp.data[0].id;
-        console.log("[API] Resolved tally_submission_id → submissionId:", submissionId);
-      } catch (err: any) {
-        console.error("Unexpected error resolving tally id:", err);
+      const resp: any = await supabaseAdmin
+        .from("submissions")
+        .select("id,tally_submission_id,user_email")
+        .eq("tally_submission_id", tallyShort)
+        .limit(1);
+      if (resp?.error) {
+        console.error("Error resolving tally_submission_id:", resp.error);
         return NextResponse.json(
-          {
-            ok: false,
-            error: "Failed to resolve tally_submission_id",
-            details: String(err),
-          },
+          { ok: false, error: "Failed to resolve tally_submission_id", details: String(resp.error?.message ?? resp.error) },
           { status: 500 }
         );
       }
+      if (!resp?.data?.length) {
+        return NextResponse.json(
+          { ok: false, error: `Submission not found for tally_submission_id=${tallyShort}` },
+          { status: 404 }
+        );
+      }
+      submissionId = resp.data[0].id;
+      console.log("[API] Resolved tally_submission_id → submissionId:", submissionId);
     }
 
     if (!submissionId) {
@@ -82,39 +50,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Load submission row (UUID vs short id safe)
+    // --- BULLETPROOF: Fetch submission row with up to 7 retries (2.5s max) ---
     let submissionRow: Record<string, any> | null = null;
-    try {
-      const isUUID =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-          submissionId
-        );
+    for (let i = 0; i < 7; i++) {
+      let isUUID =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(submissionId);
 
       let query = supabaseAdmin
         .from("submissions")
         .select("id,user_id,user_email,tally_submission_id,summary")
         .limit(1);
 
-      if (isUUID) {
-        query = query.eq("id", submissionId);
-      } else {
-        query = query.eq("tally_submission_id", submissionId);
-      }
+      query = isUUID
+        ? query.eq("id", submissionId)
+        : query.eq("tally_submission_id", submissionId);
 
       const resp: any = await query;
       if (!resp?.error && resp?.data?.length) {
         submissionRow = resp.data[0];
-        if (submissionRow?.id) {
-          // Normalize to always use UUID
-          submissionId = submissionRow.id;
-        }
+        if (submissionRow?.id) submissionId = submissionRow.id;
+        break;
       }
-      console.log("[API] Loaded submissionRow:", submissionRow);
-    } catch (e) {
-      console.warn("Ignored error loading submission:", e);
+      await new Promise((res) => setTimeout(res, 400));
+    }
+    console.log("[API] Loaded submissionRow:", submissionRow);
+
+    // --- HARD FAIL if still missing ---
+    if (!submissionRow) {
+      return NextResponse.json(
+        { ok: false, error: `Submission row not found for id=${submissionId}` },
+        { status: 404 }
+      );
     }
 
-    // 1) Generate stack with OpenAI
+    // 1) Generate stack with OpenAI (now guaranteed we have submissionRow)
     const {
       markdown,
       raw,
@@ -122,12 +91,14 @@ export async function POST(req: NextRequest) {
       submissionId
     )) as any;
 
-    // 2) Determine user_email (only use user_email field!)
-    const userEmail = (
-      submissionRow?.user_email ?? 
-      (raw as any)?.user_email ?? 
-      `unknown+${Date.now()}@local`
-    ).toString();
+    // 2) Determine user_email (ONLY from submissionRow!)
+    const userEmail = (submissionRow?.user_email || "").toString();
+    if (!userEmail) {
+      return NextResponse.json(
+        { ok: false, error: "No user_email found in submission row." },
+        { status: 500 }
+      );
+    }
 
     // 2b) Resolve user_id if possible
     let userId: string | null = submissionRow?.user_id ?? null;
