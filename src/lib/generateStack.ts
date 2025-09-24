@@ -4,13 +4,12 @@ import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 import { ChatCompletionMessageParam } from "openai/resources";
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
-import { supabaseAdmin } from "@/lib/supabase";  // ✅ Supabase persistence
+import { supabaseAdmin } from "@/lib/supabase";
 
-// ── constants ──────────────────────────────────────────
-const TODAY       = "2025-09-21";
-const MIN_WORDS   = 1800;
+const TODAY = "2025-09-21";
+const MIN_WORDS = 1800;
 const MIN_BP_ROWS = 10;
-const CITE_RE     = /(https?:\/\/(?:pubmed\.|doi\.org)[^\s)]+)/i;
+const CITE_RE = /(https?:\/\/(?:pubmed\.|doi\.org)[^\s)]+)/i;
 
 const HEADINGS = [
   "## Intro Summary",
@@ -28,10 +27,9 @@ const HEADINGS = [
   "## END",
 ];
 
-// ── helpers ──────────────────────────────────────────
-const wc     = (t: string) => t.trim().split(/\s+/).length;
+const wc = (t: string) => t.trim().split(/\s+/).length;
 const hasEnd = (t: string) => t.includes("## END");
-const seeDN  = "See Dosing & Notes";
+const seeDN = "See Dosing & Notes";
 
 function age(dob: string | null) {
   if (!dob) return null;
@@ -40,13 +38,9 @@ function age(dob: string | null) {
   if (t < new Date(t.getFullYear(), d.getMonth(), d.getDate())) a--;
   return a;
 }
-
-// 👉 Extract user_id for FK insertion into stacks_items
 function extractUserId(sub: any): string | null {
   return sub?.user_id ?? (typeof sub.user === "object" ? sub.user?.id : null) ?? null;
 }
-
-// ── normalization helpers ────────────────────────────
 function normalizeTiming(raw?: string | null): string | null {
   if (!raw) return null;
   const s = raw.toLowerCase();
@@ -55,7 +49,6 @@ function normalizeTiming(raw?: string | null): string | null {
   if (/am\/pm|both|split|bid/.test(s)) return "AM/PM";
   return raw.trim();
 }
-
 function normalizeUnit(u?: string | null) {
   const s = (u ?? "").toLowerCase();
   if (s === "μg" || s === "mcg" || s === "ug") return "mcg";
@@ -63,7 +56,6 @@ function normalizeUnit(u?: string | null) {
   if (s === "mg" || s === "g") return s;
   return s || null;
 }
-
 function parseDose(dose?: string | null): { amount?: number; unit?: string } {
   if (!dose) return {};
   const cleaned = dose.replace(/[,]/g, " ").replace(/\s+/g, " ");
@@ -77,18 +69,14 @@ function parseDose(dose?: string | null): { amount?: number; unit?: string } {
   if (unit === "g") { val = amount * 1000; unit = "mg"; }
   return { amount: val, unit: unit ?? undefined };
 }
-
-// ── parse stack from markdown ─────────────────────────
 function parseStackFromMarkdown(md: string) {
   const base: Record<string, any> = {};
-
-  // --- 1. Blueprint Recommendations ---
   const blueprint = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
   if (blueprint) {
     const rows = blueprint[1].split("\n").filter(l => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map(c => c.trim());
-      const name = cols[2] || `Item ${i+1}`;
+      const name = cols[2] || `Item ${i + 1}`;
       base[name.toLowerCase()] = {
         name,
         rationale: cols[3] || undefined,
@@ -98,20 +86,16 @@ function parseStackFromMarkdown(md: string) {
       };
     });
   }
-
-  // --- 2. Dosing & Notes ---
   const dosing = md.match(/## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i);
   if (dosing) {
     const lines = dosing[1].split("\n").filter(l => l.trim().length > 0);
     for (const line of lines) {
-      // Example: "- Vitamin D3 — 2000 IU AM"
       const m = line.match(/[-*]\s*([^—\-:]+)[—\-:]\s*([^,]+)(?:,\s*(.*))?/);
       if (m) {
         const name = m[1].trim();
         const dose = m[2]?.trim() || null;
         const timing = normalizeTiming(m[3]);
         const parsed = parseDose(dose);
-
         const key = name.toLowerCase();
         if (base[key]) {
           base[key].dose = dose;
@@ -123,11 +107,8 @@ function parseStackFromMarkdown(md: string) {
       }
     }
   }
-
   return Object.values(base);
 }
-
-// ── prompt builders ──────────────────────────────────
 function systemPrompt() {
   return `
 You are **LVE360 Concierge AI**, a friendly but professional wellness coach.
@@ -165,7 +146,6 @@ Every table/list MUST be followed by **Analysis** ≥3 sentences that:
 
 If internal check fails, regenerate before responding.`;
 }
-
 function userPrompt(sub: SubmissionWithChildren) {
   return `
 ### CLIENT
@@ -176,8 +156,6 @@ ${JSON.stringify({ ...sub, age: age((sub as any).dob ?? null), today: TODAY }, n
 ### TASK
 Generate the full report per the rules above.`;
 }
-
-// ── openai wrapper ──────────────────────────────────
 async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
@@ -189,19 +167,15 @@ async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
   });
   return resp;
 }
-
-// ── validation helpers ──────────────────────────────
 function headingsOK(md: string) {
   return HEADINGS.slice(0, -1).every(h => md.includes(h));
 }
-
 function blueprintOK(md: string) {
   const sec = md.match(/## Your Blueprint Recommendations([\s\S]*?\n\|)/i);
   if (!sec) return false;
   const rows = sec[0].split("\n").filter(l => l.startsWith("|")).slice(1);
   return rows.length >= MIN_BP_ROWS;
 }
-
 function citationsOK(md: string) {
   const block = md.match(/## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i);
   if (!block) return false;
@@ -210,7 +184,6 @@ function citationsOK(md: string) {
     .filter(l => l.trim().startsWith("-"))
     .every(l => CITE_RE.test(l));
 }
-
 function narrativesOK(md: string) {
   const sections = md.split("\n## ").slice(1);
   return sections.every(sec => {
@@ -224,7 +197,6 @@ function narrativesOK(md: string) {
     return true;
   });
 }
-
 function ensureEnd(md: string) {
   return hasEnd(md) ? md : md + "\n\n## END";
 }
@@ -234,15 +206,9 @@ export async function generateStackForSubmission(id: string) {
   if (!id) throw new Error("submissionId required");
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
 
-  // -- NEW: Retry for fetching submission (fixes race)
-  let sub: SubmissionWithChildren | null = null;
-  for (let i = 0; i < 7; i++) {
-    sub = await getSubmissionWithChildren(id);
-    if (sub) break;
-    await new Promise((res) => setTimeout(res, 400)); // Wait 400ms (up to ~2.5s total)
-  }
-  if (!sub) throw new Error(`Submission row not found for id=${id} after retrying`);
-
+  // Fetch submission ONCE (do not retry)
+  const sub = await getSubmissionWithChildren(id);
+  if (!sub) throw new Error(`Submission row not found for id=${id}`);
   const user_id = extractUserId(sub);
   const msgs: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt() },
@@ -265,7 +231,6 @@ export async function generateStackForSubmission(id: string) {
     tokensUsed = resp.usage?.total_tokens ?? null;
     promptTokens = resp.usage?.prompt_tokens ?? null;
     completionTokens = resp.usage?.completion_tokens ?? null;
-    console.log("LLM call used model:", modelUsed, "usage:", resp.usage);
     md = resp.choices[0]?.message?.content ?? "";
     if (
       wc(md) >= MIN_WORDS &&
@@ -278,19 +243,15 @@ export async function generateStackForSubmission(id: string) {
       passes = true;
     }
   } catch (err) {
-    console.warn("Mini model call failed:", err);
+    // ignore, will try gpt-4o
   }
-
-  // --- Step 2: If mini failed, fall back to gpt-4o ---
   if (!passes) {
-    console.log("Falling back to gpt-4o for reliability...");
     const resp = await callLLM(msgs, "gpt-4o");
     raw = resp;
     modelUsed = resp.model ?? "gpt-4o";
     tokensUsed = resp.usage?.total_tokens ?? null;
     promptTokens = resp.usage?.prompt_tokens ?? null;
     completionTokens = resp.usage?.completion_tokens ?? null;
-    console.log("LLM call used model:", modelUsed, "usage:", resp.usage);
     md = resp.choices[0]?.message?.content ?? "";
     if (
       wc(md) >= MIN_WORDS &&
@@ -304,13 +265,9 @@ export async function generateStackForSubmission(id: string) {
     }
   }
 
-  // --- Salvage minimal ---
   md = ensureEnd(md);
 
-  // --- Parse stack items from Markdown ---
   const items = parseStackFromMarkdown(md);
-
-  // --- Run hooks ---
   const safetyInput = {
     medications: Array.isArray(sub.medications)
       ? sub.medications.map((m: any) => m.med_name || "")
@@ -327,82 +284,64 @@ export async function generateStackForSubmission(id: string) {
     brand_pref: (sub.preferences as any)?.brand_pref ?? null,
     dosing_pref: (sub.preferences as any)?.dosing_pref ?? null,
   };
-
   const { cleaned, notes } = await applySafetyChecks(safetyInput, items);
   const finalStack = await enrichAffiliateLinks(cleaned);
 
-  // keep md consistent with rest of code
-  md = md; // we return original markdown body; items go to stacks_items
-
-  console.log("safety notes", notes);
-
-  // --- Save model + token usage to Supabase ---
+  // --- Upsert stack row and get the result immediately ---
+  let parentRows: any[] = [];
+  let parentErr = null;
   try {
-    // 1. Update stack row with model/token info
-    await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("stacks")
-      .update({
+      .upsert({
+        submission_id: id,
+        user_id,
         version: modelUsed,
         tokens_used: tokensUsed,
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
-      })
-      .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`);
+        // ...add any other needed fields here...
+      }, { onConflict: "submission_id" })
+      .select();
 
-    // 2. Fetch parent stack row with retry
-    let parentRows: any[] = [];
-    let parentErr = null;
-    for (let i = 0; i < 7; i++) {
-      const { data, error } = await supabaseAdmin
-        .from("stacks")
-        .select("id")
-        .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`);
-      if (error) parentErr = error;
-      if (data && data.length > 0) {
-        parentRows = data;
-        break;
-      }
-      await new Promise(res => setTimeout(res, 400)); // wait 400ms
-    }
-
-    if (parentErr) {
-      console.error("Supabase update error:", parentErr);
-    } else if (!parentRows || parentRows.length === 0) {
-      console.warn("⚠️ No stack row found for id (even after retry):", id, parentRows);
-    } else {
-      console.log("✅ Stack row updated:", parentRows);
-
-      // --- Save stack items ---
-      const parent = parentRows[0];
-      if (parent?.id && user_id) {
-        await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
-
-        const rows = finalStack.map((it: any) => ({
-          stack_id: parent.id,
-          user_id,
-          name: it.name,
-          dose: it.dose,
-          timing: it.timing,
-          notes: it.notes,
-          rationale: it.rationale,
-          caution: it.caution,
-          citations: it.citations ? JSON.stringify(it.citations) : null,
-          link_amazon: it.link_amazon ?? null,
-          link_fullscript: it.link_fullscript ?? null,
-          link_thorne: it.link_thorne ?? null,
-          link_other: it.link_other ?? null,
-          cost_estimate: it.cost_estimate ?? null,
-        }));
-
-        if (rows.length > 0) {
-          const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
-          if (error) console.error("⚠️ Failed to insert stacks_items:", error);
-          else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
-        }
-      }
-    }
+    if (error) parentErr = error;
+    if (data && data.length > 0) parentRows = data;
   } catch (err) {
-    console.error("Failed to update Supabase with model/tokens:", err);
+    parentErr = err;
+  }
+
+  if (parentErr) {
+    console.error("Supabase upsert error:", parentErr);
+  } else if (!parentRows || parentRows.length === 0) {
+    console.warn("⚠️ No stack row found after upsert for id:", id, parentRows);
+  } else {
+    const parent = parentRows[0];
+    if (parent?.id && user_id) {
+      await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
+
+      const rows = finalStack.map((it: any) => ({
+        stack_id: parent.id,
+        user_id,
+        name: it.name,
+        dose: it.dose,
+        timing: it.timing,
+        notes: it.notes,
+        rationale: it.rationale,
+        caution: it.caution,
+        citations: it.citations ? JSON.stringify(it.citations) : null,
+        link_amazon: it.link_amazon ?? null,
+        link_fullscript: it.link_fullscript ?? null,
+        link_thorne: it.link_thorne ?? null,
+        link_other: it.link_other ?? null,
+        cost_estimate: it.cost_estimate ?? null,
+      }));
+
+      if (rows.length > 0) {
+        const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
+        if (error) console.error("⚠️ Failed to insert stacks_items:", error);
+        else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
+      }
+    }
   }
 
   if (!passes) {
