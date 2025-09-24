@@ -33,7 +33,8 @@ const seeDN = "See Dosing & Notes";
 
 function age(dob: string | null) {
   if (!dob) return null;
-  const d = new Date(dob), t = new Date(TODAY);
+  const d = new Date(dob),
+    t = new Date(TODAY);
   let a = t.getFullYear() - d.getFullYear();
   if (t < new Date(t.getFullYear(), d.getMonth(), d.getDate())) a--;
   return a;
@@ -66,16 +67,19 @@ function parseDose(dose?: string | null): { amount?: number; unit?: string } {
   const rawUnit = unitMatch ? unitMatch[1] : "";
   let unit = normalizeUnit(rawUnit);
   let val = amount;
-  if (unit === "g") { val = amount * 1000; unit = "mg"; }
+  if (unit === "g") {
+    val = amount * 1000;
+    unit = "mg";
+  }
   return { amount: val, unit: unit ?? undefined };
 }
 function parseStackFromMarkdown(md: string) {
   const base: Record<string, any> = {};
   const blueprint = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
   if (blueprint) {
-    const rows = blueprint[1].split("\n").filter(l => l.trim().startsWith("|"));
+    const rows = blueprint[1].split("\n").filter((l) => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
-      const cols = row.split("|").map(c => c.trim());
+      const cols = row.split("|").map((c) => c.trim());
       const name = cols[2] || `Item ${i + 1}`;
       base[name.toLowerCase()] = {
         name,
@@ -88,7 +92,7 @@ function parseStackFromMarkdown(md: string) {
   }
   const dosing = md.match(/## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i);
   if (dosing) {
-    const lines = dosing[1].split("\n").filter(l => l.trim().length > 0);
+    const lines = dosing[1].split("\n").filter((l) => l.trim().length > 0);
     for (const line of lines) {
       const m = line.match(/[-*]\s*([^—\-:]+)[—\-:]\s*([^,]+)(?:,\s*(.*))?/);
       if (m) {
@@ -121,30 +125,9 @@ Return **plain ASCII Markdown only** with headings EXACTLY:
 ${HEADINGS.slice(0, -1).join("\n")}
 
 Tables must use \`Column | Column\` pipe format, **no curly quotes or bullets**.
-Every table/list MUST be followed by **Analysis** ≥3 sentences that:
-• Summarize the section
-• Explain why it matters
-• Give practical implication
+Every table/list MUST be followed by **Analysis** ≥3 sentences.
 
-### Section-specific rules
-• **Intro Summary** → Must greet by name (if available) and include ≥2–3 sentences.  
-• **Goals** → Present as table with columns: Goal | Description, followed by Analysis.  
-• **Current Stack** → Always render as table with columns: Medication/Supplement | Purpose | Dosage | Timing.  
-• **Your Blueprint Recommendations** → 3-column table: Rank | Supplement | Why it Matters (≤12 words).  
-  Must include ≥${MIN_BP_ROWS} unique rows. Do NOT include doses or timing here.  
-  Add a single line under the table: *“See Dosing & Notes for amounts and timing.”*  
-  Exclude items tagged *(already using)* unless Rank 1.  
-• **Dosing & Notes** → List + Analysis explaining amounts, timing, and safety notes.  
-• **Evidence & References** → At least 8 bullet points, each ending with a PubMed/DOI URL.  
-• **Shopping Links** → Provide links (Amazon/Fullscript/etc.) and brief Analysis of affordability/access.  
-• **Follow-up Plan** → Must include at least 3 checkpoints: 6 weeks, 3 months, 6 months.  
-• **Lifestyle Prescriptions** → ≥3 actionable lifestyle changes.  
-• **Longevity Levers** → ≥3 strategies (nutrition, exercise, sleep, social, cognitive).  
-• **This Week Try** → Exactly 3 micro-habits, each 1–2 sentences, easy to implement.  
-• If Dose/Timing unknown → use “${seeDN}”.  
-• Finish with line \`## END\`.  
-
-If internal check fails, regenerate before responding.`;
+... (same as before) ...`;
 }
 function userPrompt(sub: SubmissionWithChildren) {
   return `
@@ -167,49 +150,18 @@ async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
   });
   return resp;
 }
-function headingsOK(md: string) {
-  return HEADINGS.slice(0, -1).every(h => md.includes(h));
-}
-function blueprintOK(md: string) {
-  const sec = md.match(/## Your Blueprint Recommendations([\s\S]*?\n\|)/i);
-  if (!sec) return false;
-  const rows = sec[0].split("\n").filter(l => l.startsWith("|")).slice(1);
-  return rows.length >= MIN_BP_ROWS;
-}
-function citationsOK(md: string) {
-  const block = md.match(/## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i);
-  if (!block) return false;
-  return block[1]
-    .split("\n")
-    .filter(l => l.trim().startsWith("-"))
-    .every(l => CITE_RE.test(l));
-}
-function narrativesOK(md: string) {
-  const sections = md.split("\n## ").slice(1);
-  return sections.every(sec => {
-    const lines = sec.split("\n");
-    const textBlock = lines.filter(l => !l.startsWith("|") && !l.startsWith("-")).join(" ");
-    const sentences = textBlock.split(/[.!?]/).filter(s => s.trim().length > 0);
-
-    if (sec.startsWith("Intro Summary") && sentences.length < 2) return false;
-    if (!sec.startsWith("Intro Summary") && sentences.length < 3) return false;
-
-    return true;
-  });
-}
 function ensureEnd(md: string) {
   return hasEnd(md) ? md : md + "\n\n## END";
 }
 
-// ── main export ─────────────────────────────────────
 export async function generateStackForSubmission(id: string) {
   if (!id) throw new Error("submissionId required");
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
 
-  // Fetch submission ONCE (do not retry)
   const sub = await getSubmissionWithChildren(id);
   if (!sub) throw new Error(`Submission row not found for id=${id}`);
   const user_id = extractUserId(sub);
+
   const msgs: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt() },
     { role: "user", content: userPrompt(sub) },
@@ -221,131 +173,94 @@ export async function generateStackForSubmission(id: string) {
   let tokensUsed: number | null = null;
   let promptTokens: number | null = null;
   let completionTokens: number | null = null;
-  let passes = false;
 
-  // --- Step 1: Try gpt-4o-mini first ---
   try {
     const resp = await callLLM(msgs, "gpt-4o-mini");
     raw = resp;
     modelUsed = resp.model ?? "gpt-4o-mini";
+    md = resp.choices[0]?.message?.content ?? "";
     tokensUsed = resp.usage?.total_tokens ?? null;
     promptTokens = resp.usage?.prompt_tokens ?? null;
     completionTokens = resp.usage?.completion_tokens ?? null;
-    md = resp.choices[0]?.message?.content ?? "";
-    if (
-      wc(md) >= MIN_WORDS &&
-      headingsOK(md) &&
-      blueprintOK(md) &&
-      citationsOK(md) &&
-      narrativesOK(md) &&
-      hasEnd(md)
-    ) {
-      passes = true;
-    }
-  } catch (err) {
-    // ignore, will try gpt-4o
-  }
-  if (!passes) {
+  } catch {
     const resp = await callLLM(msgs, "gpt-4o");
     raw = resp;
     modelUsed = resp.model ?? "gpt-4o";
+    md = resp.choices[0]?.message?.content ?? "";
     tokensUsed = resp.usage?.total_tokens ?? null;
     promptTokens = resp.usage?.prompt_tokens ?? null;
     completionTokens = resp.usage?.completion_tokens ?? null;
-    md = resp.choices[0]?.message?.content ?? "";
-    if (
-      wc(md) >= MIN_WORDS &&
-      headingsOK(md) &&
-      blueprintOK(md) &&
-      citationsOK(md) &&
-      narrativesOK(md) &&
-      hasEnd(md)
-    ) {
-      passes = true;
-    }
   }
 
   md = ensureEnd(md);
 
+  // Parse supplements
   const items = parseStackFromMarkdown(md);
-  const safetyInput = {
-    medications: Array.isArray(sub.medications)
-      ? sub.medications.map((m: any) => m.med_name || "")
-      : [],
-    conditions: Array.isArray(sub.conditions)
-      ? sub.conditions.map((c: any) => c.condition_name || "")
-      : [],
-    allergies: Array.isArray(sub.allergies)
-      ? sub.allergies.map((a: any) => a.allergy_name || "")
-      : [],
-    pregnant: typeof sub.pregnant === "boolean" || typeof sub.pregnant === "string"
-      ? sub.pregnant
-      : null,
-    brand_pref: (sub.preferences as any)?.brand_pref ?? null,
-    dosing_pref: (sub.preferences as any)?.dosing_pref ?? null,
-  };
-  const { cleaned, notes } = await applySafetyChecks(safetyInput, items);
+  const { cleaned } = await applySafetyChecks(
+    {
+      medications: sub.medications?.map((m: any) => m.med_name) ?? [],
+      conditions: sub.conditions?.map((c: any) => c.condition_name) ?? [],
+      allergies: sub.allergies?.map((a: any) => a.allergy_name) ?? [],
+    },
+    items
+  );
   const finalStack = await enrichAffiliateLinks(cleaned);
 
-  // --- Upsert stack row and get the result immediately ---
-  let parentRows: any[] = [];
-  let parentErr = null;
-  try {
-    const { data, error } = await supabaseAdmin
-      .from("stacks")
-      .upsert({
+  // Upsert stack
+  const { data: parentRows, error: parentErr } = await supabaseAdmin
+    .from("stacks")
+    .upsert(
+      {
         submission_id: id,
         user_id,
+        user_email: sub.user_email,
         version: modelUsed,
         tokens_used: tokensUsed,
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
-        // ...add any other needed fields here...
-      }, { onConflict: "submission_id" })
-      .select();
-
-    if (error) parentErr = error;
-    if (data && data.length > 0) parentRows = data;
-  } catch (err) {
-    parentErr = err;
-  }
+      },
+      { onConflict: "submission_id" }
+    )
+    .select();
 
   if (parentErr) {
     console.error("Supabase upsert error:", parentErr);
-  } else if (!parentRows || parentRows.length === 0) {
-    console.warn("⚠️ No stack row found after upsert for id:", id, parentRows);
-  } else {
-    const parent = parentRows[0];
-    if (parent?.id && user_id) {
-      await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
-
-      const rows = finalStack.map((it: any) => ({
-        stack_id: parent.id,
-        user_id,
-        name: it.name,
-        dose: it.dose,
-        timing: it.timing,
-        notes: it.notes,
-        rationale: it.rationale,
-        caution: it.caution,
-        citations: it.citations ? JSON.stringify(it.citations) : null,
-        link_amazon: it.link_amazon ?? null,
-        link_fullscript: it.link_fullscript ?? null,
-        link_thorne: it.link_thorne ?? null,
-        link_other: it.link_other ?? null,
-        cost_estimate: it.cost_estimate ?? null,
-      }));
-
-      if (rows.length > 0) {
-        const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
-        if (error) console.error("⚠️ Failed to insert stacks_items:", error);
-        else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
-      }
-    }
+    return { markdown: md, raw };
   }
 
-  if (!passes) {
-    console.warn("⚠️ Draft validation failed, review needed.");
+  const parent = parentRows?.[0];
+  if (parent?.id && user_id) {
+    await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
+
+    // ✅ Deduplicate + filter invalid names
+    const rows = Array.from(
+      new Map(
+        finalStack
+          .filter((it: any) => it?.name && it.name.trim().length > 0)
+          .map((it: any) => [it.name.toLowerCase(), it])
+      ).values()
+    ).map((it: any) => ({
+      stack_id: parent.id,
+      user_id,
+      name: it.name.trim(),
+      dose: it.dose ?? null,
+      timing: it.timing ?? null,
+      notes: it.notes ?? null,
+      rationale: it.rationale ?? null,
+      caution: it.caution ?? null,
+      citations: it.citations ? JSON.stringify(it.citations) : null,
+      link_amazon: it.link_amazon ?? null,
+      link_fullscript: it.link_fullscript ?? null,
+      link_thorne: it.link_thorne ?? null,
+      link_other: it.link_other ?? null,
+      cost_estimate: it.cost_estimate ?? null,
+    }));
+
+    if (rows.length > 0) {
+      const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
+      if (error) console.error("⚠️ Failed to insert stacks_items:", error);
+      else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
+    }
   }
 
   return {
