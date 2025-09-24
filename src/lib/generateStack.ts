@@ -456,7 +456,7 @@ export async function generateStackForSubmission(id: string) {
           tokens_used: tokensUsed,
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
-          summary: md.slice(0, 2000),
+          summary: md,
           sections: {
             markdown: md,
             generated_at: new Date().toISOString(),
