@@ -9,6 +9,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 const TODAY = "2025-09-21";
 const MIN_WORDS = 1800;
 const MIN_BP_ROWS = 10;
+const MIN_ANALYSIS_SENTENCES = 3;
 const CITE_RE = /(https?:\/\/(?:pubmed\.|doi\.org)[^\s)]+)/i;
 
 const HEADINGS = [
@@ -189,7 +190,33 @@ Always greet the client by name in the Intro Summary if provided.
 Return **plain ASCII Markdown only** with headings EXACTLY:
 
 ${HEADINGS.slice(0, -1).join("\n")}
-...`;
+
+Tables must use \`Column | Column\` pipe format, **no curly quotes or bullets**.
+Every table/list MUST be followed by **Analysis** ≥${MIN_ANALYSIS_SENTENCES} sentences that:
+• Summarize the section
+• Explain why it matters
+• Give practical implication
+
+### Section-specific rules
+• **Intro Summary** → Must greet by name (if available) and include ≥2–3 sentences.  
+• **Goals** → Table: Goal | Description, followed by Analysis.  
+• **Current Stack** → Table: Medication/Supplement | Purpose | Dosage | Timing, followed by Analysis.  
+• **Your Blueprint Recommendations** → 3-column table: Rank | Supplement | Why it Matters.  
+  Must include ≥${MIN_BP_ROWS} unique rows.  
+  If fewer than ${MIN_BP_ROWS}, regenerate until quota met.  
+  Add: *“See Dosing & Notes for amounts and timing.”*  
+  Follow with 3–5 sentence Analysis.  
+• **Dosing & Notes** → List + Analysis explaining amounts, timing, and safety notes.  
+• **Evidence & References** → At least 8 bullet points with PubMed/DOI URLs, followed by Analysis.  
+• **Shopping Links** → Provide links + Analysis.  
+• **Follow-up Plan** → At least 3 checkpoints + Analysis.  
+• **Lifestyle Prescriptions** → ≥3 actionable changes + Analysis.  
+• **Longevity Levers** → ≥3 strategies + Analysis.  
+• **This Week Try** → Exactly 3 micro-habits + Analysis.  
+• If Dose/Timing unknown → use “${seeDN}”.  
+• Finish with line \`## END\`.  
+
+If internal check fails, regenerate before responding.`;
 }
 
 function userPrompt(sub: SubmissionWithChildren) {
@@ -248,8 +275,9 @@ function narrativesOK(md: string) {
       .split(/[.!?]/)
       .filter((s) => s.trim().length > 0);
 
+    // Require at least 3 sentences everywhere, except Intro Summary needs ≥2
     if (sec.startsWith("Intro Summary") && sentences.length < 2) return false;
-    if (!sec.startsWith("Intro Summary") && sentences.length < 3) return false;
+    if (!sec.startsWith("Intro Summary") && sentences.length < MIN_ANALYSIS_SENTENCES) return false;
     return true;
   });
 }
