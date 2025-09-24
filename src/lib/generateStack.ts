@@ -234,7 +234,15 @@ export async function generateStackForSubmission(id: string) {
   if (!id) throw new Error("submissionId required");
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
 
-  const sub = await getSubmissionWithChildren(id);
+  // -- NEW: Retry for fetching submission (fixes race)
+  let sub: SubmissionWithChildren | null = null;
+  for (let i = 0; i < 7; i++) {
+    sub = await getSubmissionWithChildren(id);
+    if (sub) break;
+    await new Promise((res) => setTimeout(res, 400)); // Wait 400ms (up to ~2.5s total)
+  }
+  if (!sub) throw new Error(`Submission row not found for id=${id} after retrying`);
+
   const user_id = extractUserId(sub);
   const msgs: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt() },
@@ -329,10 +337,8 @@ export async function generateStackForSubmission(id: string) {
   console.log("safety notes", notes);
 
   // --- Save model + token usage to Supabase ---
-  // PATCH: Add retry loop for race-safe fetch of upserted stack
   try {
-    // 1. Update or upsert stack metadata
-    const { error: updateErr } = await supabaseAdmin
+    const { data: parentRows, error: parentErr } = await supabaseAdmin
       .from("stacks")
       .update({
         version: modelUsed,
@@ -340,65 +346,43 @@ export async function generateStackForSubmission(id: string) {
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
       })
-      .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`);
+      .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`)
+      .select();
 
-    if (updateErr) {
-      console.error("Supabase update error:", updateErr);
-      return;
-    }
+    if (parentErr) {
+      console.error("Supabase update error:", parentErr);
+    } else if (!parentRows || parentRows.length === 0) {
+      console.warn("⚠️ No stack row found for id:", id);
+    } else {
+      console.log("✅ Stack row updated:", parentRows);
 
-    // 2. Robustly fetch the upserted row (with retry up to 5x)
-    let parentRows = null;
-    let fetchErr = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const { data, error } = await supabaseAdmin
-        .from("stacks")
-        .select("*")
-        .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`)
-        .limit(1);
+      // --- Save stack items ---
+      const parent = parentRows[0];
+      if (parent?.id && user_id) {
+        await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
-      if (error) fetchErr = error;
-      if (data && data.length > 0) {
-        parentRows = data;
-        break;
-      }
-      // Wait 250ms before next attempt
-      await new Promise((res) => setTimeout(res, 250));
-    }
+        const rows = finalStack.map((it: any) => ({
+          stack_id: parent.id,
+          user_id,
+          name: it.name,
+          dose: it.dose,
+          timing: it.timing,
+          notes: it.notes,
+          rationale: it.rationale,
+          caution: it.caution,
+          citations: it.citations ? JSON.stringify(it.citations) : null,
+          link_amazon: it.link_amazon ?? null,
+          link_fullscript: it.link_fullscript ?? null,
+          link_thorne: it.link_thorne ?? null,
+          link_other: it.link_other ?? null,
+          cost_estimate: it.cost_estimate ?? null,
+        }));
 
-    if (!parentRows || parentRows.length === 0) {
-      console.warn("⚠️ No stack row found for id (even after retry):", id, fetchErr);
-      return;
-    }
-
-    console.log("✅ Stack row updated (with retry):", parentRows);
-
-    // --- Save stack items ---
-    const parent = parentRows[0];
-    if (parent?.id && user_id) {
-      await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
-
-      const rows = finalStack.map((it: any) => ({
-        stack_id: parent.id,
-        user_id,
-        name: it.name,
-        dose: it.dose,
-        timing: it.timing,
-        notes: it.notes,
-        rationale: it.rationale,
-        caution: it.caution,
-        citations: it.citations ? JSON.stringify(it.citations) : null,
-        link_amazon: it.link_amazon ?? null,
-        link_fullscript: it.link_fullscript ?? null,
-        link_thorne: it.link_thorne ?? null,
-        link_other: it.link_other ?? null,
-        cost_estimate: it.cost_estimate ?? null,
-      }));
-
-      if (rows.length > 0) {
-        const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
-        if (error) console.error("⚠️ Failed to insert stacks_items:", error);
-        else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
+        if (rows.length > 0) {
+          const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
+          if (error) console.error("⚠️ Failed to insert stacks_items:", error);
+          else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
+        }
       }
     }
   } catch (err) {
