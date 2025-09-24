@@ -354,6 +354,8 @@ export async function generateStackForSubmission(id: string) {
   const { cleaned } = await applySafetyChecks(safetyInput, items);
   const finalStack = await enrichAffiliateLinks(cleaned);
 
+  console.log("🔍 FinalStack before rows:", finalStack);
+
   let parentRows: any[] = [];
   try {
     const { data, error } = await supabaseAdmin
@@ -408,7 +410,11 @@ export async function generateStackForSubmission(id: string) {
           };
         })
         // 🔹 Final hard guard
-        .filter((r) => r && typeof r.name === "string" && r.name.trim().length > 0);
+        .filter((r) => {
+          const valid = r && typeof r.name === "string" && r.name.trim().length > 0;
+          if (!valid) console.warn("⚠️ Dropping row with invalid name before insert:", r);
+          return valid;
+        });
 
       console.log("✅ Prepared stack_items rows:", rows);
 
