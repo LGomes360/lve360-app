@@ -269,6 +269,31 @@ function getTopCitationsFromJson(key: string, limit = 3): string[] {
     .filter((u) => CURATED_CITE_RE.test(u));
   return urls.slice(0, limit);
 }
+// --- Candidate → Curated lookup with fuzzy fallback -------------------------
+function lookupCuratedForCandidates(candidates: string[], limit = 3): string[] {
+  // 1. Exact key check
+  for (const key of candidates) {
+    const hits = getTopCitationsFromJson(key, limit);
+    if (hits.length) return hits;
+  }
+
+  // 2. Loose fuzzy match (slugify both candidate and JSON keys)
+  const sluggedCandidates = candidates.map(toSlug);
+  for (const cand of sluggedCandidates) {
+    for (const jsonKey of Object.keys(EVIDENCE)) {
+      const slugKey = toSlug(jsonKey);
+      if (slugKey.includes(cand) || cand.includes(slugKey)) {
+        const hits = getTopCitationsFromJson(jsonKey, limit);
+        if (hits.length) {
+          console.log("evidence.fuzzy_match", { cand, jsonKey, hits });
+          return hits;
+        }
+      }
+    }
+  }
+
+  return [];
+}
 
 // Try a sequence of keys until we hit at least one curated URL.
 function lookupCuratedForCandidates(candidates: string[], limit = 3): string[] {
@@ -512,7 +537,7 @@ function attachEvidence(item: StackItem): StackItem {
   const normName = normalizeSupplementName(item.name);
   const candidates = buildEvidenceCandidates(normName);
 
-  // Curated JSON lookup over candidate keys (first match wins)
+  // Curated JSON lookup (with fuzzy fallback)
   const curatedUrls = lookupCuratedForCandidates(candidates, 3);
 
   // Validated model links (strict) as fallback
@@ -533,6 +558,7 @@ function attachEvidence(item: StackItem): StackItem {
 
   return { ...item, citations: final.length ? final.slice(0, 2) : null };
 }
+
 
 function buildEvidenceSection(items: StackItem[], minCount = 8): {
   section: string;
