@@ -381,6 +381,12 @@ export async function generateStackForSubmission(id: string) {
 
   console.log("🔍 FinalStack before rows:", finalStack);
 
+  // --- Calculate total cost ---
+  const totalMonthlyCost = finalStack.reduce(
+    (acc, it) => acc + (it.cost_estimate ?? 0),
+    0
+  );
+
   let parentRows: any[] = [];
   try {
     const { data, error } = await supabaseAdmin
@@ -394,6 +400,14 @@ export async function generateStackForSubmission(id: string) {
           tokens_used: tokensUsed,
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
+          tally_submission_id: (sub as any)?.tally_submission_id ?? null,
+          summary: md.slice(0, 2000),
+          sections: {
+            markdown: md,
+            generated_at: new Date().toISOString(),
+          },
+          notes: null,
+          total_monthly_cost: totalMonthlyCost,
         },
         { onConflict: "submission_id" }
       )
@@ -460,11 +474,4 @@ export async function generateStackForSubmission(id: string) {
   return {
     markdown: md,
     raw,
-    model_used: modelUsed,
-    tokens_used: tokensUsed,
-    prompt_tokens: promptTokens,
-    completion_tokens: completionTokens,
-  };
-}
-
-export default generateStackForSubmission;
+    model_used: model
