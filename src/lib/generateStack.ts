@@ -472,6 +472,21 @@ export async function generateStackForSubmission(id: string) {
   } catch (err) {
     console.error("Stacks upsert exception:", err);
   }
+import { getTopCitationsFor, sanitizeCitations } from "@/lib/evidence";
+
+function attachEvidence(item: { name: string; citations?: string[] }) {
+  // Prefer curated
+  const curated = getTopCitationsFor(item.name, 2).map(e => e.url).filter(Boolean) as string[];
+  // Keep any model links that are valid PubMed/DOI
+  const modelValid = sanitizeCitations(item.citations ?? []);
+
+  // Rule: if curated exists, use curated; else keep validated model links
+  const final = curated.length ? curated : modelValid;
+  return { ...item, citations: final.slice(0, 2) };
+}
+
+// When mapping parsed items:
+items = items.map(attachEvidence);
 
   // Insert stacks_items (single source of truth)
   if (parentRows.length > 0) {
