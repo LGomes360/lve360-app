@@ -1,12 +1,4 @@
 // app/api/generate-stack/route.ts
-// -----------------------------------------------------------------------------
-// POST /api/generate-stack
-// Accepts body:
-//   - submissionId: UUID (preferred)
-//   - OR tally_submission_id: short Tally id (e.g. "jaJMeJQ")
-//
-// Returns JSON: { ok: true, saved: true/false, stack?, ai? }
-// -----------------------------------------------------------------------------
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -109,15 +101,6 @@ export async function POST(req: NextRequest) {
       console.warn("Ignored error loading submission:", e);
     }
 
-    // Must have a valid submissionRow, else fail hard
-    if (!submissionRow) {
-      console.error("No submission row found for submissionId:", submissionId);
-      return NextResponse.json(
-        { ok: false, error: "No submission row found." },
-        { status: 404 }
-      );
-    }
-
     // 1) Generate stack with OpenAI
     const {
       markdown,
@@ -126,37 +109,29 @@ export async function POST(req: NextRequest) {
       submissionId
     )) as any;
 
-    // 2) Resolve user_id and canonical user_email
-    let userId: string | null = submissionRow?.user_id ?? null;
-    let userEmail: string | null = null;
+    // 2) Determine user_email (only use user_email field!)
+    const userEmail = (
+      submissionRow?.user_email ?? 
+      (raw as any)?.user_email ?? 
+      `unknown+${Date.now()}@local`
+    ).toString();
 
-    if (userId) {
+    // 2b) Resolve user_id if possible
+    let userId: string | null = submissionRow?.user_id ?? null;
+    if (!userId && userEmail) {
       try {
-        const userResp: any = await supabaseAdmin
+        const uResp: any = await supabaseAdmin
           .from("users")
-          .select("email")
-          .eq("id", userId)
+          .select("id")
+          .eq("email", userEmail)
           .limit(1);
-        if (!userResp?.error && userResp?.data?.length) {
-          userEmail = userResp.data[0].email;
+
+        if (!uResp?.error && uResp?.data?.length) {
+          userId = uResp.data[0].id;
         }
       } catch (e) {
-        console.warn("Non-fatal: user lookup by id failed", e);
+        console.warn("Non-fatal: user lookup by email failed", e);
       }
-    }
-
-    // Fallback to submissionRow.user_email if user record not found
-    if (!userEmail && submissionRow?.user_email) {
-      userEmail = submissionRow.user_email;
-    }
-
-    // Still not found? Fail the request (don't insert garbage)
-    if (!userEmail) {
-      console.error("Could not resolve user_email for submissionId:", submissionId);
-      return NextResponse.json(
-        { ok: false, error: "Could not resolve user_email from users/submission." },
-        { status: 500 }
-      );
     }
 
     // 3) Pick markdown for parsing
@@ -175,6 +150,7 @@ export async function POST(req: NextRequest) {
       submission_id: submissionId,
       user_id: userId,
       user_email: userEmail,
+      // NO 'email' field here!
       version: process.env.OPENAI_MODEL ?? null,
       summary:
         typeof markdownForParsing === "string"
