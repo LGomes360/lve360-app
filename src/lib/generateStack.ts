@@ -192,33 +192,7 @@ Always greet the client by name in the Intro Summary if provided.
 Return **plain ASCII Markdown only** with headings EXACTLY:
 
 ${HEADINGS.slice(0, -1).join("\n")}
-
-Tables must use \`Column | Column\` pipe format, **no curly quotes or bullets**.
-Every table/list MUST be followed by **Analysis** ≥3 sentences that:
-• Summarize the section
-• Explain why it matters
-• Give practical implication
-
-### Section-specific rules
-• **Intro Summary** → Must greet by name (if available) and include ≥2–3 sentences.  
-• **Goals** → Table: Goal | Description, followed by Analysis.  
-• **Current Stack** → Table: Medication/Supplement | Purpose | Dosage | Timing.  
-• **Your Blueprint Recommendations** → 3-column table: Rank | Supplement | Why it Matters.  
-  Must include ≥${MIN_BP_ROWS} unique rows.  
-  Do NOT include doses or timing here.  
-  Add: *“See Dosing & Notes for amounts and timing.”*  
-  Exclude items tagged *(already using)* unless Rank 1.  
-• **Dosing & Notes** → List + Analysis explaining amounts, timing, and safety notes.  
-• **Evidence & References** → At least 8 bullet points with PubMed/DOI URLs.  
-• **Shopping Links** → Provide links + Analysis.  
-• **Follow-up Plan** → At least 3 checkpoints.  
-• **Lifestyle Prescriptions** → ≥3 actionable changes.  
-• **Longevity Levers** → ≥3 strategies.  
-• **This Week Try** → Exactly 3 micro-habits.  
-• If Dose/Timing unknown → use “${seeDN}”.  
-• Finish with line \`## END\`.  
-
-If internal check fails, regenerate before responding.`;
+...`;
 }
 
 function userPrompt(sub: SubmissionWithChildren) {
@@ -411,7 +385,10 @@ export async function generateStackForSubmission(id: string) {
       const rows = finalStack
         .map((it: any) => {
           const safeName = cleanName(it?.name ?? "");
-          if (!safeName) return null;
+          if (!safeName) {
+            console.warn("⚠️ Dropping invalid stack_item due to missing name:", it);
+            return null;
+          }
           return {
             stack_id: parent.id,
             user_id,
@@ -430,7 +407,7 @@ export async function generateStackForSubmission(id: string) {
             cost_estimate: it.cost_estimate ?? null,
           };
         })
-        // 🔹 Final hard guard: ensure name is always valid
+        // 🔹 Final hard guard
         .filter((r) => r && typeof r.name === "string" && r.name.trim().length > 0);
 
       console.log("✅ Prepared stack_items rows:", rows);
