@@ -13,7 +13,7 @@ import { ChatCompletionMessageParam } from "openai/resources";
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { supabaseAdmin } from "@/lib/supabase";
-
+import { getTopCitationsFor } from "@/lib/evidence";
 // --- Curated evidence index (JSON) ------------------------------------------
 import evidenceIndex from "@/evidence/evidence_index_top3.json";
 
@@ -273,7 +273,7 @@ function getTopCitationsFromJson(key: string, limit = 3): string[] {
 function lookupCuratedForCandidates(candidates: string[], limit = 3): string[] {
   // 1. Exact key check
   for (const key of candidates) {
-    const hits = getTopCitationsFromJson(key, limit);
+    const citations = getTopCitationsFor(normName, 2);
     if (hits.length) return hits;
   }
 
