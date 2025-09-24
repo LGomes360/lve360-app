@@ -109,20 +109,6 @@ export async function POST(req: NextRequest) {
       console.warn("Ignored error loading submission:", e);
     }
 
-    // --- ENSURE STACK ROW EXISTS (minimal row upsert) ---
-    if (submissionRow) {
-      await supabaseAdmin
-        .from("stacks")
-        .upsert({
-          submission_id: submissionRow.id,
-          user_id: submissionRow.user_id ?? null,
-          user_email: submissionRow.user_email ?? null,
-          tally_submission_id: submissionRow.tally_submission_id ?? null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "submission_id" });
-    }
-
     // 1) Generate stack with OpenAI
     const {
       markdown,
@@ -131,7 +117,7 @@ export async function POST(req: NextRequest) {
       submissionId
     )) as any;
 
-    // 2) Determine user_email (only use user_email field!)
+    // 2) Determine user_email
     const userEmail = (
       submissionRow?.user_email ??
       (raw as any)?.user_email ??
@@ -167,12 +153,12 @@ export async function POST(req: NextRequest) {
 
     const items = parseMarkdownToItems(String(markdownForParsing || ""));
 
-    // 4) Build stack row (NO "email" field anymore)
+    // 4) Build stack row
     const stackRow: any = {
       submission_id: submissionId,
       user_id: userId,
       user_email: userEmail,
-      // NO 'email' field here!
+      email: userEmail,
       version: process.env.OPENAI_MODEL ?? null,
       summary:
         typeof markdownForParsing === "string"
