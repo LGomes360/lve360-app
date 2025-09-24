@@ -40,7 +40,11 @@ function age(dob: string | null) {
   return a;
 }
 function extractUserId(sub: any): string | null {
-  return sub?.user_id ?? (typeof sub.user === "object" ? sub.user?.id : null) ?? null;
+  return (
+    sub?.user_id ??
+    (typeof sub.user === "object" ? sub.user?.id : null) ??
+    null
+  );
 }
 function normalizeTiming(raw?: string | null): string | null {
   if (!raw) return null;
@@ -73,14 +77,20 @@ function parseDose(dose?: string | null): { amount?: number; unit?: string } {
   }
   return { amount: val, unit: unit ?? undefined };
 }
+
 function parseStackFromMarkdown(md: string) {
   const base: Record<string, any> = {};
-  const blueprint = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
+
+  // --- 1. Blueprint section ---
+  const blueprint = md.match(
+    /## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i
+  );
   if (blueprint) {
     const rows = blueprint[1].split("\n").filter((l) => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
       const name = cols[2] || `Item ${i + 1}`;
+      if (!name) return;
       base[name.toLowerCase()] = {
         name,
         rationale: cols[3] || undefined,
@@ -90,13 +100,20 @@ function parseStackFromMarkdown(md: string) {
       };
     });
   }
-  const dosing = md.match(/## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i);
+
+  // --- 2. Dosing & Notes section ---
+  const dosing = md.match(
+    /## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i
+  );
   if (dosing) {
     const lines = dosing[1].split("\n").filter((l) => l.trim().length > 0);
     for (const line of lines) {
-      const m = line.match(/[-*]\s*([^—\-:]+)[—\-:]\s*([^,]+)(?:,\s*(.*))?/);
+      const m = line.match(
+        /[-*]\s*([^—\-:]+)[—\-:]\s*([^,]+)(?:,\s*(.*))?/
+      );
       if (m) {
         const name = m[1].trim();
+        if (!name) continue;
         const dose = m[2]?.trim() || null;
         const timing = normalizeTiming(m[3]);
         const parsed = parseDose(dose);
@@ -106,13 +123,29 @@ function parseStackFromMarkdown(md: string) {
           base[key].dose_parsed = parsed;
           base[key].timing = timing;
         } else {
-          base[key] = { name, rationale: undefined, dose, dose_parsed: parsed, timing };
+          base[key] = {
+            name,
+            rationale: undefined,
+            dose,
+            dose_parsed: parsed,
+            timing,
+          };
         }
       }
     }
   }
-  return Object.values(base);
+
+  // --- Deduplicate and return only valid supplements ---
+  const seen = new Set<string>();
+  return Object.values(base).filter((it: any) => {
+    if (!it?.name) return false;
+    const key = it.name.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
+
 function systemPrompt() {
   return `
 You are **LVE360 Concierge AI**, a friendly but professional wellness coach.
@@ -125,38 +158,103 @@ Return **plain ASCII Markdown only** with headings EXACTLY:
 ${HEADINGS.slice(0, -1).join("\n")}
 
 Tables must use \`Column | Column\` pipe format, **no curly quotes or bullets**.
-Every table/list MUST be followed by **Analysis** ≥3 sentences.
+Every table/list MUST be followed by **Analysis** ≥3 sentences that:
+• Summarize the section
+• Explain why it matters
+• Give practical implication
 
-... (same as before) ...`;
+### Section-specific rules
+• **Intro Summary** → Must greet by name (if available) and include ≥2–3 sentences.  
+• **Goals** → Table: Goal | Description, followed by Analysis.  
+• **Current Stack** → Table: Medication/Supplement | Purpose | Dosage | Timing.  
+• **Your Blueprint Recommendations** → 3-column table: Rank | Supplement | Why it Matters.  
+  Must include ≥${MIN_BP_ROWS} unique rows.  
+  Do NOT include doses or timing here.  
+  Add: *“See Dosing & Notes for amounts and timing.”*  
+  Exclude items tagged *(already using)* unless Rank 1.  
+• **Dosing & Notes** → List + Analysis explaining amounts, timing, and safety notes.  
+• **Evidence & References** → At least 8 bullet points with PubMed/DOI URLs.  
+• **Shopping Links** → Provide links + Analysis.  
+• **Follow-up Plan** → At least 3 checkpoints.  
+• **Lifestyle Prescriptions** → ≥3 actionable changes.  
+• **Longevity Levers** → ≥3 strategies.  
+• **This Week Try** → Exactly 3 micro-habits.  
+• If Dose/Timing unknown → use “${seeDN}”.  
+• Finish with line \`## END\`.  
+
+If internal check fails, regenerate before responding.`;
 }
+
 function userPrompt(sub: SubmissionWithChildren) {
   return `
 ### CLIENT
 \`\`\`json
-${JSON.stringify({ ...sub, age: age((sub as any).dob ?? null), today: TODAY }, null, 2)}
+${JSON.stringify(
+  { ...sub, age: age((sub as any).dob ?? null), today: TODAY },
+  null,
+  2
+)}
 \`\`\`
 
 ### TASK
 Generate the full report per the rules above.`;
 }
+
 async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-  const resp = await openai.chat.completions.create({
+  return openai.chat.completions.create({
     model,
     temperature: 0.7,
     max_tokens: 4096,
     messages,
   });
-  return resp;
+}
+
+function headingsOK(md: string) {
+  return HEADINGS.slice(0, -1).every((h) => md.includes(h));
+}
+function blueprintOK(md: string) {
+  const sec = md.match(/## Your Blueprint Recommendations([\s\S]*?\n\|)/i);
+  if (!sec) return false;
+  const rows = sec[0].split("\n").filter((l) => l.startsWith("|")).slice(1);
+  return rows.length >= MIN_BP_ROWS;
+}
+function citationsOK(md: string) {
+  const block = md.match(
+    /## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i
+  );
+  if (!block) return false;
+  return block[1]
+    .split("\n")
+    .filter((l) => l.trim().startsWith("-"))
+    .every((l) => CITE_RE.test(l));
+}
+function narrativesOK(md: string) {
+  const sections = md.split("\n## ").slice(1);
+  return sections.every((sec) => {
+    const lines = sec.split("\n");
+    const textBlock = lines
+      .filter((l) => !l.startsWith("|") && !l.startsWith("-"))
+      .join(" ");
+    const sentences = textBlock
+      .split(/[.!?]/)
+      .filter((s) => s.trim().length > 0);
+
+    if (sec.startsWith("Intro Summary") && sentences.length < 2) return false;
+    if (!sec.startsWith("Intro Summary") && sentences.length < 3) return false;
+    return true;
+  });
 }
 function ensureEnd(md: string) {
   return hasEnd(md) ? md : md + "\n\n## END";
 }
 
+// ── main export ─────────────────────────────────────
 export async function generateStackForSubmission(id: string) {
   if (!id) throw new Error("submissionId required");
-  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
+  if (!process.env.OPENAI_API_KEY)
+    throw new Error("OPENAI_API_KEY missing");
 
   const sub = await getSubmissionWithChildren(id);
   if (!sub) throw new Error(`Submission row not found for id=${id}`);
@@ -173,94 +271,132 @@ export async function generateStackForSubmission(id: string) {
   let tokensUsed: number | null = null;
   let promptTokens: number | null = null;
   let completionTokens: number | null = null;
+  let passes = false;
 
   try {
     const resp = await callLLM(msgs, "gpt-4o-mini");
     raw = resp;
     modelUsed = resp.model ?? "gpt-4o-mini";
-    md = resp.choices[0]?.message?.content ?? "";
     tokensUsed = resp.usage?.total_tokens ?? null;
     promptTokens = resp.usage?.prompt_tokens ?? null;
     completionTokens = resp.usage?.completion_tokens ?? null;
-  } catch {
+    md = resp.choices[0]?.message?.content ?? "";
+    if (
+      wc(md) >= MIN_WORDS &&
+      headingsOK(md) &&
+      blueprintOK(md) &&
+      citationsOK(md) &&
+      narrativesOK(md) &&
+      hasEnd(md)
+    ) {
+      passes = true;
+    }
+  } catch (err) {
+    console.warn("Mini model failed:", err);
+  }
+  if (!passes) {
     const resp = await callLLM(msgs, "gpt-4o");
     raw = resp;
     modelUsed = resp.model ?? "gpt-4o";
-    md = resp.choices[0]?.message?.content ?? "";
     tokensUsed = resp.usage?.total_tokens ?? null;
     promptTokens = resp.usage?.prompt_tokens ?? null;
     completionTokens = resp.usage?.completion_tokens ?? null;
+    md = resp.choices[0]?.message?.content ?? "";
+    if (
+      wc(md) >= MIN_WORDS &&
+      headingsOK(md) &&
+      blueprintOK(md) &&
+      citationsOK(md) &&
+      narrativesOK(md) &&
+      hasEnd(md)
+    ) {
+      passes = true;
+    }
   }
 
   md = ensureEnd(md);
 
-  // Parse supplements
   const items = parseStackFromMarkdown(md);
-  const { cleaned } = await applySafetyChecks(
-    {
-      medications: sub.medications?.map((m: any) => m.med_name) ?? [],
-      conditions: sub.conditions?.map((c: any) => c.condition_name) ?? [],
-      allergies: sub.allergies?.map((a: any) => a.allergy_name) ?? [],
-    },
-    items
-  );
+
+  const safetyInput = {
+    medications: Array.isArray(sub.medications)
+      ? sub.medications.map((m: any) => m.med_name || "")
+      : [],
+    conditions: Array.isArray(sub.conditions)
+      ? sub.conditions.map((c: any) => c.condition_name || "")
+      : [],
+    allergies: Array.isArray(sub.allergies)
+      ? sub.allergies.map((a: any) => a.allergy_name || "")
+      : [],
+    pregnant:
+      typeof sub.pregnant === "boolean" || typeof sub.pregnant === "string"
+        ? sub.pregnant
+        : null,
+    brand_pref: (sub.preferences as any)?.brand_pref ?? null,
+    dosing_pref: (sub.preferences as any)?.dosing_pref ?? null,
+  };
+
+  const { cleaned, notes } = await applySafetyChecks(safetyInput, items);
   const finalStack = await enrichAffiliateLinks(cleaned);
 
-  // Upsert stack
-  const { data: parentRows, error: parentErr } = await supabaseAdmin
-    .from("stacks")
-    .upsert(
-      {
-        submission_id: id,
-        user_id,
-        user_email: sub.user_email,
-        version: modelUsed,
-        tokens_used: tokensUsed,
-        prompt_tokens: promptTokens,
-        completion_tokens: completionTokens,
-      },
-      { onConflict: "submission_id" }
-    )
-    .select();
-
-  if (parentErr) {
-    console.error("Supabase upsert error:", parentErr);
-    return { markdown: md, raw };
+  let parentRows: any[] = [];
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("stacks")
+      .upsert(
+        {
+          submission_id: id,
+          user_id,
+          version: modelUsed,
+          tokens_used: tokensUsed,
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+        },
+        { onConflict: "submission_id" }
+      )
+      .select();
+    if (error) console.error("Supabase upsert error:", error);
+    if (data && data.length > 0) parentRows = data;
+  } catch (err) {
+    console.error("Stacks upsert exception:", err);
   }
 
-  const parent = parentRows?.[0];
-  if (parent?.id && user_id) {
-    await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
+  if (parentRows.length > 0) {
+    const parent = parentRows[0];
+    if (parent?.id && user_id) {
+      await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
-    // ✅ Deduplicate + filter invalid names
-    const rows = Array.from(
-      new Map(
-        finalStack
-          .filter((it: any) => it?.name && it.name.trim().length > 0)
-          .map((it: any) => [it.name.toLowerCase(), it])
-      ).values()
-    ).map((it: any) => ({
-      stack_id: parent.id,
-      user_id,
-      name: it.name.trim(),
-      dose: it.dose ?? null,
-      timing: it.timing ?? null,
-      notes: it.notes ?? null,
-      rationale: it.rationale ?? null,
-      caution: it.caution ?? null,
-      citations: it.citations ? JSON.stringify(it.citations) : null,
-      link_amazon: it.link_amazon ?? null,
-      link_fullscript: it.link_fullscript ?? null,
-      link_thorne: it.link_thorne ?? null,
-      link_other: it.link_other ?? null,
-      cost_estimate: it.cost_estimate ?? null,
-    }));
+      const rows = finalStack
+        .filter((it: any) => it?.name && it.name.trim())
+        .map((it: any) => ({
+          stack_id: parent.id,
+          user_id,
+          name: it.name,
+          dose: it.dose,
+          timing: it.timing,
+          notes: it.notes,
+          rationale: it.rationale,
+          caution: it.caution,
+          citations: it.citations ? JSON.stringify(it.citations) : null,
+          link_amazon: it.link_amazon ?? null,
+          link_fullscript: it.link_fullscript ?? null,
+          link_thorne: it.link_thorne ?? null,
+          link_other: it.link_other ?? null,
+          cost_estimate: it.cost_estimate ?? null,
+        }));
 
-    if (rows.length > 0) {
-      const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
-      if (error) console.error("⚠️ Failed to insert stacks_items:", error);
-      else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
+      if (rows.length > 0) {
+        const { error } = await supabaseAdmin
+          .from("stacks_items")
+          .insert(rows);
+        if (error) console.error("⚠️ Failed to insert stacks_items:", error);
+        else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
+      }
     }
+  }
+
+  if (!passes) {
+    console.warn("⚠️ Draft validation failed, review needed.");
   }
 
   return {
