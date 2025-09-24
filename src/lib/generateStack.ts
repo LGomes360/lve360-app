@@ -474,4 +474,11 @@ export async function generateStackForSubmission(id: string) {
   return {
     markdown: md,
     raw,
-    model_used: model
+    model_used: modelUsed,
+    tokens_used: tokensUsed,
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+  };
+}
+
+export default generateStackForSubmission;
