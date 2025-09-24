@@ -157,8 +157,7 @@ export async function POST(req: NextRequest) {
     const stackRow: any = {
       submission_id: submissionId,
       user_id: userId,
-      user_email: userEmail,
-      email: userEmail,
+      user_email: user_email,
       version: process.env.OPENAI_MODEL ?? null,
       summary:
         typeof markdownForParsing === "string"
