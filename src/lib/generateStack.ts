@@ -338,7 +338,8 @@ export async function generateStackForSubmission(id: string) {
 
   // --- Save model + token usage to Supabase ---
   try {
-    const { data: parentRows, error: parentErr } = await supabaseAdmin
+    // 1. Update stack row with model/token info
+    await supabaseAdmin
       .from("stacks")
       .update({
         version: modelUsed,
@@ -346,13 +347,28 @@ export async function generateStackForSubmission(id: string) {
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
       })
-      .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`)
-      .select();
+      .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`);
+
+    // 2. Fetch parent stack row with retry
+    let parentRows: any[] = [];
+    let parentErr = null;
+    for (let i = 0; i < 7; i++) {
+      const { data, error } = await supabaseAdmin
+        .from("stacks")
+        .select("id")
+        .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`);
+      if (error) parentErr = error;
+      if (data && data.length > 0) {
+        parentRows = data;
+        break;
+      }
+      await new Promise(res => setTimeout(res, 400)); // wait 400ms
+    }
 
     if (parentErr) {
       console.error("Supabase update error:", parentErr);
     } else if (!parentRows || parentRows.length === 0) {
-      console.warn("⚠️ No stack row found for id:", id);
+      console.warn("⚠️ No stack row found for id (even after retry):", id, parentRows);
     } else {
       console.log("✅ Stack row updated:", parentRows);
 
