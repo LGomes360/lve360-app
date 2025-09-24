@@ -31,12 +31,11 @@ const wc = (t: string) => t.trim().split(/\s+/).length;
 const hasEnd = (t: string) => t.includes("## END");
 const seeDN = "See Dosing & Notes";
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Minimal new helper: strip markdown symbols from names to avoid '**Omega' etc.
-// ──────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────
+// Helper to strip markdown junk from supplement names
+// ──────────────────────────────────────────────
 function cleanName(raw: string): string {
   if (!raw) return "";
-  // Remove bold/italics/backticks/heading markers; collapse inner spaces
   return raw.replace(/[*_`#]/g, "").replace(/\s+/g, " ").trim();
 }
 
@@ -378,7 +377,7 @@ export async function generateStackForSubmission(id: string) {
     dosing_pref: (sub.preferences as any)?.dosing_pref ?? null,
   };
 
-  const { cleaned, notes } = await applySafetyChecks(safetyInput, items);
+  const { cleaned } = await applySafetyChecks(safetyInput, items);
   const finalStack = await enrichAffiliateLinks(cleaned);
 
   let parentRows: any[] = [];
@@ -410,10 +409,8 @@ export async function generateStackForSubmission(id: string) {
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
       const rows = finalStack
-        .filter((it: any) => it?.name && it.name.trim())
         .map((it: any) => {
-          // Final safety: sanitize the name going into DB
-          const safeName = cleanName(it.name ?? "");
+          const safeName = cleanName(it?.name ?? "");
           if (!safeName) return null;
           return {
             stack_id: parent.id,
@@ -433,7 +430,8 @@ export async function generateStackForSubmission(id: string) {
             cost_estimate: it.cost_estimate ?? null,
           };
         })
-        .filter((r) => r !== null);
+        // 🔹 Final hard guard: ensure name is always valid
+        .filter((r) => r && typeof r.name === "string" && r.name.trim().length > 0);
 
       console.log("✅ Prepared stack_items rows:", rows);
 
