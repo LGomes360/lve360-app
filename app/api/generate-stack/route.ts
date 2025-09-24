@@ -5,7 +5,7 @@
 //   - submissionId: UUID (preferred)
 //   - OR tally_submission_id: short Tally id (e.g. "jaJMeJQ")
 //
-// Returns JSON: { ok: true, saved: true/false, stack?, ai? }
+// Returns JSON: { ok: true, saved: true/false, stack?, ai?, itemsInserted }
 // -----------------------------------------------------------------------------
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // --- Fetch submission row safely ---
+    // --- Fetch submission row ---
     let submissionRow: Record<string, any> | null = null;
     try {
       const isUUID =
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
     const { markdown, raw }: { markdown: string | null; raw: any } =
       (await generateStackForSubmission(submissionId)) as any;
 
-    // 2) Determine user_email (from submissions only!)
+    // 2) Determine user_email
     const userEmail = submissionRow.user_email?.toString() ?? null;
     if (!userEmail) {
       return NextResponse.json(
@@ -170,12 +170,7 @@ export async function POST(req: NextRequest) {
     if (respSave?.error) {
       console.error("Failed to persist stack:", respSave.error);
       return NextResponse.json(
-        {
-          ok: true,
-          saved: false,
-          error: String(respSave.error?.message ?? respSave.error),
-          ai: { markdown, raw },
-        },
+        { ok: true, saved: false, error: String(respSave.error?.message ?? respSave.error), ai: { markdown, raw } },
         { status: 200 }
       );
     }
@@ -186,8 +181,45 @@ export async function POST(req: NextRequest) {
 
     console.log("[API] Upserted stack row:", saved);
 
+    // 6) Immediately sync stacks_items
+    let itemsInserted = 0;
+    if (saved?.id) {
+      try {
+        await supabaseAdmin.from("stacks_items").delete().eq("stack_id", saved.id);
+
+        const rows = items.map((it: any) => ({
+          stack_id: saved.id,
+          user_id: userId,
+          name: it.name,
+          dose: it.dose,
+          timing: it.timing,
+          notes: it.notes,
+          rationale: it.rationale,
+          caution: it.caution,
+          citations: it.citations ? JSON.stringify(it.citations) : null,
+          link_amazon: it.link_amazon ?? null,
+          link_fullscript: it.link_fullscript ?? null,
+          link_thorne: it.link_thorne ?? null,
+          link_other: it.link_other ?? null,
+          cost_estimate: it.cost_estimate ?? null,
+        }));
+
+        if (rows.length > 0) {
+          const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
+          if (error) {
+            console.error("⚠️ Failed to insert stacks_items:", error);
+          } else {
+            itemsInserted = rows.length;
+            console.log(`✅ Inserted ${rows.length} stack items for stack ${saved.id}`);
+          }
+        }
+      } catch (err) {
+        console.error("Failed syncing stacks_items:", err);
+      }
+    }
+
     return NextResponse.json(
-      { ok: true, saved: true, stack: saved, ai: { markdown, raw } },
+      { ok: true, saved: true, stack: saved, itemsInserted, ai: { markdown, raw } },
       { status: 200 }
     );
   } catch (err: any) {
