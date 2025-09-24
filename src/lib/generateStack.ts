@@ -31,9 +31,6 @@ const wc = (t: string) => t.trim().split(/\s+/).length;
 const hasEnd = (t: string) => t.includes("## END");
 const seeDN = "See Dosing & Notes";
 
-// ──────────────────────────────────────────────
-// Helper to strip markdown junk from supplement names
-// ──────────────────────────────────────────────
 function cleanName(raw: string): string {
   if (!raw) return "";
   return raw.replace(/[*_`#]/g, "").replace(/\s+/g, " ").trim();
@@ -384,13 +381,16 @@ export async function generateStackForSubmission(id: string) {
     if (parent?.id && user_id) {
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
-      let droppedCount = 0;
       const rows = finalStack
         .map((it: any) => {
-          const safeName = cleanName(it?.name ?? "");
-          if (!safeName) {
-            console.warn("⚠️ Dropping invalid stack_item due to missing name:", it);
-            droppedCount++;
+          let safeName = cleanName(it?.name ?? "");
+          if (!safeName || safeName.toLowerCase() === "null") {
+            console.error("🚨 Blocking insert of invalid item", {
+              stack_id: parent.id,
+              user_id,
+              rawName: it?.name,
+              item: it,
+            });
             return null;
           }
           return {
@@ -411,24 +411,16 @@ export async function generateStackForSubmission(id: string) {
             cost_estimate: it.cost_estimate ?? null,
           };
         })
-        // 🔹 Final hard guard
-        .filter((r) => {
-          const valid = r && typeof r.name === "string" && r.name.trim().length > 0;
-          if (!valid) {
-            console.warn("⚠️ Dropping row with invalid name before insert:", r);
-            droppedCount++;
-          }
-          return valid;
-        });
+        .filter((r) => r !== null);
 
-      console.log(`✅ Prepared stack_items rows: ${rows.length} (dropped ${droppedCount})`, rows);
+      console.log("✅ Prepared stack_items rows:", rows);
 
       if (rows.length > 0) {
         const { error } = await supabaseAdmin
           .from("stacks_items")
           .insert(rows as any[]);
         if (error) console.error("⚠️ Failed to insert stacks_items:", error);
-        else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id} (dropped ${droppedCount})`);
+        else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
       }
     }
   }
