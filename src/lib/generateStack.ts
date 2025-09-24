@@ -86,7 +86,9 @@ function parseStackFromMarkdown(md: string) {
     /## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i
   );
   if (blueprint) {
-    const rows = blueprint[1].split("\n").filter((l) => l.trim().startsWith("|"));
+    const rows = blueprint[1]
+      .split("\n")
+      .filter((l) => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
       const name = cols[2] || `Item ${i + 1}`;
@@ -101,10 +103,35 @@ function parseStackFromMarkdown(md: string) {
     });
   }
 
+  // --- 1b. Current Stack section ---
+  const current = md.match(/## Current Stack([\s\S]*?)(\n## |$)/i);
+  if (current) {
+    const rows = current[1]
+      .split("\n")
+      .filter((l) => l.trim().startsWith("|"));
+    rows.slice(1).forEach((row, i) => {
+      const cols = row.split("|").map((c) => c.trim());
+      const name = cols[1] || `Current Item ${i + 1}`;
+      if (!name) return;
+      const rationale = cols[2] || undefined;
+      const dose = cols[3] || null;
+      const timing = normalizeTiming(cols[4] || null);
+      const parsed = parseDose(dose);
+      const key = name.toLowerCase();
+      if (!base[key]) {
+        base[key] = {
+          name,
+          rationale,
+          dose,
+          dose_parsed: parsed,
+          timing,
+        };
+      }
+    });
+  }
+
   // --- 2. Dosing & Notes section ---
-  const dosing = md.match(
-    /## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i
-  );
+  const dosing = md.match(/## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i);
   if (dosing) {
     const lines = dosing[1].split("\n").filter((l) => l.trim().length > 0);
     for (const line of lines) {
@@ -139,7 +166,8 @@ function parseStackFromMarkdown(md: string) {
   const seen = new Set<string>();
   return Object.values(base).filter((it: any) => {
     if (!it?.name) return false;
-    const key = it.name.toLowerCase();
+    const key = it.name.trim().toLowerCase();
+    if (!key) return false;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
