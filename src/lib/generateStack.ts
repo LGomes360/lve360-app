@@ -330,7 +330,8 @@ export async function generateStackForSubmission(id: string) {
 
   // --- Save model + token usage to Supabase ---
   try {
-    const { data: parentRows, error: parentErr } = await supabaseAdmin
+    // Update parent row as before
+    await supabaseAdmin
       .from("stacks")
       .update({
         version: modelUsed,
@@ -338,17 +339,22 @@ export async function generateStackForSubmission(id: string) {
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
       })
+      .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`);
+
+    // --- Always SELECT parent after update/upsert to avoid race conditions ---
+    // (Find by submission_id, but fallback to tally_submission_id for legacy/short IDs)
+    let { data: parentRows, error: parentErr } = await supabaseAdmin
+      .from("stacks")
+      .select("id")
       .or(`submission_id.eq.${id},tally_submission_id.eq.${id}`)
-      .select();
+      .order("created_at", { ascending: false })
+      .limit(1);
 
     if (parentErr) {
-      console.error("Supabase update error:", parentErr);
+      console.error("Supabase fetch error after upsert:", parentErr);
     } else if (!parentRows || parentRows.length === 0) {
-      console.warn("⚠️ No stack row found for id:", id);
+      console.warn("⚠️ No stack row found for id:", id, "(race condition?)");
     } else {
-      console.log("✅ Stack row updated:", parentRows);
-
-      // --- Save stack items ---
       const parent = parentRows[0];
       if (parent?.id && user_id) {
         await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
@@ -378,7 +384,7 @@ export async function generateStackForSubmission(id: string) {
       }
     }
   } catch (err) {
-    console.error("Failed to update Supabase with model/tokens:", err);
+    console.error("Failed to update Supabase with model/tokens or write stack items:", err);
   }
 
   if (!passes) {
