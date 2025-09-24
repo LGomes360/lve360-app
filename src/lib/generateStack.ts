@@ -273,7 +273,7 @@ function getTopCitationsFromJson(key: string, limit = 3): string[] {
 function lookupCuratedForCandidates(candidates: string[], limit = 3): string[] {
   // 1. Exact key check
   for (const key of candidates) {
-    const citations = getTopCitationsFor(normName, 2);
+    const citations = getTopCitationsFor(key, 2);
     if (hits.length) return hits;
   }
 
