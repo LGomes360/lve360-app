@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/consistent-type-imports */
 // ----------------------------------------------------------------------------
-// LVE360 — generateStack.ts (FULL FILE)
+// LVE360 — generateStack.ts (FULL FILE, with name normalization + curated evidence override)
 // Purpose: Generate validated Markdown report, parse StackItems, run safety,
-// affiliate enrichment, attach curated/validated evidence, override the Evidence
-// section in Markdown, and persist into Supabase.
+// affiliate enrichment, attach curated/validated evidence (JSON index),
+// override Markdown Evidence section, and persist into Supabase.
 // ----------------------------------------------------------------------------
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
@@ -22,9 +22,8 @@ const MIN_WORDS = 1800;
 const MIN_BP_ROWS = 10;
 const MIN_ANALYSIS_SENTENCES = 3;
 
-// Only accept real PubMed/DOI links (no bare "PubMed")
-const CITE_RE =
-  /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/|doi\.org\/\S+)\b/;
+// Accept real PubMed/DOI links only (no bare "PubMed")
+const CITE_RE = /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/|doi\.org\/\S+)\b/;
 
 const HEADINGS = [
   "## Intro Summary",
@@ -67,7 +66,7 @@ interface EvidenceEntry {
 }
 
 // ----------------------------------------------------------------------------
-// Helpers
+/** Utilities */
 // ----------------------------------------------------------------------------
 const wc = (t: string) => t.trim().split(/\s+/).length;
 const hasEnd = (t: string) => t.includes("## END");
@@ -129,22 +128,64 @@ function parseDose(dose?: string | null): { amount?: number; unit?: string } {
   return { amount: val, unit: unit ?? undefined };
 }
 
-// Curated/validated evidence attach (item-level)
+// ----------------------------------------------------------------------------
+/** Name normalization for evidence lookup (maps noisy names to curated keys) */
+// ----------------------------------------------------------------------------
+function normalizeSupplementName(name: string): string {
+  const n = (name || "").toLowerCase().replace(/[.*_`#]/g, "").trim();
+
+  // Common truncations and variants
+  if (n === "l" || n.startsWith("l-thean") || n.includes("theanine")) return "L-Theanine";
+  if (n === "b" || n.startsWith("b-complex") || n.includes("b complex")) return "B-Vitamins";
+  if (n.startsWith("omega")) return "Omega-3";
+  if (n.startsWith("vitamin d")) return "Vitamin D";
+  if (n.startsWith("mag")) return "Magnesium";
+  if (n.startsWith("ashwa")) return "Ashwagandha";
+  if (n.startsWith("bacopa")) return "Bacopa Monnieri";
+  if (n.startsWith("coq")) return "CoQ10";
+  if (n.startsWith("rhodiola")) return "Rhodiola Rosea";
+  if (n.startsWith("ginkgo")) return "Ginkgo Biloba";
+
+  // Keep casing as-is for other items (evidence index may still match by fuzzy key in helper)
+  return name.trim();
+}
+
+// ----------------------------------------------------------------------------
+/** Curated/validated evidence attach (item-level) */
+// ----------------------------------------------------------------------------
 function attachEvidence(item: StackItem): StackItem {
-  const curated = getTopCitationsFor(item.name, 2)
+  const normName = normalizeSupplementName(item.name);
+
+  // Curated first
+  const curated = getTopCitationsFor(normName, 2)
     .map((e: EvidenceEntry) => (e?.url || "").trim())
     .filter((u: string): u is string => CITE_RE.test(u));
 
+  // Validated model links as fallback
   const modelValid = sanitizeCitations(item.citations ?? []).filter((u) =>
     CITE_RE.test(u)
   );
 
   const final = curated.length ? curated : modelValid;
+
+  // Telemetry per item
+  try {
+    // eslint-disable-next-line no-console
+    console.log("evidence.lookup", {
+      rawName: item.name,
+      normName,
+      curatedCount: curated.length,
+      keptFromModel: modelValid.length,
+    });
+  } catch {
+    // no-op
+  }
+
   return { ...item, citations: final.length ? final.slice(0, 2) : null };
 }
 
 // ----------------------------------------------------------------------------
-// Parser: Markdown → StackItem[]
+/** Parser: Markdown → StackItem[] */
 // ----------------------------------------------------------------------------
 function parseStackFromMarkdown(md: string): StackItem[] {
   const base: Record<string, any> = {};
@@ -246,7 +287,7 @@ function parseStackFromMarkdown(md: string): StackItem[] {
 }
 
 // ----------------------------------------------------------------------------
-// Prompts
+/** Prompts */
 // ----------------------------------------------------------------------------
 function systemPrompt() {
   return `
@@ -317,7 +358,7 @@ async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
 }
 
 // ----------------------------------------------------------------------------
-// Validation helpers
+/** Validation helpers */
 // ----------------------------------------------------------------------------
 function headingsOK(md: string) {
   return HEADINGS.slice(0, -1).every((h) => md.includes(h));
@@ -367,7 +408,7 @@ function ensureEnd(md: string) {
 }
 
 // ----------------------------------------------------------------------------
-// Evidence section override (Markdown-level)
+/** Evidence section override (Markdown-level) */
 // ----------------------------------------------------------------------------
 function buildEvidenceSection(items: StackItem[], minCount = 8): {
   section: string;
@@ -416,7 +457,7 @@ function overrideEvidenceInMarkdown(md: string, section: string): string {
 }
 
 // ----------------------------------------------------------------------------
-// Main Export
+/** Main Export */
 // ----------------------------------------------------------------------------
 export async function generateStackForSubmission(id: string) {
   if (!id) throw new Error("submissionId required");
@@ -543,7 +584,6 @@ export async function generateStackForSubmission(id: string) {
       `evidence.section_override injected_bullets=${bullets.length}`
     );
     if (bullets.length > 0) {
-      // sample first 3 for quick eyeball
       const sample = bullets.slice(0, 3);
       // eslint-disable-next-line no-console
       console.log(
