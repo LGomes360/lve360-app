@@ -1,8 +1,5 @@
 // app/api/get-stack/route.ts
-// -----------------------------------------------------------------------------
-// Reader endpoint: given a submission_id (UUID or short Tally ID),
-// fetches the already-generated stack + child items from Supabase.
-// -----------------------------------------------------------------------------
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -16,10 +13,6 @@ function isUUID(id: string) {
 
 /**
  * GET /api/get-stack?submission_id=<uuid or short_id>
- * Response:
- *   { ok: true, found: true, stack: {..., items: [...] } }
- *   { ok: true, found: false, stack: null }
- *   { ok: false, error: "..." }
  */
 export async function GET(req: NextRequest) {
   try {
@@ -31,7 +24,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Build query: stacks + related stacks_items
     let query = supabaseAdmin
       .from("stacks")
       .select(`
@@ -73,7 +65,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await query.maybeSingle();
 
     if (error) {
-      console.error("Error fetching stack:", error);
+      console.error("[GET-STACK] Error fetching stack:", error);
       return NextResponse.json(
         { ok: false, error: String(error.message ?? error) },
         { status: 500 }
@@ -81,12 +73,23 @@ export async function GET(req: NextRequest) {
     }
 
     if (!data) {
+      console.warn(`[GET-STACK] No stack found for: ${submissionId}`);
       return NextResponse.json({ ok: true, found: false, stack: null }, { status: 200 });
+    }
+
+    // Additional logging: surface if user_email or items are missing
+    if (!data.user_email) {
+      console.warn(`[GET-STACK] Stack ${data.id} missing user_email!`);
+    }
+    if (!Array.isArray(data.items) || data.items.length === 0) {
+      console.warn(`[GET-STACK] Stack ${data.id} has NO child stack_items!`);
+    } else {
+      console.log(`[GET-STACK] Stack ${data.id} has ${data.items.length} items`);
     }
 
     return NextResponse.json({ ok: true, found: true, stack: data }, { status: 200 });
   } catch (err: any) {
-    console.error("Unhandled error in GET /api/get-stack:", err);
+    console.error("[GET-STACK] Unhandled error:", err);
     return NextResponse.json(
       { ok: false, error: String(err?.message ?? err) },
       { status: 500 }
