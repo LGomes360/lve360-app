@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/consistent-type-imports */
 /* eslint-disable no-console */
 // ----------------------------------------------------------------------------
-// LVE360 — generateStack.ts (FULL FILE)
+// LVE360 — generateStack.ts (FULL FILE, enhanced evidence version)
 // Purpose: Generate validated Markdown report, parse StackItems, run safety,
 // affiliate enrichment, attach curated/validated evidence (JSON index),
 // override Markdown Evidence section, and persist into Supabase.
@@ -142,25 +142,32 @@ function parseDose(dose?: string | null): { amount?: number; unit?: string } {
   return { amount: val, unit: unit ?? undefined };
 }
 
-// --- Name normalization for evidence lookup ---------------------------------
+// ----------------------------------------------------------------------------
+// Evidence name normalization + candidate keys
+// ----------------------------------------------------------------------------
 function normalizeSupplementName(name: string): string {
   const n = (name || "").toLowerCase().replace(/[.*_`#]/g, "").trim();
 
-  if (n === "l" || n.startsWith("l-thean") || n.includes("theanine")) return "L-Theanine";
-  if (n === "b" || n.startsWith("b-complex") || n.includes("b complex")) return "B-Vitamins";
+  // Common LVE360 short/dirty tokens → canonical display
+  if (n === "l" || n.startsWith("l-thean") || n.includes("theanine"))
+    return "L-Theanine";
+  if (n === "b" || n.includes("b complex") || n.startsWith("b-complex"))
+    return "B-Vitamins";
   if (n.startsWith("omega")) return "Omega-3";
-  if (n.startsWith("vitamin d")) return "Vitamin D";
+  if (n.startsWith("vit d") || n.startsWith("vitamin d"))
+    return "Vitamin D";
   if (n.startsWith("mag")) return "Magnesium";
   if (n.startsWith("ashwa")) return "Ashwagandha";
   if (n.startsWith("bacopa")) return "Bacopa Monnieri";
   if (n.startsWith("coq")) return "CoQ10";
   if (n.startsWith("rhodiola")) return "Rhodiola Rosea";
   if (n.startsWith("ginkgo")) return "Ginkgo Biloba";
+  if (n.startsWith("acetyl")) return "Acetyl-L-carnitine";
   if (n.startsWith("zinc")) return "Zinc";
   return name.trim();
 }
 
-// --- Aliases from normalized display → JSON keys -----------------------------
+// Aliases from canonical display → evidence JSON keys
 const ALIAS_MAP: Record<string, string> = {
   "Omega-3": "omega-3 (epa+dha)",
   "Vitamin D": "vitamin d3",
@@ -174,15 +181,26 @@ const ALIAS_MAP: Record<string, string> = {
   "Rhodiola Rosea": "rhodiola rosea (3% rosavins)",
   "Ginkgo Biloba": "ginkgo biloba (24/6)",
   "Zinc": "zinc (picolinate)",
+  "Acetyl-L-carnitine": "acetyl-l-carnitine",
 };
 
-// Slug helpers (preserve (), +, /, - to match your keys)
-function toSlug(s: string) {
+// Helpers for key variants
+function toSlugKeep(s: string) {
   return (s || "")
     .toLowerCase()
-    .replace(/[^\w\s()+/-]/g, "")
+    .replace(/[^\w\s()+/-]/g, "") // keep (), +, /, -
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function withoutParens(s: string) {
+  return (s || "").replace(/\s*\([^)]*\)\s*/g, "").trim();
+}
+
+function splitTokens(s: string): string[] {
+  const base = (s || "").toLowerCase();
+  const tokens = base.split(/[\s/-]+/).filter(Boolean);
+  return Array.from(new Set(tokens));
 }
 
 function buildEvidenceCandidates(normName: string): string[] {
@@ -190,29 +208,55 @@ function buildEvidenceCandidates(normName: string): string[] {
   const alias = ALIAS_MAP[normName];
   if (alias) candidates.push(alias);
 
-  const lower = toSlug(normName);
+  const lower = toSlugKeep(normName);
   if (lower) candidates.push(lower);
 
-  // targeted expansions
-  if (normName === "Omega-3") candidates.push("omega-3 (epa+dha)");
-  if (normName === "Ginkgo Biloba") candidates.push("ginkgo biloba (24/6)");
-  if (normName === "CoQ10") candidates.push("coq10 (ubiquinone)");
-  if (normName === "Bacopa Monnieri") candidates.push("bacopa monnieri (50% bacosides)");
-  if (normName === "Rhodiola Rosea") candidates.push("rhodiola rosea (3% rosavins)");
-  if (normName === "Vitamin D") candidates.push("vitamin d3");
-  if (normName === "Magnesium") candidates.push("magnesium (glycinate)");
-  if (normName === "Zinc") candidates.push("zinc (picolinate)");
-  if (normName === "B-Vitamins" || normName === "B Vitamins Complex") candidates.push("b-complex");
-  if (normName === "L-Theanine") candidates.push("l-theanine");
+  // Try without qualifiers like "(24/6)" or "(EPA+DHA)"
+  const noParens = withoutParens(normName);
+  if (noParens && noParens !== normName) {
+    candidates.push(toSlugKeep(noParens));
+  }
 
+  // Targeted expansions for most common supplements
+  const targeted: Record<string, string[]> = {
+    "Omega-3": ["omega-3", "omega-3 (epa+dha)"],
+    "Ginkgo Biloba": ["ginkgo biloba", "ginkgo biloba (24/6)"],
+    "CoQ10": ["coq10", "coq10 (ubiquinone)"],
+    "Bacopa Monnieri": ["bacopa monnieri", "bacopa monnieri (50% bacosides)"],
+    "Rhodiola Rosea": ["rhodiola rosea", "rhodiola rosea (3% rosavins)"],
+    "Vitamin D": ["vitamin d", "vitamin d3"],
+    "Magnesium": ["magnesium", "magnesium (glycinate)"],
+    "Zinc": ["zinc", "zinc (picolinate)"],
+    "B-Vitamins": ["b vitamins", "b-complex"],
+    "L-Theanine": ["l theanine", "l-theanine"],
+    "Acetyl-L-carnitine": ["acetyl-l-carnitine", "alc", "acetyl l carnitine"],
+  };
+  if (targeted[normName]) {
+    for (const v of targeted[normName]) candidates.push(toSlugKeep(v));
+  }
+
+  // Token-based broadening (e.g., "omega 3", "vitamin d", "epa dha")
+  const tokens = splitTokens(normName);
+  if (tokens.length > 1) {
+    candidates.push(tokens.join(" "));
+    candidates.push(tokens.join("-"));
+  }
+
+  // Unique + truthy
   return Array.from(new Set(candidates)).filter(Boolean);
 }
 
-// --- Minimal sanitizer for model links (fallback) ----------------------------
+// --- Sanitizers for citations ------------------------------------------------
 function sanitizeCitationsModel(urls: string[]): string[] {
   return (urls || [])
     .map((u) => (typeof u === "string" ? u.trim() : ""))
     .filter((u) => MODEL_CITE_RE.test(u));
+}
+
+function sanitizeCitationsCurated(urls: string[]): string[] {
+  return (urls || [])
+    .map((u) => (typeof u === "string" ? u.trim() : ""))
+    .filter((u) => CURATED_CITE_RE.test(u));
 }
 
 // --- Curated evidence lookup (from JSON) ------------------------------------
@@ -241,7 +285,6 @@ function parseStackFromMarkdown(md: string): StackItem[] {
       .filter((l) => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
-      // | Rank | Supplement | Why it Matters |
       const name = cleanName(cols[2] || `Item ${i + 1}`);
       if (!name) return;
       base[name.toLowerCase()] = {
@@ -262,7 +305,6 @@ function parseStackFromMarkdown(md: string): StackItem[] {
       .filter((l) => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
-      // | Medication/Supplement | Purpose | Dosage | Timing |
       const name = cleanName(cols[1] || `Current Item ${i + 1}`);
       if (!name) return;
       const rationale = cols[2] || undefined;
@@ -287,7 +329,6 @@ function parseStackFromMarkdown(md: string): StackItem[] {
   if (dosing) {
     const lines = dosing[1].split("\n").filter((l) => l.trim().length > 0);
     for (const line of lines) {
-      // "- NAME — DOSE, TIMING" or "- NAME - DOSE, TIMING" or "- NAME: DOSE, TIMING"
       const m = line.match(/[-*]\s*([^—\-:]+)[—\-:]\s*([^,]+)(?:,\s*(.*))?/);
       if (m) {
         const name = cleanName(m[1].trim());
@@ -313,7 +354,6 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     }
   }
 
-  // --- Return valid, deduped items
   const seen = new Set<string>();
   return Object.values(base).filter((it: any) => {
     if (!it?.name) return false;
@@ -417,7 +457,6 @@ function citationsOK(md: string) {
   if (!block) return false;
   const bulletLines = block[1].split("\n").filter((l) => l.trim().startsWith("-"));
   if (bulletLines.length < 8) return false;
-  // Strict for model section (we later override with curated anyway)
   return bulletLines.every((l) => MODEL_CITE_RE.test(l));
 }
 
@@ -425,7 +464,6 @@ function narrativesOK(md: string) {
   const sections = md.split("\n## ").slice(1);
   return sections.every((sec) => {
     const lines = sec.split("\n");
-    // Exclude table rows and bullets for narrative check
     const textBlock = lines
       .filter((l) => !l.startsWith("|") && !l.trim().startsWith("-"))
       .join(" ");
@@ -465,6 +503,7 @@ function attachEvidence(item: StackItem): StackItem {
   // Validated model links (strict) as fallback
   const modelValid = sanitizeCitationsModel(item.citations ?? []);
 
+  // Prefer curated; if none, keep proven model links
   const final = curatedUrls.length ? curatedUrls : modelValid;
 
   // Telemetry per item
@@ -476,7 +515,7 @@ function attachEvidence(item: StackItem): StackItem {
       curatedCount: curatedUrls.length,
       keptFromModel: modelValid.length,
     });
-  } catch (e) {}
+  } catch {}
 
   return { ...item, citations: final.length ? final.slice(0, 2) : null };
 }
@@ -489,7 +528,7 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
 
   for (const it of items) {
     for (const url of it.citations ?? []) {
-      if (CURATED_CITE_RE.test(url)) {
+      if (CURATED_CITE_RE.test(url) || MODEL_CITE_RE.test(url)) {
         pairs.push({ name: it.name, url });
       }
     }
@@ -624,14 +663,29 @@ export async function generateStackForSubmission(id: string) {
     dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
   };
 
-  // Safety checks may add cautions and drop unsafe items
   const { cleaned } = await applySafetyChecks(safetyInput, parsedItems);
+  const afterSafety: StackItem[] = cleaned;
 
-  // Affiliate enrichment may add links + cost_estimate
-  const finalStack: StackItem[] = await enrichAffiliateLinks(cleaned);
+  const afterAffiliates: StackItem[] = await enrichAffiliateLinks(afterSafety);
 
-  // Evidence curation/validation step (curated wins; otherwise keep valid PubMed/DOI from model)
-  const withEvidence: StackItem[] = finalStack.map(attachEvidence);
+  // Evidence curation/validation (curated wins; else keep valid PubMed/DOI from model)
+  const withEvidence: StackItem[] = afterAffiliates.map(attachEvidence);
+
+  // Console summary: how many got citations
+  try {
+    const curatedItemCount = withEvidence.filter(
+      (it) => (it.citations?.length ?? 0) > 0
+    ).length;
+    const namesWith = withEvidence
+      .filter((it) => (it.citations?.length ?? 0) > 0)
+      .map((it) => it.name);
+    const namesWithout = withEvidence
+      .filter((it) => !(it.citations?.length ?? 0))
+      .map((it) => it.name);
+    console.log(`[info] evidence.item_curated ${curatedItemCount}/${withEvidence.length}`);
+    console.log("[info] evidence.items_with", namesWith);
+    console.log("[info] evidence.items_without", namesWithout);
+  } catch {}
 
   // Override the Evidence section in Markdown with curated links
   const { section: evidenceSection, bullets } = buildEvidenceSection(
@@ -640,21 +694,17 @@ export async function generateStackForSubmission(id: string) {
   );
   md = overrideEvidenceInMarkdown(md, evidenceSection);
 
-  // Telemetry for evidence
+  // Telemetry for evidence section override
   try {
-    const curatedItemCount = withEvidence.filter(
-      (it) => (it.citations?.length ?? 0) > 0
-    ).length;
-    console.log(`evidence.item_curated ${curatedItemCount}/${withEvidence.length}`);
-    console.log(`evidence.section_override injected_bullets=${bullets.length}`);
+    console.log(`[info] evidence.section_override injected_bullets=${bullets.length}`);
     if (bullets.length > 0) {
-      const sample = bullets.slice(0, 3);
+      const sample = bullets.slice(0, 5);
       console.log(
-        "evidence.debug.sample",
+        "[info] evidence.debug.sample",
         sample.map((b) => `${b.name} -> ${b.url}`)
       );
     }
-  } catch (e) {}
+  } catch {}
 
   // Calculate total cost from enriched items
   const totalMonthlyCost = withEvidence.reduce(
@@ -662,7 +712,7 @@ export async function generateStackForSubmission(id: string) {
     0
   );
 
-  // Upsert into stacks (now with tally_submission_id, summary, sections, cost)
+  // Upsert into stacks
   let parentRows: any[] = [];
   try {
     const { data, error } = await supabaseAdmin
@@ -677,7 +727,7 @@ export async function generateStackForSubmission(id: string) {
           tokens_used: tokensUsed,
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
-          summary: md, // NOTE: consider TEXT/LONGTEXT in DB to avoid truncation
+          summary: md,
           sections: {
             markdown: md,
             generated_at: new Date().toISOString(),
@@ -694,11 +744,10 @@ export async function generateStackForSubmission(id: string) {
     console.error("Stacks upsert exception:", err);
   }
 
-  // Insert stacks_items (single source of truth)
+  // Insert stacks_items
   if (parentRows.length > 0) {
     const parent = parentRows[0];
     if (parent?.id && user_id) {
-      // Wipe existing for idempotent re-gen
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
       const rows = withEvidence
@@ -731,12 +780,12 @@ export async function generateStackForSubmission(id: string) {
             cost_estimate: it.cost_estimate ?? null,
           };
         })
-        .filter((r) => r !== null);
+        .filter((r) => r !== null) as any[];
 
       console.log("✅ Prepared stack_items rows:", rows);
 
       if (rows.length > 0) {
-        const { error } = await supabaseAdmin.from("stacks_items").insert(rows as any[]);
+        const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
         if (error) console.error("⚠️ Failed to insert stacks_items:", error);
         else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
       }
