@@ -295,15 +295,6 @@ function lookupCuratedForCandidates(candidates: string[], limit = 3): string[] {
   return [];
 }
 
-// Try a sequence of keys until we hit at least one curated URL.
-function lookupCuratedForCandidates(candidates: string[], limit = 3): string[] {
-  for (const key of candidates) {
-    const hits = getTopCitationsFromJson(key, limit);
-    if (hits.length) return hits;
-  }
-  return [];
-}
-
 // ----------------------------------------------------------------------------
 // Parser: Markdown → StackItem[]
 // ----------------------------------------------------------------------------
