@@ -6,6 +6,9 @@ import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { supabaseAdmin } from "@/lib/supabase";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Config
+// ─────────────────────────────────────────────────────────────────────────────
 const TODAY = "2025-09-21";
 const MIN_WORDS = 1800;
 const MIN_BP_ROWS = 10;
@@ -28,6 +31,27 @@ const HEADINGS = [
   "## END",
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+/** Final item shape we persist to stacks_items (and pass through safety/affiliates) */
+interface StackItem {
+  name: string;
+  dose?: string | null;
+  dose_parsed?: { amount?: number; unit?: string };
+  timing?: string | null;
+  rationale?: string | null;
+  notes?: string | null;
+  caution?: string | null;
+  citations?: string[] | null;
+  link_amazon?: string | null;
+  link_fullscript?: string | null;
+  link_thorne?: string | null;
+  link_other?: string | null;
+  cost_estimate?: number | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
 const wc = (t: string) => t.trim().split(/\s+/).length;
 const hasEnd = (t: string) => t.includes("## END");
 const seeDN = "See Dosing & Notes";
@@ -45,6 +69,7 @@ function age(dob: string | null) {
   if (t < new Date(t.getFullYear(), d.getMonth(), d.getDate())) a--;
   return a;
 }
+
 function extractUserId(sub: any): string | null {
   return (
     sub?.user_id ??
@@ -52,6 +77,7 @@ function extractUserId(sub: any): string | null {
     null
   );
 }
+
 function normalizeTiming(raw?: string | null): string | null {
   if (!raw) return null;
   const s = raw.toLowerCase();
@@ -60,6 +86,7 @@ function normalizeTiming(raw?: string | null): string | null {
   if (/am\/pm|both|split|bid/.test(s)) return "AM/PM";
   return raw.trim();
 }
+
 function normalizeUnit(u?: string | null) {
   const s = (u ?? "").toLowerCase();
   if (s === "μg" || s === "mcg" || s === "ug") return "mcg";
@@ -67,6 +94,7 @@ function normalizeUnit(u?: string | null) {
   if (s === "mg" || s === "g") return s;
   return s || null;
 }
+
 function parseDose(dose?: string | null): { amount?: number; unit?: string } {
   if (!dose) return {};
   const cleaned = dose.replace(/[,]/g, " ").replace(/\s+/g, " ");
@@ -84,10 +112,13 @@ function parseDose(dose?: string | null): { amount?: number; unit?: string } {
   return { amount: val, unit: unit ?? undefined };
 }
 
-function parseStackFromMarkdown(md: string) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Parser from Markdown → StackItem[]
+// ─────────────────────────────────────────────────────────────────────────────
+function parseStackFromMarkdown(md: string): StackItem[] {
   const base: Record<string, any> = {};
 
-  // --- 1. Blueprint section ---
+  // --- 1) Blueprint Recommendations
   const blueprint = md.match(
     /## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i
   );
@@ -95,8 +126,10 @@ function parseStackFromMarkdown(md: string) {
     const rows = blueprint[1]
       .split("\n")
       .filter((l) => l.trim().startsWith("|"));
+    // Skip header row
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
+      // Expecting: | Rank | Supplement | Why it Matters |
       const name = cleanName(cols[2] || `Item ${i + 1}`);
       if (!name) return;
       base[name.toLowerCase()] = {
@@ -109,14 +142,16 @@ function parseStackFromMarkdown(md: string) {
     });
   }
 
-  // --- 1b. Current Stack section ---
+  // --- 2) Current Stack
   const current = md.match(/## Current Stack([\s\S]*?)(\n## |$)/i);
   if (current) {
     const rows = current[1]
       .split("\n")
       .filter((l) => l.trim().startsWith("|"));
+    // Skip header row
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
+      // Expecting: | Medication/Supplement | Purpose | Dosage | Timing |
       const name = cleanName(cols[1] || `Current Item ${i + 1}`);
       if (!name) return;
       const rationale = cols[2] || undefined;
@@ -136,11 +171,12 @@ function parseStackFromMarkdown(md: string) {
     });
   }
 
-  // --- 2. Dosing & Notes section ---
+  // --- 3) Dosing & Notes (bulleted list)
   const dosing = md.match(/## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i);
   if (dosing) {
     const lines = dosing[1].split("\n").filter((l) => l.trim().length > 0);
     for (const line of lines) {
+      // "- NAME — DOSE, TIMING" or "- NAME - DOSE, TIMING" or "- NAME: DOSE, TIMING"
       const m = line.match(
         /[-*]\s*([^—\-:]+)[—\-:]\s*([^,]+)(?:,\s*(.*))?/
       );
@@ -168,7 +204,7 @@ function parseStackFromMarkdown(md: string) {
     }
   }
 
-  // --- Deduplicate and return only valid supplements ---
+  // --- Return valid, deduped items
   const seen = new Set<string>();
   return Object.values(base).filter((it: any) => {
     if (!it?.name) return false;
@@ -180,6 +216,9 @@ function parseStackFromMarkdown(md: string) {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Prompts
+// ─────────────────────────────────────────────────────────────────────────────
 function systemPrompt() {
   return `
 You are **LVE360 Concierge AI**, a friendly but professional wellness coach.
@@ -234,6 +273,9 @@ ${JSON.stringify(
 Generate the full report per the rules above.`;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LLM
+// ─────────────────────────────────────────────────────────────────────────────
 async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
@@ -245,54 +287,64 @@ async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Validation
+// ─────────────────────────────────────────────────────────────────────────────
 function headingsOK(md: string) {
   return HEADINGS.slice(0, -1).every((h) => md.includes(h));
 }
+
 function blueprintOK(md: string) {
-  const sec = md.match(/## Your Blueprint Recommendations([\s\S]*?\n\|)/i);
+  const sec = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n\|)/i);
   if (!sec) return false;
   const rows = sec[0].split("\n").filter((l) => l.startsWith("|")).slice(1);
   return rows.length >= MIN_BP_ROWS;
 }
+
 function citationsOK(md: string) {
   const block = md.match(
     /## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i
   );
   if (!block) return false;
-  return block[1]
-    .split("\n")
-    .filter((l) => l.trim().startsWith("-"))
-    .every((l) => CITE_RE.test(l));
+  const bulletLines = block[1].split("\n").filter((l) => l.trim().startsWith("-"));
+  if (bulletLines.length < 8) return false;
+  return bulletLines.every((l) => CITE_RE.test(l));
 }
+
 function narrativesOK(md: string) {
-  const sections = md.split("\n## ").slice(1);
+  // For each section, ensure there's narrative text with ≥ sentence count
+  const sections = md.split("\n## ").slice(1); // drop the first empty chunk
   return sections.every((sec) => {
     const lines = sec.split("\n");
+    // Exclude table rows and bullets for narrative check
     const textBlock = lines
-      .filter((l) => !l.startsWith("|") && !l.startsWith("-"))
+      .filter((l) => !l.startsWith("|") && !l.trim().startsWith("-"))
       .join(" ");
     const sentences = textBlock
       .split(/[.!?]/)
-      .filter((s) => s.trim().length > 0);
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
 
-    // Require at least 3 sentences everywhere, except Intro Summary needs ≥2
     if (sec.startsWith("Intro Summary") && sentences.length < 2) return false;
     if (!sec.startsWith("Intro Summary") && sentences.length < MIN_ANALYSIS_SENTENCES) return false;
     return true;
   });
 }
+
 function ensureEnd(md: string) {
   return hasEnd(md) ? md : md + "\n\n## END";
 }
 
-// ── main export ─────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Main Export
+// ─────────────────────────────────────────────────────────────────────────────
 export async function generateStackForSubmission(id: string) {
   if (!id) throw new Error("submissionId required");
-  if (!process.env.OPENAI_API_KEY)
-    throw new Error("OPENAI_API_KEY missing");
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
 
   const sub = await getSubmissionWithChildren(id);
   if (!sub) throw new Error(`Submission row not found for id=${id}`);
+
   const user_id = extractUserId(sub);
   const userEmail =
     (sub as any)?.user?.email ??
@@ -313,6 +365,7 @@ export async function generateStackForSubmission(id: string) {
   let completionTokens: number | null = null;
   let passes = false;
 
+  // Try mini first
   try {
     const resp = await callLLM(msgs, "gpt-4o-mini");
     raw = resp;
@@ -334,6 +387,8 @@ export async function generateStackForSubmission(id: string) {
   } catch (err) {
     console.warn("Mini model failed:", err);
   }
+
+  // Fallback to full
   if (!passes) {
     const resp = await callLLM(msgs, "gpt-4o");
     raw = resp;
@@ -356,7 +411,8 @@ export async function generateStackForSubmission(id: string) {
 
   md = ensureEnd(md);
 
-  const items = parseStackFromMarkdown(md);
+  // Parse → Safety → Affiliate
+  const parsedItems: StackItem[] = parseStackFromMarkdown(md);
 
   const safetyInput = {
     medications: Array.isArray(sub.medications)
@@ -372,21 +428,20 @@ export async function generateStackForSubmission(id: string) {
       typeof sub.pregnant === "boolean" || typeof sub.pregnant === "string"
         ? sub.pregnant
         : null,
-    brand_pref: (sub.preferences as any)?.brand_pref ?? null,
-    dosing_pref: (sub.preferences as any)?.dosing_pref ?? null,
+    brand_pref: (sub as any)?.preferences?.brand_pref ?? null,
+    dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
   };
 
-  const { cleaned } = await applySafetyChecks(safetyInput, items);
-  const finalStack = await enrichAffiliateLinks(cleaned);
+  const { cleaned } = await applySafetyChecks(safetyInput, parsedItems);
+  const finalStack: StackItem[] = await enrichAffiliateLinks(cleaned);
 
-  console.log("🔍 FinalStack before rows:", finalStack);
-
-  // --- Calculate total cost ---
+  // Calculate total cost from enriched items
   const totalMonthlyCost = finalStack.reduce(
     (acc, it) => acc + (it.cost_estimate ?? 0),
     0
   );
 
+  // Upsert into stacks (now with tally_submission_id, summary, sections, cost)
   let parentRows: any[] = [];
   try {
     const { data, error } = await supabaseAdmin
@@ -396,11 +451,11 @@ export async function generateStackForSubmission(id: string) {
           submission_id: id,
           user_id,
           user_email: userEmail,
+          tally_submission_id: (sub as any)?.tally_submission_id ?? null,
           version: modelUsed,
           tokens_used: tokensUsed,
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
-          tally_submission_id: (sub as any)?.tally_submission_id ?? null,
           summary: md.slice(0, 2000),
           sections: {
             markdown: md,
@@ -418,14 +473,15 @@ export async function generateStackForSubmission(id: string) {
     console.error("Stacks upsert exception:", err);
   }
 
+  // Insert stacks_items (single source of truth)
   if (parentRows.length > 0) {
     const parent = parentRows[0];
     if (parent?.id && user_id) {
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
       const rows = finalStack
-        .map((it: any) => {
-          let safeName = cleanName(it?.name ?? "");
+        .map((it) => {
+          const safeName = cleanName(it?.name ?? "");
           if (!safeName || safeName.toLowerCase() === "null") {
             console.error("🚨 Blocking insert of invalid item", {
               stack_id: parent.id,
@@ -440,11 +496,11 @@ export async function generateStackForSubmission(id: string) {
             user_id,
             user_email: userEmail,
             name: safeName,
-            dose: it.dose,
-            timing: it.timing,
-            notes: it.notes,
-            rationale: it.rationale,
-            caution: it.caution,
+            dose: it.dose ?? null,
+            timing: it.timing ?? null,
+            notes: it.notes ?? null,
+            rationale: it.rationale ?? null,
+            caution: it.caution ?? null,
             citations: it.citations ? JSON.stringify(it.citations) : null,
             link_amazon: it.link_amazon ?? null,
             link_fullscript: it.link_fullscript ?? null,
@@ -453,14 +509,12 @@ export async function generateStackForSubmission(id: string) {
             cost_estimate: it.cost_estimate ?? null,
           };
         })
-        .filter((r) => r !== null);
+        .filter((r): r is Record<string, unknown> => r !== null);
 
       console.log("✅ Prepared stack_items rows:", rows);
 
       if (rows.length > 0) {
-        const { error } = await supabaseAdmin
-          .from("stacks_items")
-          .insert(rows as any[]);
+        const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
         if (error) console.error("⚠️ Failed to insert stacks_items:", error);
         else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
       }
