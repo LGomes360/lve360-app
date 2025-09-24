@@ -475,13 +475,21 @@ export async function generateStackForSubmission(id: string) {
   }
 
 //Evidence Citations
+interface EvidenceEntry {
+  url?: string | null;
+  [key: string]: any;
+}
+
 function attachEvidence(item: { name: string; citations?: string[] }) {
   // Prefer curated
-  const curated = getTopCitationsFor(item.name, 2).map(e => e.url).filter(Boolean) as string[];
+  const curated = getTopCitationsFor(item.name, 2)
+    .map((e: EvidenceEntry) => e.url || "")
+    .filter((u: string): u is string => Boolean(u));
+
   // Keep any model links that are valid PubMed/DOI
   const modelValid = sanitizeCitations(item.citations ?? []);
 
-  // Rule: if curated exists, use curated; else keep validated model links
+  // Rule: prefer curated if available
   const final = curated.length ? curated : modelValid;
   return { ...item, citations: final.slice(0, 2) };
 }
