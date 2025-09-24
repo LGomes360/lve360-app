@@ -384,11 +384,13 @@ export async function generateStackForSubmission(id: string) {
     if (parent?.id && user_id) {
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
+      let droppedCount = 0;
       const rows = finalStack
         .map((it: any) => {
           const safeName = cleanName(it?.name ?? "");
           if (!safeName) {
             console.warn("⚠️ Dropping invalid stack_item due to missing name:", it);
+            droppedCount++;
             return null;
           }
           return {
@@ -412,18 +414,21 @@ export async function generateStackForSubmission(id: string) {
         // 🔹 Final hard guard
         .filter((r) => {
           const valid = r && typeof r.name === "string" && r.name.trim().length > 0;
-          if (!valid) console.warn("⚠️ Dropping row with invalid name before insert:", r);
+          if (!valid) {
+            console.warn("⚠️ Dropping row with invalid name before insert:", r);
+            droppedCount++;
+          }
           return valid;
         });
 
-      console.log("✅ Prepared stack_items rows:", rows);
+      console.log(`✅ Prepared stack_items rows: ${rows.length} (dropped ${droppedCount})`, rows);
 
       if (rows.length > 0) {
         const { error } = await supabaseAdmin
           .from("stacks_items")
           .insert(rows as any[]);
         if (error) console.error("⚠️ Failed to insert stacks_items:", error);
-        else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id}`);
+        else console.log(`✅ Inserted ${rows.length} stack items for stack ${parent.id} (dropped ${droppedCount})`);
       }
     }
   }
