@@ -1,4 +1,11 @@
 /* eslint-disable @typescript-eslint/consistent-type-imports */
+// ----------------------------------------------------------------------------
+// LVE360 — generateStack.ts (FULL REWRITE)
+// Purpose: Generate validated Markdown report, parse into StackItems, run
+// safety + affiliate enrichment, attach curated/validated evidence, and persist
+// into Supabase (stacks + stacks_items).
+// ----------------------------------------------------------------------------
+
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 import { ChatCompletionMessageParam } from "openai/resources";
@@ -7,10 +14,10 @@ import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getTopCitationsFor, sanitizeCitations } from "@/lib/evidence";
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
 // Config
-// ─────────────────────────────────────────────────────────────────────────────
-const TODAY = "2025-09-21";
+// ----------------------------------------------------------------------------
+const TODAY = "2025-09-21"; // keep deterministic for tests
 const MIN_WORDS = 1800;
 const MIN_BP_ROWS = 10;
 const MIN_ANALYSIS_SENTENCES = 3;
@@ -32,10 +39,9 @@ const HEADINGS = [
   "## END",
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
 // Types
-// ─────────────────────────────────────────────────────────────────────────────
-/** Final item shape we persist to stacks_items (and pass through safety/affiliates) */
+// ----------------------------------------------------------------------------
 export interface StackItem {
   name: string;
   dose?: string | null;
@@ -57,9 +63,9 @@ interface EvidenceEntry {
   [key: string]: any;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
 // Helpers
-// ─────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
 const wc = (t: string) => t.trim().split(/\s+/).length;
 const hasEnd = (t: string) => t.includes("## END");
 const seeDN = "See Dosing & Notes";
@@ -80,18 +86,16 @@ function age(dob: string | null) {
 
 function extractUserId(sub: any): string | null {
   return (
-    sub?.user_id ??
-    (typeof sub.user === "object" ? sub.user?.id : null) ??
-    null
+    sub?.user_id ?? (typeof sub.user === "object" ? sub.user?.id : null) ?? null
   );
 }
 
 function normalizeTiming(raw?: string | null): string | null {
   if (!raw) return null;
   const s = raw.toLowerCase();
-  if (/am|morning/.test(s)) return "AM";
-  if (/pm|evening|night/.test(s)) return "PM";
-  if (/am\/pm|both|split|bid/.test(s)) return "AM/PM";
+  if (/\bam\b|morning/.test(s)) return "AM";
+  if (/\bpm\b|evening|night/.test(s)) return "PM";
+  if (/am\/pm|both|split|\bbid\b/.test(s)) return "AM/PM";
   return raw.trim();
 }
 
@@ -120,22 +124,8 @@ function parseDose(dose?: string | null): { amount?: number; unit?: string } {
   return { amount: val, unit: unit ?? undefined };
 }
 
-// Curated/validated evidence attach
-function attachEvidence(item: { name: string; citations?: string[] }): {
-  name: string;
-  dose?: string | null;
-  dose_parsed?: { amount?: number; unit?: string };
-  timing?: string | null;
-  rationale?: string | null;
-  notes?: string | null;
-  caution?: string | null;
-  citations?: string[] | null;
-  link_amazon?: string | null;
-  link_fullscript?: string | null;
-  link_thorne?: string | null;
-  link_other?: string | null;
-  cost_estimate?: number | null;
-} {
+// Attach curated/validated evidence to a StackItem
+function attachEvidence(item: StackItem): StackItem {
   const curated = getTopCitationsFor(item.name, 2)
     .map((e: EvidenceEntry) => e?.url || "")
     .filter((u: string): u is string => Boolean(u));
@@ -146,13 +136,13 @@ function attachEvidence(item: { name: string; citations?: string[] }): {
   return { ...item, citations: final.slice(0, 2) };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Parser from Markdown → StackItem[]
-// ─────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
+// Parser: Markdown → StackItem[]
+// ----------------------------------------------------------------------------
 function parseStackFromMarkdown(md: string): StackItem[] {
   const base: Record<string, any> = {};
 
-  // --- 1) Blueprint Recommendations
+  // 1) Your Blueprint Recommendations (table)
   const blueprint = md.match(
     /## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i
   );
@@ -176,7 +166,7 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     });
   }
 
-  // --- 2) Current Stack
+  // 2) Current Stack (table)
   const current = md.match(/## Current Stack([\s\S]*?)(\n## |$)/i);
   if (current) {
     const rows = current[1]
@@ -205,15 +195,13 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     });
   }
 
-  // --- 3) Dosing & Notes (bulleted list)
+  // 3) Dosing & Notes (bulleted list)
   const dosing = md.match(/## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i);
   if (dosing) {
     const lines = dosing[1].split("\n").filter((l) => l.trim().length > 0);
     for (const line of lines) {
-      // "- NAME — DOSE, TIMING" or "- NAME - DOSE, TIMING" or "- NAME: DOSE, TIMING"
-      const m = line.match(
-        /[-*]\s*([^—\-:]+)[—\-:]\s*([^,]+)(?:,\s*(.*))?/
-      );
+      // "- NAME — DOSE, TIMING" or variants
+      const m = line.match(/[-*]\s*([^—\-:]+)[—\-:]\s*([^,]+)(?:,\s*(.*))?/);
       if (m) {
         const name = cleanName(m[1].trim());
         if (!name) continue;
@@ -238,7 +226,7 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     }
   }
 
-  // --- Return valid, deduped items
+  // 4) Deduplicate and validate
   const seen = new Set<string>();
   return Object.values(base).filter((it: any) => {
     if (!it?.name) return false;
@@ -250,9 +238,9 @@ function parseStackFromMarkdown(md: string): StackItem[] {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
 // Prompts
-// ─────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
 function systemPrompt() {
   return `
 You are **LVE360 Concierge AI**, a friendly but professional wellness coach.
@@ -307,9 +295,9 @@ ${JSON.stringify(
 Generate the full report per the rules above.`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
 // LLM
-// ─────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
 async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
@@ -321,9 +309,9 @@ async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
 // Validation
-// ─────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
 function headingsOK(md: string) {
   return HEADINGS.slice(0, -1).every((h) => md.includes(h));
 }
@@ -336,21 +324,20 @@ function blueprintOK(md: string) {
 }
 
 function citationsOK(md: string) {
-  const block = md.match(
-    /## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i
-  );
+  const block = md.match(/## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i);
   if (!block) return false;
-  const bulletLines = block[1].split("\n").filter((l) => l.trim().startsWith("-"));
+  const bulletLines = block[1]
+    .split("\n")
+    .filter((l) => l.trim().startsWith("-"));
   if (bulletLines.length < 8) return false;
   return bulletLines.every((l) => CITE_RE.test(l));
 }
 
 function narrativesOK(md: string) {
-  // For each section, ensure there's narrative text with ≥ sentence count
-  const sections = md.split("\n## ").slice(1); // drop the first empty chunk
+  const sections = md.split("\n## ").slice(1); // drop preamble
   return sections.every((sec) => {
     const lines = sec.split("\n");
-    // Exclude table rows and bullets for narrative check
+    // Exclude table rows and bullets
     const textBlock = lines
       .filter((l) => !l.startsWith("|") && !l.trim().startsWith("-"))
       .join(" ");
@@ -360,7 +347,8 @@ function narrativesOK(md: string) {
       .filter((s) => s.length > 0);
 
     if (sec.startsWith("Intro Summary") && sentences.length < 2) return false;
-    if (!sec.startsWith("Intro Summary") && sentences.length < MIN_ANALYSIS_SENTENCES) return false;
+    if (!sec.startsWith("Intro Summary") && sentences.length < MIN_ANALYSIS_SENTENCES)
+      return false;
     return true;
   });
 }
@@ -369,9 +357,9 @@ function ensureEnd(md: string) {
   return hasEnd(md) ? md : md + "\n\n## END";
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
 // Main Export
-// ─────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
 export async function generateStackForSubmission(id: string) {
   if (!id) throw new Error("submissionId required");
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
@@ -449,14 +437,14 @@ export async function generateStackForSubmission(id: string) {
   const parsedItems: StackItem[] = parseStackFromMarkdown(md);
 
   const safetyInput = {
-    medications: Array.isArray(sub.medications)
-      ? sub.medications.map((m: any) => m.med_name || "")
+    medications: Array.isArray((sub as any).medications)
+      ? (sub as any).medications.map((m: any) => m.med_name || "")
       : [],
-    conditions: Array.isArray(sub.conditions)
-      ? sub.conditions.map((c: any) => c.condition_name || "")
+    conditions: Array.isArray((sub as any).conditions)
+      ? (sub as any).conditions.map((c: any) => c.condition_name || "")
       : [],
-    allergies: Array.isArray(sub.allergies)
-      ? sub.allergies.map((a: any) => a.allergy_name || "")
+    allergies: Array.isArray((sub as any).allergies)
+      ? (sub as any).allergies.map((a: any) => a.allergy_name || "")
       : [],
     pregnant:
       typeof (sub as any).pregnant === "boolean" || typeof (sub as any).pregnant === "string"
@@ -466,13 +454,8 @@ export async function generateStackForSubmission(id: string) {
     dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
   };
 
-  // Safety checks may add cautions and drop unsafe items
   const { cleaned } = await applySafetyChecks(safetyInput, parsedItems);
-
-  // Affiliate enrichment may add links + cost_estimate
   const finalStack: StackItem[] = await enrichAffiliateLinks(cleaned);
-
-  // Evidence curation/validation step (curated wins; otherwise keep valid PubMed/DOI from model)
   const withEvidence: StackItem[] = finalStack.map(attachEvidence);
 
   // Optional telemetry
@@ -484,13 +467,13 @@ export async function generateStackForSubmission(id: string) {
     // no-op
   }
 
-  // Calculate total cost from enriched items
+  // Total monthly cost
   const totalMonthlyCost = withEvidence.reduce(
     (acc, it) => acc + (it.cost_estimate ?? 0),
     0
   );
 
-  // Upsert into stacks (now with tally_submission_id, summary, sections, cost)
+  // Upsert parent stack
   let parentRows: any[] = [];
   try {
     const { data, error } = await supabaseAdmin
@@ -505,7 +488,7 @@ export async function generateStackForSubmission(id: string) {
           tokens_used: tokensUsed,
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
-          summary: md, // NOTE: consider TEXT/LONGTEXT in DB to avoid truncation
+          summary: md, // consider TEXT/LONGTEXT in DB
           sections: {
             markdown: md,
             generated_at: new Date().toISOString(),
@@ -522,11 +505,10 @@ export async function generateStackForSubmission(id: string) {
     console.error("Stacks upsert exception:", err);
   }
 
-  // Insert stacks_items (single source of truth)
+  // Insert items
   if (parentRows.length > 0) {
     const parent = parentRows[0];
     if (parent?.id && user_id) {
-      // Wipe existing rows for this stack_id (idempotent re-gen)
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
       const rows = withEvidence
