@@ -336,13 +336,14 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
 } {
   const bullets: Array<{ name: string; url: string }> = [];
 
-  for (const it of items) {
-    for (const rawUrl of it.citations ?? []) {
-      const url = canonical(rawUrl);
+for (const rawUrl of citations ?? []) {
+  // Normalize trailing slash so both ".../12345" and ".../12345/" pass
+  const url = rawUrl.trim();
+  const normalized = url.endsWith("/") ? url : url + "/";
 
-      if (CURATED_CITE_RE.test(url) || MODEL_CITE_RE.test(url)) {
-        bullets.push({ name: cleanName(it.name), url });
-      } else {
+  if (CURATED_CITE_RE.test(normalized)) {
+    lines.push(`${name}: [${sourceLabel(normalized)}](${normalized})`);
+  } else {
         console.warn("❌ Dropped citation (did not match allowed patterns)", {
           name: it.name,
           url,
