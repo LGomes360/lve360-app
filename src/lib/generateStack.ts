@@ -336,42 +336,36 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
 } {
   const bullets: Array<{ name: string; url: string }> = [];
 
-  // Collect all valid citations from every item
-for (const it of items) {
-  // Only accept citations if they are a non-empty array of valid strings
-  const valid = Array.isArray(it.citations)
-    ? it.citations.map(canonical).filter((u) => CURATED_CITE_RE.test(u) || MODEL_CITE_RE.test(u))
-    : [];
+  for (const it of items) {
+    const valid = (it.citations ?? [])
+      .map(canonical)
+      .filter((u) => CURATED_CITE_RE.test(u) || MODEL_CITE_RE.test(u));
 
-  if (valid.length === 0) continue;
-
-  for (const url of valid) {
-    bullets.push({ name: cleanName(it.name), url });
+    for (const url of valid) {
+      bullets.push({ name: cleanName(it.name), url });
+    }
   }
-}
 
-  // Deduplicate only by (name + url)
+  // Deduplicate by URL
   const seen = new Set<string>();
   const unique = bullets.filter((b) => {
-    const key = `${b.name.toLowerCase()}|${b.url}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
+    if (seen.has(b.url)) return false;
+    seen.add(b.url);
     return true;
   });
 
-  // Enforce minimum count by padding if too short
-  const padded =
-    unique.length >= minCount
-      ? unique
-      : [
-          ...unique,
-          ...Array.from({ length: minCount - unique.length }, (_, i) => ({
-            name: "Evidence pending",
-            url: "https://lve360.com/evidence/coming-soon",
-          })),
-        ];
+  // 🔧 Keep only curated citations (no dummy padding)
+  const final = unique;
 
-  const bulletsText = padded
+  // Warn if coverage is below expected minimum
+  if (final.length < minCount) {
+    console.warn(
+      `⚠️ Evidence coverage low: ${final.length}/${minCount} curated citations found`
+    );
+  }
+
+  // Render each citation as its own bullet
+  const bulletsText = final
     .map((b) => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`)
     .join("\n");
 
@@ -384,7 +378,7 @@ for (const it of items) {
     (bulletsText || "- _No curated citations available yet._") +
     analysis;
 
-  return { section, bullets: padded };
+  return { section, bullets: final };
 }
 
 function overrideEvidenceInMarkdown(md: string, section: string): string {
