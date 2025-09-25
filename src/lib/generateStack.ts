@@ -150,8 +150,12 @@ function normalizeSupplementName(name: string): string {
   const n = (name || "").toLowerCase().replace(/[.*_`#]/g, "").trim();
   const collapsed = n.replace(/\s+/g, " ");
 
-  if (collapsed === "l" || /(^|[^a-z])l theanine($|[^a-z])/.test(collapsed)) return "L-Theanine";
-  if (collapsed === "b" || collapsed.includes("b complex") || collapsed.includes("b-vitamins")) return "B-Vitamins";
+  // 🔒 Handle single-letter artifacts early
+  if (collapsed === "l") return "L-Theanine";
+  if (collapsed === "b") return "B-Vitamins";
+
+  if (collapsed.includes("b complex") || collapsed.includes("b-vitamins")) return "B-Vitamins";
+
   if (collapsed.startsWith("omega")) return "Omega-3";
   if (collapsed.startsWith("vitamin d")) return "Vitamin D";
   if (collapsed.startsWith("mag")) return "Magnesium";
@@ -161,6 +165,7 @@ function normalizeSupplementName(name: string): string {
   if (collapsed.startsWith("rhodiola")) return "Rhodiola Rosea";
   if (collapsed.startsWith("ginkgo")) return "Ginkgo Biloba";
   if (collapsed.startsWith("zinc")) return "Zinc";
+
   if (/^acetyl\s*l\b/.test(collapsed) || collapsed.includes("acetyl l carnitine") || collapsed.includes("acetyl-l-carnitine"))
     return "Acetyl-L-carnitine";
 
@@ -278,8 +283,10 @@ function attachEvidence(item: StackItem): StackItem {
     });
   } catch (e) {}
 
-  return { ...item, citations: final.length ? final : null };
+  // ✅ overwrite `name` with normalized display name
+  return { ...item, name: normName, citations: final.length ? final : null };
 }
+
 
 // ----------------------------------------------------------------------------
 // Evidence section rendering
