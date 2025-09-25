@@ -547,7 +547,7 @@ function attachEvidence(item: StackItem): StackItem {
     });
   } catch (e) {}
 
-  return { ...item, citations: final.length ? final.slice(0, 2) : null };
+ return { ...item, citations: final.length ? final : null };
 }
 
 
