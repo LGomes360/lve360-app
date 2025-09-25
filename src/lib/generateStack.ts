@@ -346,15 +346,19 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
     }
   }
 
+  // Deduplicate only on (name + url), so each supplement keeps its refs
   const seen = new Set<string>();
   const unique = bullets.filter((b) => {
-    if (seen.has(b.url)) return false;
-    seen.add(b.url);
+    const key = `${b.name.toLowerCase()}|${b.url}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 
-  const take = unique.length >= minCount ? unique : unique;
+  // Take all unique bullets (don’t truncate unless we want to enforce minCount)
+  const take = unique;
 
+  // Render every citation as its own bullet
   const bulletsText = take
     .map((b) => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`)
     .join("\n");
