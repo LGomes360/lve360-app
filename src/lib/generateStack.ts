@@ -337,15 +337,18 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
   const bullets: Array<{ name: string; url: string }> = [];
 
   // Collect all valid citations from every item
-  for (const it of items) {
-    const valid = (it.citations ?? [])
-      .map(canonical)
-      .filter((u) => CURATED_CITE_RE.test(u) || MODEL_CITE_RE.test(u));
+for (const it of items) {
+  // Only accept citations if they are a non-empty array of valid strings
+  const valid = Array.isArray(it.citations)
+    ? it.citations.map(canonical).filter((u) => CURATED_CITE_RE.test(u) || MODEL_CITE_RE.test(u))
+    : [];
 
-    for (const url of valid) {
-      bullets.push({ name: cleanName(it.name), url });
-    }
+  if (valid.length === 0) continue;
+
+  for (const url of valid) {
+    bullets.push({ name: cleanName(it.name), url });
   }
+}
 
   // Deduplicate only by (name + url)
   const seen = new Set<string>();
