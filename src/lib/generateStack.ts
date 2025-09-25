@@ -551,11 +551,108 @@ function attachEvidence(item: StackItem): StackItem {
  return { ...item, citations: final.length ? final : null };
 }
 
+// --- Evidence label helpers --------------------------------------------------
+function hostOf(u: string): string {
+  try {
+    return new URL(u).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
 
-function buildEvidenceSection(items: StackItem[], minCount = 8): {
+function canonical(u: string): string {
+  return (u || "").trim().replace(/\/+$/, ""); // drop trailing slash(es)
+}
+
+function labelForUrl(u: string): string {
+  const h = hostOf(u);
+
+  if (/pubmed\.ncbi\.nlm\.nih\.gov/i.test(h)) return "PubMed";
+  if (/pmc\.ncbi\.nlm\.nih\.gov/i.test(h)) return "PMC";
+  if (/doi\.org/i.test(h)) return "DOI";
+  if (/jamanetwork\.com/i.test(h)) return "JAMA";
+  if (/biomedcentral\.com|bmcpsychiatry\.biomedcentral\.com|dmsjournal\.biomedcentral\.com/i.test(h)) return "BMC";
+  if (/journals\.plos\.org|plos\.org/i.test(h)) return "PLOS";
+  if (/nature\.com/i.test(h)) return "Nature";
+  if (/sciencedirect\.com/i.test(h)) return "ScienceDirect";
+  if (/amjmed\.com/i.test(h)) return "Am J Med";
+  if (/koreascience\.kr/i.test(h)) return "KoreaScience";
+  if (/monash\.edu/i.test(h)) return "Monash";
+
+  // Fallback: show bare domain (nicely)
+  return h || "Source";
+}
+
+const LABEL_ORDER = [
+  "PubMed",
+  "PMC",
+  "DOI",
+  "JAMA",
+  "BMC",
+  "PLOS",
+  "Nature",
+  "ScienceDirect",
+  "Am J Med",
+  "KoreaScience",
+  "Monash",
+  "Source",
+];
+
+function labelRank(label: string): number {
+  const idx = LABEL_ORDER.indexOf(label);
+  return idx === -1 ? LABEL_ORDER.length : idx;
+}
+
+function buildEvidenceSection(items: StackItem[], _minCount = 8): {
   section: string;
   bullets: Array<{ name: string; url: string }>;
 } {
+  // Group valid citations per supplement name
+  const grouped: Record<string, string[]> = {};
+
+  for (const it of items) {
+    // Keep only links that pass either curated or strict model URL validators
+    const valid = (it.citations ?? [])
+      .map(canonical)
+      .filter((u) => CURATED_CITE_RE.test(u) || MODEL_CITE_RE.test(u));
+
+    if (!valid.length) continue;
+
+    const name = cleanName(it.name);
+    if (!grouped[name]) grouped[name] = [];
+
+    for (const u of valid) {
+      if (!grouped[name].includes(u)) grouped[name].push(u);
+    }
+  }
+
+  // Build bullets with human labels and stable order (PubMed → PMC → DOI → others)
+  const lines: string[] = [];
+  const bullets: Array<{ name: string; url: string }> = [];
+
+  for (const [name, urls] of Object.entries(grouped)) {
+    const labeled = urls
+      .map((u) => ({ u, label: labelForUrl(u) }))
+      .sort((a, b) => labelRank(a.label) - labelRank(b.label));
+
+    const linkStr = labeled.map(({ u, label }) => `[${label}](${u})`).join(", ");
+    lines.push(`- ${name}: ${linkStr}`);
+
+    // keep a flat list for logging/telemetry
+    for (const { u } of labeled) bullets.push({ name, url: u });
+  }
+
+  const analysis =
+    "\n\n**Analysis**\n\nThese references are pulled from LVE360’s curated evidence index (PubMed/PMC/DOI and other trusted journals) and replace any model-generated references.";
+
+  const section =
+    `## Evidence & References\n\n` +
+    (lines.length ? lines.join("\n") : "- _No curated citations available yet._") +
+    analysis;
+
+  return { section, bullets };
+}
+
   const pairs: Array<{ name: string; url: string }> = [];
 
   for (const it of items) {
