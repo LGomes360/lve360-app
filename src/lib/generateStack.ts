@@ -336,6 +336,7 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
 } {
   const bullets: Array<{ name: string; url: string }> = [];
 
+  // Collect all valid citations from every item
   for (const it of items) {
     const valid = (it.citations ?? [])
       .map(canonical)
@@ -346,7 +347,7 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
     }
   }
 
-  // Deduplicate only on (name + url), so each supplement keeps its refs
+  // Deduplicate only by (name + url)
   const seen = new Set<string>();
   const unique = bullets.filter((b) => {
     const key = `${b.name.toLowerCase()}|${b.url}`;
@@ -355,11 +356,19 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
     return true;
   });
 
-  // Take all unique bullets (don’t truncate unless we want to enforce minCount)
-  const take = unique;
+  // Enforce minimum count by padding if too short
+  const padded =
+    unique.length >= minCount
+      ? unique
+      : [
+          ...unique,
+          ...Array.from({ length: minCount - unique.length }, (_, i) => ({
+            name: "Evidence pending",
+            url: "https://lve360.com/evidence/coming-soon",
+          })),
+        ];
 
-  // Render every citation as its own bullet
-  const bulletsText = take
+  const bulletsText = padded
     .map((b) => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`)
     .join("\n");
 
@@ -372,7 +381,7 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
     (bulletsText || "- _No curated citations available yet._") +
     analysis;
 
-  return { section, bullets: take };
+  return { section, bullets: padded };
 }
 
 function overrideEvidenceInMarkdown(md: string, section: string): string {
