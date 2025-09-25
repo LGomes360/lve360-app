@@ -664,6 +664,20 @@ function buildEvidenceSection(items: StackItem[], _minCount = 8): {
     }
   }
 
+function buildEvidenceSection(items: StackItem[], minCount = 8): {
+  section: string;
+  bullets: Array<{ name: string; url: string }>;
+} {
+  const pairs: Array<{ name: string; url: string }> = [];
+
+  for (const it of items) {
+    for (const url of it.citations ?? []) {
+      if (CURATED_CITE_RE.test(url) || MODEL_CITE_RE.test(url)) {
+        pairs.push({ name: it.name, url });
+      }
+    }
+  }
+
   // Dedup by URL
   const seen = new Set<string>();
   const unique = pairs.filter((p) => {
@@ -679,12 +693,18 @@ function buildEvidenceSection(items: StackItem[], _minCount = 8): {
     .map((p) => `- ${p.name}: [PubMed](${p.url})`)
     .join("\n");
 
-  const analysis =
-    "\n\n**Analysis**\n\nThese references are pulled from LVE360’s curated evidence index (PubMed/PMC/DOI and other trusted journals) and replace any model-generated references.";
+  const analysis = `
+\n\n**Analysis**\n\nThese references are pulled from LVE360’s curated evidence index (PubMed/PMC/DOI and other trusted journals) and replace any model-generated references.
+`;
 
-  const section = `## Evidence & References\n\n${bulletsText || "- _No curated citations available yet._"}${analysis}`;
+  const section =
+    `## Evidence & References\n\n` +
+    (bulletsText || "- _No curated citations available yet._") +
+    analysis;
+
   return { section, bullets: take };
 }
+
 
 function overrideEvidenceInMarkdown(md: string, section: string): string {
   const headerRe = /## Evidence & References([\s\S]*?)(?=\n## |\n## END|$)/i;
