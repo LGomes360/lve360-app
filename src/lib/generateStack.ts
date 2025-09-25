@@ -337,12 +337,17 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
   const bullets: Array<{ name: string; url: string }> = [];
 
   for (const it of items) {
-    const valid = (it.citations ?? [])
-      .map(canonical)
-      .filter((u) => CURATED_CITE_RE.test(u) || MODEL_CITE_RE.test(u));
+    for (const rawUrl of it.citations ?? []) {
+      const url = canonical(rawUrl);
 
-    for (const url of valid) {
-      bullets.push({ name: cleanName(it.name), url });
+      if (CURATED_CITE_RE.test(url) || MODEL_CITE_RE.test(url)) {
+        bullets.push({ name: cleanName(it.name), url });
+      } else {
+        console.warn("❌ Dropped citation (did not match allowed patterns)", {
+          name: it.name,
+          url,
+        });
+      }
     }
   }
 
@@ -354,18 +359,13 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
     return true;
   });
 
-  // 🔧 Keep only curated citations (no dummy padding)
-  const final = unique;
-
-  // Warn if coverage is below expected minimum
-  if (final.length < minCount) {
+  if (unique.length < minCount) {
     console.warn(
-      `⚠️ Evidence coverage low: ${final.length}/${minCount} curated citations found`
+      `⚠️ Evidence coverage low: ${unique.length}/${minCount} curated citations found`
     );
   }
 
-  // Render each citation as its own bullet
-  const bulletsText = final
+  const bulletsText = unique
     .map((b) => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`)
     .join("\n");
 
@@ -378,8 +378,9 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
     (bulletsText || "- _No curated citations available yet._") +
     analysis;
 
-  return { section, bullets: final };
+  return { section, bullets: unique };
 }
+
 
 function overrideEvidenceInMarkdown(md: string, section: string): string {
   const headerRe = /## Evidence & References([\s\S]*?)(?=\n## |\n## END|$)/i;
