@@ -791,37 +791,39 @@ export async function generateStackForSubmission(id: string) {
     if (parent?.id && user_id) {
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
-      const rows = withEvidence
-        .map((it) => {
-          const safeName = cleanName(it?.name ?? "");
-          if (!safeName || safeName.toLowerCase() === "null") {
-            console.error("🚨 Blocking insert of invalid item", {
-              stack_id: parent.id,
-              user_id,
-              rawName: it?.name,
-              item: it,
-            });
-            return null;
-          }
-          return {
-            stack_id: parent.id,
-            user_id,
-            user_email: userEmail,
-            name: safeName,
-            dose: it.dose ?? null,
-            timing: it.timing ?? null,
-            notes: it.notes ?? null,
-            rationale: it.rationale ?? null,
-            caution: it.caution ?? null,
-            citations: it.citations ? JSON.stringify(it.citations) : null,
-            link_amazon: it.link_amazon ?? null,
-            link_fullscript: it.link_fullscript ?? null,
-            link_thorne: it.link_thorne ?? null,
-            link_other: it.link_other ?? null,
-            cost_estimate: it.cost_estimate ?? null,
-          };
-        })
-        .filter((r) => r !== null);
+const rows = withEvidence
+  .map((it) => {
+    const normName = normalizeSupplementName(it?.name ?? ""); // ✅ normalize here
+    const safeName = cleanName(normName);
+    if (!safeName || safeName.toLowerCase() === "null") {
+      console.error("🚨 Blocking insert of invalid item", {
+        stack_id: parent.id,
+        user_id,
+        rawName: it?.name,
+        normalized: normName,
+        item: it,
+      });
+      return null;
+    }
+    return {
+      stack_id: parent.id,
+      user_id,
+      user_email: userEmail,
+      name: safeName, // ✅ now always the normalized version
+      dose: it.dose ?? null,
+      timing: it.timing ?? null,
+      notes: it.notes ?? null,
+      rationale: it.rationale ?? null,
+      caution: it.caution ?? null,
+      citations: it.citations ? JSON.stringify(it.citations) : null,
+      link_amazon: it.link_amazon ?? null,
+      link_fullscript: it.link_fullscript ?? null,
+      link_thorne: it.link_thorne ?? null,
+      link_other: it.link_other ?? null,
+      cost_estimate: it.cost_estimate ?? null,
+    };
+  })
+  .filter((r) => r !== null);
 
       console.log("✅ Prepared stack_items rows:", rows);
 
