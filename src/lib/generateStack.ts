@@ -395,6 +395,7 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     if (it.name.length > 40) return false; // too long → likely a sentence
     if (/[.,]{3,}/.test(it.name)) return false; // repeated punctuation
     if (/\bvitamin\b.*\band\b/i.test(it.name)) return false; // "vitamin ... and ..." likely sentence fragment
+    if (/^analysis$/i.test(it.name.trim())) return false;
 
     seen.add(key);
     return true;
