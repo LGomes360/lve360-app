@@ -642,9 +642,10 @@ function buildEvidenceSection(items: StackItem[], _minCount = 8): {
     for (const { u } of labeled) bullets.push({ name, url: u });
   }
 
-  const analysis =
-    "\n\n**Analysis**\n\nThese references are pulled from LVE360’s curated evidence index (PubMed/PMC/DOI and other trusted journals) and replace any model-generated references.";
-
+  const analysis = `
+   \n\n**Analysis**\n\nThese references are pulled from LVE360’s curated evidence index (PubMed/PMC/DOI and other trusted journals) and replace any model-generated references.
+   `;
+  
   const section =
     `## Evidence & References\n\n` +
     (lines.length ? lines.join("\n") : "- _No curated citations available yet._") +
