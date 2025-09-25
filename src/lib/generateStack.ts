@@ -603,56 +603,50 @@ function labelRank(label: string): number {
   return idx === -1 ? LABEL_ORDER.length : idx;
 }
 
-function buildEvidenceSection(items: StackItem[], _minCount = 8): {
+function buildEvidenceSection(items: StackItem[], minCount = 8): {
   section: string;
   bullets: Array<{ name: string; url: string }>;
 } {
-  // Group valid citations per supplement name
-  const grouped: Record<string, string[]> = {};
+  const bullets: Array<{ name: string; url: string }> = [];
 
   for (const it of items) {
-    // Keep only links that pass either curated or strict model URL validators
     const valid = (it.citations ?? [])
       .map(canonical)
       .filter((u) => CURATED_CITE_RE.test(u) || MODEL_CITE_RE.test(u));
 
-    if (!valid.length) continue;
-
-    const name = cleanName(it.name);
-    if (!grouped[name]) grouped[name] = [];
-
-    for (const u of valid) {
-      if (!grouped[name].includes(u)) grouped[name].push(u);
+    for (const url of valid) {
+      bullets.push({ name: cleanName(it.name), url });
     }
   }
 
-  // Build bullets with human labels and stable order (PubMed → PMC → DOI → others)
-  const lines: string[] = [];
-  const bullets: Array<{ name: string; url: string }> = [];
+  // Deduplicate by URL
+  const seen = new Set<string>();
+  const unique = bullets.filter((b) => {
+    if (seen.has(b.url)) return false;
+    seen.add(b.url);
+    return true;
+  });
 
-  for (const [name, urls] of Object.entries(grouped)) {
-    const labeled = urls
-      .map((u) => ({ u, label: labelForUrl(u) }))
-      .sort((a, b) => labelRank(a.label) - labelRank(b.label));
+  // Slice if too many, but keep at least `minCount`
+  const take = unique.slice(0, Math.max(unique.length, minCount));
 
-    const linkStr = labeled.map(({ u, label }) => `[${label}](${u})`).join(", ");
-    lines.push(`- ${name}: ${linkStr}`);
+  // Markdown bullets
+  const bulletsText = take
+    .map((b) => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`)
+    .join("\n");
 
-    // keep a flat list for logging/telemetry
-    for (const { u } of labeled) bullets.push({ name, url: u });
-  }
-
-   const analysis = `
+  const analysis = `
 \n\n**Analysis**\n\nThese references are pulled from LVE360’s curated evidence index (PubMed/PMC/DOI and other trusted journals) and replace any model-generated references.
 `;
-  
+
   const section =
     `## Evidence & References\n\n` +
-    (lines.length ? lines.join("\n") : "- _No curated citations available yet._") +
+    (bulletsText || "- _No curated citations available yet._") +
     analysis;
 
-  return { section, bullets };
+  return { section, bullets: take };
 }
+
 
 function overrideEvidenceInMarkdown(md: string, section: string): string {
   const headerRe = /## Evidence & References([\s\S]*?)(?=\n## |\n## END|$)/i;
