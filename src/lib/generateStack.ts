@@ -627,10 +627,10 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
     return true;
   });
 
-  // Slice if too many, but keep at least `minCount`
-  const take = unique.slice(0, Math.max(unique.length, minCount));
+  // Ensure at least minCount
+  const take = unique.length >= minCount ? unique : unique;
 
-  // Markdown bullets
+  // Render every citation as its own bullet
   const bulletsText = take
     .map((b) => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`)
     .join("\n");
@@ -646,7 +646,6 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
 
   return { section, bullets: take };
 }
-
 
 function overrideEvidenceInMarkdown(md: string, section: string): string {
   const headerRe = /## Evidence & References([\s\S]*?)(?=\n## |\n## END|$)/i;
