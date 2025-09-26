@@ -1,3 +1,7 @@
+// DEPRECATED: This file was originally used to join child tables
+// (submission_medications, supplements, hormones).
+// Intake parsing now happens in generateStack.ts from submissions.answers JSON.
+// This file is kept only for reference.
 // src/lib/getSubmissionWithChildren.ts
 // Robust helper: returns a Submission + its child rows.
 // - Typed against Database from '@/types/supabase'.
