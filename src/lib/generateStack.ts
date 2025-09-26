@@ -665,17 +665,37 @@ export async function generateStackForSubmission(id: string) {
     tokensUsed = resp.usage?.total_tokens ?? null;
     promptTokens = resp.usage?.prompt_tokens ?? null;
     completionTokens = resp.usage?.completion_tokens ?? null;
-    md = resp.choices[0]?.message?.content ?? "";
-    if (
-      wc(md) >= MIN_WORDS &&
-      headingsOK(md) &&
-      blueprintOK(md) &&
-      citationsOK(md) &&
-      narrativesOK(md) &&
-      hasEnd(md)
-    ) {
-      passes = true;
-    }
+md = resp.choices[0]?.message?.content ?? "";
+
+// --- Validation logging ---
+const wordCountOK = wc(md) >= MIN_WORDS;
+const headingsValid = headingsOK(md);
+const blueprintValid = blueprintOK(md);
+const citationsValid = citationsOK(md);
+const narrativesValid = narrativesOK(md);
+const endValid = hasEnd(md);
+
+console.log("validation.debug", {
+  wordCountOK,
+  headingsValid,
+  blueprintValid,
+  citationsValid,
+  narrativesValid,
+  endValid,
+  actualWordCount: wc(md)
+});
+
+if (
+  wordCountOK &&
+  headingsValid &&
+  blueprintValid &&
+  citationsValid &&
+  narrativesValid &&
+  endValid
+) {
+  passes = true;
+}
+
   } catch (err) {
     console.warn("Mini model failed:", err);
   }
@@ -687,17 +707,37 @@ export async function generateStackForSubmission(id: string) {
     tokensUsed = resp.usage?.total_tokens ?? null;
     promptTokens = resp.usage?.prompt_tokens ?? null;
     completionTokens = resp.usage?.completion_tokens ?? null;
-    md = resp.choices[0]?.message?.content ?? "";
-    if (
-      wc(md) >= MIN_WORDS &&
-      headingsOK(md) &&
-      blueprintOK(md) &&
-      citationsOK(md) &&
-      narrativesOK(md) &&
-      hasEnd(md)
-    ) {
-      passes = true;
-    }
+md = resp.choices[0]?.message?.content ?? "";
+
+// --- Validation logging (fallback) ---
+const wordCountOK = wc(md) >= MIN_WORDS;
+const headingsValid = headingsOK(md);
+const blueprintValid = blueprintOK(md);
+const citationsValid = citationsOK(md);
+const narrativesValid = narrativesOK(md);
+const endValid = hasEnd(md);
+
+console.log("validation.debug.fallback", {
+  wordCountOK,
+  headingsValid,
+  blueprintValid,
+  citationsValid,
+  narrativesValid,
+  endValid,
+  actualWordCount: wc(md)
+});
+
+if (
+  wordCountOK &&
+  headingsValid &&
+  blueprintValid &&
+  citationsValid &&
+  narrativesValid &&
+  endValid
+) {
+  passes = true;
+}
+
   }
 
   md = ensureEnd(md);
