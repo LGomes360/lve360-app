@@ -27,8 +27,8 @@ function extractSection(md: string, heads: string[]): string | null {
   if (start === -1) return null;
   const tail = md.slice(start + 1);
   const next = /\n##\s+/m.exec(tail);
-  const end  = next ? start + 1 + next.index : md.length;
-  let slice  = md.slice(start, end);
+  const end = next ? start + 1 + next.index : md.length;
+  let slice = md.slice(start, end);
   return slice.replace(/^##\s*[^\n]+\n?/, "").trim();
 }
 
@@ -39,26 +39,32 @@ function Prose({ children }: { children: string }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          h2: ({node, ...props}) => (
-            <h2 className="text-2xl font-bold text-teal-600 mt-8 mb-4 border-b border-gray-200 pb-1" {...props}/>
+          h2: ({ node, ...props }) => (
+            <h2
+              className="text-2xl font-bold text-teal-600 mt-8 mb-4 border-b border-gray-200 pb-1"
+              {...props}
+            />
           ),
-          table: ({node, ...props}) => (
-            <table className="w-full border-collapse my-4 text-sm shadow-sm" {...props}/>
+          table: ({ node, ...props }) => (
+            <table
+              className="w-full border-collapse my-4 text-sm shadow-sm"
+              {...props}
+            />
           ),
-          thead: ({node, ...props}) => (
-            <thead className="bg-[#06C1A0] text-white" {...props}/>
+          thead: ({ node, ...props }) => (
+            <thead className="bg-[#06C1A0] text-white" {...props} />
           ),
-          th: ({node, ...props}) => (
-            <th className="px-3 py-2 text-left font-semibold" {...props}/>
+          th: ({ node, ...props }) => (
+            <th className="px-3 py-2 text-left font-semibold" {...props} />
           ),
-          td: ({node, ...props}) => (
-            <td className="px-3 py-2 border-t border-gray-200" {...props}/>
+          td: ({ node, ...props }) => (
+            <td className="px-3 py-2 border-t border-gray-200" {...props} />
           ),
-          tr: ({node, ...props}) => (
-            <tr className="even:bg-gray-50" {...props}/>
+          tr: ({ node, ...props }) => (
+            <tr className="even:bg-gray-50" {...props} />
           ),
-          strong: ({node, ...props}) => (
-            <strong className="font-semibold text-[#041B2D]" {...props}/>
+          strong: ({ node, ...props }) => (
+            <strong className="font-semibold text-[#041B2D]" {...props} />
           ),
         }}
       >
@@ -68,7 +74,13 @@ function Prose({ children }: { children: string }) {
   );
 }
 
-function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+function SectionCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
       <h2 className="text-xl font-semibold text-[#06C1A0] mb-4">{title}</h2>
@@ -91,7 +103,11 @@ function ResultsContent() {
     const res = await fetch(
       path,
       body
-        ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+        ? {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          }
         : {}
     );
     if (!res.ok) throw new Error(`API ${res.status}`);
@@ -102,8 +118,11 @@ function ResultsContent() {
     if (!tallyId) return;
     (async () => {
       try {
-        const data = await api(`/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`);
-        const raw = data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
+        const data = await api(
+          `/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`
+        );
+        const raw =
+          data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
         setMarkdown(sanitizeMarkdown(raw));
       } catch (e: any) {
         console.warn(e);
@@ -116,7 +135,9 @@ function ResultsContent() {
     try {
       setGenerating(true);
       setError(null);
-      const data = await api("/api/generate-stack", { tally_submission_id: tallyId });
+      const data = await api("/api/generate-stack", {
+        tally_submission_id: tallyId,
+      });
       const raw =
         data?.stack?.sections?.markdown ??
         data?.ai?.markdown ??
@@ -136,7 +157,7 @@ function ResultsContent() {
       const res = await fetch(`/api/export-pdf?submission_id=${tallyId}`);
       if (!res.ok) throw new Error(`PDF export failed (${res.status})`);
       const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
       setTimeout(() => URL.revokeObjectURL(url), 5_000);
     } catch (e: any) {
@@ -149,9 +170,16 @@ function ResultsContent() {
     return {
       intro: extractSection(md, ["Intro Summary", "Summary"]),
       goals: extractSection(md, ["Goals"]),
-      contra: extractSection(md, ["Contraindications & Med Interactions", "Contraindications"]),
+      contra: extractSection(md, [
+        "Contraindications & Med Interactions",
+        "Contraindications",
+      ]),
       current: extractSection(md, ["Current Stack"]),
-      blueprint: extractSection(md, ["Your Blueprint Recommendations",'High-Impact "Bang-for-Buck" Additions',"High-Impact Bang-for-Buck Additions"]),
+      blueprint: extractSection(md, [
+        "Your Blueprint Recommendations",
+        'High-Impact "Bang-for-Buck" Additions',
+        "High-Impact Bang-for-Buck Additions",
+      ]),
       dosing: extractSection(md, ["Dosing & Notes", "Dosing"]),
       evidence: extractSection(md, ["Evidence & References"]),
       shopping: extractSection(md, ["Shopping Links"]),
@@ -168,20 +196,23 @@ function ResultsContent() {
         <h1 className="text-4xl font-extrabold font-display text-[#041B2D]">
           Your LVE360 Blueprint
         </h1>
-        <p className="text-gray-600 mt-2">Personalized insights for Longevity • Vitality • Energy</p>
+        <p className="text-gray-600 mt-2">
+          Personalized insights for Longevity • Vitality • Energy
+        </p>
       </div>
 
       <SectionCard title="Actions">
         <div className="flex flex-wrap gap-4 justify-center">
-          <LatestReadyGate onReady={() => setReady(true)} /> {/* ⭐ NEW */}
+          {/* Gate ensures the record exists before enabling */}
+          <LatestReadyGate onReady={() => setReady(true)} />
 
           <CTAButton
             onClick={generateStack}
             variant="gradient"
-            disabled={generating || !ready} // ⭐ NEW
+            disabled={generating || !ready}
           >
             {generating
-              ? "🤖 Generating..."
+              ? "💪 Generating..."
               : ready
               ? "✨ Generate Free Report"
               : "⏳ Preparing…"}
@@ -193,36 +224,91 @@ function ResultsContent() {
         </div>
 
         {generating && (
-        <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
-       💪 Crunching the numbers… this usually takes about <strong>2 minutes</strong>.
-        </p>
+          <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
+            💪 Crunching the numbers… this usually takes about{" "}
+            <strong>2 minutes</strong>.
+          </p>
         )}
-           
       </SectionCard>
 
-      {error && <div className="text-center text-red-600 mb-6">{error}</div>}
+      {error && (
+        <div className="text-center text-red-600 mb-6">{error}</div>
+      )}
 
-      {sec.intro && <SectionCard title="Intro Summary"><Prose>{sec.intro}</Prose></SectionCard>}
-      {sec.goals && <SectionCard title="Goals"><Prose>{sec.goals}</Prose></SectionCard>}
-      {sec.contra && <SectionCard title="Contraindications & Med Interactions"><Prose>{sec.contra}</Prose></SectionCard>}
-      {sec.current && <SectionCard title="Current Stack"><Prose>{sec.current}</Prose></SectionCard>}
-      {sec.blueprint && <SectionCard title="Your Blueprint Recommendations"><Prose>{sec.blueprint}</Prose></SectionCard>}
-      {sec.dosing && <SectionCard title="Dosing & Notes"><Prose>{sec.dosing}</Prose></SectionCard>}
-      {sec.evidence && <SectionCard title="Evidence & References"><Prose>{sec.evidence}</Prose></SectionCard>}
-      {sec.shopping && <SectionCard title="Shopping Links"><Prose>{sec.shopping}</Prose></SectionCard>}
-      {sec.follow && <SectionCard title="Follow-up Plan"><Prose>{sec.follow}</Prose></SectionCard>}
-      {sec.lifestyle && <SectionCard title="Lifestyle Prescriptions"><Prose>{sec.lifestyle}</Prose></SectionCard>}
-      {sec.longevity && <SectionCard title="Longevity Levers"><Prose>{sec.longevity}</Prose></SectionCard>}
-      {sec.weekTry && <SectionCard title="This Week Try"><Prose>{sec.weekTry}</Prose></SectionCard>}
+      {sec.intro && (
+        <SectionCard title="Intro Summary">
+          <Prose>{sec.intro}</Prose>
+        </SectionCard>
+      )}
+      {sec.goals && (
+        <SectionCard title="Goals">
+          <Prose>{sec.goals}</Prose>
+        </SectionCard>
+      )}
+      {sec.contra && (
+        <SectionCard title="Contraindications & Med Interactions">
+          <Prose>{sec.contra}</Prose>
+        </SectionCard>
+      )}
+      {sec.current && (
+        <SectionCard title="Current Stack">
+          <Prose>{sec.current}</Prose>
+        </SectionCard>
+      )}
+      {sec.blueprint && (
+        <SectionCard title="Your Blueprint Recommendations">
+          <Prose>{sec.blueprint}</Prose>
+        </SectionCard>
+      )}
+      {sec.dosing && (
+        <SectionCard title="Dosing & Notes">
+          <Prose>{sec.dosing}</Prose>
+        </SectionCard>
+      )}
+      {sec.evidence && (
+        <SectionCard title="Evidence & References">
+          <Prose>{sec.evidence}</Prose>
+        </SectionCard>
+      )}
+      {sec.shopping && (
+        <SectionCard title="Shopping Links">
+          <Prose>{sec.shopping}</Prose>
+        </SectionCard>
+      )}
+      {sec.follow && (
+        <SectionCard title="Follow-up Plan">
+          <Prose>{sec.follow}</Prose>
+        </SectionCard>
+      )}
+      {sec.lifestyle && (
+        <SectionCard title="Lifestyle Prescriptions">
+          <Prose>{sec.lifestyle}</Prose>
+        </SectionCard>
+      )}
+      {sec.longevity && (
+        <SectionCard title="Longevity Levers">
+          <Prose>{sec.longevity}</Prose>
+        </SectionCard>
+      )}
+      {sec.weekTry && (
+        <SectionCard title="This Week Try">
+          <Prose>{sec.weekTry}</Prose>
+        </SectionCard>
+      )}
 
       <SectionCard title="Important Wellness Disclaimer">
         <p className="text-sm text-gray-700 leading-relaxed">
-          This plan from <strong>LVE360 (Longevity | Vitality | Energy)</strong> is for educational purposes only…
+          This plan from <strong>LVE360 (Longevity | Vitality | Energy)</strong>{" "}
+          is for educational purposes only…
         </p>
       </SectionCard>
 
       <div className="flex justify-center mt-8">
-        <button onClick={exportPDF} aria-label="Export PDF" className="w-10 h-10 flex items-center justify-center rounded-md border border-gray-300 bg-white shadow-sm hover:shadow-md transition">
+        <button
+          onClick={exportPDF}
+          aria-label="Export PDF"
+          className="w-10 h-10 flex items-center justify-center rounded-md border border-gray-300 bg-white shadow-sm hover:shadow-md transition"
+        >
           PDF
         </button>
       </div>
