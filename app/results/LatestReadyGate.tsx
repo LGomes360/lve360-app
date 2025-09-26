@@ -1,43 +1,67 @@
-{/* Actions Section */}
-<SectionCard title="Actions">
-  <div className="flex flex-wrap gap-4 justify-center">
-    {/* Wrap in try/catch boundary */}
-    <Suspense fallback={<p className="text-sm text-gray-500">⏳ Loading gate…</p>}>
-      <LatestReadyGate
-        onReady={(id) => {
-          console.log("✅ Gate ready, submissionId:", id);
-          setReady(true);
-          setSubmissionId(id);
-        }}
-      />
-    </Suspense>
+"use client";
 
-    <CTAButton
-      onClick={generateStack}
-      variant="gradient"
-      disabled={generating || !ready}
-    >
-      {generating
-        ? "💪 Crunching..."
-        : ready
-        ? "✨ Generate Free Report"
-        : "🤖 Warming up…"}
-    </CTAButton>
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase"; // ✅ matches your repo
 
-    <CTAButton href="/pricing" variant="premium">
-      👑 Upgrade to Premium
-    </CTAButton>
-  </div>
+type Props = { onReady: (submissionId: string | null) => void };
 
-  {/* Debug output */}
-  <p className="text-xs text-gray-400 mt-2">
-    Debug: ready={String(ready)}, submissionId={submissionId ?? "null"}
-  </p>
+export default function LatestReadyGate({ onReady }: Props) {
+  const [status, setStatus] = useState<"waiting" | "ready">("waiting");
 
-  {generating && (
-    <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
-      💪 Crunching the numbers… this usually takes about{" "}
-      <strong>2 minutes</strong>.
-    </p>
-  )}
-</SectionCard>
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tallyId = params.get("tally_submission_id");
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    if (tallyId) {
+      // Listen for new submissions
+      channel = supabase
+        .channel("submissions-watch")
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "submissions",
+            filter: `tally_submission_id=eq.${tallyId}`,
+          },
+          (payload) => {
+            setStatus("ready");
+            onReady((payload.new as any)?.id ?? null);
+          }
+        )
+        .subscribe();
+
+      // Fallback quick poll
+      const check = async () => {
+        const { data } = await supabase
+          .from("submissions")
+          .select("id")
+          .eq("tally_submission_id", tallyId)
+          .maybeSingle();
+        if (data?.id) {
+          setStatus("ready");
+          onReady(data.id);
+        }
+      };
+      check();
+    } else {
+      setStatus("ready");
+      onReady(null);
+    }
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [onReady]);
+
+  if (status === "waiting") {
+    return (
+      <button disabled className="opacity-60 text-gray-500 text-sm">
+        Preparing your data…
+      </button>
+    );
+  }
+
+  return null; // once ready, nothing to show
+}
