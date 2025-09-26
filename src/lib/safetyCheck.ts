@@ -150,7 +150,6 @@ export async function applySafetyChecks(
   items: StackItem[]
 ): Promise<{ cleaned: StackItem[]; notes: SafetyIssue[]; status: "safe" | "warning" | "error" }> {
 
-
   const notes: SafetyIssue[] = [];
   const meds = (submission.medications ?? []).map(lc);
   const conds = (submission.conditions ?? []).map(lc);
@@ -252,20 +251,25 @@ export async function applySafetyChecks(
 
   notes.push({ type: "INFO", message: "Educational only; not medical advice. Always consult a provider." });
   
-let status: "safe" | "warning" | "error" = "safe";
+// --- Compute stack-level safety status from accumulated notes ---
+const hasCritical =
+  notes.some(n => n.type === "AVOID" || n.type === "PREGNANCY");
 
-// Critical issues → error
-if (notes.some((n) => n.type === "AVOID" || n.type === "PREGNANCY")) {
+const hasWarnings =
+  notes.some(n =>
+    n.type === "UL_CAP" ||
+    n.type === "SPACING" ||
+    n.type === "INTERACTION" ||
+    n.type === "ALLERGY"
+  );
+
+let status: "safe" | "warning" | "error" = "safe";
+if (hasCritical) {
   status = "error";
-}
-// Warnings → warning
-else if (
-  notes.some((n) =>
-    ["UL_CAP", "SPACING", "INTERACTION", "ALLERGY"].includes(n.type)
-  )
-) {
+} else if (hasWarnings) {
   status = "warning";
 }
 
 return { cleaned: out, notes, status };
+}
 
