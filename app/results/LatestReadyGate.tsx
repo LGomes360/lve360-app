@@ -13,14 +13,15 @@ function getParam(name: string) {
 async function waitForSubmissionPoll(tallyId: string, maxMs = 5000) {
   const start = Date.now();
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
   while (Date.now() - start < maxMs) {
     const { data } = await supabase
       .from("submissions")
       .select("id")
       .eq("tally_submission_id", tallyId)
-      .maybeSingle();
+      .maybeSingle<{ id: string }>(); // ✅ tell TS what we expect back
 
-    if (data?.id) return data.id;
+    if (data && "id" in data) return data.id; // ✅ type-safe check
     await sleep(400);
   }
   return null;
@@ -32,7 +33,6 @@ export default function LatestReadyGate({ onReady }: Props) {
   useEffect(() => {
     const tallyId = getParam("tally_submission_id");
     if (!tallyId) {
-      // no tally param → allow button immediately
       setStatus("ready");
       onReady(null);
       return;
@@ -51,7 +51,7 @@ export default function LatestReadyGate({ onReady }: Props) {
         },
         (payload) => {
           setStatus("ready");
-          onReady((payload.new as any)?.id ?? null);
+          onReady((payload.new as { id?: string })?.id ?? null);
         }
       )
       .subscribe();
@@ -77,5 +77,5 @@ export default function LatestReadyGate({ onReady }: Props) {
     );
   }
 
-  return null; // once "ready", hide the placeholder
+  return null;
 }
