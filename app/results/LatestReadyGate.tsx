@@ -1,36 +1,35 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase"; // ✅ matches your repo structure
+import { supabase } from "@/lib/supabase"; // ✅ use your actual client
 
-type Props = {
-  onReady: (submissionId: string | null) => void;
-};
+type Props = { onReady: (submissionId: string | null) => void };
 
 function getParam(name: string) {
   if (typeof window === "undefined") return "";
   return new URLSearchParams(window.location.search).get(name) ?? "";
 }
 
-async function waitForSubmissionPoll(
-  tallyId: string,
-  maxMs = 4000
-): Promise<string | null> {
+async function waitForSubmissionPoll(tallyId: string, maxMs = 3000) {
   const start = Date.now();
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   while (Date.now() - start < maxMs) {
-    const { data, error } = await supabase
-      .from("submissions")
-      .select("id")
-      .eq("tally_submission_id", tallyId)
-      .maybeSingle();
+    try {
+      const { data, error } = await supabase
+        .from("submissions")
+        .select("id")
+        .eq("tally_submission_id", tallyId)
+        .maybeSingle();
 
-    if (error) {
-      console.warn("Polling error:", error);
-    }
+      if (error) {
+        console.error("Poll error:", error);
+        break; // bail out if Supabase rejects
+      }
 
-    if (data?.id) {
-      return data.id;
+      if (data?.id) return data.id;
+    } catch (e) {
+      console.error("Poll exception:", e);
+      break;
     }
     await sleep(300);
   }
@@ -39,44 +38,54 @@ async function waitForSubmissionPoll(
 
 export default function LatestReadyGate({ onReady }: Props) {
   const [status, setStatus] = useState<"waiting" | "ready">("waiting");
+  const [debug, setDebug] = useState<string>("init");
 
   useEffect(() => {
     const tallyId = getParam("tally_submission_id");
     let channel: ReturnType<typeof supabase.channel> | null = null;
 
-    if (tallyId) {
-      // 🔔 Subscribe for realtime INSERT events
-      channel = supabase
-        .channel("submissions-watch")
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "submissions",
-            filter: `tally_submission_id=eq.${tallyId}`,
-          },
-          (payload) => {
-            const newId = (payload.new as any)?.id ?? null;
-            console.log("[Realtime] Got new submission:", newId);
-            setStatus("ready");
-            onReady(newId);
-          }
-        )
-        .subscribe();
+    setDebug(`got tallyId=${tallyId}`);
 
-      // ⏱ fallback poll in case webhook hit before we subscribed
-      waitForSubmissionPoll(tallyId).then((id) => {
-        if (id) {
-          console.log("[Poll] Found existing submission:", id);
-          setStatus("ready");
-          onReady(id);
-        }
-      });
+    if (tallyId) {
+      try {
+        // Realtime listener
+        channel = supabase
+          .channel("submissions-watch")
+          .on(
+            "postgres_changes",
+            {
+              event: "INSERT",
+              schema: "public",
+              table: "submissions",
+              filter: `tally_submission_id=eq.${tallyId}`,
+            },
+            (payload) => {
+              console.log("Realtime INSERT payload:", payload);
+              setStatus("ready");
+              onReady((payload.new as any)?.id ?? null);
+              setDebug("realtime hit");
+            }
+          )
+          .subscribe();
+
+        // Fallback poll
+        waitForSubmissionPoll(tallyId, 3000).then((id) => {
+          if (id) {
+            setStatus("ready");
+            onReady(id);
+            setDebug("fallback poll hit");
+          } else {
+            setDebug("poll timeout");
+          }
+        });
+      } catch (e) {
+        console.error("Channel setup error:", e);
+        setDebug("channel setup error");
+      }
     } else {
-      // No tallyId param: unlock immediately
       setStatus("ready");
       onReady(null);
+      setDebug("no tally param");
     }
 
     return () => {
@@ -86,11 +95,11 @@ export default function LatestReadyGate({ onReady }: Props) {
 
   if (status === "waiting") {
     return (
-      <button disabled className="opacity-60">
-        Preparing your data…
-      </button>
+      <p className="text-sm text-gray-500">
+        ⏳ Preparing your data… <em>({debug})</em>
+      </p>
     );
   }
 
-  return null; // ✅ once ready, just disappears (button handled in page)
+  return null;
 }
