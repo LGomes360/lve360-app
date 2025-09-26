@@ -1,32 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase"; // ✅ matches your repo structure
 
-/**
- * Create a tiny browser-only Supabase client right here.
- * This avoids any mismatch with your various lib files.
- * Uses ONLY public env vars.
- */
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  {
-    realtime: { params: { eventsPerSecond: 2 } },
-  }
-);
-
-type Props = { onReady: (submissionId: string | null) => void };
+type Props = {
+  onReady: (submissionId: string | null) => void;
+};
 
 function getParam(name: string) {
   if (typeof window === "undefined") return "";
   return new URLSearchParams(window.location.search).get(name) ?? "";
 }
 
-async function pollForSubmission(tallyId: string, maxMs = 4000) {
+async function waitForSubmissionPoll(
+  tallyId: string,
+  maxMs = 4000
+): Promise<string | null> {
   const start = Date.now();
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
   while (Date.now() - start < maxMs) {
     const { data, error } = await supabase
       .from("submissions")
@@ -35,11 +26,12 @@ async function pollForSubmission(tallyId: string, maxMs = 4000) {
       .maybeSingle();
 
     if (error) {
-      console.warn("[Gate] poll error:", error);
-      return null;
+      console.warn("Polling error:", error);
     }
-    if (data?.id) return data.id;
 
+    if (data?.id) {
+      return data.id;
+    }
     await sleep(300);
   }
   return null;
@@ -52,15 +44,8 @@ export default function LatestReadyGate({ onReady }: Props) {
     const tallyId = getParam("tally_submission_id");
     let channel: ReturnType<typeof supabase.channel> | null = null;
 
-    async function bootstrap() {
-      // If no query param, allow immediately
-      if (!tallyId) {
-        setStatus("ready");
-        onReady(null);
-        return;
-      }
-
-      // 1) Realtime “doorbell” for the insert we care about
+    if (tallyId) {
+      // 🔔 Subscribe for realtime INSERT events
       channel = supabase
         .channel("submissions-watch")
         .on(
@@ -72,38 +57,40 @@ export default function LatestReadyGate({ onReady }: Props) {
             filter: `tally_submission_id=eq.${tallyId}`,
           },
           (payload) => {
-            console.log("[Gate] realtime insert:", payload);
+            const newId = (payload.new as any)?.id ?? null;
+            console.log("[Realtime] Got new submission:", newId);
             setStatus("ready");
-            onReady((payload.new as any)?.id ?? null);
+            onReady(newId);
           }
         )
-        .subscribe((status) => {
-          console.log("[Gate] channel status:", status);
-        });
+        .subscribe();
 
-      // 2) Fallback short poll (handles cases where webhook beat our subscribe)
-      const found = await pollForSubmission(tallyId, 4000);
-      if (found) {
-        console.log("[Gate] poll found submission:", found);
-        setStatus("ready");
-        onReady(found);
-      }
+      // ⏱ fallback poll in case webhook hit before we subscribed
+      waitForSubmissionPoll(tallyId).then((id) => {
+        if (id) {
+          console.log("[Poll] Found existing submission:", id);
+          setStatus("ready");
+          onReady(id);
+        }
+      });
+    } else {
+      // No tallyId param: unlock immediately
+      setStatus("ready");
+      onReady(null);
     }
-
-    bootstrap();
 
     return () => {
       if (channel) supabase.removeChannel(channel);
     };
   }, [onReady]);
 
-  // While waiting, show the small note under the buttons area
   if (status === "waiting") {
     return (
-      <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
-        🔄 Preparing your data…
-      </p>
+      <button disabled className="opacity-60">
+        Preparing your data…
+      </button>
     );
   }
-  return null;
+
+  return null; // ✅ once ready, just disappears (button handled in page)
 }
