@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CTAButton from "@/components/CTAButton";
-import LatestReadyGate from "./LatestReadyGate"; // ⭐ NEW
+import LatestReadyGate from "./LatestReadyGate";
 
 /* ───────── helpers ───────── */
 function sanitizeMarkdown(md: string): string {
@@ -176,36 +176,37 @@ function ResultsContent() {
         <p className="text-gray-600 mt-2">Personalized insights for Longevity • Vitality • Energy</p>
       </div>
 
-      <SectionCard title="Actions">
-        <div className="flex flex-wrap gap-4 justify-center">
-          <LatestReadyGate
-  onReady={(id) => {
-    if (id) setSubmissionId(id);  // remember the row we just saw
-    setReady(true);                // enable the Generate button
-  }}
-/>
-          <CTAButton
-            onClick={generateStack}
-            variant="gradient"
-            disabled={generating || !ready}
-          >
-            {generating
-              ? "💪 Generating..."
-              : ready
-              ? "✨ Generate Free Report"
-              : "🏋️‍♂️ Warming up…"}  {/* ⭐ NEW */}
-          </CTAButton>
+     import LatestReadyGate from "./LatestReadyGate";
 
-          <CTAButton href="/pricing" variant="premium">
-            👑 Upgrade to Premium
-          </CTAButton>
-        </div>
+...
 
-        {generating && (
-        <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
-       💪 Crunching the numbers… this usually takes about <strong>2 minutes</strong>.
-        </p>
-        )}
+<SectionCard title="Actions">
+  <div className="flex flex-wrap gap-4 justify-center">
+    <LatestReadyGate onReady={() => setReady(true)} /> {/* ⭐ now safe */}
+
+    <CTAButton
+      onClick={generateStack}
+      variant="gradient"
+      disabled={generating || !ready}
+    >
+      {generating
+        ? "💪 Crunching..."
+        : ready
+        ? "✨ Generate Free Report"
+        : "🤖 Warming up…"}
+    </CTAButton>
+
+    <CTAButton href="/pricing" variant="premium">
+      👑 Upgrade to Premium
+    </CTAButton>
+  </div>
+
+  {generating && (
+    <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
+      💪 Crunching the numbers… this usually takes about{" "}
+      <strong>2 minutes</strong>.
+    </p>
+  )}
            
       </SectionCard>
 
