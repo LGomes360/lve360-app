@@ -5,7 +5,6 @@ import { useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CTAButton from "@/components/CTAButton";
-import LatestReadyGate from "./LatestReadyGate";
 
 /* ───────── helpers ───────── */
 function sanitizeMarkdown(md: string): string {
@@ -94,8 +93,6 @@ function ResultsContent() {
   const [error, setError] = useState<string | null>(null);
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [ready, setReady] = useState(false);
-  const [submissionId, setSubmissionId] = useState<string | null>(null);
 
   const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
@@ -131,14 +128,12 @@ function ResultsContent() {
   }, [tallyId]);
 
   async function generateStack() {
-    if (!tallyId && !submissionId)
-      return setError("Missing submission ID.");
+    if (!tallyId) return setError("Missing submission ID.");
     try {
       setGenerating(true);
       setError(null);
       const data = await api("/api/generate-stack", {
-        submissionId: submissionId ?? undefined,
-        tally_submission_id: tallyId ?? undefined,
+        tally_submission_id: tallyId,
       });
       const raw =
         data?.stack?.sections?.markdown ??
@@ -154,11 +149,9 @@ function ResultsContent() {
   }
 
   async function exportPDF() {
-    if (!submissionId && !tallyId) return;
+    if (!tallyId) return;
     try {
-      const res = await fetch(
-        `/api/export-pdf?submission_id=${submissionId ?? tallyId}`
-      );
+      const res = await fetch(`/api/export-pdf?submission_id=${tallyId}`);
       if (!res.ok) throw new Error(`PDF export failed (${res.status})`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -207,23 +200,12 @@ function ResultsContent() {
 
       <SectionCard title="Actions">
         <div className="flex flex-wrap gap-4 justify-center">
-          <LatestReadyGate
-            onReady={(id) => {
-              setReady(true);
-              setSubmissionId(id);
-            }}
-          />
-
           <CTAButton
             onClick={generateStack}
             variant="gradient"
-            disabled={generating || !ready}
+            disabled={generating}
           >
-            {generating
-              ? "💪 Crunching..."
-              : ready
-              ? "✨ Generate Free Report"
-              : "🤖 Warming up…"}
+            {generating ? "🤖 Generating..." : "✨ Generate Free Report"}
           </CTAButton>
 
           <CTAButton href="/pricing" variant="premium">
@@ -239,9 +221,7 @@ function ResultsContent() {
         )}
       </SectionCard>
 
-      {error && (
-        <div className="text-center text-red-600 mb-6">{error}</div>
-      )}
+      {error && <div className="text-center text-red-600 mb-6">{error}</div>}
 
       {sec.intro && (
         <SectionCard title="Intro Summary">
@@ -307,7 +287,17 @@ function ResultsContent() {
       <SectionCard title="Important Wellness Disclaimer">
         <p className="text-sm text-gray-700 leading-relaxed">
           This plan from <strong>LVE360 (Longevity | Vitality | Energy)</strong>{" "}
-          is for educational purposes only…
+          is for educational purposes only and is not medical advice. It is not
+          intended to diagnose, treat, cure, or prevent any disease. Always
+          consult with your healthcare provider before starting new supplements
+          or making significant lifestyle changes, especially if you are
+          pregnant, nursing, managing a medical condition, or taking
+          prescriptions. Supplements are regulated under the Dietary Supplement
+          Health and Education Act (DSHEA); results vary and no outcomes are
+          guaranteed. If you experience unexpected effects, discontinue use and
+          seek professional care. By using this report, you agree that decisions
+          about your health remain your responsibility and that LVE360 is not
+          liable for how information is applied.
         </p>
       </SectionCard>
 
