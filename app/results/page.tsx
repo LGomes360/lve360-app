@@ -179,10 +179,12 @@ function ResultsContent() {
      import LatestReadyGate from "./LatestReadyGate";
 
 ...
-
 <SectionCard title="Actions">
   <div className="flex flex-wrap gap-4 justify-center">
-    <LatestReadyGate onReady={() => setReady(true)} /> {/* ⭐ now safe */}
+    <LatestReadyGate onReady={(id) => { 
+      setReady(true);
+      setSubmissionId(id);
+    }} />
 
     <CTAButton
       onClick={generateStack}
@@ -207,8 +209,9 @@ function ResultsContent() {
       <strong>2 minutes</strong>.
     </p>
   )}
-           
-      </SectionCard>
+</SectionCard>
+
+
 
       {error && <div className="text-center text-red-600 mb-6">{error}</div>}
 
