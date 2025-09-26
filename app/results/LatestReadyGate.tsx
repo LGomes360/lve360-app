@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient"; // ✅ matches your repo map
 
 type Props = { onReady: (submissionId: string | null) => void };
 
-// Row type for submissions table
-interface SubmissionRow {
+// Define the shape of what we expect from the `submissions` table
+type SubmissionRow = {
   id: string;
   tally_submission_id: string;
-}
+};
 
 function getParam(name: string) {
   if (typeof window === "undefined") return "";
@@ -22,19 +22,14 @@ async function waitForSubmissionPoll(
 ): Promise<string | null> {
   const start = Date.now();
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
   while (Date.now() - start < maxMs) {
-    const { data, error } = await supabase
-      .from("submissions") // don’t pass a generic, keep it simple
+    const { data } = await supabase
+      .from<SubmissionRow>("submissions") // ✅ tell TS what’s inside
       .select("id")
       .eq("tally_submission_id", tallyId)
       .maybeSingle();
 
-    if (error) {
-      console.warn("Poll error:", error);
-    }
-
-    if (data && "id" in data) return data.id as string;
+    if (data?.id) return data.id;
     await sleep(400);
   }
   return null;
@@ -48,7 +43,7 @@ export default function LatestReadyGate({ onReady }: Props) {
     let channel: ReturnType<typeof supabase.channel> | null = null;
 
     if (tallyId) {
-      // Realtime subscription
+      // Subscribe for realtime inserts
       channel = supabase
         .channel("submissions-watch")
         .on(
@@ -60,9 +55,9 @@ export default function LatestReadyGate({ onReady }: Props) {
             filter: `tally_submission_id=eq.${tallyId}`,
           },
           (payload) => {
-            const row = payload.new as SubmissionRow;
+            const id = (payload.new as SubmissionRow).id;
             setStatus("ready");
-            onReady(row.id);
+            onReady(id);
           }
         )
         .subscribe();
@@ -75,7 +70,7 @@ export default function LatestReadyGate({ onReady }: Props) {
         }
       });
     } else {
-      // No param? Let it through
+      // No tallyId? Allow button anyway
       setStatus("ready");
       onReady(null);
     }
@@ -88,10 +83,9 @@ export default function LatestReadyGate({ onReady }: Props) {
   if (status === "waiting") {
     return (
       <button disabled className="opacity-60">
-        ⏳ Preparing your data…
+        Preparing your data…
       </button>
     );
   }
-
   return null;
 }
