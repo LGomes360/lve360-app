@@ -1,30 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient"; // ✅ browser-safe client
+import { supabase } from "@/lib/supabaseClient"; // ✅ correct for browser
 
 type Props = { onReady: (submissionId: string | null) => void };
 
 function getParam(name: string) {
   if (typeof window === "undefined") return "";
   return new URLSearchParams(window.location.search).get(name) ?? "";
-}
-
-async function waitForSubmissionPoll(tallyId: string, maxMs = 5000) {
-  const start = Date.now();
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-  while (Date.now() - start < maxMs) {
-    const { data } = await supabase
-      .from("submissions")
-      .select("id")
-      .eq("tally_submission_id", tallyId)
-      .maybeSingle<{ id: string }>(); // ✅ tell TS what we expect back
-
-    if (data && "id" in data) return data.id; // ✅ type-safe check
-    await sleep(400);
-  }
-  return null;
 }
 
 export default function LatestReadyGate({ onReady }: Props) {
@@ -38,7 +21,7 @@ export default function LatestReadyGate({ onReady }: Props) {
       return;
     }
 
-    // Subscribe to realtime inserts
+    // Listen for INSERT on submissions
     const channel = supabase
       .channel("submissions-watch")
       .on(
@@ -51,18 +34,24 @@ export default function LatestReadyGate({ onReady }: Props) {
         },
         (payload) => {
           setStatus("ready");
-          onReady((payload.new as { id?: string })?.id ?? null);
+          onReady((payload.new as any)?.id ?? null);
         }
       )
       .subscribe();
 
-    // Fallback: short polling in case row was inserted before subscription
-    waitForSubmissionPoll(tallyId, 5000).then((id) => {
-      if (id) {
+    // Fallback: short poll in case row already exists
+    (async () => {
+      const { data } = await supabase
+        .from("submissions")
+        .select("id")
+        .eq("tally_submission_id", tallyId)
+        .maybeSingle();
+
+      if (data?.id) {
         setStatus("ready");
-        onReady(id);
+        onReady(data.id);
       }
-    });
+    })();
 
     return () => {
       supabase.removeChannel(channel);
@@ -71,11 +60,10 @@ export default function LatestReadyGate({ onReady }: Props) {
 
   if (status === "waiting") {
     return (
-      <p className="text-sm text-gray-500 animate-pulse">
+      <button disabled className="opacity-60">
         ⏳ Preparing your data…
-      </p>
+      </button>
     );
   }
-
   return null;
 }
