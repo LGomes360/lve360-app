@@ -191,6 +191,13 @@ function ResultsContent() {
             👑 Upgrade to Premium
           </CTAButton>
         </div>
+
+        {generating && (
+        <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
+       💪 Crunching the numbers… this usually takes about <strong>2 minutes</strong>.
+        </p>
+        )}
+           
       </SectionCard>
 
       {error && <div className="text-center text-red-600 mb-6">{error}</div>}
