@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CTAButton from "@/components/CTAButton";
-import LatestReadyGate from "./LatestReadyGate"; // stays at the top
+import LatestReadyGate from "./LatestReadyGate";
 
 /* ───────── helpers ───────── */
 function sanitizeMarkdown(md: string): string {
@@ -122,8 +122,7 @@ function ResultsContent() {
         const data = await api(
           `/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`
         );
-        const raw =
-          data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
+        const raw = data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
         setMarkdown(sanitizeMarkdown(raw));
       } catch (e: any) {
         console.warn(e);
@@ -132,15 +131,15 @@ function ResultsContent() {
   }, [tallyId]);
 
   async function generateStack() {
-    if (!tallyId) return setError("Missing submission ID.");
+    if (!tallyId && !submissionId)
+      return setError("Missing submission ID.");
     try {
       setGenerating(true);
       setError(null);
       const data = await api("/api/generate-stack", {
         submissionId: submissionId ?? undefined,
-        tally_submission_id: tallyId,
+        tally_submission_id: tallyId ?? undefined,
       });
-
       const raw =
         data?.stack?.sections?.markdown ??
         data?.ai?.markdown ??
@@ -155,9 +154,11 @@ function ResultsContent() {
   }
 
   async function exportPDF() {
-    if (!tallyId) return;
+    if (!submissionId && !tallyId) return;
     try {
-      const res = await fetch(`/api/export-pdf?submission_id=${tallyId}`);
+      const res = await fetch(
+        `/api/export-pdf?submission_id=${submissionId ?? tallyId}`
+      );
       if (!res.ok) throw new Error(`PDF export failed (${res.status})`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -305,9 +306,8 @@ function ResultsContent() {
 
       <SectionCard title="Important Wellness Disclaimer">
         <p className="text-sm text-gray-700 leading-relaxed">
-          This plan from{" "}
-          <strong>LVE360 (Longevity | Vitality | Energy)</strong> is for
-          educational purposes only…
+          This plan from <strong>LVE360 (Longevity | Vitality | Energy)</strong>{" "}
+          is for educational purposes only…
         </p>
       </SectionCard>
 
