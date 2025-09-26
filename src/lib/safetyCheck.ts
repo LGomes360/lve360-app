@@ -148,7 +148,8 @@ function appendCaution(item: StackItem, text: string) {
 export async function applySafetyChecks(
   submission: SubmissionSafetyInput,
   items: StackItem[]
-): Promise<{ cleaned: StackItem[]; notes: SafetyIssue[] }> {
+): Promise<{ cleaned: StackItem[]; notes: SafetyIssue[]; status: "safe" | "warning" | "error" }> {
+
 
   const notes: SafetyIssue[] = [];
   const meds = (submission.medications ?? []).map(lc);
@@ -251,16 +252,20 @@ export async function applySafetyChecks(
 
   notes.push({ type: "INFO", message: "Educational only; not medical advice. Always consult a provider." });
   
-  let status: "safe" | "warning" | "error" = "safe";
+let status: "safe" | "warning" | "error" = "safe";
 
-  // If there are any high-risk issues, mark as error
-  if (criticalIssues.length > 0) {
+// Critical issues → error
+if (notes.some((n) => n.type === "AVOID" || n.type === "PREGNANCY")) {
   status = "error";
 }
-  // Otherwise if there are additive or cautionary issues, mark as warning
-  else if (warnings.length > 0) {
+// Warnings → warning
+else if (
+  notes.some((n) =>
+    ["UL_CAP", "SPACING", "INTERACTION", "ALLERGY"].includes(n.type)
+  )
+) {
   status = "warning";
 }
 
-  return { cleaned: out, notes };
-}
+return { cleaned: out, notes, status };
+
