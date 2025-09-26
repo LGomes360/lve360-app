@@ -92,7 +92,9 @@ function SectionCard({
 function ResultsContent() {
   const [error, setError] = useState<string | null>(null);
   const [markdown, setMarkdown] = useState<string | null>(null);
+  const [warmingUp, setWarmingUp] = useState(false); // ⭐ NEW
   const [generating, setGenerating] = useState(false);
+  const [ready, setReady] = useState(true); // simplified: always allow click
 
   const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
@@ -119,7 +121,8 @@ function ResultsContent() {
         const data = await api(
           `/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`
         );
-        const raw = data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
+        const raw =
+          data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
         setMarkdown(sanitizeMarkdown(raw));
       } catch (e: any) {
         console.warn(e);
@@ -130,11 +133,18 @@ function ResultsContent() {
   async function generateStack() {
     if (!tallyId) return setError("Missing submission ID.");
     try {
-      setGenerating(true);
+      setWarmingUp(true);
       setError(null);
+
+      // ⭐ 3-second warmup delay
+      await new Promise((r) => setTimeout(r, 3000));
+      setWarmingUp(false);
+      setGenerating(true);
+
       const data = await api("/api/generate-stack", {
         tally_submission_id: tallyId,
       });
+
       const raw =
         data?.stack?.sections?.markdown ??
         data?.ai?.markdown ??
@@ -145,6 +155,7 @@ function ResultsContent() {
       setError(e.message ?? "Unknown error");
     } finally {
       setGenerating(false);
+      setWarmingUp(false);
     }
   }
 
@@ -203,9 +214,15 @@ function ResultsContent() {
           <CTAButton
             onClick={generateStack}
             variant="gradient"
-            disabled={generating}
+            disabled={warmingUp || generating || !ready}
           >
-            {generating ? "🤖 Generating..." : "✨ Generate Free Report"}
+            {warmingUp
+              ? "⏳ Warming up…"
+              : generating
+              ? "🤖 Generating..."
+              : ready
+              ? "✨ Generate Free Report"
+              : "⏳ Preparing…"}
           </CTAButton>
 
           <CTAButton href="/pricing" variant="premium">
@@ -213,10 +230,11 @@ function ResultsContent() {
           </CTAButton>
         </div>
 
-        {generating && (
+        {(warmingUp || generating) && (
           <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
-            💪 Crunching the numbers… this usually takes about{" "}
-            <strong>2 minutes</strong>.
+            {warmingUp
+              ? "⚡ Warming up the AI engines..."
+              : "💪 Crunching the numbers… this usually takes about 2 minutes."}
           </p>
         )}
       </SectionCard>
