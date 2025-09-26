@@ -6,7 +6,10 @@ import { supabase } from "@/lib/supabaseClient";
 type Props = { onReady: (submissionId: string | null) => void };
 
 // Row type for submissions table
-type SubmissionRow = { id: string };
+interface SubmissionRow {
+  id: string;
+  tally_submission_id: string;
+}
 
 function getParam(name: string) {
   if (typeof window === "undefined") return "";
@@ -22,7 +25,7 @@ async function waitForSubmissionPoll(
 
   while (Date.now() - start < maxMs) {
     const { data, error } = await supabase
-      .from<SubmissionRow>("submissions")
+      .from("submissions") // don’t pass a generic, keep it simple
       .select("id")
       .eq("tally_submission_id", tallyId)
       .maybeSingle();
@@ -31,7 +34,7 @@ async function waitForSubmissionPoll(
       console.warn("Poll error:", error);
     }
 
-    if (data?.id) return data.id;
+    if (data && "id" in data) return data.id as string;
     await sleep(400);
   }
   return null;
@@ -45,7 +48,7 @@ export default function LatestReadyGate({ onReady }: Props) {
     let channel: ReturnType<typeof supabase.channel> | null = null;
 
     if (tallyId) {
-      // Subscribe to realtime insert events
+      // Realtime subscription
       channel = supabase
         .channel("submissions-watch")
         .on(
@@ -64,7 +67,7 @@ export default function LatestReadyGate({ onReady }: Props) {
         )
         .subscribe();
 
-      // Poll as fallback in case row was inserted before subscribe
+      // Fallback poll
       waitForSubmissionPoll(tallyId, 3000).then((id) => {
         if (id) {
           setStatus("ready");
@@ -72,7 +75,7 @@ export default function LatestReadyGate({ onReady }: Props) {
         }
       });
     } else {
-      // No tally param? Let it through
+      // No param? Let it through
       setStatus("ready");
       onReady(null);
     }
@@ -90,5 +93,5 @@ export default function LatestReadyGate({ onReady }: Props) {
     );
   }
 
-  return null; // disappears when ready
+  return null;
 }
