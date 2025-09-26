@@ -83,7 +83,8 @@ function ResultsContent() {
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [ready, setReady] = useState(false); // ⭐ NEW
-
+  const [submissionId, setSubmissionId] = useState<string | null>(null); // ⭐ NEW
+  
   const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
 
@@ -116,7 +117,11 @@ function ResultsContent() {
     try {
       setGenerating(true);
       setError(null);
-      const data = await api("/api/generate-stack", { tally_submission_id: tallyId });
+      const data = await api("/api/generate-stack", {
+  submissionId: submissionId ?? undefined,  // ⭐ NEW
+  tally_submission_id: tallyId,             // keep passing the short id too
+});
+
       const raw =
         data?.stack?.sections?.markdown ??
         data?.ai?.markdown ??
@@ -173,8 +178,12 @@ function ResultsContent() {
 
       <SectionCard title="Actions">
         <div className="flex flex-wrap gap-4 justify-center">
-          <LatestReadyGate onReady={() => setReady(true)} /> {/* ⭐ NEW */}
-
+          <LatestReadyGate
+  onReady={(id) => {
+    if (id) setSubmissionId(id);  // remember the row we just saw
+    setReady(true);                // enable the Generate button
+  }}
+/>
           <CTAButton
             onClick={generateStack}
             variant="gradient"
