@@ -12,6 +12,30 @@ import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generateStackForSubmission } from "@/lib/generateStack";
 
+// Poll Supabase briefly to wait for a row to exist (covers webhook lag)
+async function waitForSubmission(tallyId: string, timeoutMs = 7000) {
+  const start = Date.now();
+  let delay = 200; // ms
+  while (Date.now() - start < timeoutMs) {
+    const { data, error } = await supabaseAdmin
+      .from("submissions")
+      .select("id")
+      .eq("tally_submission_id", tallyId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Error checking submission:", error);
+      break;
+    }
+    if (data?.id) return data.id;
+
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(delay * 2, 1000); // exponential backoff up to 1s
+  }
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -29,39 +53,27 @@ export async function POST(req: NextRequest) {
 
     // Resolve tally → UUID if needed
     if (!submissionId && tallyShort) {
-      const resp: any = await supabaseAdmin
-        .from("submissions")
-        .select("id")
-        .eq("tally_submission_id", tallyShort)
-        .limit(1);
+      // 👇 new: wait briefly in case webhook hasn’t inserted yet
+      submissionId = await waitForSubmission(tallyShort);
 
-      if (resp?.error) {
-        console.error("Error resolving tally_submission_id:", resp.error);
+      if (!submissionId) {
         return NextResponse.json(
           {
             ok: false,
-            error: "Failed to resolve tally_submission_id",
-            details: String(resp.error?.message ?? resp.error),
+            error: `Submission not found yet for tally_submission_id=${tallyShort}`,
           },
-          { status: 500 }
+          { status: 409 } // conflict: likely still processing
         );
       }
-      if (!resp?.data?.length) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: `Submission not found for tally_submission_id=${tallyShort}`,
-          },
-          { status: 404 }
-        );
-      }
-      submissionId = resp.data[0].id;
       console.log("[API] Resolved tally_submission_id →", submissionId);
     }
 
     if (!submissionId) {
       return NextResponse.json(
-        { ok: false, error: "submissionId required (or provide tally_submission_id)" },
+        {
+          ok: false,
+          error: "submissionId required (or provide tally_submission_id)",
+        },
         { status: 400 }
       );
     }
@@ -81,7 +93,12 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { ok: true, stack: result, itemsInserted, ai: { markdown: result.markdown, raw: result.raw } },
+      {
+        ok: true,
+        stack: result,
+        itemsInserted,
+        ai: { markdown: result.markdown, raw: result.raw },
+      },
       { status: 200 }
     );
   } catch (err: any) {
