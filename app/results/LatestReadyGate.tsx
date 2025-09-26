@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supaClient";
+import { supabase } from "@/lib/supabase";  // ← adjust if your client file is named differently
 
 type Props = { onReady: (submissionId: string | null) => void };
 
@@ -9,7 +9,7 @@ function getParam(name: string) {
   return new URLSearchParams(window.location.search).get(name) ?? "";
 }
 
-async function waitForSubmissionPoll(tallyId: string, maxMs = 3000) {
+async function waitForSubmissionPoll(tallyId: string, maxMs = 7000) {
   const start = Date.now();
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   while (Date.now() - start < maxMs) {
@@ -28,41 +28,50 @@ export default function LatestReadyGate({ onReady }: Props) {
   const [status, setStatus] = useState<"waiting" | "ready">("waiting");
 
   useEffect(() => {
-    const tallyId = getParam("tally_submission_id"); // <-- matches your URL
-    let channel: ReturnType<typeof supabase.channel> | null = null;
+    const tallyId = getParam("tally_submission_id");
+    if (!tallyId) {
+      setStatus("ready");
+      onReady(null);
+      return;
+    }
 
-    if (tallyId) {
-      // Realtime “doorbell”: flips to ready when the row INSERTs
-      channel = supabase
-        .channel("submissions-watch")
-        .on(
-          "postgres_changes",
-          { event: "INSERT", schema: "public", table: "submissions", filter: `tally_submission_id=eq.${tallyId}` },
-          (payload) => {
-            setStatus("ready");
-            onReady((payload.new as any)?.id ?? null);
-          }
-        )
-        .subscribe();
-
-      // Fallback: if webhook already inserted before subscribe, short poll once
-      waitForSubmissionPoll(tallyId, 3000).then((id) => {
-        if (id) {
+    // 1) Realtime doorbell (fires when the INSERT arrives)
+    const channel = supabase
+      .channel("submissions-watch")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "submissions",
+          filter: `tally_submission_id=eq.${tallyId}`,
+        },
+        (payload) => {
+          const id = (payload.new as any)?.id ?? null;
           setStatus("ready");
           onReady(id);
         }
-      });
-    } else {
-      // No param? allow button; server will still backoff if needed
-      setStatus("ready");
-      onReady(null);
-    }
+      )
+      .subscribe();
 
-    return () => { if (channel) supabase.removeChannel(channel); };
-  }, [onReady]);
+    // 2) Fallback: short poll in case webhook beat the subscription
+    waitForSubmissionPoll(tallyId, 7000).then((id) => {
+      if (status === "ready") return; // already flipped via realtime
+      setStatus("ready");
+      onReady(id); // may be null; server API will still wait briefly
+    });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []); // run once on mount
 
   if (status === "waiting") {
-    return <button disabled className="opacity-60">Preparing your data…</button>;
+    return (
+      <button disabled className="opacity-60">
+        Preparing your data…
+      </button>
+    );
   }
-  return null; // this component only gates readiness
+  return null;
 }
