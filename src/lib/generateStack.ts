@@ -14,6 +14,7 @@ import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getTopCitationsFor } from "@/lib/evidence";
+
 // --- Curated evidence index (JSON) ------------------------------------------
 import evidenceIndex from "@/evidence/evidence_index_top3.json";
 
@@ -722,7 +723,10 @@ export async function generateStackForSubmission(id: string) {
     dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
   };
 
-  const { cleaned } = await applySafetyChecks(safetyInput, parsedItems);
+  const { cleaned, status: safetyResult } = await applySafetyChecks(
+  safetyInput,
+  parsedItems
+);
 
   const finalStack: StackItem[] = await enrichAffiliateLinks(cleaned);
 
@@ -769,6 +773,7 @@ export async function generateStackForSubmission(id: string) {
           tokens_used: tokensUsed,
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
+          safety_status: safetyResult,   // 👈 NEW LINE
           summary: md,
           sections: {
             markdown: md,
