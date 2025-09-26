@@ -250,6 +250,17 @@ export async function applySafetyChecks(
   }
 
   notes.push({ type: "INFO", message: "Educational only; not medical advice. Always consult a provider." });
+  
+  let status: "safe" | "warning" | "error" = "safe";
+
+  // If there are any high-risk issues, mark as error
+  if (criticalIssues.length > 0) {
+  status = "error";
+}
+  // Otherwise if there are additive or cautionary issues, mark as warning
+  else if (warnings.length > 0) {
+  status = "warning";
+}
 
   return { cleaned: out, notes };
 }
