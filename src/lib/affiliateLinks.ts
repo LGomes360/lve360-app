@@ -1,7 +1,8 @@
 // -----------------------------------------------------------------------------
 // File: src/lib/affiliateLinks.ts
-// Purpose: Attach affiliate links to stack items using `supplements.link`.
-// Strategy: Try exact ingredient match; fall back to fuzzy product_name match.
+// Purpose: Attach affiliate links to stack items using multiple link columns.
+// Strategy: Select budget/trusted/clean/default for free users; prefer
+// Fullscript for premium users if available.
 // -----------------------------------------------------------------------------
 
 import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
@@ -15,6 +16,13 @@ export type StackItem = {
   rationale?: string | null;
   caution?: string | null;
   citations?: string[] | null;
+  // new link fields
+  link_budget?: string | null;
+  link_trusted?: string | null;
+  link_clean?: string | null;
+  link_default?: string | null;
+  link_fullscript?: string | null;
+  // resolved link chosen for this user
   link?: string | null;
 };
 
@@ -22,33 +30,62 @@ function lc(x?: string | null) {
   return (x ?? "").trim().toLowerCase();
 }
 
-async function findLinkFor(name: string): Promise<string | null> {
-  // 1) exact ingredient match
+// -----------------------------------------------------------------------------
+// Internal helper: choose correct link from row based on prefs + membership
+// -----------------------------------------------------------------------------
+function chooseLink(
+  row: any,
+  brandPref: string | null,
+  isPremium: boolean
+): string | null {
+  if (isPremium && row.link_fullscript) return row.link_fullscript;
+
+  switch (brandPref?.toLowerCase()) {
+    case "budget":
+      return row.link_budget ?? row.link_default ?? null;
+    case "trusted":
+      return row.link_trusted ?? row.link_default ?? null;
+    case "clean":
+      return row.link_clean ?? row.link_default ?? null;
+    default:
+      return row.link_default ?? null;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Find all link columns for a given supplement name
+// -----------------------------------------------------------------------------
+async function findLinksFor(name: string) {
+  // Query all relevant link columns
+  const cols =
+    "link_budget, link_trusted, link_clean, link_default, link_fullscript, ingredient, product_name";
+
+  // 1) exact match on ingredient
   const { data: exact } = await supa
     .from("supplements")
-    .select("link")
+    .select(cols)
     .eq("ingredient", name)
     .maybeSingle();
 
-  if (exact?.link) return exact.link;
+  if (exact) return exact;
 
   // 2) fuzzy ingredient match
   const { data: fuzzyIng } = await supa
     .from("supplements")
-    .select("link, ingredient")
+    .select(cols)
     .ilike("ingredient", `%${name}%`)
     .limit(1);
 
-  if (fuzzyIng && fuzzyIng[0]?.link) return fuzzyIng[0].link;
+  if (fuzzyIng && fuzzyIng[0]) return fuzzyIng[0];
 
   // 3) fuzzy product_name match
   const { data: fuzzyProd } = await supa
     .from("supplements")
-    .select("link, product_name")
+    .select(cols)
     .ilike("product_name", `%${name}%`)
     .limit(1);
 
-  if (fuzzyProd && fuzzyProd[0]?.link) return fuzzyProd[0].link;
+  if (fuzzyProd && fuzzyProd[0]) return fuzzyProd[0];
 
   return null;
 }
@@ -56,11 +93,27 @@ async function findLinkFor(name: string): Promise<string | null> {
 // -----------------------------------------------------------------------------
 // Main export
 // -----------------------------------------------------------------------------
-export async function enrichAffiliateLinks<T extends StackItem>(items: T[]): Promise<T[]> {
+export async function enrichAffiliateLinks<T extends StackItem>(
+  items: T[],
+  opts?: { brandPref?: string | null; isPremium?: boolean }
+): Promise<T[]> {
   const out: T[] = [];
+  const brandPref = opts?.brandPref ?? null;
+  const isPremium = opts?.isPremium ?? false;
+
   for (const it of items) {
-    const link = await findLinkFor(it.name);
-    out.push({ ...it, link: link ?? null });
+    const row = await findLinksFor(it.name);
+    const resolvedLink = row ? chooseLink(row, brandPref, isPremium) : null;
+    out.push({
+      ...it,
+      link_budget: row?.link_budget ?? null,
+      link_trusted: row?.link_trusted ?? null,
+      link_clean: row?.link_clean ?? null,
+      link_default: row?.link_default ?? null,
+      link_fullscript: row?.link_fullscript ?? null,
+      link: resolvedLink,
+    });
   }
+
   return out;
 }
