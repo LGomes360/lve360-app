@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/consistent-type-imports */
 /* eslint-disable no-console */
 // ----------------------------------------------------------------------------
-// LVE360 — generateStack.ts (FULL FILE, CLEANED + FIXED)
+// LVE360 — generateStack.ts (REWRITTEN)
 // Purpose: Generate validated Markdown report, parse StackItems, run safety,
-// affiliate enrichment, attach curated/validated evidence (JSON index),
+// affiliate enrichment (Amazon category links + Fullscript), attach evidence,
 // override Markdown Evidence section, and persist into Supabase.
 // ----------------------------------------------------------------------------
 
@@ -26,17 +26,15 @@ const MIN_WORDS = 1800;
 const MIN_BP_ROWS = 10;
 const MIN_ANALYSIS_SENTENCES = 3;
 
-// Strict validator for model-generated links (keep PubMed/DOI only)
-// Allow trailing slash after PubMed IDs
+// Model-generated refs allowed (strict)
 const MODEL_CITE_RE =
   /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/?|doi\.org\/\S+)\b/;
 
-// Broader validator for curated JSON links (allow trusted scholarly hosts)
-// Allow trailing slash after PubMed IDs
+// Curated refs allowed (broader)
 const CURATED_CITE_RE =
   /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/?|pmc\.ncbi\.nlm\.nih\.gov\/articles\/\S+|doi\.org\/\S+|jamanetwork\.com\/\S+|biomedcentral\.com\/\S+|bmcpsychiatry\.biomedcentral\.com\/\S+|journals\.plos\.org\/\S+|nature\.com\/\S+|sciencedirect\.com\/\S+|amjmed\.com\/\S+|koreascience\.kr\/\S+|dmsjournal\.biomedcentral\.com\/\S+|researchmgt\.monash\.edu\/\S+)\b/i;
 
-// Headings contract
+// Markdown headings contract
 const HEADINGS = [
   "## Intro Summary",
   "## Goals",
@@ -65,10 +63,19 @@ export interface StackItem {
   notes?: string | null;
   caution?: string | null;
   citations?: string[] | null;
-  link_amazon?: string | null;
-  link_fullscript?: string | null;
+
+  // Category links (populated by enrichAffiliateLinks from public.supplements)
+  link_budget?: string | null;
+  link_trusted?: string | null;
+  link_clean?: string | null;
+  link_default?: string | null;
+
+  // Destination links persisted into stacks_items
+  link_amazon?: string | null;     // <- chosen from the 4 categories
+  link_fullscript?: string | null; // <- as provided by enrichment (if any)
   link_thorne?: string | null;
   link_other?: string | null;
+
   cost_estimate?: number | null;
 }
 
@@ -78,7 +85,6 @@ interface EvidenceEntry {
 }
 
 type EvidenceIndex = Record<string, EvidenceEntry[]>;
-
 const EVIDENCE: EvidenceIndex = (evidenceIndex as unknown) as EvidenceIndex;
 
 // ----------------------------------------------------------------------------
@@ -145,16 +151,14 @@ function parseDose(dose?: string | null): { amount?: number; unit?: string } {
 }
 
 // ----------------------------------------------------------------------------
-// Name normalization and aliasing for evidence lookup
+// Name normalization + aliasing for evidence lookup
 // ----------------------------------------------------------------------------
 function normalizeSupplementName(name: string): string {
   const n = (name || "").toLowerCase().replace(/[.*_`#]/g, "").trim();
   const collapsed = n.replace(/\s+/g, " ");
 
-  // 🔒 Handle single-letter artifacts early
   if (collapsed === "l") return "L-Theanine";
   if (collapsed === "b") return "B-Vitamins";
-
   if (collapsed.includes("b complex") || collapsed.includes("b-vitamins")) return "B-Vitamins";
 
   if (collapsed.startsWith("omega")) return "Omega-3";
@@ -284,10 +288,9 @@ function attachEvidence(item: StackItem): StackItem {
     });
   } catch (e) {}
 
-  // ✅ overwrite `name` with normalized display name
+  // overwrite name with normalized display name
   return { ...item, name: normName, citations: final.length ? final : null };
 }
-
 
 // ----------------------------------------------------------------------------
 // Evidence section rendering
@@ -298,10 +301,6 @@ function hostOf(u: string): string {
   } catch {
     return "";
   }
-}
-
-function canonical(u: string): string {
-  return (u || "").trim().replace(/\/+$/, "");
 }
 
 function labelForUrl(u: string): string {
@@ -320,26 +319,6 @@ function labelForUrl(u: string): string {
   return h || "Source";
 }
 
-const LABEL_ORDER = [
-  "PubMed",
-  "PMC",
-  "DOI",
-  "JAMA",
-  "BMC",
-  "PLOS",
-  "Nature",
-  "ScienceDirect",
-  "Am J Med",
-  "KoreaScience",
-  "Monash",
-  "Source",
-];
-
-function labelRank(label: string): number {
-  const idx = LABEL_ORDER.indexOf(label);
-  return idx === -1 ? LABEL_ORDER.length : idx;
-}
-
 function buildEvidenceSection(items: StackItem[], minCount = 8): {
   section: string;
   bullets: Array<{ name: string; url: string }>;
@@ -350,21 +329,14 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
     const citations = it.citations ?? [];
     for (const rawUrl of citations) {
       const url = rawUrl.trim();
-      // Normalize trailing slash
       const normalized = url.endsWith("/") ? url : url + "/";
-
       if (CURATED_CITE_RE.test(normalized) || MODEL_CITE_RE.test(normalized)) {
         bullets.push({ name: cleanName(it.name), url: normalized });
-      } else {
-        console.warn("❌ Dropped citation (did not match allowed patterns)", {
-          name: it.name,
-          url,
-        });
       }
     }
   }
 
-  // Deduplicate by URL
+  // Dedup
   const seen = new Set<string>();
   const unique = bullets.filter((b) => {
     if (seen.has(b.url)) return false;
@@ -372,40 +344,33 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
     return true;
   });
 
-  // Ensure at least minCount (pad with placeholders if needed)
+  // Pad to minCount
   const take =
     unique.length >= minCount
       ? unique
       : [
           ...unique,
-          ...Array.from({ length: minCount - unique.length }).map((_, i) => ({
+          ...Array.from({ length: minCount - unique.length }).map(() => ({
             name: "Evidence pending",
             url: "https://lve360.com/evidence/coming-soon",
           })),
         ];
 
-  const bulletsText = take
-    .map((b) => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`)
-    .join("\n");
-
+  const bulletsText = take.map((b) => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`).join("\n");
   const analysis = `
-\n\n**Analysis**\n\nThese references are pulled from LVE360’s curated evidence index (PubMed/PMC/DOI and other trusted journals) and replace any model-generated references.
+
+**Analysis**
+
+These references are pulled from LVE360’s curated evidence index (PubMed/PMC/DOI and other trusted journals) and replace any model-generated references.
 `;
 
-  const section =
-    `## Evidence & References\n\n` +
-    (bulletsText || "- _No curated citations available yet._") +
-    analysis;
-
+  const section = `## Evidence & References\n\n${bulletsText}${analysis}`;
   return { section, bullets: take };
 }
 
-
 function overrideEvidenceInMarkdown(md: string, section: string): string {
   const headerRe = /## Evidence & References([\s\S]*?)(?=\n## |\n## END|$)/i;
-  if (headerRe.test(md)) {
-    return md.replace(headerRe, section);
-  }
+  if (headerRe.test(md)) return md.replace(headerRe, section);
   return md.replace(/\n## END/i, `\n\n${section}\n\n## END`);
 }
 
@@ -415,14 +380,10 @@ function overrideEvidenceInMarkdown(md: string, section: string): string {
 function parseStackFromMarkdown(md: string): StackItem[] {
   const base: Record<string, any> = {};
 
-  // --- 1) Your Blueprint Recommendations (table)
-  const blueprint = md.match(
-    /## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i
-  );
+  // 1) Your Blueprint Recommendations (table)
+  const blueprint = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
   if (blueprint) {
-    const rows = blueprint[1]
-      .split("\n")
-      .filter((l) => l.trim().startsWith("|"));
+    const rows = blueprint[1].split("\n").filter((l) => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
       const name = cleanName(cols[2] || `Item ${i + 1}`);
@@ -437,12 +398,10 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     });
   }
 
-  // --- 2) Current Stack (table)
+  // 2) Current Stack (table)
   const current = md.match(/## Current Stack([\s\S]*?)(\n## |$)/i);
   if (current) {
-    const rows = current[1]
-      .split("\n")
-      .filter((l) => l.trim().startsWith("|"));
+    const rows = current[1].split("\n").filter((l) => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
       const name = cleanName(cols[1] || `Current Item ${i + 1}`);
@@ -464,7 +423,7 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     });
   }
 
-  // --- 3) Dosing & Notes (bulleted list)
+  // 3) Dosing & Notes (bulleted list)
   const dosing = md.match(/## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i);
   if (dosing) {
     const lines = dosing[1].split("\n").filter((l) => l.trim().length > 0);
@@ -504,7 +463,6 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     if (/[.,]{3,}/.test(it.name)) return false;
     if (/\bvitamin\b.*\band\b/i.test(it.name)) return false;
     if (/^analysis$/i.test(it.name.trim())) return false;
-
     seen.add(key);
     return true;
   });
@@ -596,9 +554,7 @@ function blueprintOK(md: string) {
 }
 
 function citationsOK(md: string) {
-  const block = md.match(
-    /## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i
-  );
+  const block = md.match(/## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i);
   if (!block) return false;
   const bulletLines = block[1].split("\n").filter((l) => l.trim().startsWith("-"));
   if (bulletLines.length < 8) return false;
@@ -626,6 +582,61 @@ function narrativesOK(md: string) {
 
 function ensureEnd(md: string) {
   return hasEnd(md) ? md : md + "\n\n## END";
+}
+
+// ----------------------------------------------------------------------------
+// Preference → Amazon category chooser, plus Premium Fullscript preference
+// ----------------------------------------------------------------------------
+function normalizeBrandPref(p?: string | null): "budget" | "trusted" | "clean" | "default" {
+  const s = (p || "").toLowerCase();
+  if (s.includes("budget") || s.includes("cost")) return "budget";
+  if (s.includes("trusted") || s.includes("brand")) return "trusted";
+  if (s.includes("clean")) return "clean";
+  return "default"; // “doesn’t matter”
+}
+
+function chooseAmazonLinkFor(item: StackItem, pref: "budget" | "trusted" | "clean" | "default"): string | null {
+  const pick =
+    pref === "budget" ? item.link_budget
+    : pref === "trusted" ? item.link_trusted
+    : pref === "clean" ? item.link_clean
+    : item.link_default;
+
+  // Robust fallbacks
+  return (
+    pick ||
+    item.link_default ||
+    item.link_trusted ||
+    item.link_budget ||
+    item.link_clean ||
+    null
+  );
+}
+
+function applyLinkPolicy(items: StackItem[], sub: any): StackItem[] {
+  const pref = normalizeBrandPref(
+    sub?.preferences?.brand_pref ??
+    sub?.brand_pref ??
+    null
+  );
+
+  const isPremium =
+    Boolean(sub?.is_premium) ||
+    Boolean(sub?.user?.is_premium) ||
+    (sub?.plan === "premium");
+
+  return items.map((it) => {
+    const linkAmazon = chooseAmazonLinkFor(it, pref);
+    let linkFS = it.link_fullscript ?? null;
+
+    // Premium policy: prefer Fullscript if available, but still keep Amazon set
+    // (UI can prefer link_fullscript when present and user is premium)
+    if (isPremium && linkFS) {
+      return { ...it, link_amazon: linkAmazon, link_fullscript: linkFS };
+    }
+    // Not premium or no FS link available → keep Amazon only
+    return { ...it, link_amazon: linkAmazon };
+  });
 }
 
 // ----------------------------------------------------------------------------
@@ -665,37 +676,29 @@ export async function generateStackForSubmission(id: string) {
     tokensUsed = resp.usage?.total_tokens ?? null;
     promptTokens = resp.usage?.prompt_tokens ?? null;
     completionTokens = resp.usage?.completion_tokens ?? null;
-md = resp.choices[0]?.message?.content ?? "";
+    md = resp.choices[0]?.message?.content ?? "";
 
-// --- Validation logging ---
-const wordCountOK = wc(md) >= MIN_WORDS;
-const headingsValid = headingsOK(md);
-const blueprintValid = blueprintOK(md);
-const citationsValid = citationsOK(md);
-const narrativesValid = narrativesOK(md);
-const endValid = hasEnd(md);
+    // Validation
+    const wordCountOK = wc(md) >= MIN_WORDS;
+    const headingsValid = headingsOK(md);
+    const blueprintValid = blueprintOK(md);
+    const citationsValid = citationsOK(md);
+    const narrativesValid = narrativesOK(md);
+    const endValid = hasEnd(md);
 
-console.log("validation.debug", {
-  wordCountOK,
-  headingsValid,
-  blueprintValid,
-  citationsValid,
-  narrativesValid,
-  endValid,
-  actualWordCount: wc(md)
-});
+    console.log("validation.debug", {
+      wordCountOK,
+      headingsValid,
+      blueprintValid,
+      citationsValid,
+      narrativesValid,
+      endValid,
+      actualWordCount: wc(md),
+    });
 
-if (
-  wordCountOK &&
-  headingsValid &&
-  blueprintValid &&
-  citationsValid &&
-  narrativesValid &&
-  endValid
-) {
-  passes = true;
-}
-
+    if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
+      passes = true;
+    }
   } catch (err) {
     console.warn("Mini model failed:", err);
   }
@@ -707,43 +710,35 @@ if (
     tokensUsed = resp.usage?.total_tokens ?? null;
     promptTokens = resp.usage?.prompt_tokens ?? null;
     completionTokens = resp.usage?.completion_tokens ?? null;
-md = resp.choices[0]?.message?.content ?? "";
+    md = resp.choices[0]?.message?.content ?? "";
 
-// --- Validation logging (fallback) ---
-const wordCountOK = wc(md) >= MIN_WORDS;
-const headingsValid = headingsOK(md);
-const blueprintValid = blueprintOK(md);
-const citationsValid = citationsOK(md);
-const narrativesValid = narrativesOK(md);
-const endValid = hasEnd(md);
+    const wordCountOK = wc(md) >= MIN_WORDS;
+    const headingsValid = headingsOK(md);
+    const blueprintValid = blueprintOK(md);
+    const citationsValid = citationsOK(md);
+    const narrativesValid = narrativesOK(md);
+    const endValid = hasEnd(md);
 
-console.log("validation.debug.fallback", {
-  wordCountOK,
-  headingsValid,
-  blueprintValid,
-  citationsValid,
-  narrativesValid,
-  endValid,
-  actualWordCount: wc(md)
-});
+    console.log("validation.debug.fallback", {
+      wordCountOK,
+      headingsValid,
+      blueprintValid,
+      citationsValid,
+      narrativesValid,
+      endValid,
+      actualWordCount: wc(md),
+    });
 
-if (
-  wordCountOK &&
-  headingsValid &&
-  blueprintValid &&
-  citationsValid &&
-  narrativesValid &&
-  endValid
-) {
-  passes = true;
-}
-
+    if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
+      passes = true;
+    }
   }
 
   md = ensureEnd(md);
 
   const parsedItems: StackItem[] = parseStackFromMarkdown(md);
 
+  // Safety checks
   const safetyInput = {
     medications: Array.isArray((sub as any).medications)
       ? (sub as any).medications.map((m: any) => m.med_name || "")
@@ -761,44 +756,36 @@ if (
         : null,
     brand_pref: (sub as any)?.preferences?.brand_pref ?? null,
     dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
+    is_premium:
+      Boolean((sub as any)?.is_premium) ||
+      Boolean((sub as any)?.user?.is_premium) ||
+      ((sub as any)?.plan === "premium"),
   };
 
   const { cleaned, status: safetyResult } = await applySafetyChecks(
-  safetyInput,
-  parsedItems
-);
+    safetyInput,
+    parsedItems
+  );
 
-  const finalStack: StackItem[] = await enrichAffiliateLinks(cleaned);
+  // Enrich with links (expects to fill link_budget/trusted/clean/default and possibly link_fullscript)
+  const enriched = await enrichAffiliateLinks(cleaned);
 
+  // Apply link policy: pick Amazon category from quiz, prefer Fullscript for premium
+  const finalStack: StackItem[] = applyLinkPolicy(enriched, sub);
+
+  // Evidence attach
   const withEvidence: StackItem[] = finalStack.map(attachEvidence);
 
-  const { section: evidenceSection, bullets } = buildEvidenceSection(
-    withEvidence,
-    8
-  );
+  // Override evidence section in markdown
+  const { section: evidenceSection } = buildEvidenceSection(withEvidence, 8);
   md = overrideEvidenceInMarkdown(md, evidenceSection);
-
-  try {
-    const itemsWith = withEvidence.filter((it) => (it.citations?.length ?? 0) > 0).map((i) => i.name);
-    const itemsWithout = withEvidence.filter((it) => !(it.citations?.length)).map((i) => i.name);
-    console.log(`evidence.item_curated ${itemsWith.length}/${withEvidence.length}`);
-    console.log("evidence.items_with", itemsWith);
-    console.log("evidence.items_without", itemsWithout);
-    console.log(`evidence.section_override injected_bullets=${bullets.length}`);
-    if (bullets.length > 0) {
-      const sample = bullets.slice(0, 3);
-      console.log(
-        "evidence.debug.sample",
-        sample.map((b) => `${b.name} -> ${b.url}`)
-      );
-    }
-  } catch (e) {}
 
   const totalMonthlyCost = withEvidence.reduce(
     (acc, it) => acc + (it.cost_estimate ?? 0),
     0
   );
 
+  // Persist parent stack
   let parentRows: any[] = [];
   try {
     const { data, error } = await supabaseAdmin
@@ -813,7 +800,7 @@ if (
           tokens_used: tokensUsed,
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
-          safety_status: safetyResult,   // 👈 NEW LINE
+          safety_status: safetyResult,
           summary: md,
           sections: {
             markdown: md,
@@ -831,44 +818,48 @@ if (
     console.error("Stacks upsert exception:", err);
   }
 
+  // Persist items
   if (parentRows.length > 0) {
     const parent = parentRows[0];
     if (parent?.id && user_id) {
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
-const rows = withEvidence
-  .map((it) => {
-    const normName = normalizeSupplementName(it?.name ?? ""); // ✅ normalize here
-    const safeName = cleanName(normName);
-    if (!safeName || safeName.toLowerCase() === "null") {
-      console.error("🚨 Blocking insert of invalid item", {
-        stack_id: parent.id,
-        user_id,
-        rawName: it?.name,
-        normalized: normName,
-        item: it,
-      });
-      return null;
-    }
-    return {
-      stack_id: parent.id,
-      user_id,
-      user_email: userEmail,
-      name: safeName, // ✅ now always the normalized version
-      dose: it.dose ?? null,
-      timing: it.timing ?? null,
-      notes: it.notes ?? null,
-      rationale: it.rationale ?? null,
-      caution: it.caution ?? null,
-      citations: it.citations ? JSON.stringify(it.citations) : null,
-      link_amazon: it.link_amazon ?? null,
-      link_fullscript: it.link_fullscript ?? null,
-      link_thorne: it.link_thorne ?? null,
-      link_other: it.link_other ?? null,
-      cost_estimate: it.cost_estimate ?? null,
-    };
-  })
-  .filter((r) => r !== null);
+      const rows = withEvidence
+        .map((it) => {
+          const normName = normalizeSupplementName(it?.name ?? "");
+          const safeName = cleanName(normName);
+          if (!safeName || safeName.toLowerCase() === "null") {
+            console.error("🚨 Blocking insert of invalid item", {
+              stack_id: parent.id,
+              user_id,
+              rawName: it?.name,
+              normalized: normName,
+              item: it,
+            });
+            return null;
+          }
+          return {
+            stack_id: parent.id,
+            user_id,
+            user_email: userEmail,
+            name: safeName, // normalized
+            dose: it.dose ?? null,
+            timing: it.timing ?? null,
+            notes: it.notes ?? null,
+            rationale: it.rationale ?? null,
+            caution: it.caution ?? null,
+            citations: it.citations ? JSON.stringify(it.citations) : null,
+
+            // Persist links (Amazon chosen by preference, FS preferred for premium but optional)
+            link_amazon: it.link_amazon ?? null,
+            link_fullscript: it.link_fullscript ?? null,
+            link_thorne: it.link_thorne ?? null,
+            link_other: it.link_other ?? null,
+
+            cost_estimate: it.cost_estimate ?? null,
+          };
+        })
+        .filter((r) => r !== null);
 
       console.log("✅ Prepared stack_items rows:", rows);
 
