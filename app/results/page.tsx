@@ -73,6 +73,47 @@ function Prose({ children }: { children: string }) {
   );
 }
 
+/* Table renderer for Evidence & Shopping */
+function LinksTable({ raw, type }: { raw: string; type: "evidence" | "shopping" }) {
+  const rows = raw
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((line) => {
+      // handles "Label - URL" or just URL
+      const parts = line.split(/-\s+|:\s+/);
+      return { label: parts[0]?.trim(), url: parts[1]?.trim() ?? parts[0]?.trim() };
+    });
+
+  return (
+    <table className="w-full border-collapse my-4 text-sm shadow-sm">
+      <thead className="bg-[#06C1A0] text-white">
+        <tr>
+          <th className="px-3 py-2 text-left">Item</th>
+          <th className="px-3 py-2 text-left">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i} className="even:bg-gray-50 border-t">
+            <td className="px-3 py-2">{r.label || r.url}</td>
+            <td className="px-3 py-2">
+              {r.url && (
+                <CTAButton
+                  href={r.url}
+                  variant={type === "shopping" ? "primary" : "secondary"}
+                >
+                  {type === "shopping" ? "Buy on Amazon" : "View Evidence"}
+                </CTAButton>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function SectionCard({
   title,
   children,
@@ -273,12 +314,12 @@ function ResultsContent() {
       )}
       {sec.evidence && (
         <SectionCard title="Evidence & References">
-          <Prose>{sec.evidence}</Prose>
+          <LinksTable raw={sec.evidence} type="evidence" />
         </SectionCard>
       )}
       {sec.shopping && (
         <SectionCard title="Shopping Links">
-          <Prose>{sec.shopping}</Prose>
+          <LinksTable raw={sec.shopping} type="shopping" />
         </SectionCard>
       )}
       {sec.follow && (
