@@ -1,239 +1,110 @@
-// lve360-app/app/api/generate-stack
+// app/api/generate-stack/route.ts
 // -----------------------------------------------------------------------------
 // POST /api/generate-stack
 // Accepts body:
-//   - submission_id: UUID
-//   - OR tally_submission_id: short Tally id
+//   - submissionId: UUID (preferred)
+//   - OR tally_submission_id: short Tally id (e.g. "jaJMeJQ")
 //
-// Generates a concierge report using LLM, applies safety checks + affiliate
-// links, saves to Supabase, and returns Markdown + enriched stack items.
+// Returns JSON: { ok: true, stack, itemsInserted, ai }
 // -----------------------------------------------------------------------------
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { supabaseAdmin } from "@/lib/supabase";
+import { generateStackForSubmission } from "@/lib/generateStack";
 
-import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
-import { z } from "zod";
-
-import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
-import { ReportSchema, type Report } from "@/lib/reportSchema";
-import { buildPrompt } from "@/lib/buildPrompt";
-import { applySafetyChecks } from "@/lib/safetyCheck";
-import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
-
-// -----------------------------------------------------------------------------
-// Helpers
-// -----------------------------------------------------------------------------
-
-async function findSubmissionRow(ids: {
-  submission_id?: string;
-  tally_submission_id?: string;
-}) {
-  let submission: any = null;
-
-  if (ids.submission_id) {
-    const { data } = await supa
+// Poll Supabase briefly to wait for a row to exist (covers webhook lag)
+async function waitForSubmission(tallyId: string, timeoutMs = 7000) {
+  const start = Date.now();
+  let delay = 200; // ms
+  while (Date.now() - start < timeoutMs) {
+    const { data, error } = await supabaseAdmin
       .from("submissions")
-      .select("*")
-      .eq("id", ids.submission_id)
+      .select("id")
+      .eq("tally_submission_id", tallyId)
+      .limit(1)
       .maybeSingle();
-    submission = data;
-  }
 
-  if (!submission && ids.tally_submission_id) {
-    const tryFetch = async (val: string) => {
-      const { data } = await supa
-        .from("submissions")
-        .select("*")
-        .eq("tally_submission_id", val)
-        .maybeSingle();
-      return data;
-    };
-    submission = await tryFetch(ids.tally_submission_id);
-
-    if (!submission) {
-      const swapped = ids.tally_submission_id.endsWith("o")
-        ? ids.tally_submission_id.replace(/o$/, "0")
-        : ids.tally_submission_id.replace(/0$/, "o");
-      submission = await tryFetch(swapped);
-      if (submission) {
-        console.warn(
-          `[generate-report] corrected o/0 tail: ${ids.tally_submission_id} → ${swapped}`
-        );
-      }
+    if (error) {
+      console.error("Error checking submission:", error);
+      break;
     }
+    if (data?.id) return data.id;
+
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(delay * 2, 1000); // exponential backoff up to 1s
   }
-
-  return submission;
+  return null;
 }
-
-function sectionsToMarkdown(sections: any[]): string {
-  if (!sections || sections.length === 0) {
-    return "## Report Generation Issue\n\nWe could not generate a personalized report. Please try again later.";
-  }
-  return sections
-    .filter((s) => s && s.title && Array.isArray(s.content))
-    .map((s) => `## ${s.title}\n\n${s.content.join("\n\n")}`)
-    .join("\n\n---\n\n");
-}
-
-// -----------------------------------------------------------------------------
-// Request schema
-// -----------------------------------------------------------------------------
-
-const ReqSchema = z.object({
-  submission_id: z.string().uuid().optional(),
-  tally_submission_id: z.string().min(3).optional(),
-});
-
-// -----------------------------------------------------------------------------
-// POST handler
-// -----------------------------------------------------------------------------
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { submission_id, tally_submission_id } = ReqSchema.parse(body);
+    const body = await req.json().catch(() => ({}));
+    let submissionId =
+      (body.submissionId ?? body.submission_id ?? "")?.toString().trim() || null;
+    const tallyShort =
+      (
+        body.tally_submission_id ??
+        body.tallyId ??
+        body.tally ??
+        ""
+      )?.toString().trim() || null;
 
-    if (!submission_id && !tally_submission_id) {
+    console.log("[API] generate-stack received:", { submissionId, tallyShort });
+
+    // Resolve tally → UUID if needed
+    if (!submissionId && tallyShort) {
+      // 👇 new: wait briefly in case webhook hasn’t inserted yet
+      submissionId = await waitForSubmission(tallyShort);
+
+      if (!submissionId) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Submission not found yet for tally_submission_id=${tallyShort}`,
+          },
+          { status: 409 } // conflict: likely still processing
+        );
+      }
+      console.log("[API] Resolved tally_submission_id →", submissionId);
+    }
+
+    if (!submissionId) {
       return NextResponse.json(
-        { ok: false, error: "Missing submission identifier" },
+        {
+          ok: false,
+          error: "submissionId required (or provide tally_submission_id)",
+        },
         { status: 400 }
       );
     }
 
-    const base = await findSubmissionRow({ submission_id, tally_submission_id });
-    if (!base) {
-      return NextResponse.json(
-        { ok: false, error: "Submission not found" },
-        { status: 404 }
-      );
+    // ✅ Single source of truth — let the lib handle all DB writes
+    const result = await generateStackForSubmission(submissionId);
+
+    // Count items actually written
+    let itemsInserted = 0;
+    if (result?.raw?.stack_id) {
+      const { count } = await supabaseAdmin
+        .from("stacks_items")
+        .select("*", { count: "exact", head: true })
+        .eq("stack_id", result.raw.stack_id);
+
+      itemsInserted = count ?? 0;
     }
 
-    // Fetch related tables
-    const { data: supps } = await supa
-      .from("submission_supplements")
-      .select("*")
-      .eq("submission_id", base.id);
-    const { data: meds } = await supa
-      .from("submission_medications")
-      .select("*")
-      .eq("submission_id", base.id);
-    const { data: hormones } = await supa
-      .from("submission_hormones")
-      .select("*")
-      .eq("submission_id", base.id);
-    const { data: rules } = await supa.from("rules").select("*");
-    const { data: interactions } = await supa.from("interactions").select("*");
-    const { data: catalog } = await supa.from("supplements").select("*");
-
-    // Build LLM prompt
-    const prompt = buildPrompt({
-      submission: base,
-      supplements: supps ?? [],
-      medications: meds ?? [],
-      hormones: hormones ?? [],
-      rules: rules ?? [],
-      interactions: interactions ?? [],
-      catalog: catalog ?? [],
-    });
-
-    // Call OpenAI
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-    const llm = await client.chat.completions.create({
-      model: "gpt-4.1",
-      messages: [
-        { role: "system", content: prompt.system },
-        { role: "user", content: JSON.stringify(prompt.user) },
-      ],
-      response_format: { type: "json_object" },
-    });
-
-    const rawText = llm.choices[0]?.message?.content ?? "{}";
-    console.log("[LLM Raw Output]", rawText);
-
-    // Parse response with schema
-    let parsed: Report;
-    try {
-      parsed = ReportSchema.parse(JSON.parse(rawText));
-    } catch (err) {
-      console.error("[ReportSchema Validation Error]", err);
-      parsed = { sections: [], stack_items: [] } as Report;
-    }
-
-    // ✅ Apply safety checks + affiliate links
-    let finalItems = await applySafetyChecks(parsed.stack_items ?? [], {
-      medications: meds ?? [],
-      conditions: base.conditions ?? [],
-      allergies: base.allergies ?? [],
-    });
-    finalItems = await enrichAffiliateLinks(finalItems);
-
-    // Convert sections to markdown
-    const markdown = sectionsToMarkdown(parsed.sections as any);
-
-    // Save report
-    const usage = llm.usage ?? {};
-    const { error: reportErr } = await supa.from("reports").insert({
-      submission_id: base.id,
-      user_id: base.user_id ?? null,
-      body: markdown,
-      generated_by: "llm",
-      total_tokens: usage.total_tokens ?? null,
-      prompt_tokens: usage.prompt_tokens ?? null,
-      completion_tokens: usage.completion_tokens ?? null,
-      est_cost_usd: (usage.total_tokens ?? 0) * 0.00001, // rough estimate
-    });
-    if (reportErr) console.error("[Reports Insert Error]", reportErr);
-
-    // Save stack + items
-    try {
-      const { data: stackRows, error: stackErr } = await supa
-        .from("stacks")
-        .insert({
-          user_email: base.user_email || "",
-          submission_id: base.id,
-          user_id: base.user_id ?? null,
-          items: finalItems,
-          sections: parsed.sections ?? [],
-          summary: "LLM-generated supplement stack",
-        })
-        .select("id")
-        .limit(1);
-
-      if (stackErr) console.error("[Stacks Insert Error]", stackErr);
-
-      const stackId = stackRows?.[0]?.id;
-      if (stackId && finalItems.length > 0) {
-        const itemsToInsert = finalItems.map((item: any) => ({
-          stack_id: stackId,
-          user_id: base.user_id ?? null,
-          name: item.name,
-          brand: item.brand ?? null,
-          dose: item.dose,
-          timing: item.timing,
-          rationale: item.rationale,
-          caution: item.cautions ?? null,
-          citations: item.citations ?? [],
-          link: item.link ?? null,
-        }));
-        const { error: itemErr } = await supa
-          .from("stacks_items")
-          .insert(itemsToInsert);
-        if (itemErr) console.error("[StackItems Insert Error]", itemErr);
-      }
-    } catch (err) {
-      console.error("[Stacks/Items Save Error]", err);
-    }
-
-    return NextResponse.json({
-      ok: true,
-      submission_id: base.id,
-      report_markdown: markdown,
-      items: finalItems,
-    });
-  } catch (err: any) {
-    console.error("[generate-report Fatal]", err);
     return NextResponse.json(
-      { ok: false, error: err?.message ?? "Unknown error" },
+      {
+        ok: true,
+        stack: result,
+        itemsInserted,
+        ai: { markdown: result.markdown, raw: result.raw },
+      },
+      { status: 200 }
+    );
+  } catch (err: any) {
+    console.error("Unhandled error in generate-stack:", err);
+    return NextResponse.json(
+      { ok: false, error: String(err?.message ?? err) },
       { status: 500 }
     );
   }
