@@ -90,19 +90,20 @@ function LinksTable({
       const label = parts[0]?.trim();
       let url = parts[1]?.trim() ?? "";
 
-      // Map placeholder keywords to base URLs
+      // Map keywords to base URLs
       if (url && !url.startsWith("http")) {
         if (/pubmed/i.test(url)) url = "https://pubmed.ncbi.nlm.nih.gov";
         else if (/pmc/i.test(url)) url = "https://www.ncbi.nlm.nih.gov/pmc";
         else if (/plos/i.test(url)) url = "https://journals.plos.org";
         else if (/bmc/i.test(url)) url = "https://bmcpublichealth.biomedcentral.com";
         else if (/amazon/i.test(url)) url = "https://www.amazon.com";
+        else url = ""; // treat as plain text only
       }
 
       return { label, url };
     });
 
-  // Build Add-All-to-Cart URL (only for shopping)
+  // Build Add-All-to-Cart URL (only for shopping links with Amazon ASINs)
   let allCartUrl: string | null = null;
   if (type === "shopping") {
     const asinRegex = /\/dp\/([A-Z0-9]{10})/;
@@ -117,9 +118,7 @@ function LinksTable({
       const parts = asins.map(
         (asin, i) => `ASIN.${i + 1}=${asin}&Quantity.${i + 1}=1`
       );
-      allCartUrl = `https://www.amazon.com/gp/aws/cart/add.html?${parts.join(
-        "&"
-      )}`;
+      allCartUrl = `https://www.amazon.com/gp/aws/cart/add.html?${parts.join("&")}`;
     }
   }
 
@@ -144,9 +143,7 @@ function LinksTable({
                       href={r.url}
                       variant={type === "shopping" ? "primary" : "secondary"}
                     >
-                      {type === "shopping"
-                        ? "Buy on Amazon"
-                        : "View Evidence"}
+                      {type === "shopping" ? "Buy on Amazon" : "View Evidence"}
                     </CTAButton>
                   )}
                 </td>
