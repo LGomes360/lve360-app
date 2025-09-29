@@ -74,43 +74,85 @@ function Prose({ children }: { children: string }) {
 }
 
 /* Table renderer for Evidence & Shopping */
-function LinksTable({ raw, type }: { raw: string; type: "evidence" | "shopping" }) {
+function LinksTable({
+  raw,
+  type,
+}: {
+  raw: string;
+  type: "evidence" | "shopping";
+}) {
   const rows = raw
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean)
     .map((line) => {
-      // handles "Label - URL" or just URL
       const parts = line.split(/-\s+|:\s+/);
-      return { label: parts[0]?.trim(), url: parts[1]?.trim() ?? parts[0]?.trim() };
+      const label = parts[0]?.trim();
+      const url = parts[1]?.trim() ?? "";
+      return { label, url };
     });
 
+  // Build "Add All to Cart" (only for shopping with valid Amazon ASINs)
+  let allCartUrl: string | null = null;
+  if (type === "shopping") {
+    const asinRegex = /\/dp\/([A-Z0-9]{10})/;
+    const asins = rows
+      .map((r) => {
+        const m = asinRegex.exec(r.url);
+        return m ? m[1] : null;
+      })
+      .filter(Boolean) as string[];
+
+    if (asins.length > 0) {
+      const parts = asins.map(
+        (asin, i) => `ASIN.${i + 1}=${asin}&Quantity.${i + 1}=1`
+      );
+      allCartUrl = `https://www.amazon.com/gp/aws/cart/add.html?${parts.join(
+        "&"
+      )}`;
+    }
+  }
+
   return (
-    <table className="w-full border-collapse my-4 text-sm shadow-sm">
-      <thead className="bg-[#06C1A0] text-white">
-        <tr>
-          <th className="px-3 py-2 text-left">Item</th>
-          <th className="px-3 py-2 text-left">Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r, i) => (
-          <tr key={i} className="even:bg-gray-50 border-t">
-            <td className="px-3 py-2">{r.label || r.url}</td>
-            <td className="px-3 py-2">
-              {r.url && (
-                <CTAButton
-                  href={r.url}
-                  variant={type === "shopping" ? "primary" : "secondary"}
-                >
-                  {type === "shopping" ? "Buy on Amazon" : "View Evidence"}
-                </CTAButton>
-              )}
-            </td>
+    <div>
+      <table className="w-full border-collapse my-4 text-sm shadow-sm">
+        <thead className="bg-[#06C1A0] text-white">
+          <tr>
+            <th className="px-3 py-1.5 text-left">Item</th>
+            <th className="px-3 py-1.5 text-left">Action</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            const hasLink = r.url.startsWith("http");
+            return (
+              <tr key={i} className="even:bg-gray-50 border-t">
+                <td className="px-3 py-1.5">{r.label || r.url}</td>
+                <td className="px-3 py-1.5">
+                  {hasLink && (
+                    <CTAButton
+                      href={r.url}
+                      variant={type === "shopping" ? "primary" : "secondary"}
+                    >
+                      {type === "shopping"
+                        ? "Buy on Amazon"
+                        : "View Evidence"}
+                    </CTAButton>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {allCartUrl && (
+        <div className="mt-4">
+          <CTAButton href={allCartUrl} variant="premium">
+            🛒 Add All to Cart
+          </CTAButton>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -133,9 +175,9 @@ function SectionCard({
 function ResultsContent() {
   const [error, setError] = useState<string | null>(null);
   const [markdown, setMarkdown] = useState<string | null>(null);
-  const [warmingUp, setWarmingUp] = useState(false); // ⭐ NEW
+  const [warmingUp, setWarmingUp] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [ready, setReady] = useState(true); // simplified: always allow click
+  const [ready, setReady] = useState(true);
 
   const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
@@ -177,7 +219,6 @@ function ResultsContent() {
       setWarmingUp(true);
       setError(null);
 
-      // ⭐ 3-second warmup delay
       await new Promise((r) => setTimeout(r, 3000));
       setWarmingUp(false);
       setGenerating(true);
