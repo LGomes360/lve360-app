@@ -88,11 +88,21 @@ function LinksTable({
     .map((line) => {
       const parts = line.split(/-\s+|:\s+/);
       const label = parts[0]?.trim();
-      const url = parts[1]?.trim() ?? "";
+      let url = parts[1]?.trim() ?? "";
+
+      // Map placeholder keywords to base URLs
+      if (url && !url.startsWith("http")) {
+        if (/pubmed/i.test(url)) url = "https://pubmed.ncbi.nlm.nih.gov";
+        else if (/pmc/i.test(url)) url = "https://www.ncbi.nlm.nih.gov/pmc";
+        else if (/plos/i.test(url)) url = "https://journals.plos.org";
+        else if (/bmc/i.test(url)) url = "https://bmcpublichealth.biomedcentral.com";
+        else if (/amazon/i.test(url)) url = "https://www.amazon.com";
+      }
+
       return { label, url };
     });
 
-  // Build "Add All to Cart" (only for shopping with valid Amazon ASINs)
+  // Build Add-All-to-Cart URL (only for shopping)
   let allCartUrl: string | null = null;
   if (type === "shopping") {
     const asinRegex = /\/dp\/([A-Z0-9]{10})/;
