@@ -81,45 +81,39 @@ function LinksTable({
   raw: string;
   type: "evidence" | "shopping";
 }) {
+  const linkRe = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+
   const rows = raw
     .split("\n")
     .map((l) => l.trim())
-    .filter(Boolean)
+    .filter((l) => l.startsWith("-"))
     .map((line) => {
-      let label = line;
-      let url = "";
+      // Extract Markdown links like [Amazon](https://url)
+      const matches = Array.from(line.matchAll(linkRe));
+      if (matches.length === 0) return null;
 
-      // Split only once on first colon
-      if (line.includes(":")) {
-        const [left, right] = line.split(/:(.+)/).map((s) => s.trim());
-        label = left;
-        url = right;
-      }
+      // Left side = supplement name before colon
+      const namePart = line.replace(/^-+\s*/, "").split(":")[0].trim();
+      const links = matches.map((m) => ({
+        text: m[1],
+        url: m[2],
+      }));
 
-      // Map keywords to base URLs
-      if (url && !url.startsWith("http")) {
-        if (/pubmed/i.test(url)) url = "https://pubmed.ncbi.nlm.nih.gov";
-        else if (/pmc/i.test(url)) url = "https://www.ncbi.nlm.nih.gov/pmc";
-        else if (/plos/i.test(url)) url = "https://journals.plos.org";
-        else if (/bmc/i.test(url)) url = "https://bmcpublichealth.biomedcentral.com";
-        else if (/amazon/i.test(url)) url = "https://www.amazon.com";
-        else url = ""; // skip junk like "Evidence pending" or "Analysis"
-      }
-
-      return { label, url };
+      return { name: namePart, links };
     })
-    // filter out rows that have no usable link
-    .filter((r) => r.url);
+    .filter(Boolean) as { name: string; links: { text: string; url: string }[] }[];
 
-  // Build Add-All-to-Cart URL (only for shopping)
+  // Build Add-All-to-Cart (only for shopping)
   let allCartUrl: string | null = null;
   if (type === "shopping") {
     const asinRegex = /\/dp\/([A-Z0-9]{10})/;
     const asins = rows
-      .map((r) => {
-        const m = asinRegex.exec(r.url);
-        return m ? m[1] : null;
-      })
+      .flatMap((r) =>
+        r.links.map((link) => {
+          const m = asinRegex.exec(link.url);
+          return m ? m[1] : null;
+        })
+      )
       .filter(Boolean) as string[];
 
     if (asins.length > 0) {
@@ -142,14 +136,17 @@ function LinksTable({
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} className="even:bg-gray-50 border-t">
-              <td className="px-3 py-1.5">{r.label}</td>
-              <td className="px-3 py-1.5">
-                <CTAButton
-                  href={r.url}
-                  variant={type === "shopping" ? "primary" : "secondary"}
-                >
-                  {type === "shopping" ? "Buy on Amazon" : "View Evidence"}
-                </CTAButton>
+              <td className="px-3 py-1.5">{r.name}</td>
+              <td className="px-3 py-1.5 space-x-2">
+                {r.links.map((link, j) => (
+                  <CTAButton
+                    key={j}
+                    href={link.url}
+                    variant={type === "shopping" ? "primary" : "secondary"}
+                  >
+                    {type === "shopping" ? `Buy on ${link.text}` : link.text}
+                  </CTAButton>
+                ))}
               </td>
             </tr>
           ))}
