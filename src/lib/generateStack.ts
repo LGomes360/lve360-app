@@ -373,6 +373,30 @@ function overrideEvidenceInMarkdown(md: string, section: string): string {
   if (headerRe.test(md)) return md.replace(headerRe, section);
   return md.replace(/\n## END/i, `\n\n${section}\n\n## END`);
 }
+// ----------------------------------------------------------------------------
+// Shopping Links section rendering
+// ----------------------------------------------------------------------------
+function buildShoppingLinksSection(items: StackItem[]): string {
+  if (!items || items.length === 0) {
+    return "## Shopping Links\n\n- No links available yet.\n\n**Analysis**\n\nLinks will be provided once products are mapped.";
+  }
+
+  const bullets = items.map((it) => {
+    const name = cleanName(it.name);
+    const links: string[] = [];
+
+    if (it.link_amazon) links.push(`[Amazon](${it.link_amazon})`);
+    if (it.link_fullscript) links.push(`[Fullscript](${it.link_fullscript})`);
+    if (it.link_thorne) links.push(`[Thorne](${it.link_thorne})`);
+    if (it.link_other) links.push(`[Other](${it.link_other})`);
+
+    return `- **${name}**: ${links.join(" • ")}`;
+  });
+
+  return `## Shopping Links\n\n${bullets.join(
+    "\n"
+  )}\n\n**Analysis**\n\nThese links are provided for convenience. Premium users may see Fullscript options when available; Amazon links are shown for everyone.`;
+}
 
 // ----------------------------------------------------------------------------
 // Parser: Markdown → StackItem[]
@@ -784,7 +808,14 @@ export async function generateStackForSubmission(id: string) {
     (acc, it) => acc + (it.cost_estimate ?? 0),
     0
   );
-
+// Override or append Shopping Links section in markdown
+const shoppingSection = buildShoppingLinksSection(withEvidence);
+const shoppingRe = /## Shopping Links([\s\S]*?)(?=\n## |\n## END|$)/i;
+if (shoppingRe.test(md)) {
+  md = md.replace(shoppingRe, shoppingSection);
+} else {
+  md = md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
+}
   // Persist parent stack
   let parentRows: any[] = [];
   try {
