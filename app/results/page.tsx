@@ -86,9 +86,15 @@ function LinksTable({
     .map((l) => l.trim())
     .filter(Boolean)
     .map((line) => {
-      const parts = line.split(/-\s+|:\s+/);
-      const label = parts[0]?.trim();
-      let url = parts[1]?.trim() ?? "";
+      let label = line;
+      let url = "";
+
+      // Split only once on first colon
+      if (line.includes(":")) {
+        const [left, right] = line.split(/:(.+)/).map((s) => s.trim());
+        label = left;
+        url = right;
+      }
 
       // Map keywords to base URLs
       if (url && !url.startsWith("http")) {
@@ -97,13 +103,15 @@ function LinksTable({
         else if (/plos/i.test(url)) url = "https://journals.plos.org";
         else if (/bmc/i.test(url)) url = "https://bmcpublichealth.biomedcentral.com";
         else if (/amazon/i.test(url)) url = "https://www.amazon.com";
-        else url = ""; // treat as plain text only
+        else url = ""; // skip junk like "Evidence pending" or "Analysis"
       }
 
       return { label, url };
-    });
+    })
+    // filter out rows that have no usable link
+    .filter((r) => r.url);
 
-  // Build Add-All-to-Cart URL (only for shopping links with Amazon ASINs)
+  // Build Add-All-to-Cart URL (only for shopping)
   let allCartUrl: string | null = null;
   if (type === "shopping") {
     const asinRegex = /\/dp\/([A-Z0-9]{10})/;
@@ -132,24 +140,19 @@ function LinksTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => {
-            const hasLink = r.url.startsWith("http");
-            return (
-              <tr key={i} className="even:bg-gray-50 border-t">
-                <td className="px-3 py-1.5">{r.label || r.url}</td>
-                <td className="px-3 py-1.5">
-                  {hasLink && (
-                    <CTAButton
-                      href={r.url}
-                      variant={type === "shopping" ? "primary" : "secondary"}
-                    >
-                      {type === "shopping" ? "Buy on Amazon" : "View Evidence"}
-                    </CTAButton>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
+          {rows.map((r, i) => (
+            <tr key={i} className="even:bg-gray-50 border-t">
+              <td className="px-3 py-1.5">{r.label}</td>
+              <td className="px-3 py-1.5">
+                <CTAButton
+                  href={r.url}
+                  variant={type === "shopping" ? "primary" : "secondary"}
+                >
+                  {type === "shopping" ? "Buy on Amazon" : "View Evidence"}
+                </CTAButton>
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
       {allCartUrl && (
