@@ -791,8 +791,15 @@ export async function generateStackForSubmission(id: string) {
     parsedItems
   );
 
-  // Enrich with links (expects to fill link_budget/trusted/clean/default and possibly link_fullscript)
-  const enriched = await enrichAffiliateLinks(cleaned);
+ // Normalize names before enrichment so aliases resolve correctly
+const normalizedForLinks = cleaned.map(it => ({
+  ...it,
+  name: normalizeSupplementName(it.name),
+}));
+
+// Enrich with links (expects to fill link_budget/trusted/clean/default and possibly link_fullscript)
+const enriched = await enrichAffiliateLinks(normalizedForLinks);
+
 
   // Apply link policy: pick Amazon category from quiz, prefer Fullscript for premium
   const finalStack: StackItem[] = applyLinkPolicy(enriched, sub);
