@@ -31,7 +31,7 @@ function extractSection(md: string, heads: string[]): string | null {
   return slice.replace(/^##\s*[^\n]+\n?/, "").trim();
 }
 
-/* Markdown renderer for prose sections */
+/* Markdown renderer */
 function Prose({ children }: { children: string }) {
   return (
     <div className="prose prose-gray max-w-none">
@@ -73,7 +73,7 @@ function Prose({ children }: { children: string }) {
   );
 }
 
-/* Table renderer for Evidence & Shopping */
+/* Evidence + Shopping table */
 function LinksTable({
   raw,
   type,
@@ -101,10 +101,10 @@ function LinksTable({
     })
     .filter(Boolean) as { name: string; links: { text: string; url: string }[] }[];
 
-  // Build Add-All-to-Cart (only for shopping)
+  // Add-All-to-Cart
   let allCartUrl: string | null = null;
   if (type === "shopping") {
-    const asinRegex = /(?:dp|gp\/product)\/([A-Z0-9]{10})/;
+    const asinRegex = /(?:dp|gp\/product|gp\/aw\/d)\/([A-Z0-9]{10})(?=[/?]|$)/;
     const asins = rows
       .flatMap((r) =>
         r.links.map((link) => {
@@ -124,7 +124,7 @@ function LinksTable({
 
   return (
     <div>
-      <table className="w-full border-collapse my-4 text-sm shadow-sm">
+      <table className="w-full border-collapse my-2 text-sm shadow-sm">
         <thead className="bg-[#06C1A0] text-white">
           <tr>
             <th className="px-3 py-1 text-left">Item</th>
@@ -141,7 +141,7 @@ function LinksTable({
                     key={j}
                     href={link.url}
                     variant={type === "shopping" ? "primary" : "secondary"}
-                    className="px-2 py-1 text-sm"
+                    className="px-2 py-1 text-sm min-w-0"
                   >
                     {type === "shopping"
                       ? `Buy on ${link.text}`
@@ -153,9 +153,10 @@ function LinksTable({
           ))}
         </tbody>
       </table>
+
       {allCartUrl && (
-        <div className="mt-4">
-          <CTAButton href={allCartUrl} variant="premium">
+        <div className="mt-3">
+          <CTAButton href={allCartUrl} variant="premium" className="px-4 py-2 text-sm">
             🛒 Add All to Cart
           </CTAButton>
         </div>
@@ -180,7 +181,7 @@ function SectionCard({
   );
 }
 
-/* ───────── main content ───────── */
+/* ───────── page ───────── */
 function ResultsContent() {
   const [error, setError] = useState<string | null>(null);
   const [markdown, setMarkdown] = useState<string | null>(null);
@@ -227,7 +228,6 @@ function ResultsContent() {
     try {
       setWarmingUp(true);
       setError(null);
-
       await new Promise((r) => setTimeout(r, 3000));
       setWarmingUp(false);
       setGenerating(true);
@@ -300,7 +300,6 @@ function ResultsContent() {
         </p>
       </div>
 
-      {/* Action buttons */}
       <SectionCard title="Actions">
         <div className="flex flex-wrap gap-4 justify-center">
           <CTAButton
@@ -321,7 +320,6 @@ function ResultsContent() {
             👑 Upgrade to Premium
           </CTAButton>
         </div>
-
         {(warmingUp || generating) && (
           <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
             {warmingUp
@@ -333,7 +331,6 @@ function ResultsContent() {
 
       {error && <div className="text-center text-red-600 mb-6">{error}</div>}
 
-      {/* Sections */}
       {sec.intro && (
         <SectionCard title="Intro Summary">
           <Prose>{sec.intro}</Prose>
@@ -395,7 +392,6 @@ function ResultsContent() {
         </SectionCard>
       )}
 
-      {/* Disclaimer */}
       <SectionCard title="Important Wellness Disclaimer">
         <p className="text-sm text-gray-700 leading-relaxed">
           This plan from <strong>LVE360 (Longevity | Vitality | Energy)</strong>{" "}
@@ -413,7 +409,6 @@ function ResultsContent() {
         </p>
       </SectionCard>
 
-      {/* PDF export */}
       <div className="flex justify-center mt-8">
         <button
           onClick={exportPDF}
