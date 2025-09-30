@@ -98,7 +98,7 @@ function LinksTable({
 
       const namePart = line.replace(/^-+\s*/, "").split(":")[0].trim();
       if (namePart.toLowerCase().includes("evidence pending")) {
-        return null; // ✅ skip placeholders
+        return null; // ✅ skip placeholder rows
       }
 
       const links = matches.map((m) => ({
@@ -109,6 +109,27 @@ function LinksTable({
       return { name: namePart, links };
     })
     .filter(Boolean) as { name: string; links: { text: string; url: string }[] }[];
+
+  // Add-All-to-Cart
+  let allCartUrl: string | null = null;
+  if (type === "shopping") {
+    const asinRegex = /(?:dp|gp\/product|gp\/aw\/d)\/([A-Z0-9]{10})(?=[/?]|$)/;
+    const asins = rows
+      .flatMap((r) =>
+        r.links.map((link) => {
+          const m = asinRegex.exec(link.url);
+          return m ? m[1] : null;
+        })
+      )
+      .filter(Boolean) as string[];
+
+    if (asins.length > 0) {
+      const parts = asins.map(
+        (asin, i) => `ASIN.${i + 1}=${asin}&Quantity.${i + 1}=1`
+      );
+      allCartUrl = `https://www.amazon.com/gp/aws/cart/add.html?${parts.join("&")}&tag=lve360-20`;
+    }
+  }
 
   return (
     <div>
@@ -143,13 +164,41 @@ function LinksTable({
         </tbody>
       </table>
 
+      {allCartUrl && (
+        <div className="mt-3">
+          <CTAButton
+            href={allCartUrl}
+            variant="premium"
+            size="md"
+            className="px-4 py-2 text-sm"
+          >
+            🛒 Add All to Cart
+          </CTAButton>
+        </div>
+      )}
+
       {analysis && (
-        <p className="mt-2 text-sm text-gray-700 leading-relaxed">{analysis}</p>
+        <p className="mt-3 text-sm text-gray-700 leading-relaxed">{analysis}</p>
       )}
     </div>
   );
 }
 
+/* Section card wrapper */
+function SectionCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
+      <h2 className="text-xl font-semibold text-[#06C1A0] mb-4">{title}</h2>
+      {children}
+    </div>
+  );
+}
 
 /* ───────── page ───────── */
 function ResultsContent() {
