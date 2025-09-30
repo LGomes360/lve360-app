@@ -57,7 +57,7 @@ function Prose({ children }: { children: string }) {
             <th className="px-3 py-2 text-left font-semibold" {...props} />
           ),
           td: ({ node, ...props }) => (
-            <td className="px-3 py-2 border-t border-gray-200" {...props} />
+            <td className="px-3 py-1 border-t border-gray-200" {...props} />
           ),
           tr: ({ node, ...props }) => (
             <tr className="even:bg-gray-50" {...props} />
@@ -88,11 +88,9 @@ function LinksTable({
     .map((l) => l.trim())
     .filter((l) => l.startsWith("-"))
     .map((line) => {
-      // Extract Markdown links like [Amazon](https://url)
       const matches = Array.from(line.matchAll(linkRe));
       if (matches.length === 0) return null;
 
-      // Left side = supplement name before colon
       const namePart = line.replace(/^-+\s*/, "").split(":")[0].trim();
       const links = matches.map((m) => ({
         text: m[1],
@@ -106,7 +104,7 @@ function LinksTable({
   // Build Add-All-to-Cart (only for shopping)
   let allCartUrl: string | null = null;
   if (type === "shopping") {
-    const asinRegex = /\/dp\/([A-Z0-9]{10})/;
+    const asinRegex = /(?:dp|gp\/product)\/([A-Z0-9]{10})/;
     const asins = rows
       .flatMap((r) =>
         r.links.map((link) => {
@@ -129,22 +127,25 @@ function LinksTable({
       <table className="w-full border-collapse my-4 text-sm shadow-sm">
         <thead className="bg-[#06C1A0] text-white">
           <tr>
-            <th className="px-3 py-1.5 text-left">Item</th>
-            <th className="px-3 py-1.5 text-left">Action</th>
+            <th className="px-3 py-1 text-left">Item</th>
+            <th className="px-3 py-1 text-left">Action</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} className="even:bg-gray-50 border-t">
-              <td className="px-3 py-1.5">{r.name}</td>
-              <td className="px-3 py-1.5 space-x-2">
+              <td className="px-3 py-1">{r.name}</td>
+              <td className="px-3 py-1 space-x-2">
                 {r.links.map((link, j) => (
                   <CTAButton
                     key={j}
                     href={link.url}
                     variant={type === "shopping" ? "primary" : "secondary"}
+                    className="px-2 py-1 text-sm"
                   >
-                    {type === "shopping" ? `Buy on ${link.text}` : link.text}
+                    {type === "shopping"
+                      ? `Buy on ${link.text}`
+                      : link.text}
                   </CTAButton>
                 ))}
               </td>
