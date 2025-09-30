@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/consistent-type-imports */
 /* eslint-disable no-console */
 // ----------------------------------------------------------------------------
-// LVE360 — generateStack.ts (REWRITTEN, consolidated)
+// LVE360 — generateStack.ts (REWRITTEN)
 // Purpose: Generate validated Markdown report, parse StackItems, run safety,
 // affiliate enrichment (Amazon category links + Fullscript), attach evidence,
-// override Markdown Evidence/Shopping sections, and persist into Supabase.
+// override Markdown Evidence section, and persist into Supabase.
 // ----------------------------------------------------------------------------
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
@@ -71,8 +71,8 @@ export interface StackItem {
   link_default?: string | null;
 
   // Destination links persisted into stacks_items
-  link_amazon?: string | null; // chosen from the 4 categories
-  link_fullscript?: string | null; // as provided by enrichment (if any)
+  link_amazon?: string | null;     // <- chosen from the 4 categories
+  link_fullscript?: string | null; // <- as provided by enrichment (if any)
   link_thorne?: string | null;
   link_other?: string | null;
 
@@ -109,7 +109,11 @@ function age(dob: string | null) {
 }
 
 function extractUserId(sub: any): string | null {
-  return sub?.user_id ?? (typeof sub.user === "object" ? sub.user?.id : null) ?? null;
+  return (
+    sub?.user_id ??
+    (typeof sub.user === "object" ? sub.user?.id : null) ??
+    null
+  );
 }
 
 function normalizeTiming(raw?: string | null): string | null {
@@ -155,8 +159,7 @@ function normalizeSupplementName(name: string): string {
 
   if (collapsed === "l") return "L-Theanine";
   if (collapsed === "b") return "B-Vitamins";
-  if (collapsed.includes("b complex") || collapsed.includes("b-vitamins"))
-    return "B-Vitamins";
+  if (collapsed.includes("b complex") || collapsed.includes("b-vitamins")) return "B-Vitamins";
 
   if (collapsed.startsWith("omega")) return "Omega-3";
   if (collapsed.startsWith("vitamin d")) return "Vitamin D";
@@ -167,14 +170,8 @@ function normalizeSupplementName(name: string): string {
   if (collapsed.startsWith("rhodiola")) return "Rhodiola Rosea";
   if (collapsed.startsWith("ginkgo")) return "Ginkgo Biloba";
   if (collapsed.startsWith("zinc")) return "Zinc";
-  if (collapsed.startsWith("calcium")) return "Calcium";
-  if (collapsed.includes("curcumin") || collapsed.startsWith("turmer")) return "Curcumin";
 
-  if (
-    /^acetyl\s*l\b/.test(collapsed) ||
-    collapsed.includes("acetyl l carnitine") ||
-    collapsed.includes("acetyl-l-carnitine")
-  )
+  if (/^acetyl\s*l\b/.test(collapsed) || collapsed.includes("acetyl l carnitine") || collapsed.includes("acetyl-l-carnitine"))
     return "Acetyl-L-carnitine";
 
   return name.trim();
@@ -186,12 +183,10 @@ const ALIAS_MAP: Record<string, string> = {
   "Magnesium": "magnesium (glycinate)",
   "Ashwagandha": "ashwagandha (ksm-66 or similar)",
   "Bacopa Monnieri": "bacopa monnieri (50% bacosides)",
-  CoQ10: "coq10 (ubiquinone)",
+  "CoQ10": "coq10 (ubiquinone)",
   "Rhodiola Rosea": "rhodiola rosea (3% rosavins)",
   "Ginkgo Biloba": "ginkgo biloba (24/6)",
-  Zinc: "zinc (picolinate)",
-  Calcium: "calcium",
-  Curcumin: "curcumin",
+  "Zinc": "zinc (picolinate)",
   "B-Vitamins": "b-complex",
   "B Vitamins Complex": "b-complex",
   "L-Theanine": "l-theanine",
@@ -219,15 +214,13 @@ function buildEvidenceCandidates(normName: string): string[] {
   const expansions: Record<string, string[]> = {
     "Omega-3": ["omega-3 (epa+dha)", "omega-3", "omega 3"],
     "Vitamin D": ["vitamin d3", "vitamin d", "vitamin-d"],
-    Magnesium: ["magnesium (glycinate)", "magnesium"],
-    Ashwagandha: ["ashwagandha (ksm-66 or similar)", "ashwagandha"],
+    "Magnesium": ["magnesium (glycinate)", "magnesium"],
+    "Ashwagandha": ["ashwagandha (ksm-66 or similar)", "ashwagandha"],
     "Bacopa Monnieri": ["bacopa monnieri (50% bacosides)", "bacopa monnieri"],
-    CoQ10: ["coq10 (ubiquinone)", "coq10"],
+    "CoQ10": ["coq10 (ubiquinone)", "coq10"],
     "Rhodiola Rosea": ["rhodiola rosea (3% rosavins)", "rhodiola rosea"],
     "Ginkgo Biloba": ["ginkgo biloba (24/6)", "ginkgo biloba"],
-    Zinc: ["zinc (picolinate)", "zinc"],
-    Calcium: ["calcium"],
-    Curcumin: ["curcumin", "turmeric"],
+    "Zinc": ["zinc (picolinate)", "zinc"],
     "B-Vitamins": ["b-complex", "b vitamins", "b-vitamins"],
     "L-Theanine": ["l-theanine", "l theanine"],
     "Acetyl-L-carnitine": ["acetyl-l-carnitine", "acetyl l carnitine", "alc"],
@@ -289,11 +282,13 @@ function attachEvidence(item: StackItem): StackItem {
     console.log("evidence.lookup", {
       rawName: item.name,
       normName,
+      candidates,
       curatedCount: curatedUrls.length,
       keptFromModel: modelValid.length,
     });
-  } catch {}
+  } catch (e) {}
 
+  // overwrite name with normalized display name
   return { ...item, name: normName, citations: final.length ? final : null };
 }
 
@@ -364,7 +359,7 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
   const bulletsText = take.map((b) => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`).join("\n");
   const analysis = `
 
-**Note**
+**Analysis**
 
 These references are pulled from LVE360’s curated evidence index (PubMed/PMC/DOI and other trusted journals) and replace any model-generated references.
 `;
@@ -378,19 +373,12 @@ function overrideEvidenceInMarkdown(md: string, section: string): string {
   if (headerRe.test(md)) return md.replace(headerRe, section);
   return md.replace(/\n## END/i, `\n\n${section}\n\n## END`);
 }
-
 // ----------------------------------------------------------------------------
 // Shopping Links section rendering
 // ----------------------------------------------------------------------------
 function buildShoppingLinksSection(items: StackItem[]): string {
   if (!items || items.length === 0) {
-    return `## Shopping Links
-
-- No links available.
-
-**Note**
-
-These links are provided for convenience. Premium users may see Fullscript options when available; Amazon links are shown for everyone.`;
+    return "## Shopping Links\n\n- No links available yet.\n\n**Analysis**\n\nLinks will be provided once products are mapped.";
   }
 
   const bullets = items.map((it) => {
@@ -407,7 +395,7 @@ These links are provided for convenience. Premium users may see Fullscript optio
 
   return `## Shopping Links\n\n${bullets.join(
     "\n"
-  )}\n\n**Note**\n\nThese links are provided for convenience. Premium users may see Fullscript options when available; Amazon links are shown for everyone.`;
+  )}\n\n**Analysis**\n\nThese links are provided for convenience. Premium users may see Fullscript options when available; Amazon links are shown for everyone.`;
 }
 
 // ----------------------------------------------------------------------------
@@ -420,10 +408,8 @@ function parseStackFromMarkdown(md: string): StackItem[] {
   const blueprint = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
   if (blueprint) {
     const rows = blueprint[1].split("\n").filter((l) => l.trim().startsWith("|"));
-    // Expect header + rows; skip header line
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
-      // | rank | Supplement | Why it Matters |
       const name = cleanName(cols[2] || `Item ${i + 1}`);
       if (!name) return;
       base[name.toLowerCase()] = {
@@ -442,7 +428,6 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     const rows = current[1].split("\n").filter((l) => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
-      // | Medication/Supplement | Purpose | Dosage | Timing |
       const name = cleanName(cols[1] || `Current Item ${i + 1}`);
       if (!name) return;
       const rationale = cols[2] || undefined;
@@ -492,16 +477,15 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     }
   }
 
-  // Cleanup + filters
   const seen = new Set<string>();
   return Object.values(base).filter((it: any) => {
     if (!it?.name) return false;
     const key = it.name.trim().toLowerCase();
     if (!key) return false;
     if (seen.has(key)) return false;
-    if (it.name.length > 60) return false; // avoid noisy long names
+    if (it.name.length > 40) return false;
     if (/[.,]{3,}/.test(it.name)) return false;
-    if (/\bvitamin\b.*\band\b/i.test(it.name)) return false; // likely aggregate name
+    if (/\bvitamin\b.*\band\b/i.test(it.name)) return false;
     if (/^analysis$/i.test(it.name.trim())) return false;
     seen.add(key);
     return true;
@@ -554,7 +538,11 @@ function userPrompt(sub: SubmissionWithChildren) {
   return `
 ### CLIENT
 \`\`\`json
-${JSON.stringify({ ...sub, age: age((sub as any).dob ?? null), today: TODAY }, null, 2)}
+${JSON.stringify(
+  { ...sub, age: age((sub as any).dob ?? null), today: TODAY },
+  null,
+  2
+)}
 \`\`\`
 
 ### TASK
@@ -623,9 +611,7 @@ function ensureEnd(md: string) {
 // ----------------------------------------------------------------------------
 // Preference → Amazon category chooser, plus Premium Fullscript preference
 // ----------------------------------------------------------------------------
-function normalizeBrandPref(
-  p?: string | null
-): "budget" | "trusted" | "clean" | "default" {
+function normalizeBrandPref(p?: string | null): "budget" | "trusted" | "clean" | "default" {
   const s = (p || "").toLowerCase();
   if (s.includes("budget") || s.includes("cost")) return "budget";
   if (s.includes("trusted") || s.includes("brand")) return "trusted";
@@ -633,37 +619,46 @@ function normalizeBrandPref(
   return "default"; // “doesn’t matter”
 }
 
-function chooseAmazonLinkFor(
-  item: StackItem,
-  pref: "budget" | "trusted" | "clean" | "default"
-): string | null {
+function chooseAmazonLinkFor(item: StackItem, pref: "budget" | "trusted" | "clean" | "default"): string | null {
   const pick =
-    pref === "budget"
-      ? item.link_budget
-      : pref === "trusted"
-      ? item.link_trusted
-      : pref === "clean"
-      ? item.link_clean
-      : item.link_default;
+    pref === "budget" ? item.link_budget
+    : pref === "trusted" ? item.link_trusted
+    : pref === "clean" ? item.link_clean
+    : item.link_default;
 
-  return pick || item.link_default || item.link_trusted || item.link_budget || item.link_clean || null;
+  // Robust fallbacks
+  return (
+    pick ||
+    item.link_default ||
+    item.link_trusted ||
+    item.link_budget ||
+    item.link_clean ||
+    null
+  );
 }
 
 function applyLinkPolicy(items: StackItem[], sub: any): StackItem[] {
-  const pref = normalizeBrandPref(sub?.preferences?.brand_pref ?? sub?.brand_pref ?? null);
+  const pref = normalizeBrandPref(
+    sub?.preferences?.brand_pref ??
+    sub?.brand_pref ??
+    null
+  );
 
   const isPremium =
     Boolean(sub?.is_premium) ||
     Boolean(sub?.user?.is_premium) ||
-    sub?.plan === "premium";
+    (sub?.plan === "premium");
 
   return items.map((it) => {
     const linkAmazon = chooseAmazonLinkFor(it, pref);
-    const linkFS = it.link_fullscript ?? null;
+    let linkFS = it.link_fullscript ?? null;
 
+    // Premium policy: prefer Fullscript if available, but still keep Amazon set
+    // (UI can prefer link_fullscript when present and user is premium)
     if (isPremium && linkFS) {
       return { ...it, link_amazon: linkAmazon, link_fullscript: linkFS };
     }
+    // Not premium or no FS link available → keep Amazon only
     return { ...it, link_amazon: linkAmazon };
   });
 }
@@ -765,7 +760,6 @@ export async function generateStackForSubmission(id: string) {
 
   md = ensureEnd(md);
 
-  // Parse items from MD
   const parsedItems: StackItem[] = parseStackFromMarkdown(md);
 
   // Safety checks
@@ -789,19 +783,23 @@ export async function generateStackForSubmission(id: string) {
     is_premium:
       Boolean((sub as any)?.is_premium) ||
       Boolean((sub as any)?.user?.is_premium) ||
-      (sub as any)?.plan === "premium",
+      ((sub as any)?.plan === "premium"),
   };
 
-  const { cleaned, status: safetyResult } = await applySafetyChecks(safetyInput, parsedItems);
+  const { cleaned, status: safetyResult } = await applySafetyChecks(
+    safetyInput,
+    parsedItems
+  );
 
-  // Normalize names BEFORE enrichment so aliases/rows match
-  const normalizedForLinks: StackItem[] = cleaned.map((it) => ({
-    ...it,
-    name: normalizeSupplementName(it.name),
-  }));
+ // Normalize names before enrichment so aliases resolve correctly
+const normalizedForLinks = cleaned.map(it => ({
+  ...it,
+  name: normalizeSupplementName(it.name),
+}));
 
-  // Enrich with links (fills link_budget/trusted/clean/default & link_fullscript)
-  const enriched = await enrichAffiliateLinks(normalizedForLinks);
+// Enrich with links (expects to fill link_budget/trusted/clean/default and possibly link_fullscript)
+const enriched = await enrichAffiliateLinks(normalizedForLinks);
+
 
   // Apply link policy: pick Amazon category from quiz, prefer Fullscript for premium
   const finalStack: StackItem[] = applyLinkPolicy(enriched, sub);
@@ -813,17 +811,18 @@ export async function generateStackForSubmission(id: string) {
   const { section: evidenceSection } = buildEvidenceSection(withEvidence, 8);
   md = overrideEvidenceInMarkdown(md, evidenceSection);
 
-  // Override or append Shopping Links section in markdown
-  const shoppingSection = buildShoppingLinksSection(withEvidence);
-  const shoppingRe = /## Shopping Links([\s\S]*?)(?=\n## |\n## END|$)/i;
-  if (shoppingRe.test(md)) {
-    md = md.replace(shoppingRe, shoppingSection);
-  } else {
-    md = md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
-  }
-
-  const totalMonthlyCost = withEvidence.reduce((acc, it) => acc + (it.cost_estimate ?? 0), 0);
-
+  const totalMonthlyCost = withEvidence.reduce(
+    (acc, it) => acc + (it.cost_estimate ?? 0),
+    0
+  );
+// Override or append Shopping Links section in markdown
+const shoppingSection = buildShoppingLinksSection(withEvidence);
+const shoppingRe = /## Shopping Links([\s\S]*?)(?=\n## |\n## END|$)/i;
+if (shoppingRe.test(md)) {
+  md = md.replace(shoppingRe, shoppingSection);
+} else {
+  md = md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
+}
   // Persist parent stack
   let parentRows: any[] = [];
   try {
