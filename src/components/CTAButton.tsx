@@ -3,7 +3,7 @@
 import React from "react";
 import clsx from "clsx";
 
-interface CTAButtonProps {
+export interface CTAButtonProps {
   children: React.ReactNode;
   href?: string;
   onClick?: () => void;
@@ -19,6 +19,7 @@ interface CTAButtonProps {
   fullWidth?: boolean;
   disabled?: boolean;
   iconOnly?: boolean;
+  className?: string; // ✅ allow external styling overrides
 }
 
 export default function CTAButton({
@@ -30,6 +31,7 @@ export default function CTAButton({
   fullWidth = false,
   disabled = false,
   iconOnly = false,
+  className,
 }: CTAButtonProps) {
   const base =
     "rounded-lg font-medium text-center transition-colors duration-200 flex items-center justify-center";
@@ -58,17 +60,18 @@ export default function CTAButton({
       "border border-gray-300 text-gray-700 bg-gradient-to-r from-gray-50 to-white hover:from-white hover:to-gray-50 shadow-sm",
   };
 
-  const className = clsx(
+  const finalClassName = clsx(
     base,
     sizes[size],
     width,
     variants[variant],
-    iconOnly && "rounded-full p-0 w-12 h-12 flex items-center justify-center"
+    iconOnly && "rounded-full p-0 w-12 h-12 flex items-center justify-center",
+    className // ✅ merge overrides
   );
 
   if (href) {
     return (
-      <a href={href} className={className} onClick={onClick}>
+      <a href={href} className={finalClassName} onClick={onClick}>
         {children}
       </a>
     );
@@ -76,7 +79,7 @@ export default function CTAButton({
 
   return (
     <button
-      className={className}
+      className={finalClassName}
       onClick={onClick}
       disabled={disabled || variant === "disabled"}
     >
