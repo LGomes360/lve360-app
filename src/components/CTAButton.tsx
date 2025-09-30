@@ -19,7 +19,7 @@ export interface CTAButtonProps {
   fullWidth?: boolean;
   disabled?: boolean;
   iconOnly?: boolean;
-  className?: string; // ✅ allow external styling overrides
+  className?: string;
 }
 
 export default function CTAButton({
@@ -60,18 +60,24 @@ export default function CTAButton({
       "border border-gray-300 text-gray-700 bg-gradient-to-r from-gray-50 to-white hover:from-white hover:to-gray-50 shadow-sm",
   };
 
-const finalClassName = clsx(
-  base,
-  sizes[size],
-  width,
-  variants[variant],
-  iconOnly && "rounded-full p-0 w-12 h-12 flex items-center justify-center",
-  className // ✅ move to end so it overrides size defaults
-);
+  const finalClassName = clsx(
+    base,
+    sizes[size],
+    width,
+    variants[variant],
+    iconOnly && "rounded-full p-0 w-12 h-12 flex items-center justify-center",
+    className
+  );
 
   if (href) {
     return (
-      <a href={href} className={finalClassName} onClick={onClick}>
+      <a
+        href={href}
+        target="_blank"                // ✅ always open in new tab
+        rel="noopener noreferrer"      // ✅ security best practice
+        className={finalClassName}
+        onClick={onClick}
+      >
         {children}
       </a>
     );
