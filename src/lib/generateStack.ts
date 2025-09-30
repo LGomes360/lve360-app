@@ -159,7 +159,11 @@ function normalizeSupplementName(name: string): string {
 
   if (collapsed === "l") return "L-Theanine";
   if (collapsed === "b") return "B-Vitamins";
-  if (collapsed.includes("b complex") || collapsed.includes("b-vitamins")) return "B-Vitamins";
+
+  // Explicit catch for Vitamin B Complex
+  if (collapsed.includes("vitamin b complex") || collapsed.includes("b complex") || collapsed.includes("b-vitamins")) {
+    return "B-Vitamins";
+  }
 
   if (collapsed.startsWith("omega")) return "Omega-3";
   if (collapsed.startsWith("vitamin d")) return "Vitamin D";
@@ -177,6 +181,7 @@ function normalizeSupplementName(name: string): string {
   return name.trim();
 }
 
+
 const ALIAS_MAP: Record<string, string> = {
   "Omega-3": "omega-3 (epa+dha)",
   "Vitamin D": "vitamin d3",
@@ -187,11 +192,16 @@ const ALIAS_MAP: Record<string, string> = {
   "Rhodiola Rosea": "rhodiola rosea (3% rosavins)",
   "Ginkgo Biloba": "ginkgo biloba (24/6)",
   "Zinc": "zinc (picolinate)",
+
+  // Vitamin B Complex handling
   "B-Vitamins": "b-complex",
   "B Vitamins Complex": "b-complex",
+  "Vitamin B Complex": "b-complex",
+
   "L-Theanine": "l-theanine",
   "Acetyl-L-carnitine": "acetyl-l-carnitine",
 };
+
 
 function toSlug(s: string) {
   return (s || "")
