@@ -359,7 +359,7 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
   const bulletsText = take.map((b) => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`).join("\n");
   const analysis = `
 
-**Analysis**
+**Note**
 
 These references are pulled from LVE360’s curated evidence index (PubMed/PMC/DOI and other trusted journals) and replace any model-generated references.
 `;
@@ -378,7 +378,7 @@ function overrideEvidenceInMarkdown(md: string, section: string): string {
 // ----------------------------------------------------------------------------
 function buildShoppingLinksSection(items: StackItem[]): string {
   if (!items || items.length === 0) {
-    return "## Shopping Links\n\n- No links available yet.\n\n**Analysis**\n\nLinks will be provided once products are mapped.";
+    return "## Shopping Links\n\n- No links available yet.\n\n**Note**\n\nLinks will be provided once products are mapped.";
   }
 
   const bullets = items.map((it) => {
