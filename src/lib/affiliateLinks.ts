@@ -1,8 +1,8 @@
 // -----------------------------------------------------------------------------
 // File: src/lib/affiliateLinks.ts
 // Purpose: Attach affiliate links to stack items using multiple link columns.
-// Strategy: Select budget/trusted/clean/default for free users; prefer
-// Fullscript for premium users if available.
+// Strategy: Normalize supplement names → look up links in supplements table →
+// choose budget/trusted/clean/default for free users; prefer Fullscript for premium.
 // -----------------------------------------------------------------------------
 
 import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
@@ -26,9 +26,43 @@ export type StackItem = {
   link?: string | null;
 };
 
-function lc(x?: string | null) {
-  return (x ?? "").trim().toLowerCase();
+// -----------------------------------------------------------------------------
+// Name normalization + alias mapping
+// -----------------------------------------------------------------------------
+function normalizeSupplementName(name: string): string {
+  const n = (name || "").toLowerCase().trim();
+
+  if (n.startsWith("omega-3") || n.includes("fatty acid")) return "Omega-3";
+  if (n.startsWith("coenzyme q10") || n.startsWith("co q10") || n.startsWith("coq10"))
+    return "CoQ10";
+  if (n.includes("ashwa")) return "Ashwagandha";
+  if (n.includes("bacopa")) return "Bacopa Monnieri";
+  if (n.includes("rhodiola")) return "Rhodiola Rosea";
+  if (n.includes("ginkgo")) return "Ginkgo Biloba";
+  if (n.includes("zinc")) return "Zinc";
+  if (n.includes("magnesium")) return "Magnesium";
+  if (n.includes("vitamin d")) return "Vitamin D";
+  if (n.includes("vitamin k2")) return "Vitamin K2";
+  if (n.includes("l-theanine") || n.includes("theanine")) return "L-Theanine";
+
+  // fall back to raw cleaned name
+  return name.trim();
 }
+
+// Map normalized names to supplement table keys
+const ALIAS_MAP: Record<string, string> = {
+  "Omega-3": "omega-3 (epa+dha)",
+  "CoQ10": "coq10 (ubiquinone)",
+  "Ashwagandha": "ashwagandha (ksm-66 or similar)",
+  "Bacopa Monnieri": "bacopa monnieri (50% bacosides)",
+  "Rhodiola Rosea": "rhodiola rosea (3% rosavins)",
+  "Ginkgo Biloba": "ginkgo biloba (24/6)",
+  "Zinc": "zinc (picolinate)",
+  "Magnesium": "magnesium (glycinate)",
+  "Vitamin D": "vitamin d3",
+  "Vitamin K2": "vitamin k2",
+  "L-Theanine": "l-theanine",
+};
 
 // -----------------------------------------------------------------------------
 // Internal helper: choose correct link from row based on prefs + membership
@@ -40,7 +74,7 @@ function chooseLink(
 ): string | null {
   if (isPremium && row.link_fullscript) return row.link_fullscript;
 
-  switch (brandPref?.toLowerCase()) {
+  switch ((brandPref ?? "").toLowerCase()) {
     case "budget":
       return row.link_budget ?? row.link_default ?? null;
     case "trusted":
@@ -56,7 +90,10 @@ function chooseLink(
 // Find all link columns for a given supplement name
 // -----------------------------------------------------------------------------
 async function findLinksFor(name: string) {
-  // Query all relevant link columns
+  // Normalize first
+  const norm = normalizeSupplementName(name);
+  const key = ALIAS_MAP[norm] ?? norm;
+
   const cols =
     "link_budget, link_trusted, link_clean, link_default, link_fullscript, ingredient, product_name";
 
@@ -64,7 +101,7 @@ async function findLinksFor(name: string) {
   const { data: exact } = await supa
     .from("supplements")
     .select(cols)
-    .eq("ingredient", name)
+    .eq("ingredient", key)
     .maybeSingle();
 
   if (exact) return exact;
@@ -73,7 +110,7 @@ async function findLinksFor(name: string) {
   const { data: fuzzyIng } = await supa
     .from("supplements")
     .select(cols)
-    .ilike("ingredient", `%${name}%`)
+    .ilike("ingredient", `%${key}%`)
     .limit(1);
 
   if (fuzzyIng && fuzzyIng[0]) return fuzzyIng[0];
@@ -82,7 +119,7 @@ async function findLinksFor(name: string) {
   const { data: fuzzyProd } = await supa
     .from("supplements")
     .select(cols)
-    .ilike("product_name", `%${name}%`)
+    .ilike("product_name", `%${key}%`)
     .limit(1);
 
   if (fuzzyProd && fuzzyProd[0]) return fuzzyProd[0];
@@ -104,6 +141,7 @@ export async function enrichAffiliateLinks<T extends StackItem>(
   for (const it of items) {
     const row = await findLinksFor(it.name);
     const resolvedLink = row ? chooseLink(row, brandPref, isPremium) : null;
+
     out.push({
       ...it,
       link_budget: row?.link_budget ?? null,
