@@ -31,7 +31,7 @@ function extractSection(md: string, heads: string[]): string | null {
   return slice.replace(/^##\s*[^\n]+\n?/, "").trim();
 }
 
-/* Markdown renderer */
+/* Markdown renderer for prose sections */
 function Prose({ children }: { children: string }) {
   return (
     <div className="prose prose-gray max-w-none">
@@ -164,6 +164,7 @@ function LinksTable({
   );
 }
 
+/* Section card wrapper */
 function SectionCard({
   title,
   children,
@@ -179,7 +180,7 @@ function SectionCard({
   );
 }
 
-/* ───────── page ───────── */
+/* ───────── main content ───────── */
 function ResultsContent() {
   const [error, setError] = useState<string | null>(null);
   const [markdown, setMarkdown] = useState<string | null>(null);
@@ -299,6 +300,7 @@ function ResultsContent() {
         </p>
       </div>
 
+      {/* Action buttons */}
       <SectionCard title="Actions">
         <div className="flex flex-wrap gap-4 justify-center">
           <CTAButton
@@ -331,6 +333,7 @@ function ResultsContent() {
 
       {error && <div className="text-center text-red-600 mb-6">{error}</div>}
 
+      {/* Sections */}
       {sec.intro && (
         <SectionCard title="Intro Summary">
           <Prose>{sec.intro}</Prose>
@@ -392,6 +395,7 @@ function ResultsContent() {
         </SectionCard>
       )}
 
+      {/* Disclaimer */}
       <SectionCard title="Important Wellness Disclaimer">
         <p className="text-sm text-gray-700 leading-relaxed">
           This plan from <strong>LVE360 (Longevity | Vitality | Energy)</strong>{" "}
@@ -409,6 +413,7 @@ function ResultsContent() {
         </p>
       </SectionCard>
 
+      {/* PDF export */}
       <div className="flex justify-center mt-8">
         <button
           onClick={exportPDF}
