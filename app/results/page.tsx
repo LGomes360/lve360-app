@@ -54,10 +54,10 @@ function Prose({ children }: { children: string }) {
             <thead className="bg-[#06C1A0] text-white" {...props} />
           ),
           th: ({ node, ...props }) => (
-            <th className="px-3 py-2 text-left font-semibold" {...props} />
+            <th className="px-3 py-0.5 text-left font-semibold" {...props} />
           ),
           td: ({ node, ...props }) => (
-            <td className="px-3 py-1 border-t border-gray-200" {...props} />
+            <td className="px-3 py-0.5 border-t border-gray-200 align-middle" {...props} />
           ),
           tr: ({ node, ...props }) => (
             <tr className="even:bg-gray-50" {...props} />
@@ -118,7 +118,7 @@ function LinksTable({
       const parts = asins.map(
         (asin, i) => `ASIN.${i + 1}=${asin}&Quantity.${i + 1}=1`
       );
-      allCartUrl = `https://www.amazon.com/gp/aws/cart/add.html?${parts.join("&")}`;
+      allCartUrl = `https://www.amazon.com/gp/aws/cart/add.html?${parts.join("&")}&tag=lve360-20`;
     }
   }
 
@@ -127,21 +127,22 @@ function LinksTable({
       <table className="w-full border-collapse my-2 text-sm shadow-sm">
         <thead className="bg-[#06C1A0] text-white">
           <tr>
-            <th className="px-3 py-1 text-left">Item</th>
-            <th className="px-3 py-1 text-left">Action</th>
+            <th className="px-3 py-0.5 text-left">Item</th>
+            <th className="px-3 py-0.5 text-left">Action</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} className="even:bg-gray-50 border-t">
-              <td className="px-3 py-1">{r.name}</td>
-              <td className="px-3 py-1 space-x-2">
+              <td className="px-3 py-0.5">{r.name}</td>
+              <td className="px-3 py-0.5 space-x-2">
                 {r.links.map((link, j) => (
                   <CTAButton
                     key={j}
                     href={link.url}
                     variant={type === "shopping" ? "primary" : "secondary"}
-                    className="px-2 py-1 text-sm min-w-0"
+                    size="sm"
+                    className="px-2 py-0.5 text-xs min-w-0"
                   >
                     {type === "shopping"
                       ? `Buy on ${link.text}`
@@ -156,7 +157,12 @@ function LinksTable({
 
       {allCartUrl && (
         <div className="mt-3">
-          <CTAButton href={allCartUrl} variant="premium" className="px-4 py-2 text-sm">
+          <CTAButton
+            href={allCartUrl}
+            variant="premium"
+            size="md"
+            className="px-4 py-2 text-sm"
+          >
             🛒 Add All to Cart
           </CTAButton>
         </div>
@@ -291,6 +297,7 @@ function ResultsContent() {
 
   return (
     <div className="max-w-4xl mx-auto py-10 px-6 font-sans">
+      {/* header */}
       <div className="text-center mb-10">
         <h1 className="text-4xl font-extrabold font-display text-[#041B2D]">
           Your LVE360 Blueprint
@@ -300,6 +307,7 @@ function ResultsContent() {
         </p>
       </div>
 
+      {/* actions */}
       <SectionCard title="Actions">
         <div className="flex flex-wrap gap-4 justify-center">
           <CTAButton
@@ -331,6 +339,7 @@ function ResultsContent() {
 
       {error && <div className="text-center text-red-600 mb-6">{error}</div>}
 
+      {/* sections */}
       {sec.intro && (
         <SectionCard title="Intro Summary">
           <Prose>{sec.intro}</Prose>
@@ -392,6 +401,7 @@ function ResultsContent() {
         </SectionCard>
       )}
 
+      {/* disclaimer */}
       <SectionCard title="Important Wellness Disclaimer">
         <p className="text-sm text-gray-700 leading-relaxed">
           This plan from <strong>LVE360 (Longevity | Vitality | Energy)</strong>{" "}
@@ -409,6 +419,7 @@ function ResultsContent() {
         </p>
       </SectionCard>
 
+      {/* export PDF */}
       <div className="flex justify-center mt-8">
         <button
           onClick={exportPDF}
