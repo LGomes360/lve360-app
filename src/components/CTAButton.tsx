@@ -60,14 +60,14 @@ export default function CTAButton({
       "border border-gray-300 text-gray-700 bg-gradient-to-r from-gray-50 to-white hover:from-white hover:to-gray-50 shadow-sm",
   };
 
-  const finalClassName = clsx(
-    base,
-    sizes[size],
-    width,
-    variants[variant],
-    iconOnly && "rounded-full p-0 w-12 h-12 flex items-center justify-center",
-    className // ✅ merge overrides
-  );
+const finalClassName = clsx(
+  base,
+  sizes[size],
+  width,
+  variants[variant],
+  iconOnly && "rounded-full p-0 w-12 h-12 flex items-center justify-center",
+  className // ✅ move to end so it overrides size defaults
+);
 
   if (href) {
     return (
