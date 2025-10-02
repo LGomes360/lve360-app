@@ -14,8 +14,8 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        // ✅ Always bounce through callback to exchange the session
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        // Send them to callback, which will set session then forward to /dashboard
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
       },
     });
 
