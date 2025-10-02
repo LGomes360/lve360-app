@@ -7,18 +7,20 @@ import ClientDashboard from "@/components/ClientDashboard";
 async function getUserProfile() {
   const supabase = createServerComponentClient({ cookies });
 
-  // Get current auth user
+  // Get the current auth user
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) redirect("/pricing");
+  if (!user) {
+    redirect("/pricing");
+  }
 
-  // Check tier in users table
+  // Look up the user’s tier from your custom users table by email
   const { data: profile, error } = await supabase
     .from("users")
     .select("tier")
-    .eq("id", user.id)
+    .eq("email", user.email)   // ✅ switched from id → email
     .maybeSingle();
 
   if (error) {
@@ -26,7 +28,9 @@ async function getUserProfile() {
     redirect("/pricing");
   }
 
-  if (!profile || profile.tier !== "premium") redirect("/pricing");
+  if (!profile || profile.tier !== "premium") {
+    redirect("/pricing");
+  }
 
   return { user, profile };
 }
