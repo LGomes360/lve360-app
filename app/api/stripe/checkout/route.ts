@@ -32,14 +32,15 @@ export async function POST(req: NextRequest) {
 
     const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "/";
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      payment_method_types: ["card"],
-      line_items: [{ price: priceId, quantity: 1 }],
-      customer_email: email,
-      success_url: `${APP_URL}/dashboard?success=1`,
-      cancel_url: `${APP_URL}/pricing?canceled=1`,
-    });
+const session = await stripe.checkout.sessions.create({
+  mode: "subscription",
+  payment_method_types: ["card"],
+  line_items: [{ price: priceId, quantity: 1 }],
+  customer_email: body.email, // ensures the Stripe customer record has their email
+  success_url: `${APP_URL}/dashboard?success=1`,
+  cancel_url: `${APP_URL}/pricing?canceled=1`,
+});
+
 
     return NextResponse.json({ ok: true, url: session.url });
   } catch (err: any) {
