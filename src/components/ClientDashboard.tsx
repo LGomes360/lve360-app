@@ -6,7 +6,7 @@ import LongevityJourneyDashboard from "@/components/LongevityJourneyDashboard";
 
 export default function ClientDashboard() {
   const searchParams = useSearchParams();
-  const success = searchParams.get("success");
+  const success = searchParams?.get("success") ?? null; // ✅ safe access
   const [showBanner, setShowBanner] = useState(!!success);
 
   // Auto-hide banner after 5s
@@ -24,7 +24,6 @@ export default function ClientDashboard() {
           🎉 Welcome to Premium! Your subscription is now active.
         </div>
       )}
-
       <LongevityJourneyDashboard />
     </div>
   );
