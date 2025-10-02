@@ -1,17 +1,21 @@
 // app/auth/callback/route.ts
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { NextRequest, NextResponse } from "next/server";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
 
-export async function GET(request: Request) {
-  const requestUrl = new URL(request.url);
-  const code = requestUrl.searchParams.get("code");
+export async function GET(req: NextRequest) {
+  const supabase = createRouteHandlerClient({ cookies });
+
+  // Parse search params
+  const { searchParams } = new URL(req.url);
+  const code = searchParams.get("code");
+  const next = searchParams.get("next") ?? "/";
 
   if (code) {
-    const supabase = createRouteHandlerClient({ cookies });
+    // Exchange code for session and set cookie
     await supabase.auth.exchangeCodeForSession(code);
   }
 
-  // After exchanging code, redirect to dashboard
-  return NextResponse.redirect(new URL("/dashboard", requestUrl.origin));
+  // Redirect user to next page (e.g., /dashboard)
+  return NextResponse.redirect(new URL(next, req.url));
 }
