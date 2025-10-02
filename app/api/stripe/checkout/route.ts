@@ -7,11 +7,11 @@ export async function POST(req: NextRequest) {
   try {
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     const pricePremium = process.env.STRIPE_PRICE_PREMIUM;
-    const priceConcierge = process.env.STRIPE_PRICE_CONCIERGE; // renamed for clarity
+    const priceConcierge = process.env.STRIPE_PRICE_CONCIERGE;
 
     if (!stripeKey || !pricePremium || !priceConcierge) {
       return NextResponse.json(
-        { error: "Missing Stripe envs (check STRIPE_SECRET_KEY, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_CONCIERGE)" },
+        { error: "Missing Stripe envs (STRIPE_SECRET_KEY, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_CONCIERGE)" },
         { status: 500 }
       );
     }
@@ -29,19 +29,17 @@ export async function POST(req: NextRequest) {
     }
 
     const priceId = plan === "concierge" ? priceConcierge : pricePremium;
-
     const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "/";
 
-const session = await stripe.checkout.sessions.create({
-  mode: "subscription",
-  payment_method_types: ["card"],
-  line_items: [{ price: priceId, quantity: 1 }],
-  customer_email: email, // keeps their email tied to Stripe + Supabase
-  // ✅ always redirect through auth/callback to ensure a session is set
-  success_url: `${APP_URL}/auth/callback?next=/dashboard`,
-  cancel_url: `${APP_URL}/pricing?canceled=1`,
-});
-
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      payment_method_types: ["card"],
+      line_items: [{ price: priceId, quantity: 1 }],
+      customer_email: email, // link checkout to the user's email
+      // 🔑 Redirect through callback so session cookie is set, then forward to dashboard
+      success_url: `${APP_URL}/auth/callback?next=/dashboard`,
+      cancel_url: `${APP_URL}/pricing?canceled=1`,
+    });
 
     return NextResponse.json({ ok: true, url: session.url });
   } catch (err: any) {
