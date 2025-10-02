@@ -9,23 +9,24 @@ export default function ClientDashboard() {
   const success = searchParams?.get("success") ?? null;
 
   const [showBanner, setShowBanner] = useState(!!success);
-  const [fadeState, setFadeState] = useState<"fade-in" | "fade-out" | null>(
-    !!success ? "fade-in" : null
+  const [animation, setAnimation] = useState<"in" | "out" | null>(
+    !!success ? "in" : null
   );
 
-  // Auto-hide after 5s
+  // Auto-hide banner after 5 seconds
   useEffect(() => {
     if (showBanner) {
       const timer = setTimeout(() => {
-        setFadeState("fade-out");
-        setTimeout(() => setShowBanner(false), 500); // remove after fade-out
+        setAnimation("out");
+        setTimeout(() => setShowBanner(false), 500); // wait for fade-out to finish
       }, 5000);
       return () => clearTimeout(timer);
     }
   }, [showBanner]);
 
+  // Manual dismiss
   const handleDismiss = () => {
-    setFadeState("fade-out");
+    setAnimation("out");
     setTimeout(() => setShowBanner(false), 500);
   };
 
@@ -33,16 +34,15 @@ export default function ClientDashboard() {
     <div>
       {showBanner && (
         <div
-          className={`relative bg-green-100 border border-green-300 text-green-800 p-4 mb-6 rounded-lg shadow-sm text-center transition-opacity duration-500 ${
-            fadeState === "fade-in"
-              ? "opacity-100"
-              : fadeState === "fade-out"
-              ? "opacity-0"
-              : "opacity-0"
+          className={`relative bg-green-100 border border-green-300 text-green-800 p-4 mb-6 rounded-lg shadow-sm text-center ${
+            animation === "in"
+              ? "animate-fade-in-up"
+              : animation === "out"
+              ? "animate-fade-out-down"
+              : ""
           }`}
         >
           🎉 Welcome to Premium! Your subscription is now active.
-          {/* Dismiss button */}
           <button
             onClick={handleDismiss}
             className="absolute right-2 top-2 text-green-700 hover:text-green-900"
