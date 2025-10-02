@@ -7,11 +7,11 @@ export async function POST(req: NextRequest) {
   try {
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     const pricePremium = process.env.STRIPE_PRICE_PREMIUM;
-    const priceConcierge = process.env.STRIPE_PRICE_CONCIERGE;
+    const priceConcierge = process.env.STRIPE_PRICE_CONCIERGE; // renamed for clarity
 
-    if (!stripeKey || !pricePremium) {
+    if (!stripeKey || !pricePremium || !priceConcierge) {
       return NextResponse.json(
-        { error: "Stripe envs missing (STRIPE_SECRET_KEY, STRIPE_PRICE_PREMIUM)." },
+        { error: "Missing Stripe envs (check STRIPE_SECRET_KEY, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_CONCIERGE)" },
         { status: 500 }
       );
     }
@@ -19,29 +19,33 @@ export async function POST(req: NextRequest) {
     const stripe = new Stripe(stripeKey, { apiVersion: "2023-10-16" });
 
     const body = await req.json().catch(() => ({}));
-    const { email, plan } = body;
+    const { plan, email } = body;
 
-    // Decide price based on plan
-    let priceId = pricePremium;
-    if (plan === "concierge" && priceConcierge) {
-      priceId = priceConcierge;
+    if (!plan || !email) {
+      return NextResponse.json(
+        { error: "Missing required fields (plan, email)" },
+        { status: 400 }
+      );
     }
 
-    const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    const priceId = plan === "concierge" ? priceConcierge : pricePremium;
+
+    const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "/";
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       payment_method_types: ["card"],
       line_items: [{ price: priceId, quantity: 1 }],
       customer_email: email,
-      success_url: `${APP_URL}/dashboard?success=1&session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${APP_URL}/dashboard?success=1`,
       cancel_url: `${APP_URL}/pricing?canceled=1`,
     });
 
-    // Return the URL directly so frontend can redirect
-    return NextResponse.json({ url: session.url });
+    return NextResponse.json({ ok: true, url: session.url });
   } catch (err: any) {
-    console.error("Stripe checkout error:", err);
-    return NextResponse.json({ error: err?.message ?? String(err) }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message ?? String(err) },
+      { status: 500 }
+    );
   }
 }
