@@ -7,22 +7,25 @@ import LongevityJourneyDashboard from "@/components/LongevityJourneyDashboard";
 export default function ClientDashboard() {
   const searchParams = useSearchParams();
   const success = searchParams?.get("success") ?? null;
+
   const [showBanner, setShowBanner] = useState(!!success);
-  const [fadeOut, setFadeOut] = useState(false);
+  const [fadeState, setFadeState] = useState<"fade-in" | "fade-out" | null>(
+    !!success ? "fade-in" : null
+  );
 
   // Auto-hide after 5s
   useEffect(() => {
     if (showBanner) {
       const timer = setTimeout(() => {
-        setFadeOut(true);
-        setTimeout(() => setShowBanner(false), 500); // delay removal until fade completes
+        setFadeState("fade-out");
+        setTimeout(() => setShowBanner(false), 500); // remove after fade-out
       }, 5000);
       return () => clearTimeout(timer);
     }
   }, [showBanner]);
 
   const handleDismiss = () => {
-    setFadeOut(true);
+    setFadeState("fade-out");
     setTimeout(() => setShowBanner(false), 500);
   };
 
@@ -31,7 +34,11 @@ export default function ClientDashboard() {
       {showBanner && (
         <div
           className={`relative bg-green-100 border border-green-300 text-green-800 p-4 mb-6 rounded-lg shadow-sm text-center transition-opacity duration-500 ${
-            fadeOut ? "opacity-0" : "opacity-100"
+            fadeState === "fade-in"
+              ? "opacity-100"
+              : fadeState === "fade-out"
+              ? "opacity-0"
+              : "opacity-0"
           }`}
         >
           🎉 Welcome to Premium! Your subscription is now active.
