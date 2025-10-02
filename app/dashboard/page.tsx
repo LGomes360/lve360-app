@@ -3,20 +3,20 @@ import { redirect } from "next/navigation";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import LongevityJourneyDashboard from "@/components/LongevityJourneyDashboard";
 
-export default async function DashboardPage() {
+// Wrapper to split server and client concerns
+async function getUserProfile() {
   const supabase = createServerComponentClient({ cookies });
 
-  // Get the current auth user
+  // Get current auth user
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    // Not logged in → send to pricing
     redirect("/pricing");
   }
 
-  // Look up the user’s tier from your users table
+  // Check tier in users table
   const { data: profile, error } = await supabase
     .from("users")
     .select("tier")
@@ -29,10 +29,39 @@ export default async function DashboardPage() {
   }
 
   if (!profile || profile.tier !== "premium") {
-    // Free users → redirect to pricing
     redirect("/pricing");
   }
 
-  // Premium user → render the dashboard
-  return <LongevityJourneyDashboard />;
+  return { user, profile };
+}
+
+export default async function DashboardPage() {
+  await getUserProfile();
+
+  // Render a client-side wrapper that can read query params
+  return (
+    <div className="min-h-screen bg-gray-50 p-6">
+      <ClientDashboard />
+    </div>
+  );
+}
+
+// Client-side part for welcome banner + dashboard
+"use client";
+import { useSearchParams } from "next/navigation";
+
+function ClientDashboard() {
+  const searchParams = useSearchParams();
+  const success = searchParams.get("success");
+
+  return (
+    <>
+      {success && (
+        <div className="bg-green-100 border border-green-300 text-green-800 p-4 mb-6 rounded-lg shadow-sm text-center">
+          🎉 Welcome to Premium! Your subscription is now active.
+        </div>
+      )}
+      <LongevityJourneyDashboard />
+    </>
+  );
 }
