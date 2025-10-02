@@ -36,8 +36,9 @@ const session = await stripe.checkout.sessions.create({
   mode: "subscription",
   payment_method_types: ["card"],
   line_items: [{ price: priceId, quantity: 1 }],
-  customer_email: body.email, // ensures the Stripe customer record has their email
-  success_url: `${APP_URL}/dashboard?success=1`,
+  customer_email: email, // keeps their email tied to Stripe + Supabase
+  // ✅ always redirect through auth/callback to ensure a session is set
+  success_url: `${APP_URL}/auth/callback?next=/dashboard`,
   cancel_url: `${APP_URL}/pricing?canceled=1`,
 });
 
