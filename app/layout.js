@@ -10,13 +10,13 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className="min-h-screen flex flex-col bg-white text-gray-900">
-        {/* Sticky header with softened background */}
-        <header className="sticky top-0 z-40 bg-[#041B2D]/90 backdrop-blur supports-[backdrop-filter]:bg-[#041B2D]/70 text-white shadow-md border-b border-white/10">
-          <nav className="max-w-6xl mx-auto flex items-center justify-between py-4 px-4">
-            {/* Logo / Brand */}
+        {/* Minimal header - transparent, floating */}
+        <header className="absolute top-0 left-0 w-full z-40">
+          <nav className="max-w-6xl mx-auto flex items-center justify-between py-5 px-6">
+            {/* Logo */}
             <Link
               href="/"
-              className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-[#06C1A0] to-purple-500 bg-clip-text text-transparent"
+              className="font-extrabold text-xl tracking-tight text-purple-600"
             >
               LVE360
             </Link>
@@ -25,19 +25,19 @@ export default function RootLayout({ children }) {
             <div className="space-x-6 text-sm sm:text-base flex items-center">
               <Link
                 href="/"
-                className="hover:text-[#06C1A0] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 rounded"
+                className="hover:text-purple-600 transition-colors"
               >
                 Home
               </Link>
               <Link
                 href="/pricing"
-                className="hover:text-purple-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 rounded"
+                className="hover:text-purple-600 transition-colors"
               >
                 Pricing
               </Link>
               <Link
                 href="/login"
-                className="bg-[#06C1A0] px-3 py-1.5 rounded-lg font-medium text-white hover:bg-[#049e84] transition-colors shadow-sm"
+                className="bg-purple-600 px-3 py-1.5 rounded-lg font-medium text-white hover:bg-purple-700 transition-colors shadow-sm"
               >
                 Log in
               </Link>
@@ -53,26 +53,17 @@ export default function RootLayout({ children }) {
           <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 py-6 px-4 text-sm">
             <p>
               © {new Date().getFullYear()}{" "}
-              <span className="font-semibold text-[#041B2D]">LVE360</span>. All
+              <span className="font-semibold text-purple-600">LVE360</span>. All
               rights reserved.
             </p>
             <div className="space-x-4">
-              <Link
-                href="/terms"
-                className="hover:text-[#06C1A0] transition-colors"
-              >
+              <Link href="/terms" className="hover:text-purple-600 transition-colors">
                 Terms
               </Link>
-              <Link
-                href="/privacy"
-                className="hover:text-purple-500 transition-colors"
-              >
+              <Link href="/privacy" className="hover:text-purple-600 transition-colors">
                 Privacy
               </Link>
-              <Link
-                href="/contact"
-                className="hover:text-[#06C1A0] transition-colors"
-              >
+              <Link href="/contact" className="hover:text-purple-600 transition-colors">
                 Contact
               </Link>
             </div>
