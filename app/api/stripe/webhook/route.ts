@@ -8,87 +8,70 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", { apiVersion: "20
 
 export async function POST(req: NextRequest) {
   try {
-    const sig = (req.headers.get("stripe-signature") ?? "").toString();
-    const buf = await req.arrayBuffer();
-    const raw = Buffer.from(buf);
+    const sig = req.headers.get("stripe-signature") ?? "";
+    const buf = Buffer.from(await req.arrayBuffer());
 
     let event: Stripe.Event;
     try {
-      event = stripe.webhooks.constructEvent(raw, sig, process.env.STRIPE_WEBHOOK_SECRET ?? "");
+      event = stripe.webhooks.constructEvent(buf, sig, process.env.STRIPE_WEBHOOK_SECRET ?? "");
     } catch (err: any) {
-      return NextResponse.json(
-        { error: "Webhook signature verification failed", details: String(err?.message ?? err) },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Webhook signature verification failed", details: err?.message }, { status: 400 });
     }
 
-    // Deduplicate events
+    // Deduplicate
     const eventId = event.id;
-    const { data: existing } = await supabaseAdmin
-      .from("stripe_events")
-      .select("id")
-      .eq("id", eventId)
-      .single();
+    const { data: existing } = await supabaseAdmin.from("stripe_events").select("id").eq("id", eventId).single();
     if (existing) return NextResponse.json({ received: true, deduped: true }, { status: 200 });
 
-    await supabaseAdmin.from("stripe_events").insert([
-      { id: eventId, raw: event, created_at: new Date().toISOString() },
-    ]);
+    await supabaseAdmin.from("stripe_events").insert([{ id: eventId, raw: event, created_at: new Date().toISOString() }]);
 
-    // ---- Handle checkout success ----
+    // === Handle checkout success ===
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
       const email = session.customer_details?.email ?? session.metadata?.email ?? null;
+      const stripeCustomerId = session.customer as string;
 
       if (email) {
-        // 1. Ensure auth.users exists
-        // Try to find auth user by email
-        const { data: list, error: listErr } = await supabaseAdmin.auth.admin.listUsers({
-          page: 1,
-          perPage: 1,
+        // 1. Ensure auth.users entry
+        const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+          email,
+          email_confirm: true,
         });
-        if (listErr) console.error("Error listing users:", listErr.message);
-        
-        let authId = list?.users?.find((u: any) => u.email === email)?.id ?? null;
-        
-        // If user doesn’t exist, create one
-        if (!authId) {
-          const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+        if (createErr && createErr.message !== "User already registered") {
+          console.error("Error creating auth user:", createErr.message);
+        }
+        const authId = created?.user?.id ?? undefined;
+
+        // 2. Upsert into users table
+        await supabaseAdmin.from("users").upsert(
+          {
+            id: authId, // if available
             email,
-            email_confirm: true,
-          });
-          if (createErr) console.error("Error creating auth user:", createErr.message);
-          authId = created?.user?.id ?? null;
-        }
-
-
-        // 2. Upsert into your users table
-        if (authId) {
-          await supabaseAdmin.from("users").upsert(
-            { id: authId, email, tier: "premium" },
-            { onConflict: "id" }
-          );
-        }
+            tier: "premium",
+            stripe_customer_id: stripeCustomerId,
+            stripe_subscription_status: "active",
+          },
+          { onConflict: "email" }
+        );
       }
 
       // 3. Persist subscription details
       if (session.subscription) {
-        const subscriptionId = session.subscription as string;
+        const subId = session.subscription as string;
         await supabaseAdmin.from("subscriptions").upsert({
-          id: subscriptionId,
-          customer: session.customer,
-          price: session.metadata?.price_id ?? null,
+          id: subId,
+          customer: stripeCustomerId,
+          price: session.line_items?.[0]?.price?.id ?? null, // safer than metadata
           status: "active",
           raw: session,
         });
       }
     }
 
-    // ---- Handle subscription lifecycle updates ----
+    // === Handle subscription lifecycle updates ===
     if (event.type.startsWith("customer.subscription.")) {
       const sub = event.data.object as Stripe.Subscription;
 
-      // Store subscription row
       await supabaseAdmin.from("subscriptions").upsert({
         id: sub.id,
         customer: sub.customer,
@@ -96,14 +79,15 @@ export async function POST(req: NextRequest) {
         raw: sub,
       });
 
-      // ---- Downgrade user if canceled or unpaid ----
+      // Downgrade on cancel/unpaid
       if (["canceled", "unpaid", "incomplete_expired"].includes(sub.status)) {
-        // Lookup customer’s email
         const customer = await stripe.customers.retrieve(sub.customer as string);
         const email = (customer as Stripe.Customer).email;
-
         if (email) {
-          await supabaseAdmin.from("users").update({ tier: "free" }).eq("email", email);
+          await supabaseAdmin.from("users").update({
+            tier: "free",
+            stripe_subscription_status: sub.status,
+          }).eq("email", email);
         }
       }
     }
