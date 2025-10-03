@@ -37,13 +37,10 @@ export async function POST(req: NextRequest) {
       mode: "subscription",
       payment_method_types: ["card"],
       line_items: [{ price: priceId, quantity: 1 }],
-      customer_email: email, // ensures stripe knows which customer this is
-      metadata: {
-        plan,
-        price_id: priceId, // ✅ pass this so webhook can store subscription cleanly
-        email,
-      },
-      // 🔑 Redirect through auth callback so Supabase session is set
+      customer_email: email, // ensures Stripe ties checkout to the user
+      metadata: { plan }, // 🔑 Pass plan so webhook can set correct tier
+
+      // Supabase callback → then forward to dashboard
       success_url: `${APP_URL}/auth/callback?next=/dashboard&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${APP_URL}/pricing?canceled=1`,
     });
