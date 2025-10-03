@@ -22,11 +22,14 @@ export async function POST(req: NextRequest) {
         process.env.STRIPE_WEBHOOK_SECRET ?? ""
       );
     } catch (err: any) {
+      console.error("❌ Webhook signature verification failed:", err.message);
       return NextResponse.json(
         { error: "Webhook signature verification failed", details: String(err?.message ?? err) },
         { status: 400 }
       );
     }
+
+    console.log("✅ Webhook event received:", event.type, "ID:", event.id);
 
     // Deduplicate events
     const eventId = event.id;
@@ -35,18 +38,25 @@ export async function POST(req: NextRequest) {
       .select("id")
       .eq("id", eventId)
       .single();
-    if (existing)
+    if (existing) {
+      console.log("ℹ️ Duplicate webhook event ignored:", eventId);
       return NextResponse.json({ received: true, deduped: true }, { status: 200 });
+    }
 
     await supabaseAdmin
       .from("stripe_events")
       .insert([{ id: eventId, raw: event, created_at: new Date().toISOString() }]);
+    console.log("📦 Stored webhook event:", eventId);
 
     // ---- Handle checkout success ----
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
+      console.log("🎉 Checkout completed:", session.id);
+
       const email = session.customer_details?.email ?? session.metadata?.email ?? null;
       const stripeCustomerId = (session.customer as string) ?? null;
+
+      console.log("➡️ Customer email:", email, "| Stripe Customer ID:", stripeCustomerId);
 
       if (email) {
         // Ensure auth.users exists
@@ -54,9 +64,10 @@ export async function POST(req: NextRequest) {
         let authId = list?.users?.find((u: any) => u.email === email)?.id ?? null;
 
         if (!authId) {
+          console.log("👤 No auth user found, creating new user for:", email);
           const { data: created, error: createErr } =
             await supabaseAdmin.auth.admin.createUser({ email, email_confirm: true });
-          if (createErr) console.error("Error creating auth user:", createErr.message);
+          if (createErr) console.error("❌ Error creating auth user:", createErr.message);
           authId = created?.user?.id ?? null;
         }
 
@@ -64,12 +75,13 @@ export async function POST(req: NextRequest) {
         if (authId) {
           const chosenTier = session.metadata?.plan === "concierge" ? "concierge" : "premium";
 
+          console.log(`📝 Upserting user ${authId} with tier=${chosenTier}`);
           await supabaseAdmin.from("users").upsert(
             {
               id: authId,
               email,
               tier: chosenTier,
-              stripe_customer_id: stripeCustomerId, // 🔑 store Stripe customer ID
+              stripe_customer_id: stripeCustomerId,
             },
             { onConflict: "id" }
           );
@@ -81,10 +93,12 @@ export async function POST(req: NextRequest) {
       if (session.id) {
         const lineItems = await stripe.checkout.sessions.listLineItems(session.id, { limit: 1 });
         priceId = lineItems.data[0]?.price?.id ?? session.metadata?.price_id ?? null;
+        console.log("💵 Price ID from session:", priceId);
       }
 
       if (session.subscription) {
         const subscriptionId = session.subscription as string;
+        console.log("📌 Recording subscription:", subscriptionId);
         await supabaseAdmin.from("subscriptions").upsert({
           id: subscriptionId,
           customer: stripeCustomerId,
@@ -98,6 +112,7 @@ export async function POST(req: NextRequest) {
     // ---- Handle subscription lifecycle updates ----
     if (event.type.startsWith("customer.subscription.")) {
       const sub = event.data.object as Stripe.Subscription;
+      console.log("🔄 Subscription update:", sub.id, "| Status:", sub.status);
 
       await supabaseAdmin.from("subscriptions").upsert({
         id: sub.id,
@@ -111,12 +126,14 @@ export async function POST(req: NextRequest) {
         const customer = await stripe.customers.retrieve(sub.customer as string);
         const email = (customer as Stripe.Customer).email;
 
+        console.log("📧 Subscription belongs to:", email);
+
         if (email) {
-          // Downgrade if canceled/unpaid, else just backfill customer ID
           const newTier = ["canceled", "unpaid", "incomplete_expired"].includes(sub.status)
             ? "free"
             : undefined;
 
+          console.log(`📝 Updating user ${email} with newTier=${newTier ?? "unchanged"}, stripe_customer_id=${sub.customer}`);
           await supabaseAdmin
             .from("users")
             .update({
@@ -130,7 +147,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ received: true }, { status: 200 });
   } catch (err: any) {
-    console.error("Webhook error:", err);
+    console.error("❌ Webhook error:", err);
     return NextResponse.json({ error: String(err?.message ?? err) }, { status: 500 });
   }
 }
