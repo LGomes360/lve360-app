@@ -15,65 +15,59 @@ export default function Home() {
         aria-hidden
       />
 
-      {/* ---------------- Hero Section ---------------- */}
-      <section className="max-w-6xl mx-auto px-6 pt-20 sm:pt-28 pb-16 text-center">
-        {/* Tagline pill */}
-        <div className="inline-flex items-center gap-2 rounded-full bg-white/70 ring-1 ring-gray-200 px-4 py-1.5 mb-6 backdrop-blur">
-          <span className="h-2 w-2 rounded-full bg-[#06C1A0]" />
-          <span className="text-sm text-gray-700">
-            Concierge insights for Longevity • Vitality • Energy
-          </span>
-        </div>
+{/* ---------------- Hero Section ---------------- */}
+<section className="max-w-6xl mx-auto px-6 pt-20 sm:pt-28 pb-16 text-center">
+  {/* Tagline pill */}
+  <div className="inline-flex items-center gap-2 rounded-full bg-white/70 ring-1 ring-gray-200 px-4 py-1.5 mb-6 backdrop-blur">
+    <span className="h-2 w-2 rounded-full bg-[#06C1A0]" />
+    <span className="text-sm text-gray-700">
+      Concierge insights for Longevity • Vitality • Energy
+    </span>
+  </div>
 
-        {/* Bold gradient headline */}
-        <h1
-          className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text
-                     bg-gradient-to-r from-[#06C1A0] via-purple-700 to-yellow-400 drop-shadow-sm"
-        >
-          Welcome to LVE360
-        </h1>
+  {/* Gradient Title */}
+  <h1
+    className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text
+               bg-gradient-to-r from-[#6B3FA0] via-[#06C1A0] to-[#FDE68A] drop-shadow-sm"
+  >
+    Welcome to LVE360
+  </h1>
 
-        <p className="mx-auto mt-5 max-w-2xl text-lg text-gray-600">
-          Your personalized health optimization platform — assessed with AI,
-          organized in plain English, and ready to act on.
-        </p>
+  <p className="mx-auto mt-5 max-w-2xl text-lg text-gray-600">
+    Your personalized health optimization platform — assessed with AI,
+    organized in plain English, and ready to act on.
+  </p>
 
-        {/* Primary CTAs */}
-        <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-          <Link
-            href="/quiz"
-            className="group inline-flex items-center gap-2 rounded-2xl
-              bg-[#06C1A0] text-white px-7 py-3 font-semibold
-              shadow-[0_10px_25px_rgba(6,193,160,0.35)]
-              transition-all hover:shadow-[0_14px_34px_rgba(6,193,160,0.45)]
-              focus-visible:ring-4 focus-visible:ring-[#06C1A0]/30 relative overflow-hidden"
-          >
-            <span className="pointer-events-none absolute inset-0 -translate-x-full bg-white/20
-                             [mask-image:linear-gradient(90deg,transparent,white,transparent)]
-                             group-hover:translate-x-full transition-transform duration-700" />
-            <span className="text-lg">🧪</span>
-            <span>Start Free Quiz</span>
-          </Link>
+  {/* Single CTA */}
+  <div className="mt-10 flex justify-center">
+    <Link
+      href="https://tally.so/r/mOqRBk"
+      target="_blank"
+      className="group inline-flex items-center gap-2 rounded-2xl
+        bg-[#06C1A0] text-white px-7 py-3 font-semibold
+        shadow-[0_10px_25px_rgba(6,193,160,0.35)]
+        transition-all hover:shadow-[0_14px_34px_rgba(6,193,160,0.45)]
+        focus-visible:ring-4 focus-visible:ring-[#06C1A0]/30 relative overflow-hidden"
+    >
+      {/* Shine */}
+      <span
+        className="pointer-events-none absolute inset-0 -translate-x-full bg-white/20
+                   [mask-image:linear-gradient(90deg,transparent,white,transparent)]
+                   group-hover:translate-x-full transition-transform duration-700"
+      />
+      <span className="text-lg">🚀</span>
+      <span>Start Free Quiz</span>
+    </Link>
+  </div>
 
-          <Link
-            href="/pricing"
-            className="inline-flex items-center gap-2 rounded-2xl border border-purple-400 bg-white
-              text-[#041B2D] px-7 py-3 font-semibold
-              hover:border-purple-600 hover:bg-purple-50 transition-colors
-              focus-visible:ring-4 focus-visible:ring-purple-300"
-          >
-            <span className="text-lg">💎</span>
-            <span>Explore Premium</span>
-          </Link>
-        </div>
+  <p className="mt-6 text-sm text-gray-600">
+    Already a member?{" "}
+    <Link href="/login" className="text-[#06C1A0] font-medium hover:underline">
+      Log in →
+    </Link>
+  </p>
+</section>
 
-        <p className="mt-6 text-sm text-gray-600">
-          Already a member?{" "}
-          <Link href="/login" className="text-[#06C1A0] font-medium hover:underline">
-            Log in →
-          </Link>
-        </p>
-      </section>
 
       {/* ---------------- Credibility Cards ---------------- */}
       <section className="max-w-6xl mx-auto px-6 py-12 text-center">
