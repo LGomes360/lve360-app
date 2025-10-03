@@ -16,61 +16,60 @@ export default function Home() {
       />
 
 {/* ---------------- Hero Section ---------------- */}
-<section className="max-w-6xl mx-auto px-6 pt-20 sm:pt-28 pb-16 text-center relative">
-  {/* Background gradient */}
-  <div className="absolute inset-0 -z-10 bg-gradient-to-br from-[#6B3FA0]/15 via-[#06C1A0]/10 to-[#FDE68A]/20" />
+<main className="relative isolate overflow-hidden bg-gradient-to-b from-[#EAFBF8] via-white to-[#F8F5FB]">
+  {/* Animated background blobs */}
+  <div
+    className="pointer-events-none absolute -top-24 -left-24 h-96 w-96 rounded-full
+               bg-[#A8F0E4] opacity-30 blur-3xl animate-[float_8s_ease-in-out_infinite]"
+    aria-hidden
+  />
+  <div
+    className="pointer-events-none absolute top-24 -right-24 h-[28rem] w-[28rem] rounded-full
+               bg-[#D9C2F0] opacity-20 blur-3xl animate-[float_10s_ease-in-out_infinite]"
+    aria-hidden
+  />
 
-  {/* Tagline pill */}
-  <div className="inline-flex items-center gap-2 rounded-full bg-white/70 ring-1 ring-gray-200 px-4 py-1.5 mb-6 backdrop-blur">
-    <span className="h-2 w-2 rounded-full bg-[#06C1A0]" />
-    <span className="text-sm text-gray-700">
-      Concierge insights for Longevity • Vitality • Energy
-    </span>
-  </div>
+  <section className="max-w-6xl mx-auto px-6 pt-20 sm:pt-28 pb-16 text-center">
+    <div className="inline-flex items-center gap-2 rounded-full bg-white/70 ring-1 ring-gray-200 px-4 py-1.5 mb-6 backdrop-blur">
+      <span className="h-2 w-2 rounded-full bg-[#06C1A0]" />
+      <span className="text-sm text-gray-700">
+        Concierge insights for Longevity • Vitality • Energy
+      </span>
+    </div>
 
-  {/* Gradient Title */}
-  <h1
-    className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text
-               bg-gradient-to-r from-[#6B3FA0] via-[#06C1A0] to-[#FDE68A] drop-shadow-md"
-  >
-    Welcome to LVE360
-  </h1>
+    <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text
+                   bg-gradient-to-r from-[#041B2D] to-[#06C1A0] drop-shadow-sm">
+      Welcome to LVE360
+    </h1>
 
-  <p className="mx-auto mt-5 max-w-2xl text-lg text-gray-600">
-    Your personalized health optimization platform — assessed with AI,
-    organized in plain English, and ready to act on.
-  </p>
+    <p className="mx-auto mt-5 max-w-2xl text-lg text-gray-600">
+      Your personalized health optimization platform — assessed with AI,
+      organized in plain English, and ready to act on.
+    </p>
 
-  {/* Single CTA */}
-  <div className="mt-10 flex justify-center">
-    <Link
-      href="https://tally.so/r/mOqRBk"
-      target="_blank"
-      className="group inline-flex items-center gap-2 rounded-2xl
-        bg-[#6B3FA0] text-white px-7 py-3 font-semibold
-        shadow-[0_10px_25px_rgba(107,63,160,0.35)]
-        transition-all hover:shadow-[0_14px_34px_rgba(107,63,160,0.45)]
-        focus-visible:ring-4 focus-visible:ring-[#6B3FA0]/30 relative overflow-hidden"
-    >
-      {/* Shine */}
-      <span
-        className="pointer-events-none absolute inset-0 -translate-x-full bg-white/20
-                   [mask-image:linear-gradient(90deg,transparent,white,transparent)]
-                   group-hover:translate-x-full transition-transform duration-700"
-      />
-      <span className="text-lg">🚀</span>
-      <span>Start Free Quiz</span>
-    </Link>
-  </div>
+    <div className="mt-10 flex justify-center">
+      <a
+        href="https://tally.so/r/mOqRBk"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-2 rounded-2xl
+                   bg-purple-600 text-white px-7 py-3 font-semibold
+                   shadow-[0_10px_25px_rgba(128,0,128,0.35)]
+                   transition-all hover:shadow-[0_14px_34px_rgba(128,0,128,0.45)]
+                   focus-visible:ring-4 focus-visible:ring-purple-500/30 relative overflow-hidden"
+      >
+        🚀 Start Free Quiz
+      </a>
+    </div>
 
-  <p className="mt-6 text-sm text-gray-600">
-    Already a member?{" "}
-    <Link href="/login" className="text-[#06C1A0] font-medium hover:underline">
-      Log in →
-    </Link>
-  </p>
-</section>
-
+    <p className="mt-6 text-sm text-gray-600">
+      Already a member?{" "}
+      <Link href="/login" className="text-[#06C1A0] font-medium hover:underline">
+        Log in →
+      </Link>
+    </p>
+  </section>
+</main>
 
       {/* ---------------- Credibility Cards ---------------- */}
       <section className="max-w-6xl mx-auto px-6 py-12 text-center">
