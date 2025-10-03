@@ -92,53 +92,54 @@ export default function Home() {
       </section>
 
       {/* ---------------- Free vs Premium ---------------- */}
-      <section className="bg-gray-50 py-16">
-        <div className="max-w-5xl mx-auto px-6 text-center">
-          <h2 className="text-3xl font-bold text-[#041B2D] mb-8">Free vs Premium</h2>
-          <div className="grid sm:grid-cols-2 gap-8">
-            <div className="rounded-xl border-2 border-yellow-400 bg-white p-6 shadow-sm">
-              <h3 className="font-semibold mb-3 text-yellow-600">Free</h3>
-              <ul className="text-left text-gray-600 space-y-2">
-                <li>✓ Personalized Report</li>
-                <li>✓ Contraindications</li>
-                <li>✓ Bang-for-Buck Picks</li>
-                <li>✗ Weekly Tweaks</li>
-                <li>✗ Dashboard</li>
-              </ul>
-            </div>
-            <div className="rounded-xl border-2 border-purple-500 bg-white p-6 shadow-lg">
-              <h3 className="font-semibold mb-3 text-purple-700">Premium</h3>
-              <ul className="text-left text-gray-700 space-y-2">
-                <li>✓ Everything in Free</li>
-                <li>✓ Weekly Tweaks</li>
-                <li>✓ Lifestyle Notes</li>
-                <li>✓ Dashboard Access</li>
-                <li>✓ Concierge Upgrade Option</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
+<section className="bg-[#F8F5FB] py-16">
+  <div className="max-w-5xl mx-auto px-6 text-center">
+    <h2 className="text-3xl font-bold text-[#041B2D] mb-8">Free vs Premium</h2>
+    <div className="grid sm:grid-cols-2 gap-8">
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h3 className="font-semibold mb-3 text-gray-700">Free</h3>
+        <ul className="text-left text-gray-600 space-y-2">
+          <li>✓ Personalized Report</li>
+          <li>✓ Contraindications</li>
+          <li>✓ Bang-for-Buck Picks</li>
+          <li className="text-gray-400">✗ Weekly Tweaks</li>
+          <li className="text-gray-400">✗ Dashboard</li>
+        </ul>
+      </div>
+      <div className="rounded-xl border-2 border-purple-500 bg-white p-6 shadow-lg">
+        <h3 className="font-semibold mb-3 text-purple-600">Premium</h3>
+        <ul className="text-left text-gray-700 space-y-2">
+          <li>✓ Everything in Free</li>
+          <li>✓ Weekly Tweaks</li>
+          <li>✓ Lifestyle Notes</li>
+          <li>✓ Dashboard Access</li>
+          <li>✓ Concierge Upgrade Option</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
 
       {/* ---------------- Differentiators ---------------- */}
-      <section className="max-w-6xl mx-auto px-6 py-16 text-center">
-        <h2 className="text-3xl font-bold text-[#041B2D] mb-6">What Makes Us Different</h2>
-        <div className="grid sm:grid-cols-3 gap-6">
-          {[
-            { icon: "📖", text: "Evidence-based" },
-            { icon: "🧬", text: "Personalized to you" },
-            { icon: "🤝", text: "Concierge-ready" },
-          ].map((d, idx) => (
-            <div
-              key={idx}
-              className="rounded-xl bg-gradient-to-r from-purple-50 to-yellow-50 p-6 shadow border border-gray-200"
-            >
-              <div className="text-3xl mb-2">{d.icon}</div>
-              <p className="font-medium text-gray-700">{d.text}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+<section className="max-w-6xl mx-auto px-6 py-16 text-center">
+  <h2 className="text-3xl font-bold text-[#041B2D] mb-6">What Makes Us Different</h2>
+  <div className="grid sm:grid-cols-3 gap-6">
+    <div className="rounded-xl bg-white p-6 shadow hover:shadow-md transition">
+      <div className="text-3xl mb-2 text-purple-600">📖</div>
+      <p className="text-gray-700">Evidence-based</p>
+    </div>
+    <div className="rounded-xl bg-white p-6 shadow hover:shadow-md transition">
+      <div className="text-3xl mb-2 text-[#06C1A0]">🧬</div>
+      <p className="text-gray-700">Personalized to you</p>
+    </div>
+    <div className="rounded-xl bg-white p-6 shadow hover:shadow-md transition">
+      <div className="text-3xl mb-2 text-yellow-500">🤝</div>
+      <p className="text-gray-700">Concierge-ready</p>
+    </div>
+  </div>
+</section>
+
 
       {/* ---------------- Bottom CTA ---------------- */}
       <section className="bg-yellow-400 text-gray-900 py-16 text-center">
