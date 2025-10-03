@@ -16,7 +16,7 @@ export default function RootLayout({ children }) {
             {/* Logo / Brand */}
             <Link
               href="/"
-              className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-[#06C1A0] via-purple-500 to-yellow-400 bg-clip-text text-transparent"
+              className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-[#06C1A0] to-purple-500 bg-clip-text text-transparent"
             >
               LVE360
             </Link>
@@ -25,13 +25,13 @@ export default function RootLayout({ children }) {
             <div className="space-x-6 text-sm sm:text-base flex items-center">
               <Link
                 href="/"
-                className="hover:text-[#06C1A0] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 rounded"
+                className="hover:text-[#06C1A0] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 rounded"
               >
                 Home
               </Link>
               <Link
                 href="/pricing"
-                className="hover:text-purple-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 rounded"
+                className="hover:text-purple-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 rounded"
               >
                 Pricing
               </Link>
@@ -71,7 +71,7 @@ export default function RootLayout({ children }) {
               </Link>
               <Link
                 href="/contact"
-                className="hover:text-yellow-500 transition-colors"
+                className="hover:text-[#06C1A0] transition-colors"
               >
                 Contact
               </Link>
