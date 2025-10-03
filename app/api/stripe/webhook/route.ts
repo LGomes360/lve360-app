@@ -1,4 +1,3 @@
-// app/api/stripe/webhook/route.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import Stripe from "stripe";
@@ -23,63 +22,56 @@ export async function POST(req: NextRequest) {
       );
     } catch (err: any) {
       return NextResponse.json(
-        {
-          error: "Webhook signature verification failed",
-          details: String(err?.message ?? err),
-        },
+        { error: "Webhook signature verification failed", details: String(err?.message ?? err) },
         { status: 400 }
       );
     }
 
-    // Deduplicate events
+    // ---- Deduplicate events ----
     const eventId = event.id;
     const { data: existing } = await supabaseAdmin
       .from("stripe_events")
       .select("id")
       .eq("id", eventId)
       .single();
-    if (existing)
-      return NextResponse.json({ received: true, deduped: true }, { status: 200 });
+    if (existing) return NextResponse.json({ received: true, deduped: true }, { status: 200 });
 
-    await supabaseAdmin
-      .from("stripe_events")
-      .insert([{ id: eventId, raw: event, created_at: new Date().toISOString() }]);
+    await supabaseAdmin.from("stripe_events").insert([
+      { id: eventId, raw: event, created_at: new Date().toISOString() },
+    ]);
 
     // ---- Handle checkout success ----
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
-      const email =
-        session.customer_details?.email ?? session.metadata?.email ?? null;
+      const email = session.customer_details?.email ?? session.metadata?.email ?? null;
+      const stripeCustomerId = session.customer as string | null;
 
       if (email) {
         // 1. Ensure auth.users exists
-        const { data: list } = await supabaseAdmin.auth.admin.listUsers({
-          page: 1,
-          perPage: 100,
-        });
+        const { data: list } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 100 });
+        let authId = list?.users?.find((u: any) => u.email === email)?.id ?? null;
 
-        let authId =
-          list?.users?.find((u: any) => u.email === email)?.id ?? null;
-
-        // If user doesn’t exist, create one
         if (!authId) {
           const { data: created, error: createErr } =
             await supabaseAdmin.auth.admin.createUser({
               email,
               email_confirm: true,
             });
-          if (createErr)
-            console.error("Error creating auth user:", createErr.message);
+          if (createErr) console.error("Error creating auth user:", createErr.message);
           authId = created?.user?.id ?? null;
         }
 
-        // 2. Upsert into your users table with correct tier
+        // 2. Upsert into your users table with tier + stripe_customer_id
         if (authId) {
-          const chosenTier =
-            session.metadata?.plan === "concierge" ? "concierge" : "premium";
+          const chosenTier = session.metadata?.plan === "concierge" ? "concierge" : "premium";
 
           await supabaseAdmin.from("users").upsert(
-            { id: authId, email, tier: chosenTier },
+            {
+              id: authId,
+              email,
+              tier: chosenTier,
+              stripe_customer_id: stripeCustomerId, // 🔑 ensure linked to Stripe
+            },
             { onConflict: "id" }
           );
         }
@@ -88,19 +80,15 @@ export async function POST(req: NextRequest) {
       // 3. Persist subscription details
       let priceId: string | null = null;
       if (session.id) {
-        const lineItems = await stripe.checkout.sessions.listLineItems(
-          session.id,
-          { limit: 1 }
-        );
-        priceId =
-          lineItems.data[0]?.price?.id ?? session.metadata?.price_id ?? null;
+        const lineItems = await stripe.checkout.sessions.listLineItems(session.id, { limit: 1 });
+        priceId = lineItems.data[0]?.price?.id ?? session.metadata?.price_id ?? null;
       }
 
       if (session.subscription) {
         const subscriptionId = session.subscription as string;
         await supabaseAdmin.from("subscriptions").upsert({
           id: subscriptionId,
-          customer: session.customer,
+          customer: stripeCustomerId,
           price: priceId,
           status: "active",
           raw: session,
@@ -112,7 +100,6 @@ export async function POST(req: NextRequest) {
     if (event.type.startsWith("customer.subscription.")) {
       const sub = event.data.object as Stripe.Subscription;
 
-      // Store subscription row
       await supabaseAdmin.from("subscriptions").upsert({
         id: sub.id,
         customer: sub.customer,
@@ -120,14 +107,10 @@ export async function POST(req: NextRequest) {
         raw: sub,
       });
 
-      // ---- Downgrade user if canceled or unpaid ----
+      // Downgrade user if canceled or unpaid
       if (["canceled", "unpaid", "incomplete_expired"].includes(sub.status)) {
-        // Lookup customer’s email
-        const customer = await stripe.customers.retrieve(
-          sub.customer as string
-        );
+        const customer = await stripe.customers.retrieve(sub.customer as string);
         const email = (customer as Stripe.Customer).email;
-
         if (email) {
           await supabaseAdmin
             .from("users")
