@@ -10,8 +10,8 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className="min-h-screen flex flex-col bg-white text-gray-900">
-        {/* Sticky header */}
-        <header className="sticky top-0 z-40 bg-[#041B2D]/95 backdrop-blur supports-[backdrop-filter]:bg-[#041B2D]/80 text-white shadow-md">
+        {/* Sticky header with softened background */}
+        <header className="sticky top-0 z-40 bg-[#041B2D]/90 backdrop-blur supports-[backdrop-filter]:bg-[#041B2D]/70 text-white shadow-md border-b border-white/10">
           <nav className="max-w-6xl mx-auto flex items-center justify-between py-4 px-4">
             {/* Logo / Brand */}
             <Link
