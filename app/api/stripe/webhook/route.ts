@@ -22,9 +22,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Deduplicate
+    // Deduplicate events
     const eventId = event.id;
-    const { data: existing } = await supabaseAdmin.from("stripe_events").select("id").eq("id", eventId).single();
+    const { data: existing } = await supabaseAdmin
+      .from("stripe_events")
+      .select("id")
+      .eq("id", eventId)
+      .single();
+
     if (existing) return NextResponse.json({ received: true, deduped: true }, { status: 200 });
 
     await supabaseAdmin
@@ -37,22 +42,32 @@ export async function POST(req: NextRequest) {
       const email = session.customer_details?.email ?? session.metadata?.email ?? null;
 
       if (email) {
-        // Upsert user + set tier
-        await supabaseAdmin.from("users").upsert({ email, tier: "premium" }, { onConflict: "email" });
+        // 1. Ensure auth.users exists
+        const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.getUserByEmail(email);
 
-        // 🔑 Send Supabase magic link so they can sign in right away
-        const { error } = await supabaseAdmin.auth.admin.generateLink({
-          type: "magiclink",
-          email,
-          options: {
-            redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?success=1`,
-          },
-        });
+        let authId = authUser?.user?.id ?? null;
+        if (!authId && !authErr) {
+          // No auth record yet → create one
+          const { data: newUser, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+            email,
+            email_confirm: true,
+          });
+          if (createErr) console.error("Failed to create auth.user:", createErr.message);
+          authId = newUser?.user?.id ?? null;
+        }
 
-        if (error) console.error("Failed to send magic link:", error.message);
+        // 2. Upsert into your users table, tying to authId
+        if (authId) {
+          await supabaseAdmin.from("users").upsert(
+            { id: authId, email, tier: "premium" },
+            { onConflict: "id" }
+          );
+        } else {
+          console.warn("No authId found/created for email:", email);
+        }
       }
 
-      // Optionally store subscription details
+      // 3. Persist subscription details
       if (session.subscription) {
         const subscriptionId = session.subscription as string;
         await supabaseAdmin.from("subscriptions").upsert({
@@ -74,10 +89,17 @@ export async function POST(req: NextRequest) {
         status: sub.status,
         raw: sub,
       });
+
+      // Optional: downgrade user on cancellation
+      if (sub.status === "canceled") {
+        const customerId = sub.customer as string;
+        // look up email from customer if you need
+      }
     }
 
     return NextResponse.json({ received: true }, { status: 200 });
   } catch (err: any) {
+    console.error("Webhook error:", err);
     return NextResponse.json({ error: String(err?.message ?? err) }, { status: 500 });
   }
 }
