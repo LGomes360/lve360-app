@@ -6,12 +6,12 @@ export default function Home() {
       {/* Animated background blobs */}
       <div
         className="pointer-events-none absolute -top-24 -left-24 h-96 w-96 rounded-full
-                   bg-[#A8F0E4] opacity-40 blur-3xl animate-[float_8s_ease-in-out_infinite]"
+                   bg-purple-400 opacity-40 blur-3xl animate-[float_8s_ease-in-out_infinite]"
         aria-hidden
       />
       <div
         className="pointer-events-none absolute top-24 -right-24 h-[28rem] w-[28rem] rounded-full
-                   bg-[#6B21A8] opacity-20 blur-3xl animate-[float_10s_ease-in-out_infinite]"
+                   bg-yellow-300 opacity-30 blur-3xl animate-[float_10s_ease-in-out_infinite]"
         aria-hidden
       />
 
@@ -25,8 +25,11 @@ export default function Home() {
           </span>
         </div>
 
-        <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text
-                       bg-gradient-to-r from-[#041B2D] via-[#6B21A8] to-[#06C1A0] drop-shadow-sm">
+        {/* Bold gradient headline */}
+        <h1
+          className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text
+                     bg-gradient-to-r from-[#06C1A0] via-purple-700 to-yellow-400 drop-shadow-sm"
+        >
           Welcome to LVE360
         </h1>
 
@@ -35,18 +38,32 @@ export default function Home() {
           organized in plain English, and ready to act on.
         </p>
 
-        {/* Primary CTA */}
-        <div className="mt-10 flex justify-center">
+        {/* Primary CTAs */}
+        <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link
             href="/quiz"
-            className="inline-flex items-center gap-2 rounded-2xl
-              bg-purple-600 text-white px-8 py-3 font-semibold
-              shadow-[0_10px_25px_rgba(107,33,168,0.35)]
-              transition-all hover:shadow-[0_14px_34px_rgba(107,33,168,0.45)]
-              focus-visible:ring-4 focus-visible:ring-purple-400/50"
+            className="group inline-flex items-center gap-2 rounded-2xl
+              bg-[#06C1A0] text-white px-7 py-3 font-semibold
+              shadow-[0_10px_25px_rgba(6,193,160,0.35)]
+              transition-all hover:shadow-[0_14px_34px_rgba(6,193,160,0.45)]
+              focus-visible:ring-4 focus-visible:ring-[#06C1A0]/30 relative overflow-hidden"
           >
-            <span className="text-lg">🚀</span>
+            <span className="pointer-events-none absolute inset-0 -translate-x-full bg-white/20
+                             [mask-image:linear-gradient(90deg,transparent,white,transparent)]
+                             group-hover:translate-x-full transition-transform duration-700" />
+            <span className="text-lg">🧪</span>
             <span>Start Free Quiz</span>
+          </Link>
+
+          <Link
+            href="/pricing"
+            className="inline-flex items-center gap-2 rounded-2xl border border-purple-400 bg-white
+              text-[#041B2D] px-7 py-3 font-semibold
+              hover:border-purple-600 hover:bg-purple-50 transition-colors
+              focus-visible:ring-4 focus-visible:ring-purple-300"
+          >
+            <span className="text-lg">💎</span>
+            <span>Explore Premium</span>
           </Link>
         </div>
 
@@ -56,18 +73,20 @@ export default function Home() {
             Log in →
           </Link>
         </p>
+      </section>
 
-        {/* Credibility cards */}
-        <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+      {/* ---------------- Credibility Cards ---------------- */}
+      <section className="max-w-6xl mx-auto px-6 py-12 text-center">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
           {[
-            { icon: "⚖", text: "DSHEA-compliant (supplements)" },
             { icon: "⚡", text: "Actionable, not overwhelming" },
-            { icon: "🧠", text: "AI-driven, guided by wellness experts" },
+            { icon: "📖", text: "Aligned with DSHEA supplement guidelines" },
+            { icon: "🧬", text: "AI-driven personalization" },
           ].map((item) => (
             <div
               key={item.text}
-              className="rounded-xl bg-white/70 ring-1 ring-gray-200 px-4 py-3 backdrop-blur text-gray-700
-                         hover:bg-white/90 transition-colors"
+              className="rounded-xl bg-white/80 ring-1 ring-gray-200 px-4 py-3 backdrop-blur text-gray-700
+                         hover:bg-white transition-colors shadow-sm"
             >
               <span className="mr-2">{item.icon}</span>
               {item.text}
@@ -76,47 +95,62 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ---------------- How It Works ---------------- */}
+      {/* ---------------- Free vs Premium ---------------- */}
+      <section className="bg-gray-50 py-16">
+        <div className="max-w-5xl mx-auto px-6 text-center">
+          <h2 className="text-3xl font-bold text-[#041B2D] mb-8">Free vs Premium</h2>
+          <div className="grid sm:grid-cols-2 gap-8">
+            <div className="rounded-xl border-2 border-yellow-400 bg-white p-6 shadow-sm">
+              <h3 className="font-semibold mb-3 text-yellow-600">Free</h3>
+              <ul className="text-left text-gray-600 space-y-2">
+                <li>✓ Personalized Report</li>
+                <li>✓ Contraindications</li>
+                <li>✓ Bang-for-Buck Picks</li>
+                <li>✗ Weekly Tweaks</li>
+                <li>✗ Dashboard</li>
+              </ul>
+            </div>
+            <div className="rounded-xl border-2 border-purple-500 bg-white p-6 shadow-lg">
+              <h3 className="font-semibold mb-3 text-purple-700">Premium</h3>
+              <ul className="text-left text-gray-700 space-y-2">
+                <li>✓ Everything in Free</li>
+                <li>✓ Weekly Tweaks</li>
+                <li>✓ Lifestyle Notes</li>
+                <li>✓ Dashboard Access</li>
+                <li>✓ Concierge Upgrade Option</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------------- Differentiators ---------------- */}
       <section className="max-w-6xl mx-auto px-6 py-16 text-center">
-        <h2 className="text-3xl sm:text-4xl font-bold text-[#041B2D] mb-12">
-          How It Works
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
+        <h2 className="text-3xl font-bold text-[#041B2D] mb-6">What Makes Us Different</h2>
+        <div className="grid sm:grid-cols-3 gap-6">
           {[
-            { step: "1", title: "Take the Quiz", desc: "5 minutes to share your health goals and background." },
-            { step: "2", title: "Get Your Free Report", desc: "Your supplement & lifestyle blueprint, evidence-based." },
-            { step: "3", title: "Unlock Premium", desc: "Upgrade for weekly tweaks, dashboard & concierge access." },
-          ].map((s) => (
-            <div key={s.step} className="rounded-2xl bg-white shadow p-6 border-t-4 border-[#FDE68A]">
-              <div className="text-2xl font-bold text-[#06C1A0] mb-2">Step {s.step}</div>
-              <h3 className="font-semibold text-lg mb-2">{s.title}</h3>
-              <p className="text-gray-600">{s.desc}</p>
+            { icon: "📖", text: "Evidence-based" },
+            { icon: "🧬", text: "Personalized to you" },
+            { icon: "🤝", text: "Concierge-ready" },
+          ].map((d, idx) => (
+            <div
+              key={idx}
+              className="rounded-xl bg-gradient-to-r from-purple-50 to-yellow-50 p-6 shadow border border-gray-200"
+            >
+              <div className="text-3xl mb-2">{d.icon}</div>
+              <p className="font-medium text-gray-700">{d.text}</p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* ---------------- Dashboard Preview ---------------- */}
-      <section className="bg-gray-50 py-16 text-center">
-        <h2 className="text-3xl font-bold text-[#041B2D] mb-6">See Your Dashboard</h2>
-        <div className="flex flex-col sm:flex-row justify-center gap-8">
-          <div className="h-64 w-40 bg-gradient-to-br from-[#06C1A0] to-[#A8F0E4] rounded-lg shadow-lg flex items-center justify-center text-white font-bold">
-            Mobile View
-          </div>
-          <div className="h-64 w-96 bg-gradient-to-br from-[#6B21A8] to-[#06C1A0] rounded-lg shadow-lg flex items-center justify-center text-white font-bold">
-            Desktop View
-          </div>
-        </div>
-        <p className="mt-4 text-sm text-gray-600">* Previews — actual dashboard is interactive</p>
-      </section>
-
-      {/* ---------------- Sticky CTA ---------------- */}
-      <section className="bg-[#06C1A0] text-white py-16 text-center">
+      {/* ---------------- Bottom CTA ---------------- */}
+      <section className="bg-yellow-400 text-gray-900 py-16 text-center">
         <h2 className="text-3xl font-bold mb-4">Ready to Start?</h2>
         <p className="mb-6">Take the quiz now and get your free personalized report in minutes.</p>
         <Link
           href="/quiz"
-          className="bg-white text-[#06C1A0] px-6 py-3 rounded-lg font-semibold hover:bg-gray-50"
+          className="bg-white text-yellow-600 px-6 py-3 rounded-lg font-semibold hover:bg-gray-50"
         >
           Start Free Quiz →
         </Link>
