@@ -3,7 +3,7 @@ import Link from "next/link";
 export default function Home() {
   return (
     <main className="relative isolate overflow-hidden">
-      {/* Animated background blobs */}
+      {/* Background blobs */}
       <div
         className="pointer-events-none absolute -top-24 -left-24 h-96 w-96 rounded-full
                    bg-[#A8F0E4] opacity-40 blur-3xl animate-[float_8s_ease-in-out_infinite]"
@@ -16,7 +16,7 @@ export default function Home() {
       />
 
       <section className="max-w-6xl mx-auto px-6 pt-20 sm:pt-28 pb-16 text-center">
-        {/* Tagline pill */}
+        {/* Tagline */}
         <div className="inline-flex items-center gap-2 rounded-full bg-white/70 ring-1 ring-gray-200 px-4 py-1.5 mb-6 backdrop-blur">
           <span className="h-2 w-2 rounded-full bg-[#06C1A0]" />
           <span className="text-sm text-gray-700">
@@ -24,53 +24,62 @@ export default function Home() {
           </span>
         </div>
 
-        {/* Gradient title */}
+        {/* Title */}
         <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text
                        bg-gradient-to-r from-[#041B2D] via-[#063A67] to-[#06C1A0] drop-shadow-sm">
           Welcome to LVE360
         </h1>
 
         <p className="mx-auto mt-5 max-w-2xl text-lg text-gray-600">
-          Your personalized health optimization platform — assessed with AI,
-          organized in plain English, and ready to act on.
+          Take our quick quiz to get your free personalized health optimization
+          report. Start with a clear plan, upgrade anytime for premium insights.
         </p>
 
-        {/* CTAs with micro-interactions */}
+        {/* CTAs */}
         <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+          {/* Primary CTA: Take Quiz */}
           <Link
-            href="/pricing"
-            className="
-              group inline-flex items-center gap-2 rounded-2xl
-              bg-[#06C1A0] text-white px-7 py-3 font-semibold
-              shadow-[0_10px_25px_rgba(6,193,160,0.35)]
-              transition-all hover:shadow-[0_14px_34px_rgba(6,193,160,0.45)]
-              focus-visible:ring-4 focus-visible:ring-[#06C1A0]/30
-              relative overflow-hidden
-            "
+            href="/quiz"
+            className="group inline-flex items-center gap-2 rounded-2xl
+                       bg-[#06C1A0] text-white px-7 py-3 font-semibold
+                       shadow-[0_10px_25px_rgba(6,193,160,0.35)]
+                       transition-all hover:shadow-[0_14px_34px_rgba(6,193,160,0.45)]
+                       focus-visible:ring-4 focus-visible:ring-[#06C1A0]/30
+                       relative overflow-hidden"
           >
-            {/* Shine */}
             <span className="pointer-events-none absolute inset-0 -translate-x-full bg-white/20
                              [mask-image:linear-gradient(90deg,transparent,white,transparent)]
                              group-hover:translate-x-full transition-transform duration-700" />
-            <span className="text-lg">💎</span>
-            <span>See Premium Plans</span>
+            <span className="text-lg">📝</span>
+            <span>Take the Quiz</span>
           </Link>
 
+          {/* Secondary: Log in */}
           <Link
-            href="/results"
-            className="
-              inline-flex items-center gap-2 rounded-2xl border border-[#06C1A0]/30 bg-white
-              text-[#041B2D] px-7 py-3 font-semibold
-              hover:border-[#06C1A0] hover:bg-[#F7FFFC] transition-colors
-              focus-visible:ring-4 focus-visible:ring-[#06C1A0]/20
-            "
+            href="/login"
+            className="inline-flex items-center gap-2 rounded-2xl border border-[#06C1A0]/30 bg-white
+                       text-[#041B2D] px-7 py-3 font-semibold
+                       hover:border-[#06C1A0] hover:bg-[#F7FFFC] transition-colors
+                       focus-visible:ring-4 focus-visible:ring-[#06C1A0]/20"
           >
-            <span className="text-lg">📊</span>
-            <span>View Your Report</span>
+            <span className="text-lg">🔑</span>
+            <span>Log in</span>
+          </Link>
+
+          {/* Tertiary: Premium Plans */}
+          <Link
+            href="/pricing"
+            className="inline-flex items-center gap-2 rounded-2xl border border-[#D4AF37]/30 bg-white
+                       text-[#041B2D] px-7 py-3 font-semibold
+                       hover:border-[#D4AF37] hover:bg-[#FFFDF7] transition-colors
+                       focus-visible:ring-4 focus-visible:ring-[#D4AF37]/20"
+          >
+            <span className="text-lg">💎</span>
+            <span>Premium Plans</span>
           </Link>
         </div>
 
-        {/* Credibility cards */}
+        {/* Credibility */}
         <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
           {[
             { icon: "🔒", text: "HIPAA-friendly architecture" },
@@ -89,7 +98,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* “As seen in” placeholders to swap later */}
+      {/* As seen in */}
       <section className="max-w-6xl mx-auto px-6 pb-20">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 items-center opacity-70">
           <div className="h-10 rounded bg-gray-100 ring-1 ring-gray-200" />
