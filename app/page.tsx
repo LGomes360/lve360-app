@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 
-// Simple reusable fade-in animation
+// Reusable fade-in wrapper
 const FadeInWhenVisible = ({ children }: { children: React.ReactNode }) => (
   <motion.div
     initial={{ opacity: 0, y: 30 }}
@@ -41,7 +41,7 @@ export default function Home() {
           </div>
 
           <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text
-                       bg-gradient-to-r from-[#041B2D] via-[#063A67] to-[#06C1A0] drop-shadow-sm">
+                         bg-gradient-to-r from-[#041B2D] via-[#063A67] to-[#06C1A0] drop-shadow-sm">
             Welcome to LVE360
           </h1>
 
@@ -147,6 +147,56 @@ export default function Home() {
         </section>
       </FadeInWhenVisible>
 
+      {/* ---------------- 3. Who It’s For ---------------- */}
+      <FadeInWhenVisible>
+        <section className="max-w-6xl mx-auto px-6 py-16 text-center">
+          <h2 className="text-3xl font-bold text-[#041B2D] mb-10">Who It’s For</h2>
+          <div className="grid sm:grid-cols-3 gap-6">
+            {[
+              { icon: "🧬", title: "Longevity Enthusiasts" },
+              { icon: "⚡", title: "Busy Professionals" },
+              { icon: "💎", title: "Health Optimizers" },
+            ].map((p) => (
+              <div key={p.title} className="rounded-xl bg-white p-6 shadow hover:shadow-md transition">
+                <div className="text-3xl mb-3">{p.icon}</div>
+                <h3 className="font-semibold">{p.title}</h3>
+              </div>
+            ))}
+          </div>
+        </section>
+      </FadeInWhenVisible>
+
+      {/* ---------------- 4. Free vs Premium ---------------- */}
+      <FadeInWhenVisible>
+        <section className="bg-gray-50 py-16">
+          <div className="max-w-5xl mx-auto px-6 text-center">
+            <h2 className="text-3xl font-bold text-[#041B2D] mb-8">Free vs Premium</h2>
+            <div className="grid sm:grid-cols-2 gap-8">
+              <div className="rounded-xl border bg-white p-6">
+                <h3 className="font-semibold mb-3">Free</h3>
+                <ul className="text-left text-gray-600 space-y-2">
+                  <li>✓ Personalized Report</li>
+                  <li>✓ Contraindications</li>
+                  <li>✓ Bang-for-Buck Picks</li>
+                  <li>✗ Weekly Tweaks</li>
+                  <li>✗ Dashboard</li>
+                </ul>
+              </div>
+              <div className="rounded-xl border-2 border-[#06C1A0] bg-white p-6 shadow-lg">
+                <h3 className="font-semibold mb-3 text-[#06C1A0]">Premium</h3>
+                <ul className="text-left text-gray-700 space-y-2">
+                  <li>✓ Everything in Free</li>
+                  <li>✓ Weekly Tweaks</li>
+                  <li>✓ Lifestyle Notes</li>
+                  <li>✓ Dashboard Access</li>
+                  <li>✓ Concierge Upgrade Option</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+      </FadeInWhenVisible>
+
       {/* ---------------- 5. Security Badges ---------------- */}
       <FadeInWhenVisible>
         <section className="max-w-6xl mx-auto px-6 py-16 text-center">
@@ -156,6 +206,50 @@ export default function Home() {
             <div className="h-12 w-28 rounded bg-gray-100 ring-1 ring-gray-200 flex items-center justify-center">Supabase</div>
             <div className="h-12 w-28 rounded bg-gray-100 ring-1 ring-gray-200 flex items-center justify-center">DSHEA</div>
           </div>
+        </section>
+      </FadeInWhenVisible>
+
+      {/* ---------------- 6. Preview Screenshots ---------------- */}
+      <FadeInWhenVisible>
+        <section className="bg-gray-50 py-16 text-center">
+          <h2 className="text-3xl font-bold text-[#041B2D] mb-6">See Your Dashboard</h2>
+          <div className="flex flex-col sm:flex-row justify-center gap-8">
+            <div className="h-64 w-40 bg-gray-200 rounded-lg shadow-inner" />
+            <div className="h-64 w-96 bg-gray-200 rounded-lg shadow-inner" />
+          </div>
+        </section>
+      </FadeInWhenVisible>
+
+      {/* ---------------- 7. Differentiators ---------------- */}
+      <FadeInWhenVisible>
+        <section className="max-w-6xl mx-auto px-6 py-16 text-center">
+          <h2 className="text-3xl font-bold text-[#041B2D] mb-6">What Makes Us Different</h2>
+          <div className="grid sm:grid-cols-3 gap-6">
+            {[
+              { icon: "📖", text: "Evidence-based" },
+              { icon: "🧬", text: "Personalized to you" },
+              { icon: "🤝", text: "Concierge-ready" },
+            ].map((d) => (
+              <div key={d.text} className="rounded-xl bg-white p-6 shadow">
+                <div className="text-3xl mb-2">{d.icon}</div>
+                <p>{d.text}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      </FadeInWhenVisible>
+
+      {/* ---------------- 8. Sticky CTA ---------------- */}
+      <FadeInWhenVisible>
+        <section className="bg-[#06C1A0] text-white py-16 text-center">
+          <h2 className="text-3xl font-bold mb-4">Ready to Start?</h2>
+          <p className="mb-6">Take the quiz now and get your free personalized report in minutes.</p>
+          <Link
+            href="/quiz"
+            className="bg-white text-[#06C1A0] px-6 py-3 rounded-lg font-semibold hover:bg-gray-50"
+          >
+            Start Free Quiz →
+          </Link>
         </section>
       </FadeInWhenVisible>
     </main>
