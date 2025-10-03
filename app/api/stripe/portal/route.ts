@@ -13,25 +13,32 @@ export async function POST(req: NextRequest) {
     const { email } = await req.json();
 
     if (!email) {
+      console.error("❌ Missing email in portal request");
       return NextResponse.json({ error: "Missing email" }, { status: 400 });
     }
 
-    // Lookup user by email
+    console.log(`🔑 Stripe portal requested for email: ${email}`);
+
+    // Lookup user by email (include tier for debugging)
     const { data: user, error } = await supabaseAdmin
       .from("users")
-      .select("id, stripe_customer_id")
+      .select("id, stripe_customer_id, tier")
       .eq("email", email)
       .maybeSingle();
 
     if (error) {
-      console.error("Supabase user lookup error:", error.message);
+      console.error("❌ Supabase user lookup error:", error.message);
       return NextResponse.json({ error: "User lookup failed" }, { status: 500 });
     }
+
+    console.log("🗄️ Supabase user lookup result:", user);
 
     let stripeCustomerId = user?.stripe_customer_id ?? null;
 
     // 🛠 Backfill safeguard: if missing, try to find customer in Stripe
     if (!stripeCustomerId) {
+      console.warn(`⚠️ No stripe_customer_id for ${email}, attempting backfill...`);
+
       const customers = await stripe.customers.list({
         email,
         limit: 1,
@@ -46,7 +53,9 @@ export async function POST(req: NextRequest) {
           .update({ stripe_customer_id: stripeCustomerId })
           .eq("email", email);
 
-        console.log(`Backfilled stripe_customer_id for ${email}: ${stripeCustomerId}`);
+        console.log(`✅ Backfilled stripe_customer_id for ${email}: ${stripeCustomerId}`);
+      } else {
+        console.error(`❌ No matching Stripe customer found for ${email}`);
       }
     }
 
@@ -65,9 +74,11 @@ export async function POST(req: NextRequest) {
       return_url: `${APP_URL}/dashboard`,
     });
 
+    console.log(`✅ Created Stripe portal session for ${email}`);
+
     return NextResponse.json({ url: portalSession.url });
   } catch (err: any) {
-    console.error("Stripe portal error:", err);
+    console.error("❌ Stripe portal error:", err);
     return NextResponse.json(
       { error: err?.message ?? String(err) },
       { status: 500 }
