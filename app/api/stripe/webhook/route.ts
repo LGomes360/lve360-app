@@ -42,17 +42,25 @@ export async function POST(req: NextRequest) {
 
       if (email) {
         // 1. Ensure auth.users exists
-        const { data: authUser } = await supabaseAdmin.auth.admin.getUserByEmail(email);
-
-        let authId = authUser?.user?.id ?? null;
+        // Try to find auth user by email
+        const { data: list, error: listErr } = await supabaseAdmin.auth.admin.listUsers({
+          page: 1,
+          perPage: 1,
+        });
+        if (listErr) console.error("Error listing users:", listErr.message);
+        
+        let authId = list?.users?.find((u: any) => u.email === email)?.id ?? null;
+        
+        // If user doesn’t exist, create one
         if (!authId) {
-          const { data: newUser, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+          const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
             email,
             email_confirm: true,
           });
-          if (createErr) console.error("Failed to create auth.user:", createErr.message);
-          authId = newUser?.user?.id ?? null;
+          if (createErr) console.error("Error creating auth user:", createErr.message);
+          authId = created?.user?.id ?? null;
         }
+
 
         // 2. Upsert into your users table
         if (authId) {
