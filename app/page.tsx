@@ -14,7 +14,7 @@ export default function Home() {
       />
       <div
         className="pointer-events-none absolute top-24 -right-24 h-[28rem] w-[28rem] rounded-full
-                   bg-[#06C1A0] opacity-20 blur-3xl animate-[float_10s_ease-in-out_infinite]"
+                   bg-[#D9C2F0] opacity-30 blur-3xl animate-[float_10s_ease-in-out_infinite]"
         aria-hidden
       />
 
@@ -34,7 +34,7 @@ export default function Home() {
         </div>
 
         <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text
-                       bg-gradient-to-r from-[#041B2D] via-[#063A67] to-[#06C1A0] drop-shadow-sm">
+                       bg-gradient-to-r from-purple-600 via-[#06C1A0] to-[#041B2D] drop-shadow-sm">
           Welcome to LVE360
         </h1>
 
@@ -60,7 +60,7 @@ export default function Home() {
 
         <p className="mt-6 text-sm text-gray-600">
           Already a member?{" "}
-          <Link href="/login" className="text-[#06C1A0] font-medium hover:underline">
+          <Link href="/login" className="text-purple-600 font-medium hover:underline">
             Log in →
           </Link>
         </p>
@@ -109,7 +109,7 @@ export default function Home() {
               transition={{ type: "spring", stiffness: 200, damping: 12 }}
               className="rounded-2xl bg-white shadow p-6"
             >
-              <div className="text-2xl font-bold text-[#06C1A0] mb-2">Step {s.step}</div>
+              <div className="text-2xl font-bold text-purple-600 mb-2">Step {s.step}</div>
               <h3 className="font-semibold text-lg mb-2">{s.title}</h3>
               <p className="text-gray-600">{s.desc}</p>
             </motion.div>
@@ -117,37 +117,9 @@ export default function Home() {
         </div>
       </motion.section>
 
-      {/* ---------------- Who It’s For ---------------- */}
-      <motion.section
-        className="max-w-6xl mx-auto px-6 py-16 text-center"
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.6 }}
-      >
-        <h2 className="text-3xl font-bold text-[#041B2D] mb-10">Who It’s For</h2>
-        <div className="grid sm:grid-cols-3 gap-6">
-          {[
-            { icon: "🧬", title: "Longevity Enthusiasts" },
-            { icon: "⏱️", title: "Busy Professionals" },
-            { icon: "⚡", title: "Health Optimizers" },
-          ].map((p) => (
-            <motion.div
-              key={p.title}
-              whileHover={{ scale: 1.05 }}
-              transition={{ type: "spring", stiffness: 200, damping: 12 }}
-              className="rounded-xl bg-white p-6 shadow hover:shadow-md transition"
-            >
-              <div className="text-3xl mb-3">{p.icon}</div>
-              <h3 className="font-semibold">{p.title}</h3>
-            </motion.div>
-          ))}
-        </div>
-      </motion.section>
-
       {/* ---------------- Free vs Premium ---------------- */}
       <motion.section
-        className="bg-gray-50 py-16"
+        className="py-16 bg-gradient-to-br from-[#F8F5FB] via-white to-[#EAFBF8]"
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}
@@ -156,26 +128,55 @@ export default function Home() {
         <div className="max-w-5xl mx-auto px-6 text-center">
           <h2 className="text-3xl font-bold text-[#041B2D] mb-8">Free vs Premium</h2>
           <div className="grid sm:grid-cols-2 gap-8">
-            <div className="rounded-xl border bg-white p-6">
-              <h3 className="font-semibold mb-3">Free</h3>
+            <div className="rounded-xl border border-gray-200 bg-white/80 backdrop-blur p-6 shadow-sm hover:shadow-md transition">
+              <h3 className="font-semibold mb-3 text-gray-700">Free</h3>
               <ul className="text-left text-gray-600 space-y-2">
                 <li>✓ Personalized Report</li>
                 <li>✓ Contraindications</li>
                 <li>✓ Bang-for-Buck Picks</li>
-                <li>✗ Weekly Tweaks</li>
-                <li>✗ Dashboard</li>
+                <li className="text-gray-400">✗ Weekly Tweaks</li>
+                <li className="text-gray-400">✗ Dashboard</li>
               </ul>
             </div>
-            <div className="rounded-xl border-2 border-[#06C1A0] bg-white p-6 shadow-lg">
-              <h3 className="font-semibold mb-3 text-[#06C1A0]">Premium</h3>
+            <div className="rounded-xl border-2 border-purple-600 bg-white/90 backdrop-blur p-6 shadow-lg hover:shadow-xl transition">
+              <h3 className="font-semibold mb-3 text-purple-600">Premium</h3>
               <ul className="text-left text-gray-700 space-y-2">
                 <li>✓ Everything in Free</li>
                 <li>✓ Weekly Tweaks</li>
                 <li>✓ Lifestyle Notes</li>
                 <li>✓ Dashboard Access</li>
-                {/* Concierge removed here */}
               </ul>
             </div>
+          </div>
+        </div>
+      </motion.section>
+
+      {/* ---------------- Differentiators ---------------- */}
+      <motion.section
+        className="py-16 bg-gradient-to-br from-white via-[#F8F5FB] to-[#EAFBF8]"
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.6 }}
+      >
+        <div className="max-w-6xl mx-auto px-6 text-center">
+          <h2 className="text-3xl font-bold text-[#041B2D] mb-6">What Makes Us Different</h2>
+          <div className="grid sm:grid-cols-3 gap-6">
+            {[
+              { icon: "📖", text: "Transparent Evidence", accent: "text-purple-600" },
+              { icon: "🧬", text: "Personalized to you", accent: "text-[#06C1A0]" },
+              { icon: "✨", text: "Concierge-feel", accent: "text-yellow-500" },
+            ].map((d) => (
+              <motion.div
+                key={d.text}
+                whileHover={{ scale: 1.05 }}
+                transition={{ type: "spring", stiffness: 200, damping: 12 }}
+                className="rounded-xl bg-white/90 backdrop-blur p-6 shadow hover:shadow-md transition"
+              >
+                <div className={`text-3xl mb-2 ${d.accent}`}>{d.icon}</div>
+                <p className="text-gray-700">{d.text}</p>
+              </motion.div>
+            ))}
           </div>
         </div>
       </motion.section>
@@ -208,37 +209,9 @@ export default function Home() {
         </div>
       </motion.section>
 
-      {/* ---------------- Differentiators ---------------- */}
-      <motion.section
-        className="max-w-6xl mx-auto px-6 py-16 text-center"
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.6 }}
-      >
-        <h2 className="text-3xl font-bold text-[#041B2D] mb-6">What Makes Us Different</h2>
-        <div className="grid sm:grid-cols-3 gap-6">
-          {[
-            { icon: "📖", text: "Transparent Evidence" },
-            { icon: "🧬", text: "Personalized to you" },
-            { icon: "🤝", text: "Concierge-feel" },
-          ].map((d) => (
-            <motion.div
-              key={d.text}
-              whileHover={{ scale: 1.05 }}
-              transition={{ type: "spring", stiffness: 200, damping: 12 }}
-              className="rounded-xl bg-white p-6 shadow"
-            >
-              <div className="text-3xl mb-2">{d.icon}</div>
-              <p>{d.text}</p>
-            </motion.div>
-          ))}
-        </div>
-      </motion.section>
-
       {/* ---------------- Sticky CTA ---------------- */}
       <motion.section
-        className="bg-[#06C1A0] text-white py-16 text-center"
+        className="bg-purple-600 text-white py-16 text-center"
         initial={{ opacity: 0 }}
         whileInView={{ opacity: 1 }}
         viewport={{ once: true }}
@@ -250,7 +223,7 @@ export default function Home() {
           href="https://tally.so/r/mOqRBk"
           target="_blank"
           rel="noopener noreferrer"
-          className="bg-white text-[#06C1A0] px-6 py-3 rounded-lg font-semibold hover:bg-gray-50"
+          className="bg-white text-purple-600 px-6 py-3 rounded-lg font-semibold hover:bg-gray-50"
         >
           Start Free Quiz →
         </a>
