@@ -16,7 +16,10 @@ export default function Home() {
       />
 
 {/* ---------------- Hero Section ---------------- */}
-<section className="max-w-6xl mx-auto px-6 pt-20 sm:pt-28 pb-16 text-center">
+<section className="max-w-6xl mx-auto px-6 pt-20 sm:pt-28 pb-16 text-center relative">
+  {/* Background gradient */}
+  <div className="absolute inset-0 -z-10 bg-gradient-to-br from-[#6B3FA0]/15 via-[#06C1A0]/10 to-[#FDE68A]/20" />
+
   {/* Tagline pill */}
   <div className="inline-flex items-center gap-2 rounded-full bg-white/70 ring-1 ring-gray-200 px-4 py-1.5 mb-6 backdrop-blur">
     <span className="h-2 w-2 rounded-full bg-[#06C1A0]" />
@@ -28,7 +31,7 @@ export default function Home() {
   {/* Gradient Title */}
   <h1
     className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text
-               bg-gradient-to-r from-[#6B3FA0] via-[#06C1A0] to-[#FDE68A] drop-shadow-sm"
+               bg-gradient-to-r from-[#6B3FA0] via-[#06C1A0] to-[#FDE68A] drop-shadow-md"
   >
     Welcome to LVE360
   </h1>
@@ -44,10 +47,10 @@ export default function Home() {
       href="https://tally.so/r/mOqRBk"
       target="_blank"
       className="group inline-flex items-center gap-2 rounded-2xl
-        bg-[#06C1A0] text-white px-7 py-3 font-semibold
-        shadow-[0_10px_25px_rgba(6,193,160,0.35)]
-        transition-all hover:shadow-[0_14px_34px_rgba(6,193,160,0.45)]
-        focus-visible:ring-4 focus-visible:ring-[#06C1A0]/30 relative overflow-hidden"
+        bg-[#6B3FA0] text-white px-7 py-3 font-semibold
+        shadow-[0_10px_25px_rgba(107,63,160,0.35)]
+        transition-all hover:shadow-[0_14px_34px_rgba(107,63,160,0.45)]
+        focus-visible:ring-4 focus-visible:ring-[#6B3FA0]/30 relative overflow-hidden"
     >
       {/* Shine */}
       <span
