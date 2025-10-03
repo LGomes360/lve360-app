@@ -1,7 +1,4 @@
-"use client";
-
 import Link from "next/link";
-import { motion } from "framer-motion";
 
 export default function Home() {
   return (
@@ -14,17 +11,12 @@ export default function Home() {
       />
       <div
         className="pointer-events-none absolute top-24 -right-24 h-[28rem] w-[28rem] rounded-full
-                   bg-[#06C1A0] opacity-20 blur-3xl animate-[float_10s_ease-in-out_infinite]"
+                   bg-[#6B21A8] opacity-20 blur-3xl animate-[float_10s_ease-in-out_infinite]"
         aria-hidden
       />
 
       {/* ---------------- Hero Section ---------------- */}
-      <motion.section
-        className="max-w-6xl mx-auto px-6 pt-20 sm:pt-28 pb-16 text-center"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-      >
+      <section className="max-w-6xl mx-auto px-6 pt-20 sm:pt-28 pb-16 text-center">
         {/* Tagline pill */}
         <div className="inline-flex items-center gap-2 rounded-full bg-white/70 ring-1 ring-gray-200 px-4 py-1.5 mb-6 backdrop-blur">
           <span className="h-2 w-2 rounded-full bg-[#06C1A0]" />
@@ -34,7 +26,7 @@ export default function Home() {
         </div>
 
         <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text
-                       bg-gradient-to-r from-[#041B2D] via-[#063A67] to-[#06C1A0] drop-shadow-sm">
+                       bg-gradient-to-r from-[#041B2D] via-[#6B21A8] to-[#06C1A0] drop-shadow-sm">
           Welcome to LVE360
         </h1>
 
@@ -43,31 +35,18 @@ export default function Home() {
           organized in plain English, and ready to act on.
         </p>
 
-        <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+        {/* Primary CTA */}
+        <div className="mt-10 flex justify-center">
           <Link
-            href="/pricing"
-            className="group inline-flex items-center gap-2 rounded-2xl
-              bg-[#06C1A0] text-white px-7 py-3 font-semibold
-              shadow-[0_10px_25px_rgba(6,193,160,0.35)]
-              transition-all hover:shadow-[0_14px_34px_rgba(6,193,160,0.45)]
-              focus-visible:ring-4 focus-visible:ring-[#06C1A0]/30 relative overflow-hidden"
+            href="/quiz"
+            className="inline-flex items-center gap-2 rounded-2xl
+              bg-purple-600 text-white px-8 py-3 font-semibold
+              shadow-[0_10px_25px_rgba(107,33,168,0.35)]
+              transition-all hover:shadow-[0_14px_34px_rgba(107,33,168,0.45)]
+              focus-visible:ring-4 focus-visible:ring-purple-400/50"
           >
-            <span className="pointer-events-none absolute inset-0 -translate-x-full bg-white/20
-                             [mask-image:linear-gradient(90deg,transparent,white,transparent)]
-                             group-hover:translate-x-full transition-transform duration-700" />
-            <span className="text-lg">💎</span>
-            <span>See Premium Plans</span>
-          </Link>
-
-          <Link
-            href="/results"
-            className="inline-flex items-center gap-2 rounded-2xl border border-[#06C1A0]/30 bg-white
-              text-[#041B2D] px-7 py-3 font-semibold
-              hover:border-[#06C1A0] hover:bg-[#F7FFFC] transition-colors
-              focus-visible:ring-4 focus-visible:ring-[#06C1A0]/20"
-          >
-            <span className="text-lg">📊</span>
-            <span>View Your Report</span>
+            <span className="text-lg">🚀</span>
+            <span>Start Free Quiz</span>
           </Link>
         </div>
 
@@ -81,32 +60,24 @@ export default function Home() {
         {/* Credibility cards */}
         <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
           {[
-            { icon: "⚖️", text: "DSHEA-compliant (supplements)" },
+            { icon: "⚖", text: "DSHEA-compliant (supplements)" },
             { icon: "⚡", text: "Actionable, not overwhelming" },
             { icon: "🧠", text: "AI-driven, guided by wellness experts" },
           ].map((item) => (
-            <motion.div
+            <div
               key={item.text}
-              whileHover={{ scale: 1.05 }}
-              transition={{ type: "spring", stiffness: 200, damping: 12 }}
               className="rounded-xl bg-white/70 ring-1 ring-gray-200 px-4 py-3 backdrop-blur text-gray-700
                          hover:bg-white/90 transition-colors"
             >
               <span className="mr-2">{item.icon}</span>
               {item.text}
-            </motion.div>
+            </div>
           ))}
         </div>
-      </motion.section>
+      </section>
 
-      {/* ---------------- 1. How It Works ---------------- */}
-      <motion.section
-        className="max-w-6xl mx-auto px-6 py-16 text-center"
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.6 }}
-      >
+      {/* ---------------- How It Works ---------------- */}
+      <section className="max-w-6xl mx-auto px-6 py-16 text-center">
         <h2 className="text-3xl sm:text-4xl font-bold text-[#041B2D] mb-12">
           How It Works
         </h2>
@@ -116,172 +87,31 @@ export default function Home() {
             { step: "2", title: "Get Your Free Report", desc: "Your supplement & lifestyle blueprint, evidence-based." },
             { step: "3", title: "Unlock Premium", desc: "Upgrade for weekly tweaks, dashboard & concierge access." },
           ].map((s) => (
-            <motion.div
-              key={s.step}
-              whileHover={{ scale: 1.05 }}
-              transition={{ type: "spring", stiffness: 200, damping: 12 }}
-              className="rounded-2xl bg-white shadow p-6"
-            >
+            <div key={s.step} className="rounded-2xl bg-white shadow p-6 border-t-4 border-[#FDE68A]">
               <div className="text-2xl font-bold text-[#06C1A0] mb-2">Step {s.step}</div>
               <h3 className="font-semibold text-lg mb-2">{s.title}</h3>
               <p className="text-gray-600">{s.desc}</p>
-            </motion.div>
+            </div>
           ))}
         </div>
-      </motion.section>
+      </section>
 
-      {/* ---------------- 2. Social Proof ---------------- */}
-      <motion.section
-        className="bg-gray-50 py-16"
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.6 }}
-      >
-        <div className="max-w-4xl mx-auto px-6 text-center">
-          <h2 className="text-3xl font-bold text-[#041B2D] mb-8">What People Are Saying</h2>
-          <div className="space-y-6">
-            {[
-              "“This made supplements finally make sense.” – Early Beta Tester",
-              "“I stopped wasting money on random pills and actually feel a difference.”",
-              "“Finally, a plan that adapts to me instead of a one-size-fits-all.”",
-            ].map((t, i) => (
-              <p key={i} className="italic text-gray-700">⭐ {t}</p>
-            ))}
-          </div>
-        </div>
-      </motion.section>
-
-      {/* ---------------- 3. Who It’s For ---------------- */}
-      <motion.section
-        className="max-w-6xl mx-auto px-6 py-16 text-center"
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.6 }}
-      >
-        <h2 className="text-3xl font-bold text-[#041B2D] mb-10">Who It’s For</h2>
-        <div className="grid sm:grid-cols-3 gap-6">
-          {[
-            { icon: "🧬", title: "Longevity Enthusiasts" },
-            { icon: "⚡", title: "Busy Professionals" },
-            { icon: "💎", title: "Health Optimizers" },
-          ].map((p) => (
-            <motion.div
-              key={p.title}
-              whileHover={{ scale: 1.05 }}
-              transition={{ type: "spring", stiffness: 200, damping: 12 }}
-              className="rounded-xl bg-white p-6 shadow hover:shadow-md transition"
-            >
-              <div className="text-3xl mb-3">{p.icon}</div>
-              <h3 className="font-semibold">{p.title}</h3>
-            </motion.div>
-          ))}
-        </div>
-      </motion.section>
-
-      {/* ---------------- 4. Feature Grid ---------------- */}
-      <motion.section
-        className="bg-gray-50 py-16"
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.6 }}
-      >
-        <div className="max-w-5xl mx-auto px-6 text-center">
-          <h2 className="text-3xl font-bold text-[#041B2D] mb-8">Free vs Premium</h2>
-          <div className="grid sm:grid-cols-2 gap-8">
-            <div className="rounded-xl border bg-white p-6">
-              <h3 className="font-semibold mb-3">Free</h3>
-              <ul className="text-left text-gray-600 space-y-2">
-                <li>✓ Personalized Report</li>
-                <li>✓ Contraindications</li>
-                <li>✓ Bang-for-Buck Picks</li>
-                <li>✗ Weekly Tweaks</li>
-                <li>✗ Dashboard</li>
-              </ul>
-            </div>
-            <div className="rounded-xl border-2 border-[#06C1A0] bg-white p-6 shadow-lg">
-              <h3 className="font-semibold mb-3 text-[#06C1A0]">Premium</h3>
-              <ul className="text-left text-gray-700 space-y-2">
-                <li>✓ Everything in Free</li>
-                <li>✓ Weekly Tweaks</li>
-                <li>✓ Lifestyle Notes</li>
-                <li>✓ Dashboard Access</li>
-                <li>✓ Concierge Upgrade Option</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </motion.section>
-
-      {/* ---------------- 5. Security Badges ---------------- */}
-      <motion.section
-        className="max-w-6xl mx-auto px-6 py-16 text-center"
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.6 }}
-      >
-        <h2 className="text-3xl font-bold text-[#041B2D] mb-6">Trusted & Secure</h2>
-        <div className="flex justify-center gap-10 opacity-70">
-          <div className="h-12 w-28 rounded bg-gray-100 ring-1 ring-gray-200 flex items-center justify-center">Stripe</div>
-          <div className="h-12 w-28 rounded bg-gray-100 ring-1 ring-gray-200 flex items-center justify-center">Supabase</div>
-          <div className="h-12 w-28 rounded bg-gray-100 ring-1 ring-gray-200 flex items-center justify-center">DSHEA</div>
-        </div>
-      </motion.section>
-
-      {/* ---------------- 6. Preview Screenshots ---------------- */}
-      <motion.section
-        className="bg-gray-50 py-16 text-center"
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.6 }}
-      >
+      {/* ---------------- Dashboard Preview ---------------- */}
+      <section className="bg-gray-50 py-16 text-center">
         <h2 className="text-3xl font-bold text-[#041B2D] mb-6">See Your Dashboard</h2>
         <div className="flex flex-col sm:flex-row justify-center gap-8">
-          <div className="h-64 w-40 bg-gray-200 rounded-lg shadow-inner" /> {/* placeholder */}
-          <div className="h-64 w-96 bg-gray-200 rounded-lg shadow-inner" /> {/* placeholder */}
+          <div className="h-64 w-40 bg-gradient-to-br from-[#06C1A0] to-[#A8F0E4] rounded-lg shadow-lg flex items-center justify-center text-white font-bold">
+            Mobile View
+          </div>
+          <div className="h-64 w-96 bg-gradient-to-br from-[#6B21A8] to-[#06C1A0] rounded-lg shadow-lg flex items-center justify-center text-white font-bold">
+            Desktop View
+          </div>
         </div>
-      </motion.section>
+        <p className="mt-4 text-sm text-gray-600">* Previews — actual dashboard is interactive</p>
+      </section>
 
-      {/* ---------------- 7. Differentiators ---------------- */}
-      <motion.section
-        className="max-w-6xl mx-auto px-6 py-16 text-center"
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.6 }}
-      >
-        <h2 className="text-3xl font-bold text-[#041B2D] mb-6">What Makes Us Different</h2>
-        <div className="grid sm:grid-cols-3 gap-6">
-          {[
-            { icon: "📖", text: "Evidence-based" },
-            { icon: "🧬", text: "Personalized to you" },
-            { icon: "🤝", text: "Concierge-ready" },
-          ].map((d) => (
-            <motion.div
-              key={d.text}
-              whileHover={{ scale: 1.05 }}
-              transition={{ type: "spring", stiffness: 200, damping: 12 }}
-              className="rounded-xl bg-white p-6 shadow"
-            >
-              <div className="text-3xl mb-2">{d.icon}</div>
-              <p>{d.text}</p>
-            </motion.div>
-          ))}
-        </div>
-      </motion.section>
-
-      {/* ---------------- 8. Sticky CTA ---------------- */}
-      <motion.section
-        className="bg-[#06C1A0] text-white py-16 text-center"
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.6 }}
-      >
+      {/* ---------------- Sticky CTA ---------------- */}
+      <section className="bg-[#06C1A0] text-white py-16 text-center">
         <h2 className="text-3xl font-bold mb-4">Ready to Start?</h2>
         <p className="mb-6">Take the quiz now and get your free personalized report in minutes.</p>
         <Link
@@ -290,7 +120,7 @@ export default function Home() {
         >
           Start Free Quiz →
         </Link>
-      </motion.section>
+      </section>
     </main>
   );
 }
