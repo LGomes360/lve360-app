@@ -28,21 +28,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Decide which plan
     const priceId = plan === "concierge" ? priceConcierge : pricePremium;
-    const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "/";
+    const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
+    // Create checkout session
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       payment_method_types: ["card"],
       line_items: [{ price: priceId, quantity: 1 }],
-      customer_email: email, // link checkout to the user's email
-      // 🔑 Redirect through callback so session cookie is set, then forward to dashboard
-      success_url: `${APP_URL}/auth/callback?next=/dashboard`,
+      customer_email: email, // ensures stripe knows which customer this is
+
+      // 🔑 Send through Supabase auth callback to establish session
+      success_url: `${APP_URL}/auth/callback?next=/dashboard&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${APP_URL}/pricing?canceled=1`,
     });
 
     return NextResponse.json({ ok: true, url: session.url });
   } catch (err: any) {
+    console.error("Stripe checkout error:", err);
     return NextResponse.json(
       { error: err?.message ?? String(err) },
       { status: 500 }
