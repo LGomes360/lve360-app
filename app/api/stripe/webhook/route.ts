@@ -29,12 +29,11 @@ export async function POST(req: NextRequest) {
       .select("id")
       .eq("id", eventId)
       .single();
-
     if (existing) return NextResponse.json({ received: true, deduped: true }, { status: 200 });
 
-    await supabaseAdmin
-      .from("stripe_events")
-      .insert([{ id: eventId, raw: event, created_at: new Date().toISOString() }]);
+    await supabaseAdmin.from("stripe_events").insert([
+      { id: eventId, raw: event, created_at: new Date().toISOString() },
+    ]);
 
     // ---- Handle checkout success ----
     if (event.type === "checkout.session.completed") {
@@ -43,11 +42,10 @@ export async function POST(req: NextRequest) {
 
       if (email) {
         // 1. Ensure auth.users exists
-        const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.getUserByEmail(email);
+        const { data: authUser } = await supabaseAdmin.auth.admin.getUserByEmail(email);
 
         let authId = authUser?.user?.id ?? null;
-        if (!authId && !authErr) {
-          // No auth record yet → create one
+        if (!authId) {
           const { data: newUser, error: createErr } = await supabaseAdmin.auth.admin.createUser({
             email,
             email_confirm: true,
@@ -56,14 +54,12 @@ export async function POST(req: NextRequest) {
           authId = newUser?.user?.id ?? null;
         }
 
-        // 2. Upsert into your users table, tying to authId
+        // 2. Upsert into your users table
         if (authId) {
           await supabaseAdmin.from("users").upsert(
             { id: authId, email, tier: "premium" },
             { onConflict: "id" }
           );
-        } else {
-          console.warn("No authId found/created for email:", email);
         }
       }
 
@@ -83,6 +79,8 @@ export async function POST(req: NextRequest) {
     // ---- Handle subscription lifecycle updates ----
     if (event.type.startsWith("customer.subscription.")) {
       const sub = event.data.object as Stripe.Subscription;
+
+      // Store subscription row
       await supabaseAdmin.from("subscriptions").upsert({
         id: sub.id,
         customer: sub.customer,
@@ -90,10 +88,15 @@ export async function POST(req: NextRequest) {
         raw: sub,
       });
 
-      // Optional: downgrade user on cancellation
-      if (sub.status === "canceled") {
-        const customerId = sub.customer as string;
-        // look up email from customer if you need
+      // ---- Downgrade user if canceled or unpaid ----
+      if (["canceled", "unpaid", "incomplete_expired"].includes(sub.status)) {
+        // Lookup customer’s email
+        const customer = await stripe.customers.retrieve(sub.customer as string);
+        const email = (customer as Stripe.Customer).email;
+
+        if (email) {
+          await supabaseAdmin.from("users").update({ tier: "free" }).eq("email", email);
+        }
       }
     }
 
