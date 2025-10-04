@@ -1,5 +1,5 @@
 "use client";
-
+import { useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 
@@ -24,6 +24,7 @@ const springy = {
 
 
 export default function Home() {
+const [showQuiz, setShowQuiz] = useState(false);
   return (
     <main className="relative isolate overflow-hidden">
       {/* ---------- Ambient Background (subtle, non-distracting) ---------- */}
@@ -41,77 +42,60 @@ export default function Home() {
       {/* ================================================================== */}
       {/* 1) HERO                                                            */}
       {/* ================================================================== */}
-           <motion.section
-        className="relative z-0 bg-gradient-to-b from-[#EAFBF8] via-white to-[#F8F5FB]"
-        initial="initial"
-        animate="animate"
-        variants={fadeUp}
-        transition={{ duration: 0.55 }}
+      <motion.section
+        className="max-w-6xl mx-auto px-6 pt-20 sm:pt-28 pb-16 text-center"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
       >
-        <div className="max-w-6xl mx-auto px-6 pt-20 sm:pt-28 pb-16 text-center">
-          {/* Tagline pill */}
-          <div className="inline-flex items-center gap-2 rounded-full bg-white/75 ring-1 ring-gray-200 px-4 py-1.5 mb-6 backdrop-blur">
-            <span className="h-2 w-2 rounded-full bg-[#06C1A0]" />
-            <span className="text-sm text-gray-700">
-              Personalized insights for Longevity • Vitality • Energy
-            </span>
-          </div>
-      
-          {/* Title */}
-          <h1
-            className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text
-                       bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 drop-shadow-sm"
-          >
-            Welcome to LVE360
-          </h1>
-      
-          <p className="mx-auto mt-5 max-w-2xl text-lg text-gray-600">
-            Your personalized health optimization platform — assessed with AI,
-            organized in plain English, and ready to act on.
-          </p>
-      
-          {/* Inline quiz embed */}
-          <div className="mt-12 flex justify-center">
-            <iframe
-              src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
-              width="100%"
-              height="600"
-              className="max-w-2xl w-full rounded-2xl shadow-lg border border-gray-200"
-              frameBorder="0"
-              title="LVE360 Quiz"
-            ></iframe>
-          </div>
-      
-          {/* Login hint */}
-          <p className="mt-8 text-sm text-gray-600">
-            Already a member?{" "}
-            <Link href="/login" className="text-purple-600 font-medium hover:underline">
-              Log in →
-            </Link>
-          </p>
-      
-          {/* Credibility cards */}
-          <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-            {[
-              { icon: "⚖️", text: "DSHEA-aligned supplement guidance" },
-              { icon: "⚡", text: "Actionable, not overwhelming" },
-              { icon: "🧠", text: "AI-driven, guided by wellness experts" },
-            ].map((item) => (
-              <motion.div
-                key={item.text}
-                whileHover={springy.whileHover}
-                transition={springy.transition}
-                className="rounded-xl bg-white/80 ring-1 ring-gray-200 px-4 py-3 backdrop-blur text-gray-700
-                           hover:bg-white/90 transition-colors"
-              >
-                <span className="mr-2">{item.icon}</span>
-                {item.text}
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </motion.section>
+        {/* Tagline, headline, etc. */}
+        <h1 className="text-5xl sm:text-6xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent">
+          Welcome to LVE360
+        </h1>
 
+        <p className="mx-auto mt-5 max-w-2xl text-lg text-gray-600">
+          Your personalized health optimization platform — assessed with AI,
+          organized in plain English, and ready to act on.
+        </p>
+
+        {/* The pretty Start button */}
+        <div className="mt-10 flex justify-center">
+          <button
+            onClick={() => setShowQuiz(true)}
+            className="inline-flex items-center gap-2 rounded-2xl bg-purple-600 text-white px-7 py-3 font-semibold
+                       shadow-[0_10px_25px_rgba(124,58,237,0.35)] transition-all hover:shadow-[0_14px_34px_rgba(124,58,237,0.45)]
+                       focus-visible:ring-4 focus-visible:ring-purple-500/30 relative overflow-hidden"
+          >
+            <span className="text-lg">🚀</span>
+            <span>Start Free Quiz</span>
+          </button>
+        </div>
+
+        {/* Modal overlay */}
+        {showQuiz && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="relative w-full max-w-3xl mx-auto bg-white rounded-2xl overflow-hidden shadow-2xl">
+              {/* Close button */}
+              <button
+                onClick={() => setShowQuiz(false)}
+                className="absolute top-3 right-3 text-gray-500 hover:text-gray-800 text-xl font-bold z-10"
+              >
+                ✕
+              </button>
+
+              {/* Tally embed */}
+              <iframe
+                src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
+                width="100%"
+                height="700"
+                frameBorder="0"
+                title="LVE360 Intake Quiz"
+                className="w-full min-h-[80vh] bg-transparent"
+              ></iframe>
+            </div>
+          </div>
+        )}
+      </motion.section>
 
       {/* ================================================================== */}
       {/* 2) HOW IT WORKS                                                    */}
