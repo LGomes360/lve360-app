@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Leaf, Gem, Zap } from "lucide-react";
+import { Leaf, Gem, Zap, Lock } from "lucide-react";
+import { motion } from "framer-motion";
 import CTAButton from "@/components/CTAButton";
 
 export default function Pricing() {
@@ -34,16 +35,16 @@ export default function Pricing() {
   }
 
   return (
-    <main className="relative max-w-5xl mx-auto py-16 px-6 text-center">
-      {/* Gradient Background */}
-      <div className="absolute inset-0 -z-10 bg-gradient-to-b from-[#06C1A0]/10 via-white to-[#041B2D]/5"></div>
+    <main className="relative max-w-6xl mx-auto py-20 px-6 text-center">
+      {/* Background Gradient */}
+      <div className="absolute inset-0 -z-10 bg-gradient-to-b from-[#EAFBF8] via-white to-[#F8F5FB]" />
 
       {/* DNA Watermark */}
       <div className="absolute inset-0 -z-10 flex items-center justify-center opacity-5 pointer-events-none">
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          width="400"
-          height="400"
+          width="420"
+          height="420"
           viewBox="0 0 200 200"
           className="text-[#06C1A0]"
         >
@@ -57,47 +58,59 @@ export default function Pricing() {
         </svg>
       </div>
 
-      {/* Hero Banner */}
+      {/* Hero */}
       <div className="mb-16 relative">
-        <h1 className="text-5xl font-extrabold mb-4 text-[#041B2D] tracking-tight drop-shadow-sm">
+        <h1 className="text-5xl font-extrabold mb-4 bg-gradient-to-r from-[#041B2D] via-purple-600 to-[#06C1A0] bg-clip-text text-transparent tracking-tight drop-shadow-sm">
           Choose Your Path
         </h1>
         <p className="text-xl text-gray-700 max-w-2xl mx-auto">
           Unlock{" "}
           <span className="text-[#06C1A0] font-semibold">Longevity</span>, ignite{" "}
-          <span className="text-[#06C1A0] font-semibold">Vitality</span>, and
+          <span className="text-purple-600 font-semibold">Vitality</span>, and
           power up your{" "}
-          <span className="text-[#06C1A0] font-semibold">Energy</span>.  
-          Your concierge wellness journey starts here.
+          <span className="text-yellow-500 font-semibold">Energy</span>.  
+          Your journey starts here.
         </p>
       </div>
 
       {/* Pricing Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-10 mb-12">
-        {/* Free Tier — Longevity */}
-        <div className="relative rounded-2xl border border-gray-200 p-8 bg-gray-50 flex flex-col shadow-sm hover:shadow-md transition">
-          <Leaf className="mx-auto mb-4 text-[#06C1A0]" size={36} />
-          <h2 className="text-2xl font-semibold mb-4">Free</h2>
+        {/* Free Tier */}
+        <motion.div
+          whileHover={{ scale: 1.03 }}
+          transition={{ type: "spring", stiffness: 200, damping: 14 }}
+          className="relative rounded-2xl border border-gray-200 p-8 bg-gray-50 flex flex-col shadow-sm hover:shadow-md transition"
+        >
+          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-[#06C1A0]/10 flex items-center justify-center">
+            <Leaf className="text-[#06C1A0]" size={28} />
+          </div>
+          <h2 className="text-2xl font-semibold mb-2">Free</h2>
           <p className="text-gray-600 mb-6">Longevity starts here.</p>
           <ul className="text-left text-gray-700 space-y-2 mb-6">
             <li>✓ Current Analysis</li>
             <li>✓ Contraindications</li>
             <li>✓ Bang-for-Buck picks</li>
-            <li>✗ Personalized Stack</li>
-            <li>✗ Weekly Tweaks</li>
+            <li className="text-gray-400">✗ Personalized Stack</li>
+            <li className="text-gray-400">✗ Weekly Tweaks</li>
           </ul>
           <CTAButton href="/quiz" variant="secondary" fullWidth>
             Get Started
           </CTAButton>
-        </div>
+        </motion.div>
 
-        {/* Premium Tier — Vitality */}
-        <div className="relative rounded-2xl border-2 border-[#06C1A0] p-8 bg-white flex flex-col shadow-lg hover:shadow-xl transition">
-          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#06C1A0] text-white px-3 py-1 rounded-full text-sm font-medium">
+        {/* Premium Tier */}
+        <motion.div
+          whileHover={{ scale: 1.05 }}
+          transition={{ type: "spring", stiffness: 200, damping: 14 }}
+          className="relative rounded-2xl border-2 border-[#06C1A0] p-8 bg-white flex flex-col shadow-lg hover:shadow-xl transition"
+        >
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#06C1A0] text-white px-3 py-1 rounded-full text-sm font-medium shadow">
             Most Popular
           </div>
-          <Gem className="mx-auto mb-4 text-[#06C1A0]" size={36} />
-          <h2 className="text-2xl font-semibold mb-4">Premium</h2>
+          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-[#06C1A0]/10 flex items-center justify-center">
+            <Gem className="text-[#06C1A0]" size={28} />
+          </div>
+          <h2 className="text-2xl font-semibold mb-2">Premium</h2>
           <p className="text-gray-600 mb-6">Vitality unlocked • $9/month</p>
           <ul className="text-left text-gray-700 space-y-2 mb-6">
             <li>✓ Everything in Free</li>
@@ -116,15 +129,21 @@ export default function Pricing() {
           <CTAButton onClick={() => subscribe("premium")} variant="primary" fullWidth>
             Subscribe with Stripe
           </CTAButton>
-        </div>
+        </motion.div>
 
-        {/* Concierge Tier — Energy */}
-        <div className="relative rounded-2xl border-2 border-[#D4AF37] p-8 bg-black flex flex-col shadow-lg hover:shadow-2xl transition text-[#D4AF37]">
-          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#D4AF37] text-black px-3 py-1 rounded-full text-sm font-medium">
+        {/* Concierge Tier */}
+        <motion.div
+          whileHover={{ scale: 1.05 }}
+          transition={{ type: "spring", stiffness: 200, damping: 14 }}
+          className="relative rounded-2xl border-2 border-[#D4AF37] p-8 bg-black flex flex-col shadow-lg hover:shadow-2xl transition text-[#D4AF37]"
+        >
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#D4AF37] text-black px-3 py-1 rounded-full text-sm font-medium shadow">
             VIP Access
           </div>
-          <Zap className="mx-auto mb-4 text-[#D4AF37]" size={36} />
-          <h2 className="text-2xl font-semibold mb-4">Concierge</h2>
+          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-[#D4AF37]/10 flex items-center justify-center">
+            <Zap className="text-[#D4AF37]" size={28} />
+          </div>
+          <h2 className="text-2xl font-semibold mb-2">Concierge</h2>
           <p className="mb-6">$99/month • Energy redefined</p>
           <ul className="text-left space-y-2 mb-6">
             <li>✓ Everything in Premium</li>
@@ -140,21 +159,18 @@ export default function Pricing() {
             onChange={(e) => setEmail(e.target.value)}
             className="w-full border border-[#D4AF37] bg-black text-[#D4AF37] rounded-lg px-4 py-2 mb-4 placeholder-gray-500"
           />
-          <CTAButton
-            onClick={() => subscribe("concierge")}
-            variant="concierge"
-            fullWidth
-          >
+          <CTAButton onClick={() => subscribe("concierge")} variant="concierge" fullWidth>
             Join Concierge
           </CTAButton>
-        </div>
+        </motion.div>
       </div>
 
-      <p className="text-sm text-gray-500">
-        Payments are processed securely by Stripe. Cancel anytime from your account.
-      </p>
-
-      <div className="mt-6">
+      {/* Footer note */}
+      <div className="flex flex-col items-center space-y-3">
+        <p className="flex items-center gap-2 text-sm text-gray-500">
+          <Lock size={14} className="text-gray-400" />
+          Payments are processed securely by Stripe. Cancel anytime.
+        </p>
         <CTAButton href="/" variant="secondary">
           Back to Home
         </CTAButton>
