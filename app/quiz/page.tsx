@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
+import { motion } from "framer-motion";
 
 export default function QuizPage() {
   useEffect(() => {
-    // Listen for resize messages from Tally and adjust iframe height dynamically
+    // Allow Tally to auto-resize the iframe dynamically
     function handleTallyMessage(event: MessageEvent) {
       if (event.origin.includes("tally.so") && event.data?.height) {
         const iframe = document.querySelector<HTMLIFrameElement>("#tally-embed");
@@ -18,9 +19,10 @@ export default function QuizPage() {
   return (
     <main
       className="relative min-h-screen flex flex-col items-center justify-start
-                 bg-gradient-to-b from-[#EAFBF8] via-white to-[#F8F5FB] py-20 px-4 sm:px-6"
+                 bg-gradient-to-b from-[#EAFBF8] via-white to-[#F8F5FB]
+                 py-24 px-4 sm:px-6 overflow-hidden"
     >
-      {/* Decorative floating blobs like homepage */}
+      {/* Floating background accents */}
       <div
         className="pointer-events-none absolute -top-32 -left-32 h-96 w-96 rounded-full
                    bg-[#A8F0E4] opacity-25 blur-3xl animate-[float_8s_ease-in-out_infinite]"
@@ -32,9 +34,14 @@ export default function QuizPage() {
         aria-hidden
       />
 
-      {/* Main quiz container */}
-      <div className="relative z-10 w-full max-w-5xl rounded-3xl overflow-hidden
-                      shadow-xl ring-1 ring-gray-200 bg-white/95 backdrop-blur">
+      {/* Animated container for the quiz */}
+      <motion.div
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.7, ease: "easeOut" }}
+        className="relative z-10 w-full max-w-5xl rounded-3xl overflow-hidden
+                   shadow-xl ring-1 ring-gray-200 bg-white/95 backdrop-blur"
+      >
         <iframe
           id="tally-embed"
           src="https://tally.so/embed/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1"
@@ -46,7 +53,7 @@ export default function QuizPage() {
           marginWidth={0}
           className="w-full min-h-[800px] sm:min-h-[1000px]"
         />
-      </div>
+      </motion.div>
     </main>
   );
 }
