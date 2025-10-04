@@ -420,4 +420,15 @@ export default function Home() {
       >
         <h2 className="text-3xl font-bold mb-4">Ready to Start?</h2>
         <p className="mb-6">
-          Take the quiz
+          Take the quiz now and get your free personalized report in minutes.
+        </p>
+        <button
+          onClick={() => setShowQuiz(true)}
+          className="inline-flex items-center gap-2 bg-white text-purple-600 px-6 py-3 rounded-lg font-semibold hover:bg-gray-50"
+        >
+          <span>Start Free Quiz</span> <span>→</span>
+        </button>
+      </motion.section>
+    </main>
+  );
+}
