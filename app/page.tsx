@@ -18,9 +18,9 @@ const fadeUp = {
   animate: { opacity: 1, y: 0 },
 };
 const springy = {
-  whileHover: { scale: 1.04 },
-  transition: { type: "spring", stiffness: 220, damping: 16 },
+  whileHover: { scale: 1.04, transition: { type: "spring", stiffness: 220, damping: 16 } },
 };
+
 
 export default function Home() {
   return (
