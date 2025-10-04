@@ -121,7 +121,7 @@ export default function Home() {
           <motion.div
             key="quizBackdrop"
             className="fixed inset-0 flex items-center justify-center z-50"
-            variants={backdropVariants}
+            variants={backdropVariants as any}
             initial="hidden"
             animate="visible"
             exit="exit"
