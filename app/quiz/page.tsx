@@ -1,7 +1,7 @@
 export default function QuizPage() {
   return (
     <main className="max-w-4xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6 text-[#041B2D]">Your Free Quiz</h1>
+   
       <iframe
         src="https://tally.so/r/mOqRBk"
         width="100%"
