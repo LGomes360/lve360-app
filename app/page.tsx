@@ -34,6 +34,7 @@ export default function Home() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setShowQuiz(false);
     };
+
     const handleClickOutside = (e: MouseEvent) => {
       if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
         setShowQuiz(false);
@@ -51,10 +52,9 @@ export default function Home() {
       document.removeEventListener("mousedown", handleClickOutside);
       document.body.style.overflow = prevOverflow;
     };
-    }, [showQuiz]);
-  {/* ----------------------------------------------------------------------- */}
-  return (
+  }, [showQuiz]);
 
+  // -----------------------------------------------------------------------
   return (
     <main className="relative isolate overflow-hidden">
       {/* ---------- Ambient Background (subtle, non-distracting) ---------- */}
@@ -68,6 +68,7 @@ export default function Home() {
                    bg-[#D9C2F0] opacity-30 blur-3xl animate-[float_10s_ease-in-out_infinite]"
         aria-hidden
       />
+
 
       {/* ================================================================== */}
       {/* 1) HERO                                                            */}
