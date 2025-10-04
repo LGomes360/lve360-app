@@ -18,7 +18,8 @@ const fadeUp = {
   animate: { opacity: 1, y: 0 },
 };
 const springy = {
-  whileHover: { scale: 1.04, transition: { type: "spring", stiffness: 220, damping: 16 } },
+  whileHover: { scale: 1.04 },
+  transition: { type: "spring" as const, stiffness: 220, damping: 16 },
 };
 
 
@@ -99,15 +100,16 @@ export default function Home() {
               { icon: "⚡", text: "Actionable, not overwhelming" },
               { icon: "🧠", text: "AI-driven, guided by wellness experts" },
             ].map((item) => (
-              <motion.div
-                key={item.text}
-                {...springy}
-                className="rounded-xl bg-white/80 ring-1 ring-gray-200 px-4 py-3 backdrop-blur text-gray-700
-                           hover:bg-white transition-colors shadow-sm"
-              >
-                <span className="mr-2">{item.icon}</span>
-                {item.text}
-              </motion.div>
+            <motion.div
+              key={item.text}
+              whileHover={springy.whileHover}
+              transition={springy.transition}
+              className="rounded-xl bg-white/80 ring-1 ring-gray-200 px-4 py-3 backdrop-blur text-gray-700
+                         hover:bg-white/90 transition-colors"
+            >
+              <span className="mr-2">{item.icon}</span>
+              {item.text}
+            </motion.div>
             ))}
           </div>
         </div>
