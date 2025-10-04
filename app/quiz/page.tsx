@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 
 export default function QuizPage() {
   useEffect(() => {
-    // Allow Tally to auto-resize the iframe dynamically
+    // Dynamically adjust iframe height from Tally
     function handleTallyMessage(event: MessageEvent) {
       if (event.origin.includes("tally.so") && event.data?.height) {
         const iframe = document.querySelector<HTMLIFrameElement>("#tally-embed");
@@ -22,19 +22,31 @@ export default function QuizPage() {
                  bg-gradient-to-b from-[#EAFBF8] via-white to-[#F8F5FB]
                  py-24 px-4 sm:px-6 overflow-hidden"
     >
-      {/* Floating background accents */}
-      <div
+      {/* Floating & Pulsing background blobs */}
+      <motion.div
         className="pointer-events-none absolute -top-32 -left-32 h-96 w-96 rounded-full
-                   bg-[#A8F0E4] opacity-25 blur-3xl animate-[float_8s_ease-in-out_infinite]"
+                   bg-[#A8F0E4] opacity-25 blur-3xl"
         aria-hidden
+        animate={{ scale: [1, 1.1, 1] }}
+        transition={{
+          duration: 10,
+          ease: "easeInOut",
+          repeat: Infinity,
+        }}
       />
-      <div
+      <motion.div
         className="pointer-events-none absolute top-40 -right-32 h-[28rem] w-[28rem] rounded-full
-                   bg-[#D9C2F0] opacity-25 blur-3xl animate-[float_10s_ease-in-out_infinite]"
+                   bg-[#D9C2F0] opacity-25 blur-3xl"
         aria-hidden
+        animate={{ scale: [1, 1.15, 1] }}
+        transition={{
+          duration: 12,
+          ease: "easeInOut",
+          repeat: Infinity,
+        }}
       />
 
-      {/* Animated container for the quiz */}
+      {/* Animated container for quiz */}
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
