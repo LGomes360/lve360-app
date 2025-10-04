@@ -20,7 +20,7 @@ const springy = {
   transition: { type: "spring" as const, stiffness: 220, damping: 16 },
 };
 
-// modal motion + halo
+// Motion variants ----------------------------------------------------------
 const modalVariants = {
   hidden: { opacity: 0, scale: 0.9 },
   visible: {
@@ -65,7 +65,7 @@ export default function Home() {
   const [showQuiz, setShowQuiz] = useState(false);
   const modalRef = useRef<HTMLDivElement | null>(null);
 
-  // ESC & click-outside close + scroll lock
+  // ESC / click-outside / scroll-lock -------------------------------------
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => e.key === "Escape" && setShowQuiz(false);
     const handleClick = (e: MouseEvent) =>
@@ -83,6 +83,7 @@ export default function Home() {
     }
   }, [showQuiz]);
 
+  // -----------------------------------------------------------------------
   return (
     <main className="relative isolate overflow-hidden">
       {/* ---------- Ambient Background ---------- */}
@@ -110,7 +111,8 @@ export default function Home() {
                        shadow-[0_10px_25px_rgba(124,58,237,0.35)] transition-all hover:shadow-[0_14px_34px_rgba(124,58,237,0.45)]
                        focus-visible:ring-4 focus-visible:ring-purple-500/30"
           >
-            <span className="text-lg">🚀</span> <span>Start Free Quiz</span>
+            <span className="text-lg">🚀</span>
+            <span>Start Free Quiz</span>
           </button>
         </div>
       </motion.section>
@@ -121,14 +123,14 @@ export default function Home() {
           <motion.div
             key="quizBackdrop"
             className="fixed inset-0 flex items-center justify-center z-50"
-            variants={backdropVariants as any}
+            variants={backdropVariants as any}     {/* ✅ typecast fix */}
             initial="hidden"
             animate="visible"
             exit="exit"
           >
             <motion.div
               ref={modalRef}
-              variants={modalVariants}
+              variants={modalVariants as any}       {/* ✅ typecast fix */}
               initial="hidden"
               animate="visible"
               exit="exit"
