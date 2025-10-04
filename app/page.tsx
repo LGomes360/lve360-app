@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -14,83 +14,62 @@ import { motion, AnimatePresence } from "framer-motion";
  * All primary CTAs open the embedded Tally quiz.
  */
 
-const fadeUp = { initial: { opacity: 0, y: 18 }, animate: { opacity: 1, y: 0 } };
+const fadeUp = {
+  initial: { opacity: 0, y: 18 },
+  animate: { opacity: 1, y: 0 },
+};
 const springy = {
   whileHover: { scale: 1.04 },
   transition: { type: "spring" as const, stiffness: 220, damping: 16 },
-};
-
-// Motion variants ----------------------------------------------------------
-const modalVariants = {
-  hidden: { opacity: 0, scale: 0.9 },
-  visible: {
-    opacity: 1,
-    scale: 1,
-    transition: { type: "spring", stiffness: 180, damping: 22, duration: 0.8 },
-  },
-  exit: { opacity: 0, scale: 0.85, transition: { duration: 0.25, ease: "easeInOut" } },
-};
-const backdropVariants = {
-  hidden: { opacity: 0, backdropFilter: "blur(0px)" },
-  visible: {
-    opacity: 1,
-    backdropFilter: "blur(12px)",
-    backgroundColor: "rgba(0,0,0,0.7)",
-    transition: { duration: 0.3, ease: "easeOut" },
-  },
-  exit: {
-    opacity: 0,
-    backdropFilter: "blur(0px)",
-    backgroundColor: "rgba(0,0,0,0)",
-    transition: { duration: 0.25, ease: "easeInOut" },
-  },
-};
-const pulseVariants = {
-  initial: { boxShadow: "0 0 40px rgba(124,58,237,0.35)" },
-  animate: {
-    boxShadow: [
-      "0 0 40px rgba(124,58,237,0.35)",
-      "0 0 70px rgba(124,58,237,0.55)",
-      "0 0 40px rgba(124,58,237,0.35)",
-    ],
-    transition: { duration: 0.8, ease: "easeInOut" },
-  },
-  hover: {
-    boxShadow: "0 0 70px rgba(124,58,237,0.55)",
-    transition: { duration: 0.3, ease: "easeOut" },
-  },
 };
 
 export default function Home() {
   const [showQuiz, setShowQuiz] = useState(false);
   const modalRef = useRef<HTMLDivElement | null>(null);
 
-  // ESC / click-outside / scroll-lock -------------------------------------
+  // Close on ESC and click-outside. Also lock scroll when modal is open.
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => e.key === "Escape" && setShowQuiz(false);
-    const handleClick = (e: MouseEvent) =>
-      modalRef.current && !modalRef.current.contains(e.target as Node) && setShowQuiz(false);
-    if (showQuiz) {
-      window.addEventListener("keydown", handleKey);
-      document.addEventListener("mousedown", handleClick);
-      const prev = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-      return () => {
-        window.removeEventListener("keydown", handleKey);
-        document.removeEventListener("mousedown", handleClick);
-        document.body.style.overflow = prev;
-      };
-    }
+    if (!showQuiz) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowQuiz(false);
+    };
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
+        setShowQuiz(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("mousedown", handleClickOutside);
+
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.body.style.overflow = prevOverflow;
+    };
   }, [showQuiz]);
 
-  // -----------------------------------------------------------------------
   return (
     <main className="relative isolate overflow-hidden">
-      {/* ---------- Ambient Background ---------- */}
-      <div className="pointer-events-none absolute -top-24 -left-24 h-96 w-96 rounded-full bg-[#A8F0E4] opacity-30 blur-3xl animate-[float_8s_ease-in-out_infinite]" />
-      <div className="pointer-events-none absolute top-[18rem] -right-24 h-[28rem] w-[28rem] rounded-full bg-[#D9C2F0] opacity-30 blur-3xl animate-[float_10s_ease-in-out_infinite]" />
+      {/* ---------- Ambient Background (subtle, non-distracting) ---------- */}
+      <div
+        className="pointer-events-none absolute -top-24 -left-24 h-96 w-96 rounded-full
+                   bg-[#A8F0E4] opacity-30 blur-3xl animate-[float_8s_ease-in-out_infinite]"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute top-[18rem] -right-24 h-[28rem] w-[28rem] rounded-full
+                   bg-[#D9C2F0] opacity-30 blur-3xl animate-[float_10s_ease-in-out_infinite]"
+        aria-hidden
+      />
 
-      {/* 1) HERO ----------------------------------------------------------- */}
+      {/* ================================================================== */}
+      {/* 1) HERO                                                            */}
+      {/* ================================================================== */}
       <motion.section
         className="max-w-6xl mx-auto px-6 pt-20 sm:pt-28 pb-16 text-center"
         initial={{ opacity: 0, y: 20 }}
@@ -100,16 +79,18 @@ export default function Home() {
         <h1 className="text-5xl sm:text-6xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent">
           Welcome to LVE360
         </h1>
+
         <p className="mx-auto mt-5 max-w-2xl text-lg text-gray-600">
           Your personalized health optimization platform — assessed with AI,
           organized in plain English, and ready to act on.
         </p>
+
         <div className="mt-10 flex justify-center">
           <button
             onClick={() => setShowQuiz(true)}
             className="inline-flex items-center gap-2 rounded-2xl bg-purple-600 text-white px-7 py-3 font-semibold
                        shadow-[0_10px_25px_rgba(124,58,237,0.35)] transition-all hover:shadow-[0_14px_34px_rgba(124,58,237,0.45)]
-                       focus-visible:ring-4 focus-visible:ring-purple-500/30"
+                       focus-visible:ring-4 focus-visible:ring-purple-500/30 relative overflow-hidden"
           >
             <span className="text-lg">🚀</span>
             <span>Start Free Quiz</span>
@@ -117,38 +98,42 @@ export default function Home() {
         </div>
       </motion.section>
 
-      {/* MODAL ------------------------------------------------------------ */}
+      {/* ================================================================== */}
+      {/* MODAL OVERLAY (shared for all buttons)                             */}
+      {/* ================================================================== */}
       <AnimatePresence>
         {showQuiz && (
           <motion.div
-            key="quizBackdrop"
-            className="fixed inset-0 flex items-center justify-center z-50"
-            variants={backdropVariants as any}     {/* ✅ typecast fix */}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
+            key="quiz-backdrop"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            aria-modal
+            role="dialog"
           >
             <motion.div
               ref={modalRef}
-              variants={modalVariants as any}       {/* ✅ typecast fix */}
-              initial="hidden"
-              animate="visible"
-              exit="exit"
               className="relative w-full max-w-3xl mx-auto bg-white rounded-2xl overflow-hidden shadow-2xl ring-2 ring-purple-500/30"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+                transition: { type: "spring", stiffness: 180, damping: 22 },
+              }}
+              exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
             >
-              <motion.div
-                variants={pulseVariants}
-                initial="initial"
-                animate="animate"
-                whileHover="hover"
-                className="absolute inset-0 rounded-2xl pointer-events-none"
-              />
+              {/* Close button */}
               <button
                 onClick={() => setShowQuiz(false)}
                 className="absolute top-3 right-3 text-gray-500 hover:text-gray-800 text-xl font-bold z-10"
+                aria-label="Close quiz"
               >
                 ✕
               </button>
+
+              {/* Tally embed */}
               <iframe
                 src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
                 width="100%"
@@ -156,13 +141,15 @@ export default function Home() {
                 frameBorder="0"
                 title="LVE360 Intake Quiz"
                 className="w-full min-h-[80vh] bg-transparent"
-              ></iframe>
+              />
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* 2) HOW IT WORKS -------------------------------------------------- */}
+      {/* ================================================================== */}
+      {/* 2) HOW IT WORKS                                                    */}
+      {/* ================================================================== */}
       <motion.section
         className="max-w-6xl mx-auto px-6 py-16 text-center"
         initial="initial"
@@ -171,15 +158,39 @@ export default function Home() {
         variants={fadeUp}
         transition={{ duration: 0.55 }}
       >
-        <h2 className="text-3xl sm:text-4xl font-bold text-[#041B2D] mb-12">How It Works</h2>
+        <h2 className="text-3xl sm:text-4xl font-bold text-[#041B2D] mb-12">
+          How It Works
+        </h2>
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
           {[
-            { step: "1", title: "Take the Quiz", desc: "5 minutes to share your health goals and background.", accent: "text-purple-600" },
-            { step: "2", title: "Get Your Free Report", desc: "Receive your supplement & lifestyle blueprint.", accent: "text-[#06C1A0]" },
-            { step: "3", title: "Optional: Upgrade", desc: "Premium unlocks weekly tweaks & your dashboard.", accent: "text-yellow-500" },
+            {
+              step: "1",
+              title: "Take the Quiz",
+              desc: "5 minutes to share your health goals and background.",
+              accent: "text-purple-600",
+            },
+            {
+              step: "2",
+              title: "Get Your Free Report",
+              desc: "Receive your supplement & lifestyle blueprint.",
+              accent: "text-[#06C1A0]",
+            },
+            {
+              step: "3",
+              title: "Optional: Upgrade",
+              desc: "Premium unlocks weekly tweaks & your dashboard.",
+              accent: "text-yellow-500",
+            },
           ].map((s) => (
-            <motion.div key={s.step} {...springy} className="rounded-2xl bg-white shadow p-6">
-              <div className={`text-2xl font-bold ${s.accent} mb-2`}>Step {s.step}</div>
+            <motion.div
+              key={s.step}
+              {...springy}
+              className="rounded-2xl bg-white shadow p-6"
+            >
+              <div className={`text-2xl font-bold ${s.accent} mb-2`}>
+                Step {s.step}
+              </div>
               <h3 className="font-semibold text-lg mb-2">{s.title}</h3>
               <p className="text-gray-600">{s.desc}</p>
             </motion.div>
@@ -187,7 +198,9 @@ export default function Home() {
         </div>
       </motion.section>
 
-      {/* 3) SOCIAL PROOF -------------------------------------------------- */}
+      {/* ================================================================== */}
+      {/* 3) SOCIAL PROOF                                                    */}
+      {/* ================================================================== */}
       <motion.section
         className="bg-gradient-to-br from-white via-[#F8F5FB] to-[#EAFBF8] py-16"
         initial={{ opacity: 0 }}
@@ -196,20 +209,26 @@ export default function Home() {
         transition={{ duration: 0.55 }}
       >
         <div className="max-w-4xl mx-auto px-6 text-center">
-          <h2 className="text-3xl font-bold text-[#041B2D] mb-8">What People Are Saying</h2>
+          <h2 className="text-3xl font-bold text-[#041B2D] mb-8">
+            What People Are Saying
+          </h2>
           <div className="space-y-6">
             {[
               "“This made supplements finally make sense.” — Early Beta Tester",
               "“I stopped wasting money on random pills and actually feel a difference.”",
               "“Finally, a plan that adapts to me instead of a one-size-fits-all.”",
             ].map((t, i) => (
-              <p key={i} className="italic text-gray-700">⭐ {t}</p>
+              <p key={i} className="italic text-gray-700">
+                ⭐ {t}
+              </p>
             ))}
           </div>
         </div>
       </motion.section>
 
-      {/* 4) WHO IT'S FOR -------------------------------------------------- */}
+      {/* ================================================================== */}
+      {/* 4) WHO IT'S FOR                                                    */}
+      {/* ================================================================== */}
       <motion.section
         className="max-w-6xl mx-auto px-6 py-16 text-center"
         initial="initial"
@@ -218,14 +237,32 @@ export default function Home() {
         variants={fadeUp}
         transition={{ duration: 0.55 }}
       >
-        <h2 className="text-3xl font-bold text-[#041B2D] mb-10">Who It’s For</h2>
+        <h2 className="text-3xl font-bold text-[#041B2D] mb-10">
+          Who It’s For
+        </h2>
         <div className="grid sm:grid-cols-3 gap-6">
           {[
-            { icon: "🧬", title: "Longevity Enthusiasts", accent: "text-[#06C1A0]" },
-            { icon: "⏱️", title: "Busy Professionals", accent: "text-purple-600" },
-            { icon: "🎯", title: "Goal-Driven Optimizers", accent: "text-yellow-500" },
+            {
+              icon: "🧬",
+              title: "Longevity Enthusiasts",
+              accent: "text-[#06C1A0]",
+            },
+            {
+              icon: "⏱️",
+              title: "Busy Professionals",
+              accent: "text-purple-600",
+            },
+            {
+              icon: "🎯",
+              title: "Goal-Driven Optimizers",
+              accent: "text-yellow-500",
+            },
           ].map((p) => (
-            <motion.div key={p.title} {...springy} className="rounded-xl bg-white p-6 shadow hover:shadow-md transition">
+            <motion.div
+              key={p.title}
+              {...springy}
+              className="rounded-xl bg-white p-6 shadow hover:shadow-md transition"
+            >
               <div className={`text-3xl mb-3 ${p.accent}`}>{p.icon}</div>
               <h3 className="font-semibold">{p.title}</h3>
             </motion.div>
@@ -233,7 +270,9 @@ export default function Home() {
         </div>
       </motion.section>
 
-      {/* 5) FREE vs PREMIUM ---------------------------------------------- */}
+      {/* ================================================================== */}
+      {/* 5) FREE vs PREMIUM                                                 */}
+      {/* ================================================================== */}
       <motion.section
         className="py-16 bg-gradient-to-br from-[#F8F5FB] via-white to-[#EAFBF8]"
         initial="initial"
@@ -243,8 +282,11 @@ export default function Home() {
         transition={{ duration: 0.55 }}
       >
         <div className="max-w-5xl mx-auto px-6 text-center">
-          <h2 className="text-3xl font-bold text-[#041B2D] mb-8">Free vs Premium</h2>
+          <h2 className="text-3xl font-bold text-[#041B2D] mb-8">
+            Free vs Premium
+          </h2>
           <div className="grid sm:grid-cols-2 gap-8">
+            {/* Free */}
             <div className="rounded-xl border border-gray-200 bg-white/85 backdrop-blur p-6 shadow-sm hover:shadow-md transition">
               <h3 className="font-semibold mb-3 text-gray-700">Free</h3>
               <ul className="text-left text-gray-600 space-y-2">
@@ -255,6 +297,8 @@ export default function Home() {
                 <li className="text-gray-400">✗ Dashboard</li>
               </ul>
             </div>
+
+            {/* Premium */}
             <div className="rounded-xl border-2 border-purple-600 bg-white/90 backdrop-blur p-6 shadow-lg hover:shadow-xl transition">
               <h3 className="font-semibold mb-3 text-purple-600">Premium</h3>
               <ul className="text-left text-gray-700 space-y-2">
@@ -264,7 +308,10 @@ export default function Home() {
                 <li>✓ Dashboard Access</li>
               </ul>
               <div className="text-left mt-4">
-                <Link href="/pricing" className="inline-flex items-center gap-2 text-purple-600 font-medium hover:underline">
+                <Link
+                  href="/pricing"
+                  className="inline-flex items-center gap-2 text-purple-600 font-medium hover:underline"
+                >
                   Learn about Premium →
                 </Link>
               </div>
@@ -273,7 +320,9 @@ export default function Home() {
         </div>
       </motion.section>
 
-      {/* 6) TRUSTED & SECURE --------------------------------------------- */}
+      {/* ================================================================== */}
+      {/* 6) TRUSTED & SECURE (badges)                                      */}
+      {/* ================================================================== */}
       <motion.section
         className="max-w-6xl mx-auto px-6 py-16 text-center"
         initial={{ opacity: 0 }}
@@ -286,21 +335,27 @@ export default function Home() {
           We use well-supported infrastructure for auth, payments, and content delivery.
         </p>
         <div className="flex flex-wrap justify-center gap-8 opacity-95">
-          {[
-            { name: "Stripe", color: "text-[#635BFF]" },
-            { name: "Supabase", color: "text-[#3ECF8E]" },
-            { name: "DSHEA", color: "text-gray-700" },
-            { name: "Amazon", color: "text-[#FF9900]" },
-            { name: "GitHub", color: "text-gray-800" },
-          ].map((b) => (
-            <div key={b.name} className={`px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold ${b.color}`}>
-              {b.name}
-            </div>
-          ))}
+          <div className="px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold text-[#635BFF]">
+            Stripe
+          </div>
+          <div className="px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold text-[#3ECF8E]">
+            Supabase
+          </div>
+          <div className="px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold text-gray-700">
+            DSHEA
+          </div>
+          <div className="px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold text-[#FF9900]">
+            Amazon
+          </div>
+          <div className="px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold">
+            GitHub
+          </div>
         </div>
       </motion.section>
 
-      {/* 7) DASHBOARD PREVIEW -------------------------------------------- */}
+      {/* ================================================================== */}
+      {/* 7) DASHBOARD PREVIEW (placeholders for now)                        */}
+      {/* ================================================================== */}
       <motion.section
         className="bg-gradient-to-br from-white via-[#EAFBF8] to-[#F8F5FB] py-16 text-center"
         initial={{ opacity: 0 }}
@@ -318,7 +373,9 @@ export default function Home() {
         </div>
       </motion.section>
 
-      {/* 8) WHAT MAKES US DIFFERENT -------------------------------------- */}
+      {/* ================================================================== */}
+      {/* 8) WHAT MAKES US DIFFERENT                                         */}
+      {/* ================================================================== */}
       <motion.section
         className="max-w-6xl mx-auto px-6 py-16 text-center"
         initial="initial"
@@ -334,7 +391,11 @@ export default function Home() {
             { icon: "🧬", text: "Personalized to You", accent: "text-[#06C1A0]" },
             { icon: "✨", text: "Concierge-feel (MVP)", accent: "text-yellow-500" },
           ].map((d) => (
-            <motion.div key={d.text} {...springy} className="rounded-xl bg-white/90 backdrop-blur p-6 shadow hover:shadow-md transition">
+            <motion.div
+              key={d.text}
+              {...springy}
+              className="rounded-xl bg-white/90 backdrop-blur p-6 shadow hover:shadow-md transition"
+            >
               <div className={`text-3xl mb-2 ${d.accent}`}>{d.icon}</div>
               <p className="text-gray-700">{d.text}</p>
             </motion.div>
@@ -342,7 +403,9 @@ export default function Home() {
         </div>
       </motion.section>
 
-      {/* 9) FAQ ----------------------------------------------------------- */}
+      {/* ================================================================== */}
+      {/* 9) FAQ                                                             */}
+      {/* ================================================================== */}
       <motion.section
         className="bg-gradient-to-br from-[#F8F5FB] via-white to-[#EAFBF8] py-16"
         initial="initial"
@@ -354,22 +417,37 @@ export default function Home() {
         <div className="max-w-4xl mx-auto px-6">
           <h2 className="text-3xl font-bold text-[#041B2D] mb-8 text-center">FAQ</h2>
           <div className="grid md:grid-cols-2 gap-6">
-            {[
-              { q: "Is the quiz really free?", a: "Yep. You’ll get a personalized report at no cost. Premium is optional." },
-              { q: "What’s included in Premium?", a: "Weekly tweaks, lifestyle notes, and dashboard access to track your progress." },
-              { q: "Do you store medical records?", a: "No medical records; we keep things focused on supplements & lifestyle." },
-              { q: "Can I cancel anytime?", a: "Yes. You can manage or cancel your subscription in the Stripe customer portal." },
-            ].map((f) => (
-              <div key={f.q} className="rounded-xl bg-white/90 backdrop-blur p-6 ring-1 ring-gray-200 shadow-sm">
-                <h3 className="font-semibold text-[#041B2D] mb-2">{f.q}</h3>
-                <p className="text-gray-600">{f.a}</p>
-              </div>
-            ))}
+            <div className="rounded-xl bg-white/90 backdrop-blur p-6 ring-1 ring-gray-200 shadow-sm">
+              <h3 className="font-semibold text-[#041B2D] mb-2">Is the quiz really free?</h3>
+              <p className="text-gray-600">
+                Yep. You’ll get a personalized report at no cost. Premium is optional.
+              </p>
+            </div>
+            <div className="rounded-xl bg-white/90 backdrop-blur p-6 ring-1 ring-gray-200 shadow-sm">
+              <h3 className="font-semibold text-[#041B2D] mb-2">What’s included in Premium?</h3>
+              <p className="text-gray-600">
+                Weekly tweaks, lifestyle notes, and dashboard access to track your progress.
+              </p>
+            </div>
+            <div className="rounded-xl bg-white/90 backdrop-blur p-6 ring-1 ring-gray-200 shadow-sm">
+              <h3 className="font-semibold text-[#041B2D] mb-2">Do you store medical records?</h3>
+              <p className="text-gray-600">
+                No medical records; we keep things focused on supplements & lifestyle.
+              </p>
+            </div>
+            <div className="rounded-xl bg-white/90 backdrop-blur p-6 ring-1 ring-gray-200 shadow-sm">
+              <h3 className="font-semibold text-[#041B2D] mb-2">Can I cancel anytime?</h3>
+              <p className="text-gray-600">
+                Yes. You can manage or cancel your subscription in the Stripe customer portal.
+              </p>
+            </div>
           </div>
         </div>
       </motion.section>
 
-      {/* 10) STICKY CTA --------------------------------------------------- */}
+      {/* ================================================================== */}
+      {/* 10) STICKY CTA                                                     */}
+      {/* ================================================================== */}
       <motion.section
         className="bg-purple-600 text-white py-16 text-center"
         initial={{ opacity: 0 }}
