@@ -1,30 +1,28 @@
 export default function QuizPage() {
   return (
-    <main className="relative min-h-screen bg-gradient-to-b from-[#EAFBF8] via-white to-[#F8F5FB]">
-      {/* Outer wrapper adds margin from header */}
-      <div className="max-w-5xl mx-auto px-6 pt-28 pb-24">
-        {/* Soft white container with subtle shadow + rounded edges */}
-        <div className="rounded-2xl shadow-lg ring-1 ring-gray-200 bg-white/90 backdrop-blur-sm p-4 sm:p-8">
-          <iframe
-            src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
-            width="100%"
-            height="950"
-            frameBorder="0"
-            title="LVE360 Quiz"
-            className="w-full rounded-xl bg-transparent"
-            style={{
-              padding: "12px",
-              borderRadius: "12px",
-              backgroundColor: "white",
-            }}
-          ></iframe>
-        </div>
+    <main className="min-h-screen bg-gradient-to-b from-[#EAFBF8] via-white to-[#F8F5FB] flex items-center justify-center px-6 py-24">
+      {/* Centered quiz container */}
+      <div className="w-full max-w-5xl bg-white/90 backdrop-blur-md rounded-2xl shadow-lg ring-1 ring-gray-200 p-4 sm:p-8">
+        <iframe
+          src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
+          title="LVE360 Quiz"
+          width="100%"
+          height="1100"
+          frameBorder="0"
+          marginHeight={0}
+          marginWidth={0}
+          className="rounded-xl"
+          style={{
+            backgroundColor: "white",
+            padding: "8px",
+          }}
+        ></iframe>
       </div>
 
-      {/* Optional soft floating gradients (mirroring homepage) */}
+      {/* Ambient blobs (for continuity with homepage) */}
       <div
         className="pointer-events-none absolute -top-24 -left-24 h-96 w-96 rounded-full
-                   bg-[#A8F0E4] opacity-30 blur-3xl animate-[float_8s_ease-in-out_infinite]"
+                   bg-[#A8F0E4] opacity-25 blur-3xl animate-[float_8s_ease-in-out_infinite]"
         aria-hidden
       />
       <div
