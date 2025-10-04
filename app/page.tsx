@@ -51,7 +51,9 @@ export default function Home() {
       document.removeEventListener("mousedown", handleClickOutside);
       document.body.style.overflow = prevOverflow;
     };
-  }, [showQuiz]);
+    }, [showQuiz]);
+  {/* ----------------------------------------------------------------------- */}
+  return (
 
   return (
     <main className="relative isolate overflow-hidden">
