@@ -1,7 +1,8 @@
 export default function QuizPage() {
   return (
-    <main className="max-w-4xl mx-auto p-6">
    
+   <main className="max-w-4xl mx-auto p-6 pt-24">
+
       <iframe
         src="https://tally.so/r/mOqRBk"
         width="100%"
