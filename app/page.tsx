@@ -18,6 +18,7 @@ const fadeUp = {
   initial: { opacity: 0, y: 18 },
   animate: { opacity: 1, y: 0 },
 };
+
 const springy = {
   whileHover: { scale: 1.04 },
   transition: { type: "spring" as const, stiffness: 220, damping: 16 },
@@ -68,7 +69,6 @@ export default function Home() {
                    bg-[#D9C2F0] opacity-30 blur-3xl animate-[float_10s_ease-in-out_infinite]"
         aria-hidden
       />
-
 
       {/* ================================================================== */}
       {/* 1) HERO                                                            */}
