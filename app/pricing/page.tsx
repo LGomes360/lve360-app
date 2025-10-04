@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Leaf, Gem, Zap, Lock } from "lucide-react";
+import { Leaf, Gem, Lock, CheckCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import CTAButton from "@/components/CTAButton";
 
@@ -13,7 +13,7 @@ export default function Pricing() {
     if (e) setEmail(e);
   }, []);
 
-  async function subscribe(plan: "premium" | "concierge") {
+  async function subscribe(plan: "premium") {
     if (!email) {
       alert("Please enter your email");
       return;
@@ -74,7 +74,7 @@ export default function Pricing() {
       </div>
 
       {/* Pricing Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-10 mb-12">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-10 mb-12">
         {/* Free Tier */}
         <motion.div
           whileHover={{ scale: 1.03 }}
@@ -111,7 +111,7 @@ export default function Pricing() {
             <Gem className="text-[#06C1A0]" size={28} />
           </div>
           <h2 className="text-2xl font-semibold mb-2">Premium</h2>
-          <p className="text-gray-600 mb-6">Vitality unlocked • $9/month</p>
+          <p className="text-gray-600 mb-6">Vitality unlocked • $15/month</p>
           <ul className="text-left text-gray-700 space-y-2 mb-6">
             <li>✓ Everything in Free</li>
             <li>✓ Personalized Stack</li>
@@ -130,43 +130,32 @@ export default function Pricing() {
             Subscribe with Stripe
           </CTAButton>
         </motion.div>
-
-        {/* Concierge Tier */}
-        <motion.div
-          whileHover={{ scale: 1.05 }}
-          transition={{ type: "spring", stiffness: 200, damping: 14 }}
-          className="relative rounded-2xl border-2 border-[#D4AF37] p-8 bg-black flex flex-col shadow-lg hover:shadow-2xl transition text-[#D4AF37]"
-        >
-          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#D4AF37] text-black px-3 py-1 rounded-full text-sm font-medium shadow">
-            VIP Access
-          </div>
-          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-[#D4AF37]/10 flex items-center justify-center">
-            <Zap className="text-[#D4AF37]" size={28} />
-          </div>
-          <h2 className="text-2xl font-semibold mb-2">Concierge</h2>
-          <p className="mb-6">$99/month • Energy redefined</p>
-          <ul className="text-left space-y-2 mb-6">
-            <li>✓ Everything in Premium</li>
-            <li>✓ One-on-One Consults</li>
-            <li>✓ Lab Review & Protocols</li>
-            <li>✓ Priority Support</li>
-            <li>✓ Exclusive Product Access</li>
-          </ul>
-          <input
-            type="email"
-            placeholder="Your email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full border border-[#D4AF37] bg-black text-[#D4AF37] rounded-lg px-4 py-2 mb-4 placeholder-gray-500"
-          />
-          <CTAButton onClick={() => subscribe("concierge")} variant="concierge" fullWidth>
-            Join Concierge
-          </CTAButton>
-        </motion.div>
       </div>
 
+      {/* Why Upgrade Section */}
+      <section className="max-w-5xl mx-auto py-12 text-center">
+        <h2 className="text-3xl font-bold text-[#041B2D] mb-10">Why Upgrade?</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          {[
+            { icon: "📖", text: "Evidence-based supplement insights" },
+            { icon: "⚡", text: "Weekly AI-driven tweaks" },
+            { icon: "💡", text: "Save time & money with clarity" },
+          ].map((item) => (
+            <motion.div
+              key={item.text}
+              whileHover={{ scale: 1.05 }}
+              transition={{ type: "spring", stiffness: 200, damping: 12 }}
+              className="rounded-xl bg-white p-6 shadow hover:shadow-md transition"
+            >
+              <div className="text-3xl mb-2">{item.icon}</div>
+              <p className="text-gray-700">{item.text}</p>
+            </motion.div>
+          ))}
+        </div>
+      </section>
+
       {/* Footer note */}
-      <div className="flex flex-col items-center space-y-3">
+      <div className="flex flex-col items-center space-y-3 mt-8">
         <p className="flex items-center gap-2 text-sm text-gray-500">
           <Lock size={14} className="text-gray-400" />
           Payments are processed securely by Stripe. Cancel anytime.
