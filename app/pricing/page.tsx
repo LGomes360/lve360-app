@@ -1,19 +1,41 @@
-//app/pricing/page.tsx
-
+// app/pricing/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Leaf, Gem, Lock, CheckCircle } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import CTAButton from "@/components/CTAButton";
 
 export default function Pricing() {
   const [email, setEmail] = useState("");
 
+  // ----- Quiz modal state/behaviors -----
+  const [showQuiz, setShowQuiz] = useState(false);
+  const modalRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     const e = new URLSearchParams(window.location.search).get("email");
     if (e) setEmail(e);
   }, []);
+
+  useEffect(() => {
+    if (!showQuiz) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setShowQuiz(false);
+    const onDown = (e: MouseEvent) => {
+      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
+        setShowQuiz(false);
+      }
+    };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [showQuiz]);
 
   async function subscribe(plan: "premium") {
     if (!email) {
@@ -66,12 +88,9 @@ export default function Pricing() {
           Choose Your Path
         </h1>
         <p className="text-xl text-gray-700 max-w-2xl mx-auto">
-          Unlock{" "}
-          <span className="text-[#06C1A0] font-semibold">Longevity</span>, ignite{" "}
-          <span className="text-purple-600 font-semibold">Vitality</span>, and
-          power up your{" "}
-          <span className="text-yellow-500 font-semibold">Energy</span>.  
-          Your journey starts here.
+          Unlock <span className="text-[#06C1A0] font-semibold">Longevity</span>, ignite{" "}
+          <span className="text-purple-600 font-semibold">Vitality</span>, and power up your{" "}
+          <span className="text-yellow-500 font-semibold">Energy</span>. Your journey starts here.
         </p>
       </div>
 
@@ -95,7 +114,8 @@ export default function Pricing() {
             <li className="text-gray-400">✗ Personalized Stack</li>
             <li className="text-gray-400">✗ Weekly Tweaks</li>
           </ul>
-          <CTAButton href="/quiz" variant="secondary" fullWidth>
+          {/* Open modal instead of navigating */}
+          <CTAButton onClick={() => setShowQuiz(true)} variant="secondary" fullWidth>
             Get Started
           </CTAButton>
         </motion.div>
@@ -166,6 +186,52 @@ export default function Pricing() {
           Back to Home
         </CTAButton>
       </div>
+
+      {/* ----- Quiz Modal (same look/feel as Home) ----- */}
+      <AnimatePresence>
+        {showQuiz && (
+          <motion.div
+            key="pricing-quiz-backdrop"
+            className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 sm:p-8"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            aria-modal
+            role="dialog"
+          >
+            <motion.div
+              ref={modalRef}
+              className="relative w-full max-w-6xl mx-auto bg-white rounded-2xl shadow-2xl ring-2 ring-purple-500/30 overflow-hidden flex flex-col"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1, transition: { type: "spring", stiffness: 200, damping: 20 } }}
+              exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
+            >
+              <button
+                onClick={() => setShowQuiz(false)}
+                className="absolute top-3 right-3 text-gray-500 hover:text-gray-800 text-xl font-bold z-10"
+                aria-label="Close quiz"
+              >
+                ✕
+              </button>
+
+              <div className="relative w-full flex justify-center px-6 sm:px-10 pb-10">
+                <div className="w-full max-w-5xl rounded-2xl overflow-hidden shadow-lg bg-white relative">
+                  <div className="absolute bottom-0 left-0 w-full h-20 sm:h-24 bg-gradient-to-t from-white via-white to-transparent z-10 pointer-events-none" />
+                  <iframe
+                    src="https://tally.so/r/mOqRBk?hideTitle=1&transparentBackground=1&dynamicHeight=1"
+                    width="100%"
+                    frameBorder="0"
+                    title="LVE360 Intake Quiz"
+                    className="w-full min-h-[92vh] bg-transparent px-4 sm:px-6 md:px-10"
+                    style={{ display: "block", margin: "0 auto", borderRadius: "1rem" }}
+                  />
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
   );
 }
