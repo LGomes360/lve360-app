@@ -144,18 +144,19 @@ export default function Home() {
                   }}
                 >
                   <div className="mx-auto w-full sm:w-[95%] md:w-[92%] lg:w-[90%]">
-                    <iframe
-                      src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
-                      width="100%"
-                      frameBorder="0"
-                      title="LVE360 Intake Quiz"
-                      className="w-full min-h-[90vh] bg-transparent rounded-xl"
-                      style={{
-                        display: "block",
-                        padding: "0 12px", // creates interior spacing inside iframe view
-                        margin: "0 auto",
-                      }}
-                    />
+                  <iframe
+                    src="https://tally.so/r/mOqRBk?hideTitle=1&transparentBackground=1&dynamicHeight=1"
+                    width="100%"
+                    frameBorder="0"
+                    title="LVE360 Intake Quiz"
+                    className="w-full min-h-[90vh] bg-transparent rounded-xl"
+                    style={{
+                      padding: "0 24px", // adds interior side breathing room
+                      margin: "0 auto",
+                      display: "block",
+                      maxWidth: "960px", // matches your pricing card width
+                    }}
+                  />
                   </div>
                 </div>
               </motion.div>
