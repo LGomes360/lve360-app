@@ -135,18 +135,17 @@ export default function Home() {
                 >
                   ✕
                 </button>
-        
-              {/* Scrollable content wrapper (full height, no clipping) */}
-              <div className="flex-1 overflow-y-auto bg-white rounded-b-2xl p-6 sm:p-10" style={{ maxHeight: "calc(100vh - 4rem)" }}>
+              {/* Tally embed (with internal padding fix) */}
+              <div className="px-4 sm:px-8 py-6 overflow-y-auto" style={{ maxHeight: "calc(100vh - 5rem)" }}>
                 <iframe
                   src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
                   width="100%"
                   frameBorder="0"
                   title="LVE360 Intake Quiz"
-                  className="w-full h-[calc(100vh-6rem)] min-h-[800px] bg-transparent rounded-xl"
+                  className="w-full min-h-[90vh] bg-transparent rounded-xl"
+                  style={{ padding: "0 8px" }}
                 />
               </div>
-
               </motion.div>
             </motion.div>
           )}
