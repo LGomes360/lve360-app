@@ -188,21 +188,27 @@ export async function POST(req: NextRequest) {
           .order("submitted_at", { ascending: false })
           .limit(1)
           .single();
-        const canonicalUserId = subRow?.user_id;
-        const { data: newUser } = await supa
+        const canonicalUserId = subRow?.user_id ?? null;
+        const insertPayload: any = {
+          email: normalizedEmail,
+          tier: "free",
+          updated_at: new Date().toISOString(),
+        };
+        
+        if (canonicalUserId) insertPayload.id = canonicalUserId;
+        
+        const { data: newUser, error: newUserError } = await supa
           .from("users")
-          .insert({
-            id: canonicalUserId,
-            email: normalizedEmail,
-            tier: "free",
-            updated_at: new Date().toISOString(),
-          })
+          .insert(insertPayload)
           .select("id")
           .single();
-        if (newUser?.id) userId = newUser.id;
+        
+        if (newUserError) {
+          console.error("User creation failed:", newUserError.message);
+        } else if (newUser?.id) {
+          userId = newUser.id;
+        }
       }
-    }
-
     // Build submission row
     const { user_email, ...restData } = data;
     const submissionRow = {
