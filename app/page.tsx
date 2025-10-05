@@ -101,57 +101,56 @@ export default function Home() {
         </div>
       </motion.section>
 
-      {/* ================================================================== */}
-      {/* MODAL OVERLAY (shared for all buttons)                             */}
-      {/* ================================================================== */}
-      <AnimatePresence>
-        {showQuiz && (
-          <motion.div
-            key="quiz-backdrop"
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.25 }}
-            aria-modal
-            role="dialog"
-          >
+        {/* ================================================================== */}
+        {/* MODAL OVERLAY (shared for all buttons)                             */}
+        {/* ================================================================== */}
+        <AnimatePresence>
+          {showQuiz && (
             <motion.div
-              ref={modalRef}
-              className="relative w-full bg-transparent px-6"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{
-                opacity: 1,
-                scale: 1,
-                transition: { type: "spring", stiffness: 180, damping: 22 },
-              }}
-              exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
+              key="quiz-modal"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 sm:p-8"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.25 }}
+              aria-modal
+              role="dialog"
             >
-            <div className="max-w-5xl mx-auto bg-white rounded-2xl overflow-hidden shadow-2xl ring-2 ring-purple-500/30 relative px-6 sm:px-10 py-6">
-              {/* Close button */}
-              <button
-                onClick={() => setShowQuiz(false)}
-                className="absolute top-3 right-3 text-gray-500 hover:text-gray-800 text-xl font-bold z-10"
-                aria-label="Close quiz"
+              <motion.div
+                ref={modalRef}
+                className="relative w-full max-w-6xl mx-auto bg-white rounded-2xl shadow-2xl ring-2 ring-purple-500/30 overflow-hidden flex flex-col"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{
+                  opacity: 1,
+                  scale: 1,
+                  transition: { type: 'spring', stiffness: 200, damping: 20 },
+                }}
+                exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
               >
-                ✕
-              </button>
-            
-              {/* Tally embed */}
-              <iframe
-                src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
-                width="100%"
-                height="95%"
-                frameBorder="0"
-                title="LVE360 Intake Quiz"
-                className="w-full min-h-[90vh] bg-transparent rounded-xl"
-                style={{ padding: "12px 0" }}
-              />
-            </div>
+                {/* Close button */}
+                <button
+                  onClick={() => setShowQuiz(false)}
+                  className="absolute top-3 right-3 text-gray-500 hover:text-gray-800 text-xl font-bold z-10"
+                  aria-label="Close quiz"
+                >
+                  ✕
+                </button>
+        
+                {/* Scrollable content wrapper (matches Pricing layout) */}
+                <div className="px-6 sm:px-10 py-10 overflow-y-auto max-h-[90vh] bg-white rounded-b-2xl">
+                  <iframe
+                    src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
+                    width="100%"
+                    height="100%"
+                    frameBorder="0"
+                    title="LVE360 Intake Quiz"
+                    className="w-full min-h-[85vh] bg-transparent rounded-xl"
+                  />
+                </div>
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>
 
 
       {/* ================================================================== */}
