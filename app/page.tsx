@@ -136,21 +136,27 @@ export default function Home() {
                 ✕
               </button>
             
-              {/* Quiz Embed — visually mask Tally footer (no ToS violation) */}
-              <div className="mx-auto w-full sm:w-[95%] md:w-[92%] lg:w-[90%]">
-                <div className="relative w-full overflow-hidden rounded-xl">
-                  {/* Subtle fade at bottom to hide the Tally badge */}
-                  <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-white via-white/95 to-transparent z-10 pointer-events-none" />
-                  
+              {/* Quiz Embed — styled with balanced margins + footer mask */}
+              <div className="relative w-full flex justify-center px-6 sm:px-10 pb-10">
+                <div className="w-full max-w-5xl rounded-2xl overflow-hidden shadow-lg bg-white relative">
+                  {/* Subtle gradient overlay at the bottom (covers Tally badge visually) */}
+                  <div className="absolute bottom-0 left-0 w-full h-12 bg-gradient-to-t from-white via-white/90 to-transparent z-10 pointer-events-none" />
+              
                   <iframe
-                    src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
+                    src="https://tally.so/r/mOqRBk?hideTitle=1&transparentBackground=1&dynamicHeight=1"
                     width="100%"
                     frameBorder="0"
                     title="LVE360 Intake Quiz"
-                    className="w-full min-h-[90vh] bg-transparent"
+                    className="w-full min-h-[92vh] bg-transparent px-4 sm:px-6 md:px-10"
+                    style={{
+                      display: "block",
+                      margin: "0 auto",
+                      borderRadius: "1rem",
+                    }}
                   />
                 </div>
               </div>
+
             </motion.div>
             </motion.div>
           )}
