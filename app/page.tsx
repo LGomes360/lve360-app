@@ -339,38 +339,41 @@ export default function Home() {
         </div>
       </motion.section>
 
-      {/* ================================================================== */}
-      {/* 6) TRUSTED & SECURE (badges)                                      */}
-      {/* ================================================================== */}
-      <motion.section
-        className="max-w-6xl mx-auto px-6 py-16 text-center"
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.55 }}
-      >
-        <h2 className="text-3xl font-bold text-[#041B2D] mb-6">Trusted & Secure</h2>
-        <p className="max-w-2xl mx-auto text-gray-600 mb-8">
-          We use well-supported infrastructure for auth, payments, and content delivery.
-        </p>
-        <div className="flex flex-wrap justify-center gap-8 opacity-95">
-          <div className="px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold text-[#635BFF]">
-            Stripe
+        {/* ================================================================== */}
+        {/* 6) TRUSTED & SECURE (badges with icons)                            */}
+        {/* ================================================================== */}
+        <motion.section
+          className="max-w-6xl mx-auto px-6 py-16 text-center"
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.55 }}
+        >
+          <h2 className="text-3xl font-bold text-[#041B2D] mb-6">Trusted & Secure</h2>
+          <p className="max-w-2xl mx-auto text-gray-600 mb-8">
+            We use well-supported infrastructure for auth, payments, data, and secure quiz delivery.
+          </p>
+        
+          <div className="flex flex-wrap justify-center gap-6 sm:gap-8 opacity-95">
+            {[
+              { name: "Stripe", color: "text-[#635BFF]", icon: "/icons/stripe.svg" },
+              { name: "Supabase", color: "text-[#3ECF8E]", icon: "/icons/supabase.svg" },
+              { name: "DSHEA", color: "text-gray-700", icon: "/icons/dshea.svg" },
+              { name: "Amazon", color: "text-[#FF9900]", icon: "/icons/amazon.svg" },
+              { name: "GitHub", color: "text-gray-800", icon: "/icons/github.svg" },
+              { name: "Tally.so", color: "text-[#14B8A6]", icon: "/icons/tally.svg" },
+            ].map((b) => (
+              <div
+                key={b.name}
+                className={`flex items-center gap-2 px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold ${b.color}`}
+              >
+                <img src={b.icon} alt={b.name} className="h-5 w-auto" />
+                <span>{b.name}</span>
+              </div>
+            ))}
           </div>
-          <div className="px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold text-[#3ECF8E]">
-            Supabase
-          </div>
-          <div className="px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold text-gray-700">
-            DSHEA
-          </div>
-          <div className="px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold text-[#FF9900]">
-            Amazon
-          </div>
-          <div className="px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold">
-            GitHub
-          </div>
-        </div>
-      </motion.section>
+        </motion.section>
+
 
       {/* ================================================================== */}
       {/* 7) DASHBOARD PREVIEW (placeholders for now)                        */}
