@@ -78,12 +78,12 @@ export async function POST(req: NextRequest) {
           console.log(`📝 Upserting user ${authId} with tier=${chosenTier}`);
           await supabaseAdmin.from("users").upsert(
             {
-              id: authId,
               email,
               tier: chosenTier,
               stripe_customer_id: stripeCustomerId,
+              updated_at: new Date().toISOString(),
             },
-            { onConflict: "id" }
+            { onConflict: "email" }
           );
         }
       }
@@ -136,11 +136,17 @@ export async function POST(req: NextRequest) {
           console.log(`📝 Updating user ${email} with newTier=${newTier ?? "unchanged"}, stripe_customer_id=${sub.customer}`);
           await supabaseAdmin
             .from("users")
-            .update({
-              ...(newTier ? { tier: newTier } : {}),
-              stripe_customer_id: sub.customer as string,
-            })
-            .eq("email", email);
+            .upsert(
+              {
+                email,
+                stripe_customer_id: sub.customer as string,
+                stripe_subscription_status: sub.status,
+                tier: newTier ?? "premium",
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: "email" }
+            );
+
         }
       }
     }
