@@ -127,37 +127,31 @@ export default function Home() {
                 }}
                 exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
               >
-                {/* Close button */}
-                <button
-                  onClick={() => setShowQuiz(false)}
-                  className="absolute top-3 right-3 text-gray-500 hover:text-gray-800 text-xl font-bold z-10"
-                  aria-label="Close quiz"
-                >
-                  ✕
-                </button>
-                {/* Tally embed with corrected horizontal padding and scroll container */}
-                <div
-                  className="flex-1 overflow-y-auto bg-white rounded-b-2xl"
-                  style={{
-                    padding: "1.25rem 1rem", // adds 20px top/bottom, 16px sides
-                    maxHeight: "calc(100vh - 5rem)",
-                  }}
-                >
-                  <div className="mx-auto w-full sm:w-[95%] md:w-[92%] lg:w-[90%]">
-                  {/* Quiz Embed — visually mask Tally footer (no ToS violation) */}
-                  <div className="relative w-full overflow-hidden rounded-xl">
-                    {/* Subtle fade at bottom to hide the Tally badge */}
-                    <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-white via-white/95 to-transparent z-10 pointer-events-none" />
-                    
-                    <iframe
-                      src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
-                      width="100%"
-                      frameBorder="0"
-                      title="LVE360 Intake Quiz"
-                      className="w-full min-h-[90vh] bg-transparent"
-                    />
-                  </div>
-              </motion.div>
+              {/* Close button */}
+              <button
+                onClick={() => setShowQuiz(false)}
+                className="absolute top-3 right-3 text-gray-500 hover:text-gray-800 text-xl font-bold z-10"
+                aria-label="Close quiz"
+              >
+                ✕
+              </button>
+            
+              {/* Quiz Embed — visually mask Tally footer (no ToS violation) */}
+              <div className="mx-auto w-full sm:w-[95%] md:w-[92%] lg:w-[90%]">
+                <div className="relative w-full overflow-hidden rounded-xl">
+                  {/* Subtle fade at bottom to hide the Tally badge */}
+                  <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-white via-white/95 to-transparent z-10 pointer-events-none" />
+                  
+                  <iframe
+                    src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
+                    width="100%"
+                    frameBorder="0"
+                    title="LVE360 Intake Quiz"
+                    className="w-full min-h-[90vh] bg-transparent"
+                  />
+                </div>
+              </div>
+            </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
