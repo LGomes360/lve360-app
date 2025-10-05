@@ -157,7 +157,6 @@ export default function Home() {
                       className="w-full min-h-[90vh] bg-transparent"
                     />
                   </div>
-                </div>
               </motion.div>
             </motion.div>
           )}
