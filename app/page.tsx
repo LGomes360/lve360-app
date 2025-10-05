@@ -144,14 +144,18 @@ export default function Home() {
                   }}
                 >
                   <div className="mx-auto w-full sm:w-[95%] md:w-[92%] lg:w-[90%]">
-                  <iframe
-                    src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
-                    width="100%"
-                    frameBorder="0"
-                    title="LVE360 Intake Quiz"
-                    className="w-full min-h-[90vh] bg-transparent rounded-xl"
-                    style={{ padding: "0 8px" }}
-                  />
+                  {/* Quiz Embed — visually mask Tally footer (no ToS violation) */}
+                  <div className="relative w-full overflow-hidden rounded-xl">
+                    {/* Subtle fade at bottom to hide the Tally badge */}
+                    <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-white via-white/95 to-transparent z-10 pointer-events-none" />
+                    
+                    <iframe
+                      src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
+                      width="100%"
+                      frameBorder="0"
+                      title="LVE360 Intake Quiz"
+                      className="w-full min-h-[90vh] bg-transparent"
+                    />
                   </div>
                 </div>
               </motion.div>
