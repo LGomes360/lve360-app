@@ -353,25 +353,29 @@ export default function Home() {
           <p className="max-w-2xl mx-auto text-gray-600 mb-8">
             We use well-supported infrastructure for auth, payments, data, and secure quiz delivery.
           </p>
-        
-          <div className="flex flex-wrap justify-center gap-6 sm:gap-8 opacity-95">
+                  
+          <div className="flex flex-wrap justify-center gap-8 opacity-95">
             {[
-              { name: "Stripe", color: "text-[#635BFF]", icon: "/icons/stripe.svg" },
-              { name: "Supabase", color: "text-[#3ECF8E]", icon: "/icons/supabase.svg" },
-              { name: "DSHEA", color: "text-gray-700", icon: "/icons/dshea.svg" },
-              { name: "Amazon", color: "text-[#FF9900]", icon: "/icons/amazon.svg" },
-              { name: "GitHub", color: "text-gray-800", icon: "/icons/github.svg" },
-              { name: "Tally.so", color: "text-[#14B8A6]", icon: "/icons/tally.svg" },
-            ].map((b) => (
-              <div
-                key={b.name}
-                className={`flex items-center gap-2 px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold ${b.color}`}
+              { name: "Stripe", color: "text-[#635BFF]", icon: "/icons/stripe.svg", url: "https://stripe.com" },
+              { name: "Supabase", color: "text-[#3ECF8E]", icon: "/icons/supabase.svg", url: "https://supabase.com" },
+              { name: "DSHEA", color: "text-gray-700", icon: "/icons/dshea.svg", url: "https://ods.od.nih.gov/About/DSHEA_Wording.aspx" },
+              { name: "Amazon", color: "text-[#FF9900]", icon: "/icons/amazon.svg", url: "https://www.amazon.com" },
+              { name: "GitHub", color: "text-gray-700", icon: "/icons/github.svg", url: "https://github.com/LGomes360/lve360-app" },
+              { name: "Tally.so", color: "text-[#06C1A0]", icon: "/icons/tally.svg", url: "https://tally.so" },
+            ].map((p) => (
+              <a
+                key={p.name}
+                href={p.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold hover:shadow-md hover:-translate-y-0.5 transition-all"
               >
-                <img src={b.icon} alt={b.name} className="h-5 w-auto" />
-                <span>{b.name}</span>
-              </div>
+                <img src={p.icon} alt={p.name} className="h-5 w-5" />
+                <span className={p.color}>{p.name}</span>
+              </a>
             ))}
           </div>
+
         </motion.section>
 
 
