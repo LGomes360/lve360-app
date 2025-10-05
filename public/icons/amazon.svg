@@ -1,4 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="12" fill="#FF9900"/>
-  <path d="M20 36c8 6 16 6 24 0M28 28c0-6 8-6 8 0v8" stroke="white" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- "a" letter -->
+  <text x="32" y="38" text-anchor="middle" font-family="Arial Black, sans-serif" font-size="28" fill="white">a</text>
+  <!-- Centered smile curve -->
+  <path d="M16 42c8 6 24 6 32 0" stroke="white" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- Arrow head (angled upward at the right end) -->
+  <path d="M45 41l5 2-4 3" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/>
 </svg>
