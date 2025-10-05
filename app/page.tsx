@@ -136,17 +136,17 @@ export default function Home() {
                   ✕
                 </button>
         
-                {/* Scrollable content wrapper (matches Pricing layout) */}
-                <div className="px-6 sm:px-10 py-10 overflow-y-auto max-h-[90vh] bg-white rounded-b-2xl">
-                  <iframe
-                    src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
-                    width="100%"
-                    height="100%"
-                    frameBorder="0"
-                    title="LVE360 Intake Quiz"
-                    className="w-full min-h-[85vh] bg-transparent rounded-xl"
-                  />
-                </div>
+              {/* Scrollable content wrapper (full height, no clipping) */}
+              <div className="flex-1 overflow-y-auto bg-white rounded-b-2xl p-6 sm:p-10" style={{ maxHeight: "calc(100vh - 4rem)" }}>
+                <iframe
+                  src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
+                  width="100%"
+                  frameBorder="0"
+                  title="LVE360 Intake Quiz"
+                  className="w-full h-[calc(100vh-6rem)] min-h-[800px] bg-transparent rounded-xl"
+                />
+              </div>
+
               </motion.div>
             </motion.div>
           )}
