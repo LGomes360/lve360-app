@@ -57,17 +57,21 @@ export default function QuizPage() {
         className="relative z-10 w-full max-w-5xl rounded-3xl overflow-hidden
                    shadow-xl ring-1 ring-gray-200 bg-white/95 backdrop-blur"
       >
+      {/* Quiz Embed — with subtle mask to hide bottom badge */}
+      <div className="relative w-full overflow-hidden rounded-3xl">
+        <div className="absolute bottom-0 left-0 w-full h-10 bg-gradient-to-t from-white/95 via-white/60 to-transparent z-10 pointer-events-none" />
         <iframe
           id="tally-embed"
           src="https://tally.so/embed/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1"
           title="LVE360 Quiz"
           width="100%"
-          height="1000"
+          height="1200"
           frameBorder="0"
           marginHeight={0}
           marginWidth={0}
-          className="w-full min-h-[800px] sm:min-h-[1000px]"
+          className="w-full min-h-[900px] sm:min-h-[1200px]"
         />
+      </div>
       </motion.div>
     </main>
   );
