@@ -127,26 +127,27 @@ export default function Home() {
               }}
               exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
             >
-              <div className="max-w-5xl mx-auto bg-white rounded-2xl overflow-hidden shadow-2xl ring-2 ring-purple-500/30 relative">
-                {/* Close button */}
-                <button
-                  onClick={() => setShowQuiz(false)}
-                  className="absolute top-3 right-3 text-gray-500 hover:text-gray-800 text-xl font-bold z-10"
-                  aria-label="Close quiz"
-                >
-                  ✕
-                </button>
-
-                {/* Tally embed */}
-                <iframe
-                  src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
-                  width="100%"
-                  height="100%"
-                  frameBorder="0"
-                  title="LVE360 Intake Quiz"
-                  className="w-full h-[90vh] sm:h-[85vh] bg-transparent block"
-                />
-              </div>
+            <div className="max-w-5xl mx-auto bg-white rounded-2xl overflow-hidden shadow-2xl ring-2 ring-purple-500/30 relative px-6 sm:px-10 py-6">
+              {/* Close button */}
+              <button
+                onClick={() => setShowQuiz(false)}
+                className="absolute top-3 right-3 text-gray-500 hover:text-gray-800 text-xl font-bold z-10"
+                aria-label="Close quiz"
+              >
+                ✕
+              </button>
+            
+              {/* Tally embed */}
+              <iframe
+                src="https://tally.so/r/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
+                width="100%"
+                height="95%"
+                frameBorder="0"
+                title="LVE360 Intake Quiz"
+                className="w-full min-h-[90vh] bg-transparent rounded-xl"
+                style={{ padding: "12px 0" }}
+              />
+            </div>
             </motion.div>
           </motion.div>
         )}
