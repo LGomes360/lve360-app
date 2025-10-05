@@ -209,6 +209,7 @@ export async function POST(req: NextRequest) {
           userId = newUser.id;
         }
       }
+    }
     // Build submission row
     const { user_email, ...restData } = data;
     const submissionRow = {
