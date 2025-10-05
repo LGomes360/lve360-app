@@ -139,8 +139,12 @@ export default function Home() {
               {/* Quiz Embed — styled with balanced margins + footer mask */}
               <div className="relative w-full flex justify-center px-6 sm:px-10 pb-10">
                 <div className="w-full max-w-5xl rounded-2xl overflow-hidden shadow-lg bg-white relative">
-                  {/* Subtle gradient overlay at the bottom (covers Tally badge visually) */}
-                  <div className="absolute bottom-0 left-0 w-full h-12 bg-gradient-to-t from-white via-white/90 to-transparent z-10 pointer-events-none" />
+                  {/* Stronger fade overlay (fully covers Tally badge) */}
+                  <div
+                    className="absolute bottom-0 left-0 w-full h-20 sm:h-24 
+                               bg-gradient-to-t from-white via-white to-transparent
+                               z-10 pointer-events-none"
+                  />
               
                   <iframe
                     src="https://tally.so/r/mOqRBk?hideTitle=1&transparentBackground=1&dynamicHeight=1"
@@ -156,7 +160,6 @@ export default function Home() {
                   />
                 </div>
               </div>
-
             </motion.div>
             </motion.div>
           )}
