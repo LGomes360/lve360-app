@@ -392,7 +392,7 @@ function ResultsContent() {
               : "⏳ Preparing…"}
           </CTAButton>
 
-          <CTAButton href="/pricing" variant="premium">
+          <CTAButton href="/upgrade" variant="premium">
             👑 Upgrade to Premium
           </CTAButton>
         </div>
