@@ -403,7 +403,6 @@ function ResultsContent() {
               : "💪 Crunching the numbers… this usually takes about 2 minutes."}
           </p>
         )}
-        /* ✅ Add the countdown here — starts only when `generating` is true */
         <TwoMinuteCountdown running={generating} />
         </SectionCard>
 
