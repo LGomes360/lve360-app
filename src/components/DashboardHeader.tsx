@@ -18,35 +18,34 @@ export default function DashboardHeader() {
   };
 
   return (
-    <header className="bg-white/90 backdrop-blur-md shadow-sm border-b border-purple-100 sticky top-0 z-50">
+    <header
+      className="
+        sticky top-0 z-50
+        bg-gradient-to-r from-[#EAFBF8]/90 via-white/80 to-[#F8F5FB]/90
+        backdrop-blur-md border-b border-white/50 shadow-[0_4px_20px_rgba(124,58,237,0.08)]
+      "
+    >
       <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-3">
-        {/* Logo / Brand */}
-        <Link href="/dashboard" className="flex items-center gap-2">
+        {/* Logo only — no brand text */}
+        <Link href="/dashboard" className="flex items-center" aria-label="LVE360 Dashboard">
           <img
-            src="/icons/lve360-logo.png"
+            src="/icons/lve360-logo.png"  /* keep .png (matches what you deployed) */
             alt="LVE360"
-            className="h-8 w-auto"
+            className="h-8 w-auto select-none"
+            draggable={false}
           />
-
         </Link>
 
         {/* Desktop Nav */}
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-[#041B2D]">
-          <Link href="/dashboard" className="hover:text-purple-600 transition">
-            Dashboard
-          </Link>
-          <Link href="/quiz" className="hover:text-purple-600 transition">
-            My Quiz
-          </Link>
-          <Link href="/export" className="hover:text-purple-600 transition">
-            Exports
-          </Link>
-          <Link href="/account" className="hover:text-purple-600 transition">
-            Account
-          </Link>
+          <Link href="/dashboard" className="hover:text-[#06C1A0] transition-colors">Dashboard</Link>
+          <Link href="/quiz" className="hover:text-[#06C1A0] transition-colors">My Quiz</Link>
+          <Link href="/export" className="hover:text-[#06C1A0] transition-colors">Exports</Link>
+          <Link href="/account" className="hover:text-[#06C1A0] transition-colors">Account</Link>
           <button
             onClick={handleSignOut}
-            className="px-3 py-1.5 bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] text-white rounded-lg hover:opacity-90 transition shadow-md"
+            className="px-3 py-1.5 rounded-lg text-white shadow-md
+                       bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] hover:opacity-90 transition"
           >
             Sign Out
           </button>
@@ -54,8 +53,8 @@ export default function DashboardHeader() {
 
         {/* Mobile Toggle */}
         <button
-          className="md:hidden text-[#041B2D] hover:text-purple-600 transition"
-          onClick={() => setMenuOpen(!menuOpen)}
+          className="md:hidden text-[#041B2D] hover:text-[#7C3AED] transition"
+          onClick={() => setMenuOpen((s) => !s)}
           aria-label="Toggle menu"
         >
           {menuOpen ? <X size={24} /> : <Menu size={24} />}
@@ -74,40 +73,14 @@ export default function DashboardHeader() {
             className="md:hidden bg-white/95 backdrop-blur-md border-t border-purple-100 shadow-lg"
           >
             <nav className="flex flex-col text-sm font-medium text-[#041B2D] p-4 space-y-3">
-              <Link
-                href="/dashboard"
-                className="hover:text-purple-600 transition"
-                onClick={() => setMenuOpen(false)}
-              >
-                Dashboard
-              </Link>
-              <Link
-                href="/quiz"
-                className="hover:text-purple-600 transition"
-                onClick={() => setMenuOpen(false)}
-              >
-                My Quiz
-              </Link>
-              <Link
-                href="/export"
-                className="hover:text-purple-600 transition"
-                onClick={() => setMenuOpen(false)}
-              >
-                Exports
-              </Link>
-              <Link
-                href="/account"
-                className="hover:text-purple-600 transition"
-                onClick={() => setMenuOpen(false)}
-              >
-                Account
-              </Link>
+              <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="hover:text-[#06C1A0] transition">Dashboard</Link>
+              <Link href="/quiz" onClick={() => setMenuOpen(false)} className="hover:text-[#06C1A0] transition">My Quiz</Link>
+              <Link href="/export" onClick={() => setMenuOpen(false)} className="hover:text-[#06C1A0] transition">Exports</Link>
+              <Link href="/account" onClick={() => setMenuOpen(false)} className="hover:text-[#06C1A0] transition">Account</Link>
               <button
-                onClick={() => {
-                  setMenuOpen(false);
-                  handleSignOut();
-                }}
-                className="px-3 py-2 bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] text-white rounded-lg shadow-md hover:opacity-90 transition"
+                onClick={() => { setMenuOpen(false); handleSignOut(); }}
+                className="px-3 py-2 rounded-lg text-white shadow-md
+                           bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] hover:opacity-90 transition"
               >
                 Sign Out
               </button>
