@@ -1,32 +1,44 @@
+// app/api/goals/route.ts
 import { NextResponse } from "next/server";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
+import { supabaseAdmin } from "@/lib/supabase";
 
-export async function GET() {
-  const supabase = createRouteHandlerClient({ cookies });
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+type Body = {
+  userId: string;
+  goals?: string[];       // e.g. ["Weight Loss","Longevity"]
+  custom_goal?: string;   // free text
+};
 
-  const { data, error } = await supabase
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const userId = url.searchParams.get("userId");
+  if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
+
+  const { data, error } = await supabaseAdmin
     .from("goals")
-    .select("*")
-    .eq("user_id", user.id)
+    .select("goals, custom_goal")
+    .eq("user_id", userId)
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json(data ?? {});
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ goals: data?.goals ?? [], custom_goal: data?.custom_goal ?? null });
 }
 
 export async function POST(req: Request) {
-  const supabase = createRouteHandlerClient({ cookies });
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const body = (await req.json()) as Body;
+  if (!body?.userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
 
-  const payload = await req.json(); // {target_weight?, target_sleep?, target_energy?}
-  const { error } = await supabase
+  const payload = {
+    user_id: body.userId,
+    goals: body.goals ?? [],
+    custom_goal: body.custom_goal ?? null,
+  };
+
+  const { data, error } = await supabaseAdmin
     .from("goals")
-    .upsert({ user_id: user.id, ...payload }, { onConflict: "user_id" });
+    .upsert(payload, { onConflict: "user_id" })
+    .select()
+    .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ ok: true });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true, goals: data });
 }
