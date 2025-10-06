@@ -30,7 +30,7 @@ export default async function DashboardPage() {
   const { data: profile, error } = await supabase
     .from("users")
     .select("tier, stripe_subscription_status")
-    .eq("email", user.email?.toLowerCase())
+    .ilike("email", user.email ?? "")
     .maybeSingle();
 
   if (error) {
