@@ -7,7 +7,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CTAButton from "@/components/CTAButton";
 
-
 /* ───────── helpers ───────── */
 function sanitizeMarkdown(md: string): string {
   return md
