@@ -10,7 +10,7 @@ export default async function DashboardPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
+  console.log("Auth user email:", user?.email);
   // --- Case 1: Not logged in ---
   if (!user) {
     return (
