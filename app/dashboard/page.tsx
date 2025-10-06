@@ -27,11 +27,11 @@ export default async function DashboardPage() {
   }
 
   // --- Case 2: Logged in, check user tier ---
-  const { data: profile, error } = await supabase
-    .from("users")
-    .select("tier, stripe_subscription_status")
-    .ilike("email", user.email ?? "")
-    .maybeSingle();
+   const { data: profile, error } = await supabase
+  .from("public.users") // 👈 force public schema
+  .select("tier, stripe_subscription_status")
+  .ilike("email", user.email ?? "")
+  .maybeSingle();
 
   if (error) {
     console.error("Error fetching user tier:", error.message);
