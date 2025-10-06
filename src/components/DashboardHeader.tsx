@@ -18,13 +18,14 @@ export default function DashboardHeader() {
   };
 
   return (
-    <header
-      className="
-        sticky top-0 z-50
-        bg-gradient-to-r from-[#EAFBF8]/90 via-white/80 to-[#F8F5FB]/90
-        backdrop-blur-md border-b border-white/50 shadow-[0_4px_20px_rgba(124,58,237,0.08)]
-      "
-    >
+<header
+  className="
+    sticky top-0 z-50
+    bg-white/40 backdrop-blur-xl
+    border-b border-white/30
+    shadow-[0_2px_12px_rgba(0,0,0,0.05)]
+  "
+>
       <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-3">
         {/* Logo only — no brand text */}
         <Link href="/dashboard" className="flex items-center" aria-label="LVE360 Dashboard">
