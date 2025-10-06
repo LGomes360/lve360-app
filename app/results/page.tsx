@@ -366,7 +366,7 @@ function ResultsContent() {
   return (
     <div className="max-w-4xl mx-auto py-10 px-6 font-sans">
       {/* header */}
-      <div className="text-center mb-10">
+      <div className="text-center mb-10 pt-28">
         <h1 className="text-4xl font-extrabold font-display text-[#041B2D]">
           Your LVE360 Blueprint
         </h1>
