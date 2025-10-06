@@ -31,17 +31,21 @@ export default function LoginPage() {
     }
   };
 
-  // --- Google OAuth login handler ---
+  // --- Google OAuth login handler (with redirect) ---
   const handleGoogleLogin = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
       },
     });
+
     if (error) {
       console.error("Google sign-in error:", error.message);
       setMessage("Error with Google sign-in: " + error.message);
+    } else {
+      // Immediately show a message or redirect
+      setMessage("Redirecting to dashboard...");
     }
   };
 
@@ -52,7 +56,7 @@ export default function LoginPage() {
           Log in to LVE360
         </h1>
         <p className="text-gray-600 mb-6">
-          Enter your email and we’ll send you a secure link to log in.
+          Choose your preferred way to sign in below.
         </p>
 
         {/* Email / Magic Link form */}
