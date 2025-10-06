@@ -2,116 +2,122 @@
 
 import { useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 
 export default function LoginPage() {
   const supabase = createClientComponentClient();
-  const router = useRouter();
-
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [googleStarted, setGoogleStarted] = useState(false);
 
-  // --- Magic Link login handler ---
+  // --- Email Magic Link ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setMessage("");
+
     const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/dashboard`;
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        emailRedirectTo: redirectTo,
-      },
+      options: { emailRedirectTo: redirectTo },
     });
 
-    if (error) {
-      setMessage("❌ " + error.message);
-    } else {
-      setMessage("✅ Check your email for a magic link to log in.");
-    }
-    setLoading(false);
+    if (error) setMessage("❌ " + error.message);
+    else setMessage("✅ Check your email for a secure login link!");
   };
 
-  // --- Google OAuth login handler ---
+  // --- Google Sign-In ---
   const handleGoogleLogin = async () => {
-    setGoogleStarted(true);
-    setMessage("Redirecting to Google...");
+    const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/dashboard`;
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
-      },
+      options: { redirectTo },
     });
-    if (error) {
-      console.error("Google sign-in error:", error.message);
-      setMessage("Error with Google sign-in: " + error.message);
-      setGoogleStarted(false);
-    }
+
+    if (error) setMessage("❌ " + error.message);
   };
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center bg-gradient-to-br from-[#F8F5FB] via-white to-[#EAFBF8] overflow-hidden">
-      {/* Floating accent blobs */}
-      <div className="absolute top-0 left-0 w-80 h-80 bg-[#D9C2F0] opacity-30 blur-3xl rounded-full animate-[float_10s_ease-in-out_infinite]" />
-      <div className="absolute bottom-0 right-0 w-96 h-96 bg-[#A8F0E4] opacity-40 blur-3xl rounded-full animate-[float_12s_ease-in-out_infinite]" />
+    <motion.main
+      className="relative isolate overflow-hidden min-h-screen flex items-center justify-center bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB] px-6"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.6 }}
+    >
+      {/* Floating blobs */}
+      <div
+        className="pointer-events-none absolute -top-24 -left-24 h-96 w-96 rounded-full
+                   bg-[#A8F0E4] opacity-40 blur-3xl animate-[float_8s_ease-in-out_infinite]"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute top-[20rem] -right-24 h-[28rem] w-[28rem] rounded-full
+                   bg-[#D9C2F0] opacity-30 blur-3xl animate-[float_10s_ease-in-out_infinite]"
+        aria-hidden
+      />
 
-      <div className="relative z-10 w-full max-w-md bg-white/80 backdrop-blur-xl rounded-2xl shadow-lg p-8 border border-gray-100">
-        <h1 className="text-4xl font-extrabold text-center bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent mb-2">
-          LVE360
+      {/* Card */}
+      <motion.div
+        className="relative z-10 max-w-md w-full bg-white/95 backdrop-blur rounded-2xl shadow-2xl ring-1 ring-purple-100 p-8 text-center"
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.6 }}
+      >
+        <h1 className="text-4xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent mb-3">
+          Log in to LVE360
         </h1>
-        <p className="text-center text-gray-600 mb-6">
-          Longevity • Vitality • Energy
+        <p className="text-gray-600 mb-6">
+          Your personalized path to Longevity, Vitality, and Energy.
         </p>
 
-        {!googleStarted && (
-          <>
-            <form onSubmit={handleLogin} className="space-y-4">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-                className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#06C1A0] focus:outline-none"
-              />
-              <button
-                type="submit"
-                disabled={loading}
-                className={`w-full py-2 rounded-lg text-white font-semibold transition ${
-                  loading
-                    ? "bg-gray-400 cursor-not-allowed"
-                    : "bg-[#06C1A0] hover:bg-[#04997E]"
-                }`}
-              >
-                {loading ? "Sending Magic Link..." : "Send Magic Link"}
-              </button>
-            </form>
+        {/* Google button */}
+        <button
+          onClick={handleGoogleLogin}
+          className="w-full bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] text-white font-semibold py-2.5 rounded-lg shadow-md hover:shadow-lg transition mb-5 flex items-center justify-center gap-2"
+        >
+          <img
+            src="/icons/google.svg"
+            alt="Google"
+            className="h-5 w-5"
+          />
+          Continue with Google
+        </button>
 
-            <div className="flex items-center my-6">
-              <div className="flex-grow h-px bg-gray-300"></div>
-              <span className="px-2 text-sm text-gray-500">or</span>
-              <div className="flex-grow h-px bg-gray-300"></div>
-            </div>
+        <div className="relative mb-5">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-200" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-white px-2 text-gray-400">or</span>
+          </div>
+        </div>
 
-            <button
-              onClick={handleGoogleLogin}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 transition"
-            >
-              <img src="/icons/google.svg" alt="Google" className="w-5 h-5" />
-              <span className="text-gray-700 font-medium">
-                Continue with Google
-              </span>
-            </button>
-          </>
-        )}
+        {/* Email magic link form */}
+        <form onSubmit={handleLogin} className="space-y-4">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            required
+            className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+          />
+          <button
+            type="submit"
+            className="w-full bg-purple-600 text-white font-semibold py-2.5 rounded-lg hover:bg-purple-700 transition"
+          >
+            Send Magic Link
+          </button>
+        </form>
 
-        {/* Message */}
         {message && (
-          <p className="mt-6 text-sm text-center text-gray-700">{message}</p>
+          <p className="mt-4 text-sm text-gray-700 animate-fade-in">{message}</p>
         )}
-      </div>
-    </div>
+
+        <p className="mt-6 text-xs text-gray-400">
+          🔒 We never store your password.
+        </p>
+      </motion.div>
+    </motion.main>
   );
 }
