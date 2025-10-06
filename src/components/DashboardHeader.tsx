@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { Menu, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function DashboardHeader() {
   const router = useRouter();
@@ -53,7 +54,7 @@ export default function DashboardHeader() {
           </button>
         </nav>
 
-        {/* Mobile Toggle Button */}
+        {/* Mobile Toggle */}
         <button
           className="md:hidden text-[#041B2D] hover:text-purple-600 transition"
           onClick={() => setMenuOpen(!menuOpen)}
@@ -63,50 +64,59 @@ export default function DashboardHeader() {
         </button>
       </div>
 
-      {/* Mobile Menu Drawer */}
-      {menuOpen && (
-        <div className="md:hidden bg-white/95 backdrop-blur-md border-t border-purple-100 shadow-lg">
-          <nav className="flex flex-col text-sm font-medium text-[#041B2D] p-4 space-y-3">
-            <Link
-              href="/dashboard"
-              className="hover:text-purple-600 transition"
-              onClick={() => setMenuOpen(false)}
-            >
-              Dashboard
-            </Link>
-            <Link
-              href="/quiz"
-              className="hover:text-purple-600 transition"
-              onClick={() => setMenuOpen(false)}
-            >
-              My Quiz
-            </Link>
-            <Link
-              href="/export"
-              className="hover:text-purple-600 transition"
-              onClick={() => setMenuOpen(false)}
-            >
-              Exports
-            </Link>
-            <Link
-              href="/account"
-              className="hover:text-purple-600 transition"
-              onClick={() => setMenuOpen(false)}
-            >
-              Account
-            </Link>
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                handleSignOut();
-              }}
-              className="px-3 py-2 bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] text-white rounded-lg shadow-md hover:opacity-90 transition"
-            >
-              Sign Out
-            </button>
-          </nav>
-        </div>
-      )}
+      {/* Animated Mobile Drawer */}
+      <AnimatePresence>
+        {menuOpen && (
+          <motion.div
+            key="mobile-menu"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="md:hidden bg-white/95 backdrop-blur-md border-t border-purple-100 shadow-lg"
+          >
+            <nav className="flex flex-col text-sm font-medium text-[#041B2D] p-4 space-y-3">
+              <Link
+                href="/dashboard"
+                className="hover:text-purple-600 transition"
+                onClick={() => setMenuOpen(false)}
+              >
+                Dashboard
+              </Link>
+              <Link
+                href="/quiz"
+                className="hover:text-purple-600 transition"
+                onClick={() => setMenuOpen(false)}
+              >
+                My Quiz
+              </Link>
+              <Link
+                href="/export"
+                className="hover:text-purple-600 transition"
+                onClick={() => setMenuOpen(false)}
+              >
+                Exports
+              </Link>
+              <Link
+                href="/account"
+                className="hover:text-purple-600 transition"
+                onClick={() => setMenuOpen(false)}
+              >
+                Account
+              </Link>
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  handleSignOut();
+                }}
+                className="px-3 py-2 bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] text-white rounded-lg shadow-md hover:opacity-90 transition"
+              >
+                Sign Out
+              </button>
+            </nav>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </header>
   );
 }
