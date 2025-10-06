@@ -393,7 +393,7 @@ function ResultsContent() {
           </CTAButton>
 
           <CTAButton href="/upgrade" variant="premium">
-            👑 Upgrade to Premium
+            Upgrade to Premium
           </CTAButton>
         </div>
         {(warmingUp || generating) && (
