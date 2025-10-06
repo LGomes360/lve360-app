@@ -367,42 +367,37 @@ function ResultsContent() {
       // ✅ make sure framer-motion is imported at the top of the file:
       // import { motion } from "framer-motion";
       
-      return (
-        <motion.main
-          className="relative isolate overflow-hidden min-h-screen bg-gradient-to-br from-[#F8F5FB] via-white to-[#EAFBF8]"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-        >
-          {/* Ambient Background — matching home aesthetic */}
-          <div
-            className="pointer-events-none absolute -top-32 -left-24 h-96 w-96 rounded-full
-                       bg-[#A8F0E4] opacity-40 blur-3xl animate-[float_8s_ease-in-out_infinite]"
-            aria-hidden
-          />
-          <div
-            className="pointer-events-none absolute top-[20rem] -right-24 h-[28rem] w-[28rem] rounded-full
-                       bg-[#D9C2F0] opacity-30 blur-3xl animate-[float_10s_ease-in-out_infinite]"
-            aria-hidden
-          />
-      
-          {/* Content Container */}
-          <div className="relative z-10 max-w-4xl mx-auto py-20 px-6 font-sans">
-            <div className="text-center mb-10">
-              <h1 className="text-5xl sm:text-6xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent">
-                Your LVE360 Blueprint
-              </h1>
-              <p className="text-gray-600 mt-4 text-lg">
-                Personalized insights for Longevity • Vitality • Energy
-              </p>
-              <p className="mt-2 text-gray-500 text-sm">$15/month Premium Access</p>
-            </div>
-      
-            {/* actions */}
-            {/* your existing actions section continues here */}
-          </div>
-        </motion.main>
-      );
+return (
+  <motion.main
+    className="relative isolate overflow-hidden min-h-screen bg-gradient-to-br from-[#F8F5FB] via-white to-[#EAFBF8]"
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.6 }}
+  >
+    {/* Ambient Background — matching home aesthetic */}
+    <div
+      className="pointer-events-none absolute -top-32 -left-24 h-96 w-96 rounded-full
+                 bg-[#A8F0E4] opacity-40 blur-3xl animate-[float_8s_ease-in-out_infinite]"
+      aria-hidden
+    />
+    <div
+      className="pointer-events-none absolute top-[20rem] -right-24 h-[28rem] w-[28rem] rounded-full
+                 bg-[#D9C2F0] opacity-30 blur-3xl animate-[float_10s_ease-in-out_infinite]"
+      aria-hidden
+    />
+
+    {/* Content Container */}
+    <div className="relative z-10 max-w-4xl mx-auto py-20 px-6 font-sans">
+      <div className="text-center mb-10">
+        <h1 className="text-5xl sm:text-6xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent">
+          Your LVE360 Blueprint
+        </h1>
+        <p className="text-gray-600 mt-4 text-lg">
+          Personalized insights for Longevity • Vitality • Energy
+        </p>
+        <p className="mt-2 text-gray-500 text-sm">$15/month Premium Access</p>
+      </div>
+
       {/* actions */}
       <SectionCard title="Actions">
         <div className="flex flex-wrap gap-4 justify-center">
@@ -424,6 +419,7 @@ function ResultsContent() {
             Upgrade to Premium
           </CTAButton>
         </div>
+
         {(warmingUp || generating) && (
           <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
             {warmingUp
@@ -431,8 +427,9 @@ function ResultsContent() {
               : "💪 Crunching the numbers… this usually takes about 2 minutes."}
           </p>
         )}
+
         <TwoMinuteCountdown running={generating} />
-        </SectionCard>
+      </SectionCard>
 
       {error && <div className="text-center text-red-600 mb-6">{error}</div>}
 
@@ -527,7 +524,8 @@ function ResultsContent() {
         </button>
       </div>
     </div>
-  );
+  </motion.main>
+);
 }
 
 export default function ResultsPageWrapper() {
