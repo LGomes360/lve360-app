@@ -1,6 +1,9 @@
-// app/dashboard/page.tsx
+"use client";
+
+import { useEffect, useState } from "react";
 import { cookies } from "next/headers";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { motion, AnimatePresence } from "framer-motion";
 import ClientDashboard from "@/components/ClientDashboard";
 import DashboardHeader from "@/components/DashboardHeader";
 
@@ -32,7 +35,6 @@ export default async function DashboardPage() {
 
   // --- Case 2: Logged in, check user tier ---
   const emailNormalized = (user.email ?? "").trim().toLowerCase();
-
   const { data: profile, error } = await supabase
     .schema("public")
     .from("users")
@@ -68,18 +70,47 @@ export default async function DashboardPage() {
 
   // --- Case 4: Logged in + Premium ---
   return (
+    <DashboardClientView username={user.email?.split("@")[0] || "Optimizer"} />
+  );
+}
+
+/* ---------- CLIENT COMPONENT FOR INTERACTIVITY ---------- */
+function DashboardClientView({ username }: { username: string }) {
+  const [showGreeting, setShowGreeting] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowGreeting(false), 4000); // Hide after 4s
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
     <main className="min-h-screen bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB]">
-      {/* Premium header (sticky) */}
+      {/* Premium Header */}
       <DashboardHeader />
 
-      {/* Main content area */}
+      {/* Main Dashboard Area */}
       <div className="max-w-6xl mx-auto p-6">
-        <h1 className="text-4xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent mb-8">
-          Welcome back, {user.email?.split("@")[0] || "Optimizer"} 👋
-        </h1>
+        <AnimatePresence>
+          {showGreeting && (
+            <motion.h1
+              key="greeting"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.5 }}
+              className="text-4xl font-extrabold text-center mb-8"
+            >
+              Welcome back,{" "}
+              <span className="bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] bg-clip-text text-transparent">
+                {username}
+              </span>{" "}
+              👋
+            </motion.h1>
+          )}
+        </AnimatePresence>
 
-        {/* Client Dashboard */}
-        <div className="bg-white/90 backdrop-blur rounded-2xl shadow-xl ring-1 ring-purple-100 p-6">
+        {/* Dashboard Body */}
+        <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl ring-1 ring-purple-100 p-6 transition">
           <ClientDashboard />
         </div>
       </div>
