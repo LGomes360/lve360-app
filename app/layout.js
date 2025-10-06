@@ -1,6 +1,7 @@
 import "./globals.css";
 import Link from "next/link";
 import { SpeedInsights } from "@vercel/speed-insights/next"; // ✅ Added import
+import { Analytics } from "@vercel/analytics/react";
 
 export const metadata = {
   title: "LVE360",
@@ -73,6 +74,7 @@ export default function RootLayout({ children }) {
 
         {/* ✅ Add Speed Insights tracker at the very bottom */}
         <SpeedInsights />
+        <Analytics />   {/* ✅ Web Analytics */}
       </body>
     </html>
   );
