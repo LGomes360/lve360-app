@@ -199,6 +199,61 @@ function SectionCard({
     </div>
   );
 }
+// --- 2-minute countdown (starts when `running` is true) ---
+function TwoMinuteCountdown({
+  running,
+  onDone,
+  seconds = 120,
+}: {
+  running: boolean;
+  onDone?: () => void;
+  seconds?: number;
+}) {
+  const [remaining, setRemaining] = useState(seconds);
+
+  useEffect(() => {
+    if (!running) {
+      setRemaining(seconds);     // reset when not running
+      return;
+    }
+    setRemaining(seconds);       // fresh start when toggled on
+    const id = setInterval(() => {
+      setRemaining((t) => {
+        if (t <= 1) {
+          clearInterval(id);
+          onDone?.();
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [running, seconds, onDone]);
+
+  if (!running) return null;
+
+  const m = Math.floor(remaining / 60);
+  const s = (remaining % 60).toString().padStart(2, "0");
+  const pct = ((seconds - remaining) / seconds) * 100;
+
+  return (
+    <div className="text-center mt-3">
+      <p className="text-gray-600">
+        ⏱ Estimated time remaining:{" "}
+        <span className="font-semibold text-teal-600">
+          {m}:{s}
+        </span>
+      </p>
+      {/* Progress bar */}
+      <div className="w-64 h-2 bg-gray-200 rounded-full mt-2 mx-auto">
+        <div
+          className="h-2 bg-teal-500 rounded-full transition-all duration-1000"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
 
 /* ───────── page ───────── */
 function ResultsContent() {
@@ -348,7 +403,9 @@ function ResultsContent() {
               : "💪 Crunching the numbers… this usually takes about 2 minutes."}
           </p>
         )}
-      </SectionCard>
+        /* ✅ Add the countdown here — starts only when `generating` is true */
+        <TwoMinuteCountdown running={generating} />
+        </SectionCard>
 
       {error && <div className="text-center text-red-600 mb-6">{error}</div>}
 
