@@ -27,9 +27,7 @@ export default function DashboardHeader() {
             alt="LVE360"
             className="h-8 w-auto"
           />
-          <span className="font-bold text-lg bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent">
-            LVE360
-          </span>
+
         </Link>
 
         {/* Desktop Nav */}
