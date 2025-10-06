@@ -11,11 +11,14 @@ export default async function DashboardPage() {
     data: { user },
   } = await supabase.auth.getUser();
   console.log("Auth user email:", user?.email);
+
   // --- Case 1: Not logged in ---
   if (!user) {
     return (
       <main className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-6">
-        <h1 className="text-2xl font-semibold mb-4">Sign in to access your dashboard</h1>
+        <h1 className="text-2xl font-semibold mb-4">
+          Sign in to access your dashboard
+        </h1>
         <a
           href="/login"
           className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
@@ -27,11 +30,14 @@ export default async function DashboardPage() {
   }
 
   // --- Case 2: Logged in, check user tier ---
-   const { data: profile, error } = await supabase
-  .from("users") // 👈 remove the public. prefix
-  .select("tier, stripe_subscription_status")
-  .ilike("email", user.email ?? "")
-  .maybeSingle();
+  const { data: profile, error } = await supabase
+    .schema("public") // ✅ target the correct schema safely
+    .from("users")
+    .select("tier, stripe_subscription_status")
+    .ilike("email", user.email ?? "")
+    .maybeSingle();
+
+  console.log("Profile lookup result:", profile, "error:", error);
 
   if (error) {
     console.error("Error fetching user tier:", error.message);
@@ -43,8 +49,12 @@ export default async function DashboardPage() {
   if (tier !== "premium") {
     return (
       <main className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-6">
-        <h1 className="text-2xl font-semibold mb-4">Upgrade to LVE360 Premium</h1>
-        <p className="mb-6 text-gray-600">Unlock your personalized stack and exclusive features.</p>
+        <h1 className="text-2xl font-semibold mb-4">
+          Upgrade to LVE360 Premium
+        </h1>
+        <p className="mb-6 text-gray-600">
+          Unlock your personalized stack and exclusive features.
+        </p>
         <a
           href="/pricing"
           className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
