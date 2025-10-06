@@ -8,23 +8,25 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+    const handleLogin = async (e: React.FormEvent) => {
+      e.preventDefault();
+    
+      const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/dashboard`;
+    
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: redirectTo,
+        },
+      });
+    
+      if (error) {
+        setMessage("Error sending magic link: " + error.message);
+      } else {
+        setMessage("✅ Check your email for a magic link to log in.");
+      }
+    };
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        // Send them to callback, which will set session then forward to /dashboard
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
-      },
-    });
-
-    if (error) {
-      setMessage("Error sending magic link: " + error.message);
-    } else {
-      setMessage("✅ Check your email for a magic link to log in.");
-    }
-  };
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-50">
