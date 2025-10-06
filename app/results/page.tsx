@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
