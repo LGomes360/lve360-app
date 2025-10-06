@@ -30,12 +30,17 @@ export default async function DashboardPage() {
   }
 
   // --- Case 2: Logged in, check user tier ---
+  const emailNormalized = (user.email ?? "").trim().toLowerCase();
+  
   const { data: profile, error } = await supabase
-    .schema("public") // ✅ target the correct schema safely
+    .schema("public")
     .from("users")
     .select("tier, stripe_subscription_status")
-    .ilike("email", user.email ?? "")
+    .eq("email", emailNormalized)  // ✅ exact match after normalization
     .maybeSingle();
+  
+  console.log("🔍 Profile lookup result:", profile, "error:", error);
+
 
   console.log("Profile lookup result:", profile, "error:", error);
 
