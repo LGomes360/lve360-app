@@ -1,12 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { Menu, X } from "lucide-react";
 
 export default function DashboardHeader() {
   const router = useRouter();
   const supabase = createClientComponentClient();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -28,12 +31,9 @@ export default function DashboardHeader() {
           </span>
         </Link>
 
-        {/* Nav links */}
-        <nav className="flex items-center gap-6 text-sm font-medium text-[#041B2D]">
-          <Link
-            href="/dashboard"
-            className="hover:text-purple-600 transition"
-          >
+        {/* Desktop Nav */}
+        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-[#041B2D]">
+          <Link href="/dashboard" className="hover:text-purple-600 transition">
             Dashboard
           </Link>
           <Link href="/quiz" className="hover:text-purple-600 transition">
@@ -45,7 +45,6 @@ export default function DashboardHeader() {
           <Link href="/account" className="hover:text-purple-600 transition">
             Account
           </Link>
-
           <button
             onClick={handleSignOut}
             className="px-3 py-1.5 bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] text-white rounded-lg hover:opacity-90 transition shadow-md"
@@ -53,7 +52,61 @@ export default function DashboardHeader() {
             Sign Out
           </button>
         </nav>
+
+        {/* Mobile Toggle Button */}
+        <button
+          className="md:hidden text-[#041B2D] hover:text-purple-600 transition"
+          onClick={() => setMenuOpen(!menuOpen)}
+          aria-label="Toggle menu"
+        >
+          {menuOpen ? <X size={24} /> : <Menu size={24} />}
+        </button>
       </div>
+
+      {/* Mobile Menu Drawer */}
+      {menuOpen && (
+        <div className="md:hidden bg-white/95 backdrop-blur-md border-t border-purple-100 shadow-lg">
+          <nav className="flex flex-col text-sm font-medium text-[#041B2D] p-4 space-y-3">
+            <Link
+              href="/dashboard"
+              className="hover:text-purple-600 transition"
+              onClick={() => setMenuOpen(false)}
+            >
+              Dashboard
+            </Link>
+            <Link
+              href="/quiz"
+              className="hover:text-purple-600 transition"
+              onClick={() => setMenuOpen(false)}
+            >
+              My Quiz
+            </Link>
+            <Link
+              href="/export"
+              className="hover:text-purple-600 transition"
+              onClick={() => setMenuOpen(false)}
+            >
+              Exports
+            </Link>
+            <Link
+              href="/account"
+              className="hover:text-purple-600 transition"
+              onClick={() => setMenuOpen(false)}
+            >
+              Account
+            </Link>
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                handleSignOut();
+              }}
+              className="px-3 py-2 bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] text-white rounded-lg shadow-md hover:opacity-90 transition"
+            >
+              Sign Out
+            </button>
+          </nav>
+        </div>
+      )}
     </header>
   );
 }
