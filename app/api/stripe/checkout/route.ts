@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       metadata: { plan }, // 🔑 Pass plan so webhook can set correct tier
 
       // Supabase callback → then forward to dashboard
-      success_url: `${APP_URL}/auth/callback?next=/dashboard&session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${APP_URL}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${APP_URL}/pricing?canceled=1`,
     });
 
