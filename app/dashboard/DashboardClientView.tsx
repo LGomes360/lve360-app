@@ -45,7 +45,7 @@ export default function DashboardClientView({
       {/* Main dashboard card */}
       <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl ring-1 ring-purple-100 p-6 transition space-y-8">
         {/* Existing dashboard content */}
-        <ClientDashboard />
+       <ClientDashboard userId={userId} />
 
         {/* Longevity Journey / Goals section */}
         <LongevityJourneyDashboard userId={userId} />
