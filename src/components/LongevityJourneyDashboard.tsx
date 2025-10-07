@@ -27,7 +27,8 @@ const progressData = [
 
 const startWeight = 280;
 
-export default function LongevityJourneyDashboard() {
+export default function LongevityJourneyDashboard({ userId }: { userId: string }) {
+
   // State for goals
   const [targetWeight, setTargetWeight] = useState(250);
   const [targetSleep, setTargetSleep] = useState(4.5);
