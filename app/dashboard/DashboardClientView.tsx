@@ -20,6 +20,13 @@ export default function DashboardClientView({
     return () => clearTimeout(timer);
   }, []);
 
+  // 🔒 NEW: ensure user is provisioned in public.users table
+  useEffect(() => {
+    fetch("/api/provision-user", { method: "POST" }).catch((err) =>
+      console.error("Provision user failed:", err)
+    );
+  }, []);
+
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       {/* Animated greeting */}
@@ -45,7 +52,7 @@ export default function DashboardClientView({
       {/* Main dashboard card */}
       <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl ring-1 ring-purple-100 p-6 transition space-y-8">
         {/* Existing dashboard content */}
-       <ClientDashboard userId={userId} />
+        <ClientDashboard userId={userId} />
 
         {/* Longevity Journey / Goals section */}
         <LongevityJourneyDashboard userId={userId} />
