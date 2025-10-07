@@ -1,30 +1,27 @@
-// app/pricing/page.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Leaf, Gem, Lock, CheckCircle } from "lucide-react";
+import { Leaf, Gem, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import CTAButton from "@/components/CTAButton";
 
 export default function Pricing() {
   const [email, setEmail] = useState("");
-
-  // ----- Quiz modal state/behaviors -----
   const [showQuiz, setShowQuiz] = useState(false);
   const modalRef = useRef<HTMLDivElement | null>(null);
 
+  // Pre-fill email from querystring
   useEffect(() => {
     const e = new URLSearchParams(window.location.search).get("email");
     if (e) setEmail(e);
   }, []);
 
+  // Handle modal backdrop / escape
   useEffect(() => {
     if (!showQuiz) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setShowQuiz(false);
     const onDown = (e: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
-        setShowQuiz(false);
-      }
+      if (modalRef.current && !modalRef.current.contains(e.target as Node)) setShowQuiz(false);
     };
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -37,9 +34,10 @@ export default function Pricing() {
     };
   }, [showQuiz]);
 
-  async function subscribe(plan: "premium") {
+  // Stripe checkout
+  async function subscribe(plan: "monthly" | "annual") {
     if (!email) {
-      alert("Please enter your email");
+      alert("Please enter your email first.");
       return;
     }
 
@@ -51,7 +49,7 @@ export default function Pricing() {
 
     const data = await res.json();
     if (!res.ok || !data?.url) {
-      alert(data?.error || "Checkout error");
+      alert(data?.error || "Checkout failed. Try again.");
       return;
     }
 
@@ -60,21 +58,12 @@ export default function Pricing() {
 
   return (
     <main className="relative max-w-6xl mx-auto py-20 px-6 text-center">
-      {/* Background Gradient */}
+      {/* Background gradient + DNA watermark */}
       <div className="absolute inset-0 -z-10 bg-gradient-to-b from-[#EAFBF8] via-white to-[#F8F5FB]" />
-
-      {/* DNA Watermark */}
       <div className="absolute inset-0 -z-10 flex items-center justify-center opacity-5 pointer-events-none">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="420"
-          height="420"
-          viewBox="0 0 200 200"
-          className="text-[#06C1A0]"
-        >
+        <svg xmlns="http://www.w3.org/2000/svg" width="420" height="420" viewBox="0 0 200 200" className="text-[#06C1A0]">
           <path
-            d="M50,20 C90,80 110,120 150,180
-               M150,20 C110,80 90,120 50,180"
+            d="M50,20 C90,80 110,120 150,180 M150,20 C110,80 90,120 50,180"
             stroke="currentColor"
             strokeWidth="4"
             fill="none"
@@ -82,19 +71,19 @@ export default function Pricing() {
         </svg>
       </div>
 
-      {/* Hero */}
+      {/* Hero section */}
       <div className="mb-16 relative">
         <h1 className="text-5xl font-extrabold mb-4 bg-gradient-to-r from-[#041B2D] via-purple-600 to-[#06C1A0] bg-clip-text text-transparent tracking-tight drop-shadow-sm">
           Choose Your Path
         </h1>
         <p className="text-xl text-gray-700 max-w-2xl mx-auto">
           Unlock <span className="text-[#06C1A0] font-semibold">Longevity</span>, ignite{" "}
-          <span className="text-purple-600 font-semibold">Vitality</span>, and power up your{" "}
+          <span className="text-purple-600 font-semibold">Vitality</span>, and power your{" "}
           <span className="text-yellow-500 font-semibold">Energy</span>. Your journey starts here.
         </p>
       </div>
 
-      {/* Pricing Grid */}
+      {/* Pricing grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-10 mb-12">
         {/* Free Tier */}
         <motion.div
@@ -114,7 +103,6 @@ export default function Pricing() {
             <li className="text-gray-400">✗ Personalized Stack</li>
             <li className="text-gray-400">✗ Weekly Tweaks</li>
           </ul>
-          {/* Open modal instead of navigating */}
           <CTAButton onClick={() => setShowQuiz(true)} variant="secondary" fullWidth>
             Get Started
           </CTAButton>
@@ -133,7 +121,7 @@ export default function Pricing() {
             <Gem className="text-[#06C1A0]" size={28} />
           </div>
           <h2 className="text-2xl font-semibold mb-2">Premium</h2>
-          <p className="text-gray-600 mb-6">Vitality unlocked • $15/month</p>
+          <p className="text-gray-600 mb-6">Vitality unlocked • Flexible billing</p>
           <ul className="text-left text-gray-700 space-y-2 mb-6">
             <li>✓ Everything in Free</li>
             <li>✓ Personalized Stack</li>
@@ -141,6 +129,8 @@ export default function Pricing() {
             <li>✓ Weekly Tweaks</li>
             <li>✓ Dashboard Snapshot</li>
           </ul>
+
+          {/* Email input */}
           <input
             type="email"
             placeholder="Your email"
@@ -148,9 +138,23 @@ export default function Pricing() {
             onChange={(e) => setEmail(e.target.value)}
             className="w-full border rounded-lg px-4 py-2 mb-4"
           />
-          <CTAButton onClick={() => subscribe("premium")} variant="primary" fullWidth>
-            Subscribe with Stripe
-          </CTAButton>
+
+          {/* Two-plan options */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <CTAButton onClick={() => subscribe("monthly")} variant="primary" fullWidth className="py-3">
+              $15 / month
+            </CTAButton>
+
+            <CTAButton
+              onClick={() => subscribe("annual")}
+              variant="secondary"
+              fullWidth
+              className="py-3 bg-yellow-400 hover:bg-yellow-500 text-purple-900 font-semibold"
+            >
+              $100 / year
+            </CTAButton>
+          </div>
+          <p className="text-sm text-gray-500 mt-3">Save 45% with the annual plan</p>
         </motion.div>
       </div>
 
@@ -180,14 +184,14 @@ export default function Pricing() {
       <div className="flex flex-col items-center space-y-3 mt-8">
         <p className="flex items-center gap-2 text-sm text-gray-500">
           <Lock size={14} className="text-gray-400" />
-          Payments are processed securely by Stripe. Cancel anytime.
+          Payments processed securely by Stripe • Cancel anytime.
         </p>
         <CTAButton href="/" variant="secondary">
           Back to Home
         </CTAButton>
       </div>
 
-      {/* ----- Quiz Modal (same look/feel as Home) ----- */}
+      {/* Quiz modal */}
       <AnimatePresence>
         {showQuiz && (
           <motion.div
@@ -204,7 +208,11 @@ export default function Pricing() {
               ref={modalRef}
               className="relative w-full max-w-6xl mx-auto bg-white rounded-2xl shadow-2xl ring-2 ring-purple-500/30 overflow-hidden flex flex-col"
               initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1, transition: { type: "spring", stiffness: 200, damping: 20 } }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+                transition: { type: 'spring', stiffness: 200, damping: 20 },
+              }}
               exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
             >
               <button
@@ -214,7 +222,6 @@ export default function Pricing() {
               >
                 ✕
               </button>
-
               <div className="relative w-full flex justify-center px-6 sm:px-10 pb-10">
                 <div className="w-full max-w-5xl rounded-2xl overflow-hidden shadow-lg bg-white relative">
                   <div className="absolute bottom-0 left-0 w-full h-20 sm:h-24 bg-gradient-to-t from-white via-white to-transparent z-10 pointer-events-none" />
