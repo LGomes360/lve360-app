@@ -59,7 +59,7 @@ export default function ClientDashboard() {
       )}
 
       {/* Core Dashboard */}
-      <LongevityJourneyDashboard />
+      <LongevityJourneyDashboard userId={userId} />
 
       {/* Manage Subscription Button */}
       {userEmail && (
