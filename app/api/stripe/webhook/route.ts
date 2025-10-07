@@ -73,7 +73,22 @@ export async function POST(req: NextRequest) {
 
         // Upsert into users table with tier + stripe_customer_id
         if (authId) {
-          const chosenTier = session.metadata?.plan === "concierge" ? "concierge" : "premium";
+          const chosenTier =
+          session.metadata?.plan === "concierge" ? "concierge" : "premium";
+          
+          const billingInterval =
+            session.metadata?.plan === "annual" ? "annual" : "monthly";
+          
+          await supabaseAdmin.from("users").upsert(
+            {
+              email,
+              tier: chosenTier,
+              billing_interval: billingInterval,
+              stripe_customer_id: stripeCustomerId,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "email" }
+          );
 
           console.log(`📝 Upserting user ${authId} with tier=${chosenTier}`);
           await supabaseAdmin.from("users").upsert(
