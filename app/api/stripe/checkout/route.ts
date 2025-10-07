@@ -9,14 +9,14 @@ export async function POST(req: NextRequest) {
   try {
     // --- ENVIRONMENT VALIDATION ---
     const stripeKey = process.env.STRIPE_SECRET_KEY;
-    const priceMonthly = process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY;
-    const priceAnnual = process.env.NEXT_PUBLIC_STRIPE_PRICE_ANNUAL;
+    const priceMonthly = process.env.STRIPE_PRICE_PREMIUM;
+    const priceAnnual = process.env.STRIPE_PRICE_ANNUAL;
 
     if (!stripeKey || !priceMonthly || !priceAnnual) {
       return NextResponse.json(
         {
           error:
-            "Missing Stripe environment vars (STRIPE_SECRET_KEY, NEXT_PUBLIC_STRIPE_PRICE_MONTHLY, NEXT_PUBLIC_STRIPE_PRICE_ANNUAL)",
+            "Missing Stripe envs (STRIPE_SECRET_KEY, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_ANNUAL)",
         },
         { status: 500 }
       );
