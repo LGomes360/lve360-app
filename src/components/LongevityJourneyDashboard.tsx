@@ -81,16 +81,44 @@ export default function LongevityJourneyDashboard({ userId }: { userId: string }
   };
 
   // ─── Save Log + AI Insights ─────────────────────────────
-  const handleSaveLog = async () => {
-    const body = { weight: logWeight ? Number(logWeight) : null, sleep: logSleep, energy: logEnergy, notes: logNotes };
-    try {
-      await fetch("/api/logs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const ai = await fetch("/api/ai-insights", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
-      if (ai?.summary) setAiSummary(ai.summary);
-    } catch (err) {
-      console.error("Save log failed", err);
+const handleSaveLog = async () => {
+  try {
+    const body = {
+      weight: logWeight ? Number(logWeight) : null,
+      sleep: logSleep,
+      energy: logEnergy,
+      notes: logNotes,
+    };
+
+    const res = await fetch("/api/logs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const json = await res.json();
+
+    if (!res.ok) {
+      alert(`Error saving log: ${json.error || "unknown error"}`);
+      return;
     }
-  };
+
+    alert("✅ Log saved successfully!");
+
+    // Call AI insights (optional)
+    const ai = await fetch("/api/ai-insights", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => r.json());
+
+    if (ai?.summary) setAiSummary(ai.summary);
+  } catch (err: any) {
+    alert(`⚠️ Something went wrong: ${err.message}`);
+    console.error("Save log failed:", err);
+  }
+};
+
 
   // ─── Derived Metrics ────────────────────────────────────
   const currentWeight = progressData.at(-1)?.weight ?? 0;
