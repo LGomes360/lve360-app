@@ -239,6 +239,33 @@ export async function POST(req: NextRequest) {
       });
       return NextResponse.json({ ok: false, error: "DB insert failed" }, { status: 500 });
     }
+    // --- STEP: Upsert into goals table so dashboard knows user’s targets ---
+    if (userId && data.goals && Array.isArray(data.goals)) {
+      try {
+        await supa
+          .from("goals")
+          .upsert(
+            {
+              user_id: userId,
+              goals: data.goals,
+              custom_goal: null, // you can expand later for free-text goal
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "user_id" }
+          );
+        console.log("✅ Goals upserted for user:", userId);
+      } catch (goalErr: any) {
+        console.error("❌ Goals upsert failed:", goalErr.message);
+        await supa.from("webhook_failures").insert({
+          source: "tally",
+          event_type: body?.eventType ?? null,
+          event_id: body?.eventId ?? null,
+          error_message: `goals_upsert_error: ${goalErr.message}`,
+          severity: "warning",
+          payload_json: body,
+        });
+      }
+    }
 
     const submissionId = subRow.id;
     const resultsUrl = `https://app.lve360.com/results?submission_id=${submissionId}`;
