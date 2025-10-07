@@ -50,7 +50,7 @@ export default function LongevityJourneyDashboard({ userId }: { userId: string }
   // Load goals from API
   useEffect(() => {
     (async () => {
-      const res = await fetch("/api/goals");
+      const res = await fetch(`/api/goals?userId=${userId}`);
       if (!res.ok) return;
       const g = await res.json();
       if (!g) return;
@@ -66,15 +66,19 @@ export default function LongevityJourneyDashboard({ userId }: { userId: string }
     if (field === "sleep") setTargetSleep(value);
     if (field === "energy") setTargetEnergy(value);
 
-    await fetch("/api/goals", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        target_weight: field === "weight" ? value : targetWeight,
-        target_sleep: field === "sleep" ? value : targetSleep,
-        target_energy: field === "energy" ? value : targetEnergy,
-      }),
-    });
+await fetch("/api/goals", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    userId,
+    goals: [/* optional goal labels */],
+    custom_goal: null,
+    target_weight: field === "weight" ? value : targetWeight,
+    target_sleep: field === "sleep" ? value : targetSleep,
+    target_energy: field === "energy" ? value : targetEnergy,
+  }),
+});
+
   };
 
   // Handle save log + AI insights
