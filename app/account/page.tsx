@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, CheckCircle, Clock } from "lucide-react";
@@ -26,7 +27,7 @@ export default function AccountPage() {
     })();
   }, []);
 
-  // 🧾 Manage billing portal
+  // 🧾 Open Stripe billing portal
   async function openBillingPortal() {
     if (!user?.email) return alert("No email found for this account.");
     setPortalLoading(true);
@@ -47,6 +48,7 @@ export default function AccountPage() {
     }
   }
 
+  // 🌀 Loading state
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -55,6 +57,7 @@ export default function AccountPage() {
     );
   }
 
+  // 🚪 Not logged in
   if (!user) {
     return (
       <div className="flex flex-col justify-center items-center h-screen text-center">
@@ -68,6 +71,7 @@ export default function AccountPage() {
     );
   }
 
+  // 🧾 Derived info
   const tierLabel =
     user.tier === "premium"
       ? "Premium"
@@ -86,55 +90,67 @@ export default function AccountPage() {
     ? new Date(user.subscription_end_date).toLocaleDateString()
     : null;
 
+  // ✨ Unified LVE360 dashboard look
   return (
-    <main className="p-6 max-w-2xl mx-auto space-y-6">
-      <h1 className="text-3xl font-bold text-center text-purple-700 mb-4">
-        Your Account
-      </h1>
+    <div className="max-w-6xl mx-auto p-6 space-y-6">
+      {/* Greeting header (animated, matches dashboard style) */}
+      <motion.h1
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="text-4xl font-extrabold text-center mb-8"
+      >
+        <span className="bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] bg-clip-text text-transparent">
+          Your Account
+        </span>
+      </motion.h1>
 
-      <Card className="shadow-md bg-gradient-to-r from-purple-50 to-yellow-50">
-        <CardContent className="p-6 space-y-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <h2 className="text-xl font-semibold text-purple-800">
-                {tierLabel} Plan
-              </h2>
-              <p className="text-sm text-gray-600">
-                Billing interval: <strong>{interval}</strong>
-              </p>
-              {endDate && (
+      {/* Main card */}
+      <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl ring-1 ring-purple-100 p-6 transition space-y-8">
+        <Card className="bg-gradient-to-r from-purple-50 to-yellow-50 shadow-md border-0">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-semibold text-purple-800">
+                  {tierLabel} Plan
+                </h2>
                 <p className="text-sm text-gray-600">
-                  Ends on: <strong>{endDate}</strong>
+                  Billing interval: <strong>{interval}</strong>
                 </p>
+                {endDate && (
+                  <p className="text-sm text-gray-600">
+                    Ends on: <strong>{endDate}</strong>
+                  </p>
+                )}
+              </div>
+              {user.tier === "free" ? (
+                <Clock className="text-yellow-500 w-8 h-8" />
+              ) : (
+                <CheckCircle className="text-green-500 w-8 h-8" />
               )}
             </div>
-            {user.tier === "free" ? (
-              <Clock className="text-yellow-500 w-8 h-8" />
-            ) : (
-              <CheckCircle className="text-green-500 w-8 h-8" />
-            )}
-          </div>
 
-          <div className="flex justify-end mt-4">
-            {user.tier === "free" ? (
-              <Button
-                className="bg-purple-600 hover:bg-purple-700 text-white"
-                onClick={() => (window.location.href = "/upgrade")}
-              >
-                Upgrade Plan
-              </Button>
-            ) : (
-              <Button
-                className="bg-yellow-400 hover:bg-yellow-500 text-purple-900 font-semibold"
-                onClick={openBillingPortal}
-                disabled={portalLoading}
-              >
-                {portalLoading ? "Opening..." : "Manage Billing"}
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </main>
+            <div className="flex justify-end mt-4">
+              {user.tier === "free" ? (
+                <Button
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                  onClick={() => (window.location.href = "/upgrade")}
+                >
+                  Upgrade Plan
+                </Button>
+              ) : (
+                <Button
+                  className="bg-yellow-400 hover:bg-yellow-500 text-purple-900 font-semibold"
+                  onClick={openBillingPortal}
+                  disabled={portalLoading}
+                >
+                  {portalLoading ? "Opening..." : "Manage Billing"}
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }
