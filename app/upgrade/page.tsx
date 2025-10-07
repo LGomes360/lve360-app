@@ -1,24 +1,50 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import CTAButton from "@/components/CTAButton";
 
 export default function UpgradePage() {
   const [loading, setLoading] = useState<"monthly" | "annual" | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
 
+  // --- Try to auto-fetch Supabase user email if logged in ---
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/user");
+        if (res.ok) {
+          const data = await res.json();
+          setUserEmail(data.email ?? null);
+        }
+      } catch {
+        // ignore if unauthenticated
+      }
+    })();
+  }, []);
+
+  // --- Handle checkout ---
   async function handleUpgrade(plan: "monthly" | "annual") {
     setLoading(plan);
     try {
+      // ✅ Use existing user email or prompt for one
+      const email =
+        userEmail || prompt("Enter your email to continue:")?.trim();
+      if (!email) {
+        alert("Email is required to upgrade.");
+        setLoading(null);
+        return;
+      }
+
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }), // ✅ matches backend
+        body: JSON.stringify({ plan, email }),
       });
 
       const data = await res.json();
       if (data?.url) {
-        window.location.href = data.url; // ✅ Redirect to Stripe checkout
+        window.location.href = data.url;
       } else {
         alert(data?.error || "Something went wrong creating your checkout session.");
       }
@@ -81,7 +107,7 @@ export default function UpgradePage() {
               onClick={() => handleUpgrade("annual")}
               variant="secondary"
               disabled={loading !== null}
-              className="text-lg px-6 py-3 w-full"
+              className="text-lg px-6 py-3 w-full bg-yellow-400 hover:bg-yellow-500 text-purple-900 font-semibold"
             >
               {loading === "annual" ? "Redirecting..." : "Choose Annual"}
             </CTAButton>
