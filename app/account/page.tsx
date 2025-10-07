@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, CheckCircle, Clock } from "lucide-react";
+import { Loader2, CheckCircle, Clock, ArrowLeft } from "lucide-react";
 
 export default function AccountPage() {
   const [user, setUser] = useState<any>(null);
@@ -150,6 +150,17 @@ export default function AccountPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Return to Dashboard button */}
+        <div className="flex justify-center">
+          <Button
+            onClick={() => (window.location.href = "/dashboard")}
+            className="mt-4 flex items-center gap-2 bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] text-white font-semibold px-6 py-3 rounded-full shadow-md hover:opacity-90 transition"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Return to Dashboard
+          </Button>
+        </div>
       </div>
     </div>
   );
