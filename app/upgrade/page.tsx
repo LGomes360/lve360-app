@@ -5,27 +5,34 @@ import { motion } from "framer-motion";
 import CTAButton from "@/components/CTAButton";
 
 export default function UpgradePage() {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<string | null>(null);
 
-  async function handleUpgrade(plan: string) {
-    setLoading(true);
+  // Generic checkout handler
+  async function handleUpgrade(plan: "monthly" | "annual") {
+    setLoading(plan);
     try {
-      const email = prompt("Enter your email to continue:");
-      if (!email) return alert("Email is required to upgrade.");
-
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan, email }),
+        body: JSON.stringify({
+          priceId:
+            plan === "monthly"
+              ? process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY
+              : process.env.NEXT_PUBLIC_STRIPE_PRICE_ANNUAL,
+        }),
       });
+
       const data = await res.json();
-      if (data.url) window.location.href = data.url;
-      else alert("Something went wrong creating your checkout session.");
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        alert("Something went wrong creating your checkout session.");
+      }
     } catch (err) {
-      console.error(err);
-      alert("Checkout failed. Try again.");
+      console.error("Checkout failed:", err);
+      alert("Checkout failed. Please try again.");
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   }
 
@@ -56,30 +63,43 @@ export default function UpgradePage() {
         </p>
 
         {/* Pricing Display */}
-        <div className="mb-8">
-          <p className="text-5xl font-bold text-purple-600 mb-2">$15</p>
-          <p className="text-gray-500">per month</p>
-          <p className="text-sm text-gray-400 mt-1">
-            (Annual option coming soon)
-          </p>
+        <div className="grid sm:grid-cols-2 gap-6 mb-8">
+          {/* Monthly Plan */}
+          <div className="border rounded-xl p-6 hover:shadow-lg transition bg-gradient-to-b from-purple-50 to-white">
+            <p className="text-5xl font-bold text-purple-600 mb-2">$15</p>
+            <p className="text-gray-500 mb-4">per month</p>
+            <CTAButton
+              onClick={() => handleUpgrade("monthly")}
+              variant="premium"
+              disabled={loading !== null}
+              className="w-full py-3"
+            >
+              {loading === "monthly" ? "Redirecting..." : "Choose Monthly"}
+            </CTAButton>
+          </div>
+
+          {/* Annual Plan */}
+          <div className="border rounded-xl p-6 hover:shadow-lg transition bg-gradient-to-b from-yellow-50 to-white">
+            <p className="text-5xl font-bold text-yellow-600 mb-2">$100</p>
+            <p className="text-gray-500 mb-1">per year</p>
+            <p className="text-xs text-purple-500 mb-4">(Save 45%)</p>
+            <CTAButton
+              onClick={() => handleUpgrade("annual")}
+              variant="secondary"
+              disabled={loading !== null}
+              className="w-full py-3 bg-yellow-400 hover:bg-yellow-500 text-purple-900 font-semibold"
+            >
+              {loading === "annual" ? "Redirecting..." : "Choose Annual"}
+            </CTAButton>
+          </div>
         </div>
 
-        {/* CTA */}
-        <CTAButton
-          onClick={() => handleUpgrade("premium")}
-          variant="premium"
-          disabled={loading}
-          className="text-lg px-6 py-3"
-        >
-          {loading ? "Redirecting..." : "Upgrade to Premium"}
-        </CTAButton>
-
-        <p className="mt-4 text-sm text-gray-500">
+        <p className="text-sm text-gray-500 mb-10">
           100% secure checkout via Stripe • Cancel anytime
         </p>
 
         {/* Feature Highlights */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-10 text-left">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
           {[
             "✓ Full access to AI-generated reports",
             "✓ Weekly personalized tweaks",
