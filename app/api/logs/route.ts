@@ -60,9 +60,9 @@ export async function POST(req: Request) {
   const body = await req.json();
   const payload = { ...body, user_id: publicUser.id };
 
-  const { error } = await supabaseAdmin
+  const { error } = await supabase
     .from("logs")
-    .insert(payload);
+    .upsert(payload, { onConflict: "user_id,log_date", ignoreDuplicates: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
