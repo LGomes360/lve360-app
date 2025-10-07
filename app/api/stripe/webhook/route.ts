@@ -30,9 +30,9 @@ export async function POST(req: NextRequest) {
 
     console.log("✅ Webhook event:", event.type, "ID:", event.id);
 
-    // ─────────────────────────────────────────────────────────────
-    // 0️⃣  Deduplicate events
-    // ─────────────────────────────────────────────────────────────
+    // ───────────────────────────────────────────────
+    // 0️⃣ Deduplicate events
+    // ───────────────────────────────────────────────
     const eventId = event.id;
     const { data: existing } = await supabaseAdmin
       .from("stripe_events")
@@ -48,9 +48,9 @@ export async function POST(req: NextRequest) {
       .from("stripe_events")
       .insert([{ id: eventId, raw: event, created_at: new Date().toISOString() }]);
 
-    // ─────────────────────────────────────────────────────────────
-    // 1️⃣  Checkout completed → upgrade user + record subscription
-    // ─────────────────────────────────────────────────────────────
+    // ───────────────────────────────────────────────
+    // 1️⃣ Checkout completed → upgrade user + record subscription
+    // ───────────────────────────────────────────────
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
       const email =
@@ -58,14 +58,14 @@ export async function POST(req: NextRequest) {
       const stripeCustomerId = (session.customer as string) ?? null;
 
       if (email) {
-        // make sure auth user exists
+        // Ensure Supabase Auth user exists
         try {
           const { data: list } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 100 });
           if (!list?.users?.find((u: any) => u.email === email)) {
             await supabaseAdmin.auth.admin.createUser({ email, email_confirm: true });
           }
         } catch (e) {
-          console.warn("⚠️ auth user check failed:", (e as any)?.message);
+          console.warn("⚠️ Auth user check failed:", (e as any)?.message);
         }
 
         const chosenTier =
@@ -85,10 +85,10 @@ export async function POST(req: NextRequest) {
           },
           { onConflict: "email" }
         );
+
         console.log(`📝 Upserted user ${email} → ${chosenTier} (${billingInterval})`);
       }
 
-      // record subscription
       if (session.subscription) {
         const subscriptionId = session.subscription as string;
         const lineItems = await stripe.checkout.sessions.listLineItems(session.id, { limit: 1 });
@@ -103,14 +103,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // 2️⃣  Subscription updates → handle lifecycle + cancellations
-    // ─────────────────────────────────────────────────────────────
+    // ───────────────────────────────────────────────
+    // 2️⃣ Subscription updates → handle lifecycle + cancellations
+    // ───────────────────────────────────────────────
     if (event.type.startsWith("customer.subscription.")) {
       const sub = event.data.object as Stripe.Subscription;
       console.log("🔄 Subscription update:", sub.id, "|", sub.status);
 
-      // Always keep subscription table synced
+      // Always sync subscription table
       await supabaseAdmin.from("subscriptions").upsert({
         id: sub.id,
         customer: sub.customer,
@@ -118,17 +118,16 @@ export async function POST(req: NextRequest) {
         raw: sub,
       });
 
-      // lookup email
       const customer = await stripe.customers.retrieve(sub.customer as string);
       const email = (customer as Stripe.Customer).email;
       if (!email) return NextResponse.json({ received: true });
 
-      // derive interval
+      // Determine billing interval from plan
       const planInterval = sub.items?.data?.[0]?.plan?.interval; // 'month' | 'year'
       const billingInterval =
         planInterval === "year" ? "annual" : planInterval === "month" ? "monthly" : null;
 
-      // timestamps we care about
+      // Extract Stripe timestamps
       const cancelAt = sub.cancel_at ? new Date(sub.cancel_at * 1000).toISOString() : null;
       const currentPeriodEnd = sub.current_period_end
         ? new Date(sub.current_period_end * 1000).toISOString()
@@ -136,7 +135,6 @@ export async function POST(req: NextRequest) {
       const canceledAt = sub.canceled_at ? new Date(sub.canceled_at * 1000).toISOString() : null;
       const endedAt = sub.ended_at ? new Date(sub.ended_at * 1000).toISOString() : null;
 
-      // pick proper end date
       const endDate =
         cancelAt ??
         currentPeriodEnd ??
@@ -144,21 +142,21 @@ export async function POST(req: NextRequest) {
         canceledAt ??
         (sub.status === "canceled" ? new Date().toISOString() : null);
 
-      // ── handle each case ───────────────────────────────
+      // Case A: Scheduled cancel → stay premium
       if (sub.cancel_at_period_end && endDate) {
-        // scheduled cancel → stay premium
         console.log(`⏳ ${email} scheduled to cancel on ${endDate}`);
         await supabaseAdmin
           .from("users")
           .update({
             stripe_subscription_status: sub.status,
-            billing_interval,
+            billing_interval: billingInterval,
             subscription_end_date: endDate,
             updated_at: new Date().toISOString(),
           })
           .eq("email", email);
-      } else if (["canceled", "unpaid", "incomplete_expired"].includes(sub.status)) {
-        // immediate cancel → downgrade
+      }
+      // Case B: Immediate cancel / unpaid
+      else if (["canceled", "unpaid", "incomplete_expired"].includes(sub.status)) {
         console.log(`💀 ${email} canceled → free`);
         await supabaseAdmin.from("users").upsert(
           {
@@ -166,14 +164,15 @@ export async function POST(req: NextRequest) {
             tier: "free",
             stripe_customer_id: sub.customer as string,
             stripe_subscription_status: sub.status,
-            billing_interval,
+            billing_interval: billingInterval,
             subscription_end_date: endDate,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "email" }
         );
-      } else {
-        // active or resumed
+      }
+      // Case C: Active / resumed
+      else {
         console.log(`🧭 ${email} active/resumed`);
         await supabaseAdmin.from("users").upsert(
           {
@@ -181,7 +180,7 @@ export async function POST(req: NextRequest) {
             tier: "premium",
             stripe_customer_id: sub.customer as string,
             stripe_subscription_status: sub.status,
-            billing_interval,
+            billing_interval: billingInterval,
             subscription_end_date: null,
             updated_at: new Date().toISOString(),
           },
@@ -193,9 +192,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true });
   } catch (err: any) {
     console.error("❌ Webhook error:", err);
-    return NextResponse.json(
-      { error: String(err?.message ?? err) },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: String(err?.message ?? err) }, { status: 500 });
   }
 }
