@@ -62,10 +62,12 @@ export default async function DashboardPage() {
   }
 
   // --- Case 4: Logged in + Premium ---
-  return (
-    <main className="min-h-screen bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB]">
-      <DashboardHeader />
-      <DashboardClientView username={user.email?.split("@")[0] || "Optimizer"} />
-    </main>
-  );
-}
+return (
+  <main className="min-h-screen bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB]">
+    <DashboardHeader />
+    <DashboardClientView
+      username={user.email?.split("@")[0] || "Optimizer"}
+      userId={user.id}
+    />
+  </main>
+);
