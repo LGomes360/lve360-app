@@ -10,9 +10,8 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
 
 export async function POST(req: NextRequest) {
   try {
-    const sig = (req.headers.get("stripe-signature") ?? "").toString();
-    const buf = await req.arrayBuffer();
-    const raw = Buffer.from(buf);
+    const sig = req.headers.get("stripe-signature") ?? "";
+    const raw = Buffer.from(await req.arrayBuffer());
 
     let event: Stripe.Event;
     try {
@@ -24,17 +23,16 @@ export async function POST(req: NextRequest) {
     } catch (err: any) {
       console.error("❌ Webhook signature verification failed:", err.message);
       return NextResponse.json(
-        {
-          error: "Webhook signature verification failed",
-          details: String(err?.message ?? err),
-        },
+        { error: "Invalid Stripe signature", details: String(err?.message ?? err) },
         { status: 400 }
       );
     }
 
-    console.log("✅ Webhook event received:", event.type, "ID:", event.id);
+    console.log("✅ Webhook event:", event.type, "ID:", event.id);
 
-    // Deduplicate events
+    // ─────────────────────────────────────────────────────────────
+    // 0️⃣  Deduplicate events
+    // ─────────────────────────────────────────────────────────────
     const eventId = event.id;
     const { data: existing } = await supabaseAdmin
       .from("stripe_events")
@@ -42,61 +40,39 @@ export async function POST(req: NextRequest) {
       .eq("id", eventId)
       .maybeSingle();
     if (existing) {
-      console.log("ℹ️ Duplicate webhook event ignored:", eventId);
-      return NextResponse.json(
-        { received: true, deduped: true },
-        { status: 200 }
-      );
+      console.log("ℹ️ Duplicate webhook ignored:", eventId);
+      return NextResponse.json({ received: true, deduped: true });
     }
 
-    await supabaseAdmin.from("stripe_events").insert([
-      {
-        id: eventId,
-        raw: event,
-        created_at: new Date().toISOString(),
-      },
-    ]);
-    console.log("📦 Stored webhook event:", eventId);
+    await supabaseAdmin
+      .from("stripe_events")
+      .insert([{ id: eventId, raw: event, created_at: new Date().toISOString() }]);
 
-    // -------------------------------------------------------------------------
-    // 1️⃣ Checkout Completed → Upgrade User + Store Subscription
-    // -------------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────
+    // 1️⃣  Checkout completed → upgrade user + record subscription
+    // ─────────────────────────────────────────────────────────────
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
-      console.log("🎉 Checkout completed:", session.id);
-
       const email =
         session.customer_details?.email ?? session.metadata?.email ?? null;
       const stripeCustomerId = (session.customer as string) ?? null;
 
       if (email) {
-        // Ensure auth.users record exists
-        const { data: list } = await supabaseAdmin.auth.admin.listUsers({
-          page: 1,
-          perPage: 100,
-        });
-        let authId =
-          list?.users?.find((u: any) => u.email === email)?.id ?? null;
-
-        if (!authId) {
-          console.log("👤 No auth user found, creating new user for:", email);
-          const { data: created, error: createErr } =
-            await supabaseAdmin.auth.admin.createUser({
-              email,
-              email_confirm: true,
-            });
-          if (createErr)
-            console.error("❌ Error creating auth user:", createErr.message);
-          authId = created?.user?.id ?? null;
+        // make sure auth user exists
+        try {
+          const { data: list } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 100 });
+          if (!list?.users?.find((u: any) => u.email === email)) {
+            await supabaseAdmin.auth.admin.createUser({ email, email_confirm: true });
+          }
+        } catch (e) {
+          console.warn("⚠️ auth user check failed:", (e as any)?.message);
         }
 
-        // Determine plan + billing interval
         const chosenTier =
           session.metadata?.plan === "concierge" ? "concierge" : "premium";
         const billingInterval =
           session.metadata?.plan === "annual" ? "annual" : "monthly";
 
-        // Upsert into users table
         await supabaseAdmin.from("users").upsert(
           {
             email,
@@ -109,26 +85,14 @@ export async function POST(req: NextRequest) {
           },
           { onConflict: "email" }
         );
-
-        console.log(
-          `📝 Upserted user ${email} → tier=${chosenTier}, interval=${billingInterval}`
-        );
+        console.log(`📝 Upserted user ${email} → ${chosenTier} (${billingInterval})`);
       }
 
-      // Record subscription
-      let priceId: string | null = null;
-      if (session.id) {
-        const lineItems = await stripe.checkout.sessions.listLineItems(
-          session.id,
-          { limit: 1 }
-        );
-        priceId =
-          lineItems.data[0]?.price?.id ?? session.metadata?.price_id ?? null;
-      }
-
+      // record subscription
       if (session.subscription) {
         const subscriptionId = session.subscription as string;
-        console.log("📌 Recording subscription:", subscriptionId);
+        const lineItems = await stripe.checkout.sessions.listLineItems(session.id, { limit: 1 });
+        const priceId = lineItems.data[0]?.price?.id ?? session.metadata?.price_id ?? null;
         await supabaseAdmin.from("subscriptions").upsert({
           id: subscriptionId,
           customer: stripeCustomerId,
@@ -139,14 +103,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // -------------------------------------------------------------------------
-    // 2️⃣ Subscription Updates → Sync Lifecycle, Handle Cancellations Gracefully
-    // -------------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────
+    // 2️⃣  Subscription updates → handle lifecycle + cancellations
+    // ─────────────────────────────────────────────────────────────
     if (event.type.startsWith("customer.subscription.")) {
       const sub = event.data.object as Stripe.Subscription;
-      console.log("🔄 Subscription update:", sub.id, "| Status:", sub.status);
+      console.log("🔄 Subscription update:", sub.id, "|", sub.status);
 
-      // Always record raw subscription details
+      // Always keep subscription table synced
       await supabaseAdmin.from("subscriptions").upsert({
         id: sub.id,
         customer: sub.customer,
@@ -154,57 +118,79 @@ export async function POST(req: NextRequest) {
         raw: sub,
       });
 
-      // Keep user in sync
-      if (sub.customer) {
-        const customer = await stripe.customers.retrieve(sub.customer as string);
-        const email = (customer as Stripe.Customer).email;
+      // lookup email
+      const customer = await stripe.customers.retrieve(sub.customer as string);
+      const email = (customer as Stripe.Customer).email;
+      if (!email) return NextResponse.json({ received: true });
 
-        if (email) {
-          const cancelAt = sub.cancel_at
-            ? new Date(sub.cancel_at * 1000).toISOString()
-            : null;
-          const cancelAtPeriodEnd = sub.cancel_at_period_end || false;
+      // derive interval
+      const planInterval = sub.items?.data?.[0]?.plan?.interval; // 'month' | 'year'
+      const billingInterval =
+        planInterval === "year" ? "annual" : planInterval === "month" ? "monthly" : null;
 
-          // Determine new tier logic
-          let tier = "premium";
-          if (["canceled", "unpaid", "incomplete_expired"].includes(sub.status))
-            tier = "free";
+      // timestamps we care about
+      const cancelAt = sub.cancel_at ? new Date(sub.cancel_at * 1000).toISOString() : null;
+      const currentPeriodEnd = sub.current_period_end
+        ? new Date(sub.current_period_end * 1000).toISOString()
+        : null;
+      const canceledAt = sub.canceled_at ? new Date(sub.canceled_at * 1000).toISOString() : null;
+      const endedAt = sub.ended_at ? new Date(sub.ended_at * 1000).toISOString() : null;
 
-          if (cancelAtPeriodEnd && cancelAt) {
-            // Scheduled cancellation → keep premium until end date
-            console.log(
-              `⏳ ${email} scheduled to cancel on ${cancelAt} (status: ${sub.status})`
-            );
-            await supabaseAdmin
-              .from("users")
-              .update({
-                stripe_subscription_status: sub.status,
-                subscription_end_date: cancelAt,
-                updated_at: new Date().toISOString(),
-              })
-              .eq("email", email);
-          } else {
-            // Active or immediately canceled
-            console.log(
-              `📝 Updating user ${email} → tier=${tier}, status=${sub.status}`
-            );
-            await supabaseAdmin.from("users").upsert(
-              {
-                email,
-                tier,
-                stripe_customer_id: sub.customer as string,
-                stripe_subscription_status: sub.status,
-                subscription_end_date: cancelAt ?? null,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: "email" }
-            );
-          }
-        }
+      // pick proper end date
+      const endDate =
+        cancelAt ??
+        currentPeriodEnd ??
+        endedAt ??
+        canceledAt ??
+        (sub.status === "canceled" ? new Date().toISOString() : null);
+
+      // ── handle each case ───────────────────────────────
+      if (sub.cancel_at_period_end && endDate) {
+        // scheduled cancel → stay premium
+        console.log(`⏳ ${email} scheduled to cancel on ${endDate}`);
+        await supabaseAdmin
+          .from("users")
+          .update({
+            stripe_subscription_status: sub.status,
+            billing_interval,
+            subscription_end_date: endDate,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("email", email);
+      } else if (["canceled", "unpaid", "incomplete_expired"].includes(sub.status)) {
+        // immediate cancel → downgrade
+        console.log(`💀 ${email} canceled → free`);
+        await supabaseAdmin.from("users").upsert(
+          {
+            email,
+            tier: "free",
+            stripe_customer_id: sub.customer as string,
+            stripe_subscription_status: sub.status,
+            billing_interval,
+            subscription_end_date: endDate,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "email" }
+        );
+      } else {
+        // active or resumed
+        console.log(`🧭 ${email} active/resumed`);
+        await supabaseAdmin.from("users").upsert(
+          {
+            email,
+            tier: "premium",
+            stripe_customer_id: sub.customer as string,
+            stripe_subscription_status: sub.status,
+            billing_interval,
+            subscription_end_date: null,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "email" }
+        );
       }
     }
 
-    return NextResponse.json({ received: true }, { status: 200 });
+    return NextResponse.json({ received: true });
   } catch (err: any) {
     console.error("❌ Webhook error:", err);
     return NextResponse.json(
