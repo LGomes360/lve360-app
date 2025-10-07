@@ -28,7 +28,8 @@ async function openPortal(email: string, setLoading: (b: boolean) => void) {
   }
 }
 
-export default function ClientDashboard() {
+export default function ClientDashboard({ userId }: { userId: string }) {
+
   const searchParams = useSearchParams();
   const success = searchParams?.get("success") ?? null;
 
