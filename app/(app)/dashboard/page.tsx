@@ -3,39 +3,33 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import DashboardHeader from "@/components/DashboardHeader";
 import ClientDashboard from "@/components/ClientDashboard";
 import LongevityJourneyDashboard from "@/components/LongevityJourneyDashboard";
 import { Loader2 } from "lucide-react";
 
 export default function DashboardPage() {
   const supabase = createClientComponentClient();
-  const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [showGreeting, setShowGreeting] = useState(true);
 
-  // -----------------------------
-  // Fetch authenticated user
-  // -----------------------------
+  // 🔹 Fetch authenticated user
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.auth.getUser();
+      const { data, error } = await supabase.auth.getUser();
+      if (error) console.error("Auth fetch failed:", error.message);
       setUser(data?.user ?? null);
       setLoading(false);
     })();
-  }, []);
+  }, [supabase]);
 
-  // -----------------------------
-  // Fade-in greeting
-  // -----------------------------
+  // 🔹 Gentle fade-in greeting
   useEffect(() => {
     const timer = setTimeout(() => setShowGreeting(false), 4000);
     return () => clearTimeout(timer);
   }, []);
 
-  // -----------------------------
-  // Provision user in public.users table
-  // -----------------------------
+  // 🔹 Ensure user is provisioned in public.users
   useEffect(() => {
     fetch("/api/provision-user", { method: "POST" }).catch((err) =>
       console.error("Provision user failed:", err)
@@ -43,7 +37,7 @@ export default function DashboardPage() {
   }, []);
 
   // -----------------------------
-  // Loading State
+  // 🌀 Loading Spinner
   // -----------------------------
   if (loading) {
     return (
@@ -54,27 +48,28 @@ export default function DashboardPage() {
   }
 
   // -----------------------------
-  // If not logged in → redirect
+  // 🔒 Redirect if not logged in
   // -----------------------------
   if (!user) {
     if (typeof window !== "undefined") window.location.href = "/login";
     return null;
   }
 
+  // 🧠 Derive display name + ID
   const username =
     user.email?.split("@")[0]?.charAt(0).toUpperCase() +
       user.email?.split("@")[0]?.slice(1) || "Optimizer";
   const userId = user.id;
 
   // -----------------------------
-  // RENDER DASHBOARD
+  // 🎨 Main Dashboard Render
   // -----------------------------
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB]">
-      <DashboardHeader />
+      {/* DashboardHeader is rendered via (app)/layout.tsx */}
 
       <div className="max-w-6xl mx-auto p-6 space-y-6">
-        {/* Animated greeting */}
+        {/* Greeting Animation */}
         <AnimatePresence>
           {showGreeting && (
             <motion.h1
@@ -82,7 +77,7 @@ export default function DashboardPage() {
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.5 }}
+              transition={{ duration: 0.6, ease: "easeOut" }}
               className="text-4xl font-extrabold text-center mb-8"
             >
               Welcome back,{" "}
@@ -95,13 +90,13 @@ export default function DashboardPage() {
         </AnimatePresence>
 
         {/* Main Dashboard Card */}
-        <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl ring-1 ring-purple-100 p-6 transition space-y-8">
-          {/* ClientDashboard = stack summary + AI insights */}
+        <section className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl ring-1 ring-purple-100 p-6 transition space-y-8">
+          {/* Stack overview + insights */}
           <ClientDashboard userId={userId} />
 
-          {/* Longevity goals + logging */}
+          {/* Longevity goals section */}
           <LongevityJourneyDashboard userId={userId} />
-        </div>
+        </section>
       </div>
     </main>
   );
