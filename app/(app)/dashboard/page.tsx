@@ -1,74 +1,108 @@
-///app/dashboard/page.tsx//
-import { cookies } from "next/headers";
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import DashboardClientView from "./DashboardClientView"; // 👈 we'll create this next
+"use client";
+
+import { useEffect, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import DashboardHeader from "@/components/DashboardHeader";
+import ClientDashboard from "@/components/ClientDashboard";
+import LongevityJourneyDashboard from "@/components/LongevityJourneyDashboard";
+import { Loader2 } from "lucide-react";
 
-export default async function DashboardPage() {
-  const supabase = createServerComponentClient({ cookies });
+export default function DashboardPage() {
+  const supabase = createClientComponentClient();
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
+  const [showGreeting, setShowGreeting] = useState(true);
 
-  // --- Get session (null if not logged in) ---
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // -----------------------------
+  // Fetch authenticated user
+  // -----------------------------
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      setUser(data?.user ?? null);
+      setLoading(false);
+    })();
+  }, []);
 
+  // -----------------------------
+  // Fade-in greeting
+  // -----------------------------
+  useEffect(() => {
+    const timer = setTimeout(() => setShowGreeting(false), 4000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // -----------------------------
+  // Provision user in public.users table
+  // -----------------------------
+  useEffect(() => {
+    fetch("/api/provision-user", { method: "POST" }).catch((err) =>
+      console.error("Provision user failed:", err)
+    );
+  }, []);
+
+  // -----------------------------
+  // Loading State
+  // -----------------------------
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+      </div>
+    );
+  }
+
+  // -----------------------------
+  // If not logged in → redirect
+  // -----------------------------
   if (!user) {
-    return (
-      <main className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB] p-6">
-        <h1 className="text-3xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent mb-4">
-          Sign in to access your dashboard
-        </h1>
-        <a
-          href="/login"
-          className="px-5 py-2.5 bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] text-white rounded-lg font-semibold shadow-md hover:shadow-lg transition"
-        >
-          Log In
-        </a>
-      </main>
-    );
+    if (typeof window !== "undefined") window.location.href = "/login";
+    return null;
   }
 
-  // --- Case 2: Logged in, check user tier ---
-  const emailNormalized = (user.email ?? "").trim().toLowerCase();
-  const { data: profile, error } = await supabase
-    .schema("public")
-    .from("users")
-    .select("tier, stripe_subscription_status")
-    .eq("email", emailNormalized)
-    .maybeSingle();
+  const username =
+    user.email?.split("@")[0]?.charAt(0).toUpperCase() +
+      user.email?.split("@")[0]?.slice(1) || "Optimizer";
+  const userId = user.id;
 
-  if (error) console.error("Error fetching user tier:", error.message);
-  const tier = profile?.tier ?? "free";
+  // -----------------------------
+  // RENDER DASHBOARD
+  // -----------------------------
+  return (
+    <main className="min-h-screen bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB]">
+      <DashboardHeader />
 
-  // --- Case 3: Logged in but Free tier ---
-  if (tier !== "premium") {
-    return (
-      <main className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB] p-6 text-center">
-        <h1 className="text-3xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent mb-4">
-          Upgrade to LVE360 Premium
-        </h1>
-        <p className="mb-6 text-gray-600 max-w-md">
-          Unlock your personalized supplement stack, weekly tweaks, and exclusive
-          insights curated just for you.
-        </p>
-        <a
-          href="/pricing"
-          className="px-6 py-2.5 bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] text-white rounded-lg font-semibold shadow-md hover:shadow-lg transition"
-        >
-          Upgrade Now
-        </a>
-      </main>
-    );
-  }
+      <div className="max-w-6xl mx-auto p-6 space-y-6">
+        {/* Animated greeting */}
+        <AnimatePresence>
+          {showGreeting && (
+            <motion.h1
+              key="greeting"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.5 }}
+              className="text-4xl font-extrabold text-center mb-8"
+            >
+              Welcome back,{" "}
+              <span className="bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] bg-clip-text text-transparent">
+                {username}
+              </span>{" "}
+              👋
+            </motion.h1>
+          )}
+        </AnimatePresence>
 
-  // --- Case 4: Logged in + Premium ---
-return (
-  <main className="min-h-screen bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB]">
-    <DashboardHeader />
-    <DashboardClientView
-      username={user.email?.split("@")[0] || "Optimizer"}
-      userId={user.id}
-    />
-  </main>
-);
+        {/* Main Dashboard Card */}
+        <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl ring-1 ring-purple-100 p-6 transition space-y-8">
+          {/* ClientDashboard = stack summary + AI insights */}
+          <ClientDashboard userId={userId} />
+
+          {/* Longevity goals + logging */}
+          <LongevityJourneyDashboard userId={userId} />
+        </div>
+      </div>
+    </main>
+  );
 }
