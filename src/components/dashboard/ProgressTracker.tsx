@@ -1,30 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { Loader2 } from "lucide-react";
 
 /**
- * ProgressTracker.tsx — Premium micro-viz (single-pass)
- * What’s included:
- * 1) Weight delta vs 30d baseline (+ lb/kg toggle w/ localStorage)
- * 2) Sleep/Energy 7d averages + week-over-week deltas
- * 3) Goal band overlay behind sparklines (if target set)
- * 4) Smoothed area-sparklines (Catmull–Rom → Bezier), min/max/last dots + <title> tooltips
- * 5) Responsive, clipped to rounded cards (no bleeding)
- * 6) Graceful low-data states (<4 points)
- * 7) A11y labels/titles
- * 8) Premium gating for advanced overlays based on users.tier
- * 9) Same DB access pattern; optional index noted below
- * 10) Small perf touches (memoization, minimal recompute)
- *
- * Tables used:
- *  - public.logs(user_id, log_date, weight, sleep, energy)
- *  - public.goals(user_id, target_weight, target_sleep, target_energy)
- *  - public.users(id, tier)
- *
- * Optional DB index (run once in Supabase if desired):
- *   create index if not exists logs_user_date_idx on public.logs(user_id, log_date);
+ * ProgressTracker.tsx — Interactive micro-viz
+ * - Hover tracker & tooltip (date + value)
+ * - Trend-aware colors (good vs caution)
+ * - Stroke-draw animation on load
+ * - Streak chip from goals.streak_days
+ * - Premium goal bands preserved
+ * - lb/kg toggle persisted
  */
 
 type LogRow = {
@@ -38,11 +25,10 @@ type GoalsRow = {
   target_weight: number | null;
   target_sleep: number | null;
   target_energy: number | null;
+  streak_days: number | null;       // NEW: celebrate consistency
 };
 
-type TierRow = { tier: string };
-
-const KG_PER_LB = 0.45359237;
+const KG_PER_LB = 0.45359237 as const;
 const UNIT_KEY = "lve360_weight_unit"; // "lb" | "kg"
 
 export default function ProgressTracker() {
@@ -78,7 +64,7 @@ export default function ProgressTracker() {
 
       const { data: g } = await supabase
         .from("goals")
-        .select("target_weight, target_sleep, target_energy")
+        .select("target_weight, target_sleep, target_energy, streak_days")
         .eq("user_id", userId)
         .maybeSingle();
       setGoals((g ?? null) as GoalsRow | null);
@@ -106,6 +92,7 @@ export default function ProgressTracker() {
   const sliceLast = <T,>(rows: T[], n: number) => rows.slice(Math.max(0, rows.length - n));
 
   // ---- Build arrays
+  const dates = useMemo(() => logs.map(l => l.log_date), [logs]);
   const weightValsRaw = useMemo(() => toNums(logs.map((l) => l.weight)), [logs]);
   const sleepVals  = useMemo(() => toNums(logs.map((l) => l.sleep)), [logs]);
   const energyVals = useMemo(() => toNums(logs.map((l) => l.energy)), [logs]);
@@ -113,7 +100,6 @@ export default function ProgressTracker() {
   // unit conversion for display
   const weightVals = useMemo(() => {
     if (weightUnit === "lb") return weightValsRaw;
-    // convert lb → kg (1 lb = 0.45359237 kg)
     return weightValsRaw.map((v) => (v == null ? null : round1(v * KG_PER_LB)));
   }, [weightValsRaw, weightUnit]);
 
@@ -132,14 +118,8 @@ export default function ProgressTracker() {
   }, [weightToday, weightBaseline]);
 
   // 7-day averages
-  const sleep7 = useMemo(
-    () => avg(toNums(sliceLast(logs, 7).map((l) => l.sleep))),
-    [logs]
-  );
-  const energy7 = useMemo(
-    () => avg(toNums(sliceLast(logs, 7).map((l) => l.energy))),
-    [logs]
-  );
+  const sleep7 = useMemo(() => avg(toNums(sliceLast(logs, 7).map((l) => l.sleep))), [logs]);
+  const energy7 = useMemo(() => avg(toNums(sliceLast(logs, 7).map((l) => l.energy))), [logs]);
 
   // Week-over-week deltas (current last 7 vs previous 7)
   const sleepWoW = useMemo(() => {
@@ -165,37 +145,26 @@ export default function ProgressTracker() {
   // ---- Sparkline point builder (scaled to 0..h)
   function sparkPoints(values: (number | null)[], width = 220, height = 64) {
     const nums = values.filter((v): v is number => v != null);
-    if (!nums.length) return { points: "", w: width, h: height, min: 0, max: 0 };
+    if (!nums.length) return { points: "", w: width, h: height, min: 0, max: 0, raw: [] as [number, number][] };
     const min = Math.min(...nums);
     const max = Math.max(...nums);
-    const range = max - min || 1;
     const stepX = width / Math.max(values.length - 1, 1);
 
-    const pts: [number, number][] = [];
-    values.forEach((v, i) => {
+    const pts: [number, number][] = values.map((v, i) => {
       const x = Math.round(i * stepX);
-      const y = v == null ? height / 2 : Math.round(height - ((v - min) / range) * height);
-      pts.push([x, y]);
+      if (v == null) return [x, height / 2];
+      const y = mapToY(v, min, max, height);
+      return [x, y];
     });
 
-    return {
-      points: pts.map(([x, y]) => `${x},${y}`).join(" "),
-      raw: pts,
-      w: width,
-      h: height,
-      min,
-      max,
-    };
+    return { points: pts.map(([x, y]) => `${x},${y}`).join(" "), raw: pts, w: width, h: height, min, max };
   }
 
   const weightSpark = useMemo(() => sparkPoints(weightVals), [weightVals]);
   const sleepSpark  = useMemo(() => sparkPoints(sleepVals), [sleepVals]);
   const energySpark = useMemo(() => sparkPoints(energyVals), [energyVals]);
 
-  // ---- Premium gate (mask advanced overlays on free)
   const isPremium = tier?.toLowerCase() === "premium";
-
-  // ---- Low-data flags
   const lowDataWeight = (weightVals.filter((v) => v != null).length < 4);
   const lowDataSleep  = (sleepVals.filter((v) => v != null).length < 4);
   const lowDataEnergy = (energyVals.filter((v) => v != null).length < 4);
@@ -205,17 +174,32 @@ export default function ProgressTracker() {
       <div id="progress" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
         <div className="flex items-center">
           <Loader2 className="w-5 h-5 animate-spin text-purple-600 mr-2" />
-          <span className="text-gray-600">Loading progress…</span>
         </div>
       </div>
     );
   }
 
+  // Trend colors (alive feel)
+  const weightTrend = slope(weightVals);
+  const sleepTrend  = slope(sleepVals);
+  const energyTrend = slope(energyVals);
+
+  const weightColor = trendColor(weightTrend, "weight");
+  const sleepColor  = trendColor(sleepTrend, "upGood");
+  const energyColor = trendColor(energyTrend, "upGood");
+
   return (
     <div id="progress" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
-      <h2 className="text-2xl font-bold text-[#041B2D] mb-4 flex items-center gap-2">
-        <span role="img" aria-label="chart">📊</span> Progress Tracker
-      </h2>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-2xl font-bold text-[#041B2D] flex items-center gap-2">
+          <span role="img" aria-label="chart">📊</span> Progress Tracker
+        </h2>
+        {Number(goals?.streak_days) > 0 && (
+          <span className="text-xs rounded-full border border-amber-200 bg-amber-50 text-amber-800 px-2 py-0.5">
+            🔥 {goals?.streak_days}-day streak
+          </span>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Weight */}
@@ -235,38 +219,25 @@ export default function ProgressTracker() {
             }
           />
           <BigNumber
-            value={
-              weightToday != null
-                ? `${fmtWeight(weightToday, weightUnit)}`
-                : "—"
-            }
-            secondary={
-              weightDelta != null
-                ? deltaText(weightDelta, weightUnit)
-                : undefined
-            }
+            value={weightToday != null ? `${fmtWeight(weightToday, weightUnit)}` : "—"}
+            secondary={weightDelta != null ? deltaText(weightDelta, weightUnit) : undefined}
           />
-
           <MetricSpark
             label="Last 30 days"
-            color="#7C3AED"
+            color={weightColor}
             data={weightSpark}
             goalBand={!isPremium || goals?.target_weight == null ? null : {
-              // show ±1 unit around target as a lane
               min: goals.target_weight - (weightUnit === "lb" ? 1 : round1(1 * KG_PER_LB)),
               max: goals.target_weight + (weightUnit === "lb" ? 1 : round1(1 * KG_PER_LB)),
-              // convert to current display unit if needed
               convert: (v: number) => (weightUnit === "lb" ? v : round1(v * KG_PER_LB)),
               mask: !isPremium,
             }}
             lowData={lowDataWeight}
             seriesRaw={weightVals}
+            seriesDates={dates}
             unit={weightUnit === "lb" ? "lb" : "kg"}
           />
-
-          {!isPremium && logs.length >= 7 && (
-            <GateNote />
-          )}
+          {!isPremium && logs.length >= 7 && <GateNote />}
         </Card>
 
         {/* Sleep */}
@@ -274,14 +245,9 @@ export default function ProgressTracker() {
           <Header
             title="Sleep Quality"
             subtitle={goals?.target_sleep != null ? `Target: ${goals.target_sleep} / 5` : undefined}
-            rightEl={
-              woWBadge(sleepWoW, " / 5")
-            }
+            rightEl={woWBadge(sleepWoW, " / 5")}
           />
-          <div
-            className="flex items-center gap-4"
-            title="Ring shows your 7-day average vs. a max of 5."
-          >
+          <div className="flex items-center gap-4" title="Ring shows your 7-day average vs. a max of 5.">
             <ProgressRing value={sleep7 ?? 0} max={5} size={72} />
             <div>
               <div className="text-sm text-gray-600">7-day avg</div>
@@ -290,23 +256,21 @@ export default function ProgressTracker() {
               </div>
             </div>
           </div>
-
           <MetricSpark
             label="Last 30 days"
-            color="#06C1A0"
+            color={sleepColor}
             data={sleepSpark}
             goalBand={!isPremium || goals?.target_sleep == null ? null : {
-              // band is [target-0.5, target] clamped to [1,5]
               min: Math.max(1, (goals.target_sleep - 0.5)),
               max: Math.min(5, goals.target_sleep),
-              convert: (v: number) => v, // same units
+              convert: (v: number) => v,
               mask: !isPremium,
             }}
             lowData={lowDataSleep}
             seriesRaw={sleepVals}
+            seriesDates={dates}
             unit="/5"
           />
-
           {!isPremium && logs.length >= 7 && <GateNote />}
         </Card>
 
@@ -315,14 +279,9 @@ export default function ProgressTracker() {
           <Header
             title="Energy Level"
             subtitle={goals?.target_energy != null ? `Target: ${goals.target_energy} / 10` : undefined}
-            rightEl={
-              woWBadge(energyWoW, " / 10")
-            }
+            rightEl={woWBadge(energyWoW, " / 10")}
           />
-          <div
-            className="flex items-center gap-4"
-            title="Ring shows your 7-day average vs. a max of 10."
-          >
+          <div className="flex items-center gap-4" title="Ring shows your 7-day average vs. a max of 10.">
             <ProgressRing value={energy7 ?? 0} max={10} size={72} />
             <div>
               <div className="text-sm text-gray-600">7-day avg</div>
@@ -331,13 +290,11 @@ export default function ProgressTracker() {
               </div>
             </div>
           </div>
-
           <MetricSpark
             label="Last 30 days"
-            color="#F59E0B"
+            color={energyColor}
             data={energySpark}
             goalBand={!isPremium || goals?.target_energy == null ? null : {
-              // band is [target-1, target] clamped to [1,10]
               min: Math.max(1, (goals.target_energy - 1)),
               max: Math.min(10, goals.target_energy),
               convert: (v: number) => v,
@@ -345,9 +302,9 @@ export default function ProgressTracker() {
             }}
             lowData={lowDataEnergy}
             seriesRaw={energyVals}
+            seriesDates={dates}
             unit="/10"
           />
-
           {!isPremium && logs.length >= 7 && <GateNote />}
         </Card>
       </div>
@@ -360,7 +317,6 @@ export default function ProgressTracker() {
 ========================= */
 
 function Card({ children }: { children: React.ReactNode }) {
-  // overflow-hidden + relative ensures area/line never bleeds past rounded corners
   return (
     <div className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4 shadow-sm overflow-hidden relative">
       {children}
@@ -398,7 +354,7 @@ function GateNote() {
 }
 
 /**
- * MetricSpark: smoothed area sparkline with goal band + dots
+ * MetricSpark: smoothed area sparkline with goal band + dots + hover tracker
  */
 function MetricSpark({
   label,
@@ -407,126 +363,148 @@ function MetricSpark({
   goalBand,
   lowData,
   seriesRaw,
+  seriesDates,
   unit,
 }: {
   label: string;
   color: string;
-  data: { points: string; raw?: [number, number][]; w: number; h: number; min: number; max: number };
+  data: { points: string; raw: [number, number][]; w: number; h: number; min: number; max: number };
   goalBand: null | { min: number; max: number; convert: (v: number) => number; mask: boolean };
   lowData: boolean;
   seriesRaw: (number | null)[];
+  seriesDates: string[];
   unit: string;
 }) {
-  const pts = (data.raw || []);
+  const pts = data.raw;
   const hasLine = pts.length >= 2;
 
   // Smoothing: Catmull–Rom → Bezier
   const pathD = hasLine ? catmullRomPath(pts) : "";
   const areaD = hasLine ? `${pathD} L ${pts[pts.length - 1][0]} ${data.h} L ${pts[0][0]} ${data.h} Z` : "";
 
-  // Dots (min/max/last) + titles
+  // Tooltip / hover tracker
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  const stepX = useMemo(() => (pts.length > 1 ? (pts[pts.length - 1][0] - pts[0][0]) / (pts.length - 1) : 0), [pts]);
+
+  function onMove(e: React.MouseEvent<SVGSVGElement>) {
+    if (!svgRef.current || !hasLine) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const idx = Math.round(x / (stepX || 1));
+    setHoverIdx(clamp(idx, 0, pts.length - 1));
+  }
+  function onLeave() { setHoverIdx(null); }
+
+  // Dots min/max/last
   const yValues = pts.map(([, y]) => y);
   const minY = Math.min(...yValues);
   const maxY = Math.max(...yValues);
   const lastPt = pts[pts.length - 1];
 
-  // Goal band rect (convert target values -> current scale)
+  // Goal band rect
   let band: null | { yTop: number; height: number } = null;
   if (goalBand && hasLine) {
     const { min, max, convert } = goalBand;
-    // map domain value v -> y
-    const mapY = (v: number) => {
-      const conv = convert(v);
-      const rng = (data.max - data.min) || 1;
-      const scaled = data.h - ((conv - convert(data.min)) / (convert(data.max) - convert(data.min) || 1)) * data.h;
-      // If convert is identity, fallback to original scale
-      if (!Number.isFinite(scaled)) {
-        const y = data.h - ((v - data.min) / rng) * data.h;
-        return clamp(y, 0, data.h);
-      }
-      return clamp(scaled, 0, data.h);
-    };
-    const y1 = mapY(min);
-    const y2 = mapY(max);
+    const y1 = mapToY(convert(min), convert(data.min), convert(data.max), data.h);
+    const y2 = mapToY(convert(max), convert(data.min), convert(data.max), data.h);
     const top = Math.min(y1, y2);
     const height = Math.abs(y2 - y1);
     band = { yTop: top, height };
   }
 
-  // Unique gradient id per label
+  // Gradient id
   const gid = `grad-${label.replace(/\s+/g, "-").toLowerCase()}`;
 
-  // Native tooltips for dots use the last 30 raw values (seriesRaw)
-  const numericSeries = seriesRaw.filter((v): v is number => v != null);
+  // Tooltip values
+  const hv = hoverIdx != null ? seriesRaw[hoverIdx] : null;
+  const hDate = hoverIdx != null ? seriesDates[hoverIdx] : null;
+  const hp = hoverIdx != null ? pts[hoverIdx] : null;
 
   return (
     <div>
       <div className="text-xs text-gray-600 mb-1 flex items-center gap-1">
         {label}
-        <span className="inline-block w-4 h-4 rounded-full bg-gray-100 text-gray-600 text-[10px] leading-4 text-center" title="Last 30 days">?</span>
       </div>
 
-      <svg
-        width="100%"
-        height={data.h}
-        viewBox={`0 0 ${data.w} ${data.h}`}
-        preserveAspectRatio="none"
-        className={`block ${!hasLine ? "" : ""}`}
-        role="img"
-        aria-label={`${label} sparkline`}
-      >
-        <defs>
-          <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.22" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
-          </linearGradient>
-          <clipPath id={`${gid}-clip`}>
-            <rect x="0" y="0" width={data.w} height={data.h} rx="8" ry="8" />
-          </clipPath>
-        </defs>
+      <div className="relative">
+        {/* Tooltip */}
+        {hv != null && hp && (
+          <div
+            className="absolute -top-6 translate-x-[-50%] whitespace-nowrap rounded-md border border-gray-200 bg-white px-2 py-0.5 text-xs shadow-sm"
+            style={{ left: hp[0] }}
+          >
+            {formatDate(hDate)} • {fmtValue(hv ?? undefined, unit)}
+          </div>
+        )}
 
-        <g clipPath={`url(#${gid}-clip)`}>
-          {/* Goal band (premium) */}
-          {band && (
-            <rect
-              x={0}
-              y={band.yTop}
-              width={data.w}
-              height={band.height}
-              fill={goalBand?.mask ? "url(#none)" : color}
-              opacity={goalBand?.mask ? 0.0 : 0.08}
-            />
-          )}
+        <svg
+          ref={svgRef}
+          width="100%"
+          height={data.h}
+          viewBox={`0 0 ${data.w} ${data.h}`}
+          preserveAspectRatio="none"
+          className="block"
+          role="img"
+          aria-label={`${label} sparkline`}
+          onMouseMove={onMove}
+          onMouseLeave={onLeave}
+        >
+          <defs>
+            <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity="0.22" />
+              <stop offset="100%" stopColor={color} stopOpacity="0" />
+            </linearGradient>
+            <clipPath id={`${gid}-clip`}>
+              <rect x="0" y="0" width={data.w} height={data.h} rx="8" ry="8" />
+            </clipPath>
+          </defs>
 
-          {/* Area + line */}
-          {hasLine && <path d={areaD} fill={`url(#${gid})`} />}
-          {hasLine && <path d={pathD} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />}
+          <g clipPath={`url(#${gid}-clip)`}>
+            {/* Goal band (premium) */}
+            {band && <rect x={0} y={band.yTop} width={data.w} height={band.height} fill={color} opacity={0.08} />}
 
-          {/* Low-data placeholder */}
-          {!hasLine && (
-            <text x="50%" y={data.h / 2} textAnchor="middle" dominantBaseline="middle" fontSize="12" fill="#6B7280">
-              Log 3 more days to unlock trends
-            </text>
-          )}
+            {/* Area + line (with stroke-draw animation) */}
+            {hasLine && <path d={areaD} fill={`url(#${gid})`} />}
+            {hasLine && (
+              <path
+                d={pathD}
+                fill="none"
+                stroke={color}
+                strokeWidth="2.5"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                style={{
+                  strokeDasharray: 1000,
+                  strokeDashoffset: 1000,
+                  animation: "lve-stroke 900ms ease-out forwards",
+                }}
+              />
+            )}
 
-          {/* Min/Max/Last dots (with native tooltips) */}
-          {hasLine && pts.map(([x, y], i) => (y === minY ? (
-            <circle key={`min-${i}`} cx={x} cy={y} r="2.8" fill={color} opacity="0.9">
-              <title>Min: {fmtValue(numericSeries[i], unit)}</title>
-            </circle>
-          ) : null))}
-          {hasLine && pts.map(([x, y], i) => (y === maxY ? (
-            <circle key={`max-${i}`} cx={x} cy={y} r="2.8" fill={color} opacity="0.9">
-              <title>Max: {fmtValue(numericSeries[i], unit)}</title>
-            </circle>
-          ) : null))}
-          {hasLine && lastPt && (
-            <circle cx={lastPt[0]} cy={lastPt[1]} r="3.2" fill={color}>
-              <title>Last: {fmtValue(numericSeries[numericSeries.length - 1], unit)}</title>
-            </circle>
-          )}
-        </g>
-      </svg>
+            {/* Low-data placeholder */}
+            {!hasLine && (
+              <text x="50%" y={data.h / 2} textAnchor="middle" dominantBaseline="middle" fontSize="12" fill="#6B7280">
+                Log 3 more days to unlock trends
+              </text>
+            )}
+
+            {/* Min/Max/Last dots */}
+            {hasLine && pts.map(([x, y], i) => (y === minY ? <circle key={`min-${i}`} cx={x} cy={y} r="2.8" fill={color} opacity="0.9" /> : null))}
+            {hasLine && pts.map(([x, y], i) => (y === maxY ? <circle key={`max-${i}`} cx={x} cy={y} r="2.8" fill={color} opacity="0.9" /> : null))}
+            {hasLine && lastPt && <circle cx={lastPt[0]} cy={lastPt[1]} r="3.2" fill={color} />}
+
+            {/* Hover tracker */}
+            {hasLine && hoverIdx != null && (
+              <>
+                <line x1={hp![0]} y1={0} x2={hp![0]} y2={data.h} stroke="#9CA3AF" strokeDasharray="3,3" />
+                <circle cx={hp![0]} cy={hp![1]} r="3.6" fill={color} />
+              </>
+            )}
+          </g>
+        </svg>
+      </div>
     </div>
   );
 }
@@ -541,7 +519,7 @@ function catmullRomPath(pts: [number, number][]) {
     const p1 = pts[i];
     const p2 = pts[i + 1];
     const p3 = pts[i + 2] || pts[i + 1];
-    const t = 0.5; // tension 0..1
+    const t = 0.5;
     const c1x = p1[0] + ((p2[0] - p0[0]) / 6) * t;
     const c1y = p1[1] + ((p2[1] - p0[1]) / 6) * t;
     const c2x = p2[0] - ((p3[0] - p1[0]) / 6) * t;
@@ -583,7 +561,7 @@ function ProgressRing({ value, max, size = 72 }: { value: number; max: number; s
   );
 }
 
-/* Badges & utils */
+/* Badges & small utils */
 function woWBadge(delta: number | null, suffix: string) {
   if (delta == null || !Number.isFinite(delta)) return null;
   const up = delta > 0;
@@ -599,8 +577,7 @@ function woWBadge(delta: number | null, suffix: string) {
 
 function deltaText(d: number, unit: "lb" | "kg") {
   const sign = d > 0 ? "+" : "";
-  const u = unit;
-  return `Δ ${sign}${Math.abs(d)} ${u} vs 30-day start`;
+  return `Δ ${sign}${Math.abs(d)} ${unit} vs start`;
 }
 
 function fmtWeight(v: number, unit: "lb" | "kg") {
@@ -615,3 +592,31 @@ function fmtValue(v: number | undefined, unit: string) {
 
 function round1(n: number) { return Math.round(n * 10) / 10; }
 function clamp(n: number, min: number, max: number) { return Math.max(min, Math.min(max, n)); }
+function mapToY(v: number, min: number, max: number, h: number) {
+  const rng = (max - min) || 1;
+  return Math.round(h - ((v - min) / rng) * h);
+}
+function formatDate(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleDateString();
+}
+function slope(series: (number | null)[]) {
+  const nums = series.filter((v): v is number => v != null);
+  if (nums.length < 2) return 0;
+  return nums[nums.length - 1] - nums[0];
+}
+function trendColor(delta: number, mode: "weight" | "upGood") {
+  // weight: down good → teal, up caution → amber
+  // upGood:   up good → teal, down caution → amber
+  if (mode === "weight") return delta < 0 ? "#06C1A0" : delta > 0 ? "#F59E0B" : "#7C3AED";
+  return delta > 0 ? "#06C1A0" : delta < 0 ? "#F59E0B" : "#7C3AED";
+}
+
+/* Tiny global keyframe (stroke draw) */
+if (typeof document !== "undefined" && !document.getElementById("lve-stroke-style")) {
+  const style = document.createElement("style");
+  style.id = "lve-stroke-style";
+  style.innerHTML = `@keyframes lve-stroke { to { stroke-dashoffset: 0; } }`;
+  document.head.appendChild(style);
+}
