@@ -316,7 +316,10 @@ function StackManagerModal({ onClose, onAdded }: { onClose: () => void; onAdded:
           {items.map((it, idx) => (
             <div key={`${it.sku ?? idx}`} className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4">
               <div className="font-semibold text-[#041B2D]">{it.name}</div>
-              <div className="text-sm text-gray-700">{it.brand ?? "—"}</div>
+              <div className="text-sm text-gray-700">
+                {(it.dose || "Dose not set").replace(/\*\*/g, "")}
+                {it.timing && it.timing !== "AM" && it.timing !== "PM" ? ` • ${it.timing}` : ""}
+              </div>
               <div className="text-xs text-gray-600">{it.dose ?? ""}</div>
               <div className="text-xs text-gray-500 mt-1">
                 {it.price != null ? `~$${Number(it.price).toFixed(2)}` : ""}
@@ -411,13 +414,13 @@ function TimingBlock({
 
                   <div className="flex items-center gap-2">
                     {link ? (
-                      <a
-                        className="inline-flex items-center rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
-                        href={link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title="Reorder"
-                      >
+                  <a
+                    className="inline-flex items-center rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
+                    href={link}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow sponsored"
+                    title="Reorder"
+                  >
                         <PackageOpen className="w-4 h-4 mr-1" />
                         Reorder
                       </a>
