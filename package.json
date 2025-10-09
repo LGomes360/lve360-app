@@ -41,6 +41,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.13",
+    "@tailwindcss/line-clamp": "^0.4.4",
     "@types/node": "^20.12.7",
     "@types/react": "^18.2.66",
     "@types/recharts": "^1.8.29",
