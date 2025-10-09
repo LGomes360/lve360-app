@@ -1,36 +1,35 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { Loader2, Target, Check, ChevronRight } from "lucide-react";
 
 /**
- * WeeklyGoal.tsx (client-only, non-destructive)
- * - Reads/creates user's goals row directly via Supabase client
- * - Updates only columns that exist: custom_goal, goals[] (tags)
- * - If table/columns are missing, shows a safe fallback message
- *
- * Table shape (from your schema):
- *  goals(user_id UNIQUE, target_weight, target_sleep, target_energy, goals text[], custom_goal text, xp int, streak_days int, last_log_date date)
+ * WeeklyGoal.tsx — API-first, non-destructive
+ * - Uses your existing API route at /api/goals (GET + POST)
+ * - Flexible response parsing: supports {ok:true, goals:{...}} or direct row payloads
+ * - Updates only: custom_goal (string) and goals (string[])
+ * - If API is unreachable or schema differs, shows a safe message
  */
 
 type GoalsRow = {
-  id: string;
-  user_id: string;
-  target_weight: number | null;
-  target_sleep: number | null;
-  target_energy: number | null;
-  custom_goal: string | null;
-  goals: string[] | null;
-  xp: number | null;
-  streak_days: number | null;
-  last_log_date: string | null;
+  id?: string;
+  user_id?: string;
+  target_weight?: number | null;
+  target_sleep?: number | null;
+  target_energy?: number | null;
+  custom_goal?: string | null;
+  goals?: string[] | null;
+  xp?: number | null;
+  streak_days?: number | null;
+  last_log_date?: string | null;
 };
 
 const PRESETS = ["Sleep quality", "Morning energy", "Body weight", "Stress", "Focus", "Gut comfort"];
 
+// If your route lives somewhere else, change this to match:
+const GOALS_API_PATH = "/api/goals";
+
 export default function WeeklyGoal() {
-  const supabase = createClientComponentClient();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [row, setRow] = useState<GoalsRow | null>(null);
@@ -45,73 +44,70 @@ export default function WeeklyGoal() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  // Helper to normalize API responses from GET/POST
+  function normalize(resJson: any): GoalsRow | null {
+    if (!resJson) return null;
+    // { ok: true, goals: {...} }
+    if (typeof resJson === "object" && "ok" in resJson) {
+      if (resJson.ok && resJson.goals && typeof resJson.goals === "object") return resJson.goals as GoalsRow;
+      return null;
+    }
+    // direct row
+    if (typeof resJson === "object" && ("user_id" in resJson || "custom_goal" in resJson || "goals" in resJson)) {
+      return resJson as GoalsRow;
+    }
+    // { data: {...} }
+    if (resJson.data && typeof resJson.data === "object") return resJson.data as GoalsRow;
+    return null;
+  }
+
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
         setUnavailable(null);
 
-        const { data: auth } = await supabase.auth.getUser();
-        const userId = auth?.user?.id;
-        if (!userId) { setUnavailable("Not signed in."); setLoading(false); return; }
-
-        // Read goals row
-        const { data: gRow, error } = await supabase
-          .from("goals")
-          .select("id, user_id, target_weight, target_sleep, target_energy, custom_goal, goals, xp, streak_days, last_log_date")
-          .eq("user_id", userId)
-          .maybeSingle();
-
-        if (error) {
-          // Most likely a column mismatch or RLS; fail safely
-          setUnavailable("Goals table unavailable (schema/RLS).");
+        const res = await fetch(GOALS_API_PATH, { method: "GET", cache: "no-store" });
+        if (!res.ok) {
+          setUnavailable(`Goals API returned ${res.status}`);
+          setLoading(false);
+          return;
+        }
+        const json = await res.json();
+        const g = normalize(json);
+        if (!g) {
+          setUnavailable("Goals API: unexpected response shape.");
           setLoading(false);
           return;
         }
 
-        // If missing, create a minimal row (non-destructive upsert)
-        let current = gRow as GoalsRow | null;
-        if (!current) {
-          const { data: inserted, error: insErr } = await supabase
-            .from("goals")
-            .insert({ user_id: userId, goals: [] })
-            .select("id, user_id, target_weight, target_sleep, target_energy, custom_goal, goals, xp, streak_days, last_log_date")
-            .maybeSingle();
-          if (insErr) {
-            setUnavailable("Could not create goals row (RLS).");
-            setLoading(false);
-            return;
-          }
-          current = inserted as GoalsRow;
-        }
-
-        setRow(current);
-        setFocus(current?.custom_goal ?? "");
-        setTags(Array.isArray(current?.goals) ? current!.goals! : []);
+        setRow(g);
+        setFocus(g.custom_goal ?? "");
+        setTags(Array.isArray(g.goals) ? g.goals! : []);
+      } catch (e: any) {
+        setUnavailable("Goals API not reachable.");
       } finally {
         setLoading(false);
       }
     })();
-  }, [supabase]);
+  }, []);
 
   async function save() {
     try {
-      if (!row) return;
       setSaving(true);
-      // Only update fields we know exist: custom_goal, goals[]
-      const patch: Partial<GoalsRow> = {
-        custom_goal: (focus || "").trim(),
-        goals: tags,
-      };
-
-      const { data: up, error: upErr } = await supabase
-        .from("goals")
-        .upsert({ user_id: row.user_id, ...patch }, { onConflict: "user_id" })
-        .select("id, user_id, target_weight, target_sleep, target_energy, custom_goal, goals, xp, streak_days, last_log_date")
-        .maybeSingle();
-
-      if (upErr) throw upErr;
-      setRow(up as GoalsRow);
+      const res = await fetch(GOALS_API_PATH, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // send only what we intend to change:
+          custom_goal: (focus || "").trim(),
+          goals: tags,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || `Save failed (${res.status})`);
+      const g = normalize(json);
+      if (g) setRow(g);
       setToast("Weekly goal saved");
     } catch (e: any) {
       setToast(e?.message ?? "Save failed");
@@ -124,7 +120,6 @@ export default function WeeklyGoal() {
     setTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
   }
 
-  // Render
   if (loading) {
     return (
       <div className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
@@ -151,17 +146,14 @@ export default function WeeklyGoal() {
           Weekly Goal
         </h2>
         {typeof row?.streak_days === "number" && (
-          <div
-            className="inline-flex items-center gap-1 text-sm rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-teal-700"
-            title="From your goals row"
-          >
+          <div className="inline-flex items-center gap-1 text-sm rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-teal-700" title="From your goals row">
             <Check className="w-4 h-4" />
             Streak: <strong className="ml-1">{row.streak_days}</strong> days
           </div>
         )}
       </div>
 
-      <p className="text-gray-600 mt-1">Pick one focus for this week. Keep it simple; your plan adapts.</p>
+      <p className="text-gray-600 mt-1">Pick one focus for this week. Your plan and insights adapt.</p>
 
       {/* Focus input */}
       <div className="mt-4">
@@ -196,7 +188,7 @@ export default function WeeklyGoal() {
         </div>
       </div>
 
-      {/* Footer actions */}
+      {/* Footer */}
       <div className="mt-4 flex items-center justify-between">
         <div className="text-xs text-gray-500">
           {row?.custom_goal ? `Current: “${row.custom_goal}”` : "No goal set yet"}
