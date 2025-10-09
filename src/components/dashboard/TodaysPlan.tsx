@@ -187,8 +187,33 @@ export default function TodaysPlan() {
           </p>
         </div>
         <div className="text-sm text-gray-700">
-          Completion today: <span className="font-semibold text-[#06C1A0]">{completion}%</span>
+          Completion today:{" "}
+          <button
+            onClick={() => {
+              const allIds = items.map(i => i.id);
+              const allTaken = allIds.every(id => takenMap[id]);
+              // flip all
+              Promise.all(
+                allIds.map(id =>
+                  fetch("/api/intake/set", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ item_id: id, taken: !allTaken }),
+                  })
+                )
+              ).finally(() => {
+                const next: Record<string, boolean> = {};
+                allIds.forEach(id => (next[id] = !allTaken));
+                setTakenMap(next);
+              });
+            }}
+            className="font-semibold text-[#06C1A0] underline underline-offset-2"
+            title="Toggle all items"
+          >
+            {completion}%
+          </button>
         </div>
+
       </div>
 
       <TimingBlock title="AM Routine" items={itemsAM} takenMap={takenMap} onToggle={toggleTaken} />
