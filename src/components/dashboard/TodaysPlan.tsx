@@ -37,7 +37,17 @@ export default function TodaysPlan() {
   const [items, setItems] = useState<StackItem[]>([]);
   const [showManager, setShowManager] = useState(false);
 
-  // Fetch latest stack + items
+  // DB persisted "taken today" statuses
+  const [takenMap, setTakenMap] = useState<Record<string, boolean>>({});
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Local fallback key (only if API fails)
+  const localKey = useMemo(() => {
+    if (!userId) return null;
+    return `lve360_taken_${userId}_${today}`;
+  }, [userId, today]);
+
+  // Fetch latest stack + items + today statuses
   useEffect(() => {
     (async () => {
       const { data: userWrap } = await supabase.auth.getUser();
@@ -65,38 +75,62 @@ export default function TodaysPlan() {
           .select("id, stack_id, name, brand, dose, timing, notes, link_amazon, link_fullscript, refill_days_left, last_refilled_at")
           .eq("stack_id", latest.id)
           .order("created_at", { ascending: true });
-        setItems((itemRows ?? []) as StackItem[]);
+        const arr = (itemRows ?? []) as StackItem[];
+        setItems(arr);
+
+        // Load today's statuses from API
+        try {
+          const res = await fetch(`/api/intake/status?stack_id=${latest.id}`, { cache: "no-store" });
+          const json = await res.json();
+          if (json?.ok) {
+            setTakenMap(json.statuses || {});
+            // Sync to local fallback
+            if (localKey) localStorage.setItem(localKey, JSON.stringify(json.statuses || {}));
+          } else {
+            // fallback to local if available
+            if (localKey) {
+              const raw = localStorage.getItem(localKey);
+              setTakenMap(raw ? JSON.parse(raw) : {});
+            }
+          }
+        } catch {
+          if (localKey) {
+            const raw = localStorage.getItem(localKey);
+            setTakenMap(raw ? JSON.parse(raw) : {});
+          }
+        }
       }
 
       setLoading(false);
     })();
-  }, [supabase]);
+  }, [supabase, localKey]);
 
-  // Local “Taken Today”
-  const todayKey = useMemo(() => {
-    if (!userId) return null;
-    const y = new Date().toISOString().slice(0, 10);
-    return `lve360_taken_${userId}_${y}`;
-  }, [userId]);
+  // Toggle an item (persist to DB; fallback to local)
+  async function toggleTaken(itemId: string) {
+    const nextVal = !takenMap[itemId];
 
-  const [takenMap, setTakenMap] = useState<Record<string, boolean>>({});
-  useEffect(() => {
-    if (!todayKey) return;
     try {
-      const raw = localStorage.getItem(todayKey);
-      setTakenMap(raw ? JSON.parse(raw) : {});
-    } catch {
-      setTakenMap({});
-    }
-  }, [todayKey]);
+      const res = await fetch("/api/intake/set", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: itemId, taken: nextVal }),
+      });
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error || "set_failed");
 
-  function toggleTaken(itemId: string) {
-    if (!todayKey) return;
-    setTakenMap((prev) => {
-      const next = { ...prev, [itemId]: !prev[itemId] };
-      localStorage.setItem(todayKey, JSON.stringify(next));
-      return next;
-    });
+      setTakenMap((prev) => {
+        const next = { ...prev, [itemId]: nextVal };
+        if (localKey) localStorage.setItem(localKey, JSON.stringify(next));
+        return next;
+      });
+    } catch {
+      // Fallback to local only if DB write fails
+      setTakenMap((prev) => {
+        const next = { ...prev, [itemId]: nextVal };
+        if (localKey) localStorage.setItem(localKey, JSON.stringify(next));
+        return next;
+      });
+    }
   }
 
   // Split by timing
@@ -121,6 +155,15 @@ export default function TodaysPlan() {
       .eq("stack_id", stack.id)
       .order("created_at", { ascending: true });
     setItems((itemRows ?? []) as StackItem[]);
+    // Refresh statuses too
+    try {
+      const res = await fetch(`/api/intake/status?stack_id=${stack.id}`, { cache: "no-store" });
+      const json = await res.json();
+      if (json?.ok) {
+        setTakenMap(json.statuses || {});
+        if (localKey) localStorage.setItem(localKey, JSON.stringify(json.statuses || {}));
+      }
+    } catch {}
   }
 
   if (loading) {
@@ -172,7 +215,7 @@ export default function TodaysPlan() {
         </div>
       </div>
 
-      {/* Stack Manager Modal */}
+      {/* Stack Manager Modal (search + add) */}
       {showManager && (
         <StackManagerModal
           onClose={() => setShowManager(false)}
@@ -269,7 +312,7 @@ function StackManagerModal({ onClose, onAdded }: { onClose: () => void; onAdded:
           </div>
         )}
 
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[50vh] overflow-auto pr-1">
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 max-h:[50vh] overflow-auto pr-1">
           {items.map((it, idx) => (
             <div key={`${it.sku ?? idx}`} className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4">
               <div className="font-semibold text-[#041B2D]">{it.name}</div>
@@ -279,24 +322,9 @@ function StackManagerModal({ onClose, onAdded }: { onClose: () => void; onAdded:
                 {it.price != null ? `~$${Number(it.price).toFixed(2)}` : ""}
               </div>
               <div className="mt-3 flex gap-2">
-                <button
-                  onClick={() => addToStack(it, "AM")}
-                  className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
-                >
-                  Add to AM
-                </button>
-                <button
-                  onClick={() => addToStack(it, "PM")}
-                  className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
-                >
-                  Add to PM
-                </button>
-                <button
-                  onClick={() => addToStack(it, "AM/PM")}
-                  className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
-                >
-                  Add AM/PM
-                </button>
+                <button onClick={() => addToStack(it, "AM")} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white">Add to AM</button>
+                <button onClick={() => addToStack(it, "PM")} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white">Add to PM</button>
+                <button onClick={() => addToStack(it, "AM/PM")} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white">Add AM/PM</button>
               </div>
             </div>
           ))}
