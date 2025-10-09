@@ -401,7 +401,14 @@ function TimingBlock({
                         {(it.dose || "Dose not set").replace(/\*\*/g, "")}
                         {it.timing && !["AM", "PM", "AM/PM"].includes(it.timing) ? ` • ${it.timing}` : ""}
                       </div>
-                      {it.notes && <div className="text-xs text-gray-600 mt-0.5">{it.notes}</div>}
+                      {it.notes && (
+                      <div
+                        className="text-xs text-gray-600 mt-0.5 line-clamp-2"
+                        title={it.notes}
+                      >
+                        {it.notes}
+                      </div>
+                    )}
                       {low && (
                         <div className="mt-1 inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
                           <TriangleAlert className="w-3 h-3" /> Refill soon
