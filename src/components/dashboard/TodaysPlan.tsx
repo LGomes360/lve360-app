@@ -11,14 +11,13 @@ type StackItem = {
   name: string;
   brand: string | null;
   dose: string | null;
-  timing: string | null; // 'AM' | 'PM' | 'AM/PM' | null
+  timing: "AM" | "PM" | "AM/PM" | (string & {}) | null;
   notes: string | null;
   link_amazon: string | null;
   link_fullscript: string | null;
   refill_days_left: number | null;
   last_refilled_at: string | null;
 };
-
 type SearchItem = {
   vendor: "fullscript" | "fallback";
   sku: string | null;
@@ -123,6 +122,7 @@ export default function TodaysPlan() {
         return next;
       });
     } catch {
+      // Fallback to local only if DB write fails
       setTakenMap((prev) => {
         const next = { ...prev, [itemId]: nextVal };
         if (localKey) localStorage.setItem(localKey, JSON.stringify(next));
@@ -134,7 +134,9 @@ export default function TodaysPlan() {
   // Split by timing
   const itemsAM = items.filter((i) => (i.timing ?? "").includes("AM"));
   const itemsPM = items.filter((i) => (i.timing ?? "").includes("PM"));
-  const itemsOther = items.filter((i) => !i.timing || (i.timing !== "AM" && i.timing !== "PM" && i.timing !== "AM/PM"));
+  const itemsOther = items.filter(
+    (i) => !i.timing || (i.timing !== "AM" && i.timing !== "PM" && i.timing !== "AM/PM")
+  );
 
   // Completion %
   const completion = useMemo(() => {
@@ -315,7 +317,7 @@ function StackManagerModal({ onClose, onAdded }: { onClose: () => void; onAdded:
             <div key={`${it.sku ?? idx}`} className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4">
               <div className="font-semibold text-[#041B2D]">{it.name}</div>
               <div className="text-sm text-gray-700">{it.brand ?? "—"}</div>
-              <div className="text-xs text-gray-600">{it.dose ? it.dose : ""}</div>
+              <div className="text-xs text-gray-600">{it.dose ?? ""}</div>
               <div className="text-xs text-gray-500 mt-1">
                 {it.price != null ? `~$${Number(it.price).toFixed(2)}` : ""}
               </div>
@@ -397,7 +399,7 @@ function TimingBlock({
                       </div>
                       <div className="text-sm text-gray-700">
                         {(it.dose || "Dose not set").replace(/\*\*/g, "")}
-                        {it.timing && it.timing !== "AM" && it.timing !== "PM" ? ` • ${it.timing}` : ""}
+                        {it.timing && !["AM", "PM", "AM/PM"].includes(it.timing) ? ` • ${it.timing}` : ""}
                       </div>
                       {it.notes && <div className="text-xs text-gray-600 mt-0.5">{it.notes}</div>}
                       {low && (
