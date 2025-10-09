@@ -1,116 +1,116 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Target, Check, ChevronRight } from "lucide-react";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { Loader2, Target, ChevronRight } from "lucide-react";
 
 /**
- * WeeklyGoal.tsx — API-first, non-destructive
- * - Uses your existing API route at /api/goals (GET + POST)
- * - Flexible response parsing: supports {ok:true, goals:{...}} or direct row payloads
- * - Updates only: custom_goal (string) and goals (string[])
- * - If API is unreachable or schema differs, shows a safe message
+ * WeeklyGoal.tsx
+ * - Talks to your existing API:
+ *   GET  /api/goals?userId=<id>  -> { goals: string[], custom_goal: string|null }
+ *   POST /api/goals              -> { ok: true, goals: ... }
+ * - Updates ONLY: custom_goal (string) and goals (string[])
  */
 
-type GoalsRow = {
-  id?: string;
-  user_id?: string;
-  target_weight?: number | null;
-  target_sleep?: number | null;
-  target_energy?: number | null;
-  custom_goal?: string | null;
-  goals?: string[] | null;
-  xp?: number | null;
-  streak_days?: number | null;
-  last_log_date?: string | null;
+type GoalsGetResponse = {
+  goals: string[];
+  custom_goal: string | null;
 };
 
-const PRESETS = ["Sleep quality", "Morning energy", "Body weight", "Stress", "Focus", "Gut comfort"];
-
-// If your route lives somewhere else, change this to match:
-const GOALS_API_PATH = "/api/goals";
+const PRESETS = [
+  "Sleep quality",
+  "Morning energy",
+  "Body weight",
+  "Stress",
+  "Focus",
+  "Gut comfort",
+];
 
 export default function WeeklyGoal() {
+  const supabase = createClientComponentClient();
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [row, setRow] = useState<GoalsRow | null>(null);
-  const [focus, setFocus] = useState("");
-  const [tags, setTags] = useState<string[]>([]);
-  const [toast, setToast] = useState<string | null>(null);
-  const [unavailable, setUnavailable] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
+  const [focus, setFocus] = useState<string>("");
+  const [tags, setTags] = useState<string[]>([]);
+
+  const [toast, setToast] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // auto-hide toast
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 2200);
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Helper to normalize API responses from GET/POST
-  function normalize(resJson: any): GoalsRow | null {
-    if (!resJson) return null;
-    // { ok: true, goals: {...} }
-    if (typeof resJson === "object" && "ok" in resJson) {
-      if (resJson.ok && resJson.goals && typeof resJson.goals === "object") return resJson.goals as GoalsRow;
-      return null;
-    }
-    // direct row
-    if (typeof resJson === "object" && ("user_id" in resJson || "custom_goal" in resJson || "goals" in resJson)) {
-      return resJson as GoalsRow;
-    }
-    // { data: {...} }
-    if (resJson.data && typeof resJson.data === "object") return resJson.data as GoalsRow;
-    return null;
-  }
-
+  // load user id, then fetch goals
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
-        setUnavailable(null);
+        setErrorMsg(null);
 
-        const res = await fetch(GOALS_API_PATH, { method: "GET", cache: "no-store" });
+        const { data } = await supabase.auth.getUser();
+        const id = data?.user?.id ?? null;
+        setUserId(id);
+
+        if (!id) {
+          setErrorMsg("Not signed in.");
+          setLoading(false);
+          return;
+        }
+
+        const res = await fetch(`/api/goals?userId=${encodeURIComponent(id)}`, {
+          method: "GET",
+          cache: "no-store",
+        });
         if (!res.ok) {
-          setUnavailable(`Goals API returned ${res.status}`);
+          const j = await safeJson(res);
+          setErrorMsg(j?.error || `Goals API error (${res.status})`);
           setLoading(false);
           return;
         }
-        const json = await res.json();
-        const g = normalize(json);
-        if (!g) {
-          setUnavailable("Goals API: unexpected response shape.");
-          setLoading(false);
-          return;
-        }
-
-        setRow(g);
-        setFocus(g.custom_goal ?? "");
-        setTags(Array.isArray(g.goals) ? g.goals! : []);
+        const json = (await res.json()) as GoalsGetResponse;
+        setTags(Array.isArray(json.goals) ? json.goals : []);
+        setFocus(json.custom_goal ?? "");
       } catch (e: any) {
-        setUnavailable("Goals API not reachable.");
+        setErrorMsg("Unable to load weekly goal.");
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [supabase]);
 
   async function save() {
+    if (!userId) {
+      setErrorMsg("Not signed in.");
+      return;
+    }
     try {
       setSaving(true);
-      const res = await fetch(GOALS_API_PATH, {
+      setErrorMsg(null);
+
+      const res = await fetch("/api/goals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          // send only what we intend to change:
-          custom_goal: (focus || "").trim(),
+          userId,
           goals: tags,
+          custom_goal: (focus || "").trim() || null,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || `Save failed (${res.status})`);
-      const g = normalize(json);
-      if (g) setRow(g);
+
+      const json = await safeJson(res);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `Save failed (${res.status})`);
+      }
+
       setToast("Weekly goal saved");
     } catch (e: any) {
-      setToast(e?.message ?? "Save failed");
+      setErrorMsg(e?.message ?? "Save failed");
     } finally {
       setSaving(false);
     }
@@ -130,10 +130,11 @@ export default function WeeklyGoal() {
       </div>
     );
   }
-  if (unavailable) {
+
+  if (errorMsg) {
     return (
       <div className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
-        <div className="text-gray-700">{unavailable}</div>
+        <div className="text-gray-700">{errorMsg}</div>
       </div>
     );
   }
@@ -145,15 +146,11 @@ export default function WeeklyGoal() {
           <Target className="w-5 h-5 text-[#7C3AED]" />
           Weekly Goal
         </h2>
-        {typeof row?.streak_days === "number" && (
-          <div className="inline-flex items-center gap-1 text-sm rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-teal-700" title="From your goals row">
-            <Check className="w-4 h-4" />
-            Streak: <strong className="ml-1">{row.streak_days}</strong> days
-          </div>
-        )}
       </div>
 
-      <p className="text-gray-600 mt-1">Pick one focus for this week. Your plan and insights adapt.</p>
+      <p className="text-gray-600 mt-1">
+        Pick one focus for this week. Your plan and insights will adapt.
+      </p>
 
       {/* Focus input */}
       <div className="mt-4">
@@ -188,10 +185,10 @@ export default function WeeklyGoal() {
         </div>
       </div>
 
-      {/* Footer */}
+      {/* Footer actions */}
       <div className="mt-4 flex items-center justify-between">
         <div className="text-xs text-gray-500">
-          {row?.custom_goal ? `Current: “${row.custom_goal}”` : "No goal set yet"}
+          {focus ? `Current: “${focus}”` : "No goal set yet"}
         </div>
         <button
           onClick={save}
@@ -214,4 +211,13 @@ export default function WeeklyGoal() {
       )}
     </div>
   );
+}
+
+/* utils */
+async function safeJson(res: Response) {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
