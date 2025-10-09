@@ -5,19 +5,10 @@ import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { Loader2, Sparkles } from "lucide-react";
 
 /**
- * Section 1 — Personalized Welcome & Daily Snapshot (v3)
- * - Reads current user
- * - Fetches last 7 logs + current goals
- * - Fetches last 7 days supplement intake events → adherence %
- * - Fetches latest AI summary (ai_summaries)
- * - Computes deltas + simple "wellness score"
- * - Renders KPIs: Weight Δ, Sleep (1–5), Energy (1–10) + Adherence chip + Coaching blurb
- *
- * Tables:
- *  - public.logs(user_id, log_date, weight, sleep, energy, notes)
- *  - public.goals(user_id, target_weight, target_sleep, target_energy, goals[])
- *  - public.intake_events(user_id, item_id, intake_date, taken)
- *  - public.ai_summaries(user_id, summary, created_at)
+ * DashboardSnapshot — Greeting & Daily Snapshot
+ * Reads: logs (last 7), goals, intake_events (7d adherence), latest ai_summaries
+ * Shows: greeting, wellness score, adherence chip, AI coaching blurb,
+ *        KPIs (Weight, Sleep, Energy) + deltas vs yesterday / 7d avg.
  */
 
 type LogRow = {
@@ -66,49 +57,60 @@ export default function DashboardSnapshot() {
         }
         const userId = auth.user.id;
 
-        // 2) Fetch: last 7 logs (newest first)
-        const { data: logRows, error: logErr } = await supabase
-          .from("logs")
-          .select("log_date, weight, sleep, energy")
-          .eq("user_id", userId)
-          .order("log_date", { ascending: false })
-          .limit(7);
-        if (logErr) throw logErr;
-        setLogs((logRows ?? []) as LogRow[]);
-
-        // 3) Fetch: goals (maybeSingle)
-        const { data: goalRows, error: goalErr } = await supabase
-          .from("goals")
-          .select("target_weight, target_sleep, target_energy, goals")
-          .eq("user_id", userId)
-          .maybeSingle();
-        if (goalErr && goalErr.details !== "The result contains 0 rows") throw goalErr;
-        setGoals((goalRows ?? null) as GoalsRow | null);
-
-        // 4) Fetch: intake events since 6 days ago → adherence %
+        // Fetch in parallel for snappier load
         const since = new Date();
-        since.setDate(since.getDate() - 6); // last 7 calendar days including today
+        since.setDate(since.getDate() - 6);
         const sinceStr = since.toISOString().slice(0, 10);
-        const { data: intake, error: intakeErr } = await supabase
-          .from("intake_events")
-          .select("taken")
-          .eq("user_id", userId)
-          .gte("intake_date", sinceStr);
-        if (intakeErr) throw intakeErr;
 
-        const total = (intake ?? []).length;
-        const taken = (intake ?? []).filter((r: any) => r.taken).length;
-        setAdherence7(total ? Math.round((taken / total) * 100) : null);
+        const [
+          logsQ,
+          goalsQ,
+          aiQ,
+        ] = await Promise.all([
+          supabase
+            .from("logs")
+            .select("log_date, weight, sleep, energy")
+            .eq("user_id", userId)
+            .order("log_date", { ascending: false })
+            .limit(7),
+          supabase
+            .from("goals")
+            .select("target_weight, target_sleep, target_energy, goals")
+            .eq("user_id", userId)
+            .maybeSingle(),
+          supabase
+            .from("ai_summaries")
+            .select("summary, created_at")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false })
+            .limit(1),
+        ]);
 
-        // 5) Fetch: latest AI summary (most recent one)
-        const { data: aiRows, error: aiErr } = await supabase
-          .from("ai_summaries")
-          .select("summary, created_at")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-          .limit(1);
-        if (aiErr) throw aiErr;
-        setLatestAi(aiRows?.[0] ?? null);
+        if (logsQ.error) throw logsQ.error;
+        setLogs((logsQ.data ?? []) as LogRow[]);
+
+        if (goalsQ.error && goalsQ.error.details !== "The result contains 0 rows") {
+          throw goalsQ.error;
+        }
+        setGoals((goalsQ.data ?? null) as GoalsRow | null);
+
+        if (aiQ.error) throw aiQ.error;
+        setLatestAi(aiQ.data?.[0] ?? null);
+
+        // 7-day adherence (defensive: intake_events may be absent / RLS)
+        try {
+          const intakeQ = await supabase
+            .from("intake_events")
+            .select("taken")
+            .eq("user_id", userId)
+            .gte("intake_date", sinceStr);
+
+          const total = (intakeQ.data ?? []).length;
+          const taken = (intakeQ.data ?? []).filter((r: any) => r.taken).length;
+          setAdherence7(total ? Math.round((taken / total) * 100) : null);
+        } catch {
+          setAdherence7(null);
+        }
       } catch (e: any) {
         setError(e?.message ?? "Failed to load your snapshot.");
       } finally {
@@ -117,22 +119,32 @@ export default function DashboardSnapshot() {
     })();
   }, [supabase]);
 
-  // Derived metrics: latest log (“today”) vs. 7-day avg
+  // Derived metrics & deltas
   const kpis = useMemo(() => {
+    const clamp = (v: number | null, min: number, max: number) =>
+      typeof v === "number" ? Math.max(min, Math.min(max, v)) : null;
+
     if (!logs.length) {
       return {
-        weightDelta: null as number | null,
+        weightDeltaDay: null as number | null,
+        weightDeltaAvg: null as number | null,
         weightToday: null as number | null,
+
         sleepToday: null as number | null,
-        energyToday: null as number | null,
         sleepAvg: null as number | null,
+        sleepDeltaDay: null as number | null,
+
+        energyToday: null as number | null,
         energyAvg: null as number | null,
+        energyDeltaDay: null as number | null,
+
         wellnessScore: null as number | null,
       };
     }
 
+    // newest first (we fetched desc)
     const today = logs[0];
-    const samples = logs.filter(Boolean);
+    const yesterday = logs[1] ?? null;
 
     const avg = (arr: (number | null | undefined)[]) => {
       const nums = arr
@@ -141,31 +153,57 @@ export default function DashboardSnapshot() {
       return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
     };
 
-    const weightAvg7 = avg(samples.map((r) => r.weight));
-    const sleepAvg7 = avg(samples.map((r) => r.sleep));
-    const energyAvg7 = avg(samples.map((r) => r.energy));
+    const weightAvg7 = avg(logs.map((r) => r.weight));
+    const sleepAvg7 = avg(logs.map((r) => r.sleep));
+    const energyAvg7 = avg(logs.map((r) => r.energy));
 
-    // weight delta (today - 7-day avg)
-    let weightDelta: number | null = null;
-    if (typeof today.weight === "number" && typeof weightAvg7 === "number") {
-      weightDelta = Math.round((today.weight - weightAvg7) * 10) / 10;
-    }
+    const weightToday = today.weight ?? null;
+    const sleepToday = clamp(today.sleep ?? null, 1, 5);
+    const energyToday = clamp(today.energy ?? null, 1, 10);
+
+    // deltas vs yesterday
+    const weightDeltaDay =
+      typeof today.weight === "number" && typeof yesterday?.weight === "number"
+        ? round1(today.weight - yesterday.weight)
+        : null;
+
+    const sleepDeltaDay =
+      typeof today.sleep === "number" && typeof yesterday?.sleep === "number"
+        ? round1(today.sleep - yesterday.sleep)
+        : null;
+
+    const energyDeltaDay =
+      typeof today.energy === "number" && typeof yesterday?.energy === "number"
+        ? round1(today.energy - yesterday.energy)
+        : null;
+
+    // delta vs 7-day avg (weight only for now)
+    const weightDeltaAvg =
+      typeof today.weight === "number" && typeof weightAvg7 === "number"
+        ? round1(today.weight - weightAvg7)
+        : null;
 
     // Simple wellness score (0–100): sleep (50%) + energy (50%)
-    const sleepNorm = typeof today.sleep === "number" ? (today.sleep / 5) * 100 : null;
-    const energyNorm = typeof today.energy === "number" ? (today.energy / 10) * 100 : null;
+    const sleepNorm = typeof sleepToday === "number" ? (sleepToday / 5) * 100 : null;
+    const energyNorm = typeof energyToday === "number" ? (energyToday / 10) * 100 : null;
     const wellnessScore =
       sleepNorm != null && energyNorm != null
         ? Math.round(sleepNorm * 0.5 + energyNorm * 0.5)
         : null;
 
     return {
-      weightDelta,
-      weightToday: today.weight ?? null,
-      sleepToday: today.sleep ?? null,
-      energyToday: today.energy ?? null,
+      weightDeltaDay,
+      weightDeltaAvg,
+      weightToday,
+
+      sleepToday,
       sleepAvg: sleepAvg7,
+      sleepDeltaDay,
+
+      energyToday,
       energyAvg: energyAvg7,
+      energyDeltaDay,
+
       wellnessScore,
     };
   }, [logs]);
@@ -194,12 +232,25 @@ export default function DashboardSnapshot() {
 
   return (
     <div className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
-      {/* Greeting + top chips */}
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-2">
-        <h2 className="text-2xl font-bold text-[#041B2D]">
-          👋 Good {getPartOfDay()}, {username}
-        </h2>
-        <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+      {/* Greeting + chips + quick actions */}
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-3">
+        <div>
+          <h2 className="text-2xl font-bold text-[#041B2D]">
+            👋 Good {getPartOfDay()}, {username}
+          </h2>
+          {/* yesterday summary row */}
+          {logs.length > 1 && (
+            <div className="text-sm text-gray-700 mt-1">
+              <Delta label="Sleep" delta={kpis.sleepDeltaDay} unit="" goodUp />
+              <span className="mx-2">•</span>
+              <Delta label="Energy" delta={kpis.energyDeltaDay} unit="" goodUp />
+              <span className="mx-2">•</span>
+              <Delta label="Weight" delta={kpis.weightDeltaDay} unit="lb" goodUp={false} />
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           {kpis.wellnessScore != null && (
             <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 text-teal-800 border border-teal-200 px-3 py-1">
               Wellness: <strong className="text-[#06C1A0]">{kpis.wellnessScore}</strong>/100
@@ -210,6 +261,23 @@ export default function DashboardSnapshot() {
               Adherence (7d): <strong className="text-[#7C3AED]">{adherence7}%</strong>
             </span>
           )}
+          {/* Quick actions */}
+          <a
+            href="#daily-log"
+            className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
+            aria-label="Log today"
+            title="Log today"
+          >
+            Log today
+          </a>
+          <a
+            href="#todays-plan"
+            className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
+            aria-label="Open Today’s Plan"
+            title="Open Today’s Plan"
+          >
+            Today’s plan
+          </a>
         </div>
       </div>
 
@@ -238,7 +306,11 @@ export default function DashboardSnapshot() {
             <MetricCard
               title="Weight"
               primary={kpis.weightToday != null ? `${kpis.weightToday} lb` : "—"}
-              delta={kpis.weightDelta != null ? deltaLabel(kpis.weightDelta, "lb") : "—"}
+              delta={
+                kpis.weightDeltaAvg != null
+                  ? `${kpis.weightDeltaAvg === 0 ? "No change" : (kpis.weightDeltaAvg > 0 ? "▲" : "▼") + " " + Math.abs(kpis.weightDeltaAvg) + " lb vs 7d avg"}`
+                  : "—"
+              }
               hint={goals?.target_weight != null ? `Target: ${goals.target_weight} lb` : undefined}
             />
 
@@ -272,10 +344,33 @@ function getPartOfDay() {
   if (h < 18) return "afternoon";
   return "evening";
 }
-function deltaLabel(delta: number, unit: string) {
-  if (delta === 0) return "No change";
-  const arrow = delta > 0 ? "▲" : "▼";
-  return `${arrow} ${Math.abs(delta)} ${unit}`;
+function signArrow(n: number) {
+  if (n === 0) return "↔";
+  return n > 0 ? "▲" : "▼";
+}
+function cls(...xs: (string | false | null | undefined)[]) {
+  return xs.filter(Boolean).join(" ");
+}
+
+/** delta chip for snapshot header */
+function Delta({
+  label, delta, unit, goodUp,
+}: { label: string; delta: number | null; unit: string; goodUp: boolean }) {
+  if (delta == null) return <span className="text-gray-500">{label}: —</span>;
+  const arrow = signArrow(delta);
+  const isUp = delta > 0;
+  const good = goodUp ? isUp : !isUp; // e.g., Sleep ↑ is good; Weight ↑ usually not
+  return (
+    <span
+      className={cls(
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5",
+        good ? "bg-teal-50 border-teal-200 text-teal-800" : "bg-rose-50 border-rose-200 text-rose-800"
+      )}
+      title={`${label} ${arrow} ${Math.abs(delta)}${unit ? " " + unit : ""} vs yesterday`}
+    >
+      <span className="text-xs">{label} {arrow} {Math.abs(delta)}{unit ? ` ${unit}` : ""}</span>
+    </span>
+  );
 }
 
 /* small KPI card */
