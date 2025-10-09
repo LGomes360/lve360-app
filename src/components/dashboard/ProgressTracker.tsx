@@ -112,7 +112,7 @@ export default function ProgressTracker() {
 
   if (loading) {
     return (
-      <div className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm flex items-center">
+      <div id="todays-plan" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
         <Loader2 className="w-5 h-5 animate-spin text-purple-600 mr-2" />
         <span className="text-gray-600">Loading progress…</span>
       </div>
