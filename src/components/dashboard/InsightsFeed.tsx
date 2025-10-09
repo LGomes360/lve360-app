@@ -10,9 +10,9 @@ import { Loader2, Sparkles, RefreshCw } from "lucide-react";
  * - Calls POST /api/ai-insights to (re)generate, then refetches
  *
  * Tables:
- *  - public.ai_summaries(id, user_id, summary, created_at, log_id?)
+ *  - public.ai_summaries(id, user_id, summary, created_at)
  *
- * API (existing in your repo tree):
+ * API:
  *  - POST /api/ai-insights  => returns { ok: true } (we refetch after)
  */
 
@@ -67,9 +67,7 @@ export default function InsightsFeed() {
     try {
       setBusy(true);
       setError(null);
-      // Hit your existing API (server generates & stores a new summary)
       const res = await fetch("/api/ai-insights", { method: "POST" });
-      // We don't depend on payload; after success just refetch the table
       if (!res.ok) throw new Error(`AI generate failed (${res.status})`);
       await fetchInsights();
     } catch (e: any) {
@@ -80,13 +78,25 @@ export default function InsightsFeed() {
   }
 
   return (
-      <div id="insights" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
+    <div id="insights" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-2xl font-bold text-[#041B2D] flex items-center gap-2"> … </h2>
-        <button onClick={regenerate} …>Refresh</button>
+        <h2 className="text-2xl font-bold text-[#041B2D] flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-[#7C3AED]" />
+          AI Insights
+        </h2>
+        <button
+          onClick={regenerate}
+          disabled={busy}
+          className="inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-sm hover:bg-white disabled:opacity-60"
+          title="Refresh insights"
+        >
+          <RefreshCw className={`w-4 h-4 ${busy ? "animate-spin" : ""}`} />
+          {busy ? "Refreshing…" : "Refresh"}
+        </button>
       </div>
+
+      {/* Hidden proxy so CTAs can trigger refresh without duplicating logic */}
       <button id="ai-refresh-proxy" onClick={regenerate} className="hidden" aria-hidden="true" />
-      </div>
 
       {loading ? (
         <div className="flex items-center text-gray-600">
@@ -108,7 +118,10 @@ export default function InsightsFeed() {
       ) : (
         <ul className="space-y-3">
           {insights.map((it) => (
-            <li key={it.id} className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4">
+            <li
+              key={it.id}
+              className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4"
+            >
               <div className="text-xs uppercase tracking-wide text-purple-600 mb-1">
                 {new Date(it.created_at).toLocaleString()}
               </div>
