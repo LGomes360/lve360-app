@@ -11,6 +11,7 @@ import ProgressTracker from "@/components/dashboard/ProgressTracker";
 import InsightsFeed from "@/components/dashboard/InsightsFeed";
 import NextSteps from "@/components/dashboard/NextSteps";
 import DailyLog from "@/components/dashboard/DailyLog";
+import WeeklyGoal from "@/components/dashboard/WeeklyGoal";
 
 export default function DashboardPage() {
   const supabase = createClientComponentClient();
