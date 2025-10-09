@@ -129,7 +129,30 @@ export default function TodaysPlan() {
         return next;
       });
     }
-  }
+  }// Mark all items for today as taken (true) or not (false)
+async function markAll(taken: boolean) {
+  const ids = items.map(i => i.id);
+  if (ids.length === 0) return;
+
+  // Fire-and-forget to the API (we update UI regardless, then rely on retries later)
+  await Promise.allSettled(
+    ids.map(id =>
+      fetch("/api/intake/set", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: id, taken }),
+      })
+    )
+  );
+
+  // Update local UI + localStorage fallback
+  setTakenMap(() => {
+    const next: Record<string, boolean> = {};
+    ids.forEach(id => (next[id] = taken));
+    if (localKey) localStorage.setItem(localKey, JSON.stringify(next));
+    return next;
+  });
+}
 
   // Split by timing
   const itemsAM = items.filter((i) => (i.timing ?? "").includes("AM"));
