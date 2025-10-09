@@ -3,9 +3,14 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import ClientDashboard from "@/components/ClientDashboard";
-import LongevityJourneyDashboard from "@/components/LongevityJourneyDashboard";
 import { Loader2 } from "lucide-react";
+
+// new modular sections
+import DashboardSnapshot from "@/components/dashboard/DashboardSnapshot";
+import TodaysPlan from "@/components/dashboard/TodaysPlan";
+import ProgressTracker from "@/components/dashboard/ProgressTracker";
+import InsightsFeed from "@/components/dashboard/InsightsFeed";
+import NextSteps from "@/components/dashboard/NextSteps";
 
 export default function DashboardPage() {
   const supabase = createClientComponentClient();
@@ -13,7 +18,6 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [showGreeting, setShowGreeting] = useState(true);
 
-  // 🔹 Fetch authenticated user
   useEffect(() => {
     (async () => {
       const { data, error } = await supabase.auth.getUser();
@@ -23,22 +27,17 @@ export default function DashboardPage() {
     })();
   }, [supabase]);
 
-  // 🔹 Gentle fade-in greeting
   useEffect(() => {
     const timer = setTimeout(() => setShowGreeting(false), 4000);
     return () => clearTimeout(timer);
   }, []);
 
-  // 🔹 Ensure user is provisioned in public.users
   useEffect(() => {
     fetch("/api/provision-user", { method: "POST" }).catch((err) =>
       console.error("Provision user failed:", err)
     );
   }, []);
 
-  // -----------------------------
-  // 🌀 Loading Spinner
-  // -----------------------------
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -47,29 +46,19 @@ export default function DashboardPage() {
     );
   }
 
-  // -----------------------------
-  // 🔒 Redirect if not logged in
-  // -----------------------------
   if (!user) {
     if (typeof window !== "undefined") window.location.href = "/login";
     return null;
   }
 
-  // 🧠 Derive display name + ID
   const username =
     user.email?.split("@")[0]?.charAt(0).toUpperCase() +
       user.email?.split("@")[0]?.slice(1) || "Optimizer";
-  const userId = user.id;
 
-  // -----------------------------
-  // 🎨 Main Dashboard Render
-  // -----------------------------
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB]">
-      {/* DashboardHeader is rendered via (app)/layout.tsx */}
-
-      <div className="max-w-6xl mx-auto p-6 space-y-6">
-        {/* Greeting Animation */}
+      <div className="max-w-6xl mx-auto p-6 space-y-10">
+        {/* 👋 Greeting */}
         <AnimatePresence>
           {showGreeting && (
             <motion.h1
@@ -89,13 +78,13 @@ export default function DashboardPage() {
           )}
         </AnimatePresence>
 
-        {/* Main Dashboard Card */}
-        <section className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl ring-1 ring-purple-100 p-6 transition space-y-8">
-          {/* Stack overview + insights */}
-          <ClientDashboard userId={userId} />
-
-          {/* Longevity goals section */}
-          <LongevityJourneyDashboard userId={userId} />
+        {/* 🌟 Five sections */}
+        <section className="space-y-8">
+          <DashboardSnapshot />
+          <TodaysPlan />
+          <ProgressTracker />
+          <InsightsFeed />
+          <NextSteps />
         </section>
       </div>
     </main>
