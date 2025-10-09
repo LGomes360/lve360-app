@@ -80,21 +80,12 @@ export default function InsightsFeed() {
   }
 
   return (
-    <div className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
+      <div id="insights" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-2xl font-bold text-[#041B2D] flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-[#7C3AED]" />
-          AI Insights
-        </h2>
-        <button
-          onClick={regenerate}
-          disabled={busy}
-          className="inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-sm hover:bg-white disabled:opacity-60"
-          title="Refresh insights"
-        >
-          <RefreshCw className={`w-4 h-4 ${busy ? "animate-spin" : ""}`} />
-          {busy ? "Refreshing…" : "Refresh"}
-        </button>
+        <h2 className="text-2xl font-bold text-[#041B2D] flex items-center gap-2"> … </h2>
+        <button onClick={regenerate} …>Refresh</button>
+      </div>
+      <button id="ai-refresh-proxy" onClick={regenerate} className="hidden" aria-hidden="true" />
       </div>
 
       {loading ? (
