@@ -168,7 +168,7 @@ export default function TodaysPlan() {
 
   if (loading) {
     return (
-      <div className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
+      <div id="todays-plan" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
         <div className="flex items-center text-gray-600">
           <Pill className="w-5 h-5 mr-2 text-purple-600" />
           Loading your plan…
