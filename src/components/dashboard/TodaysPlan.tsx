@@ -18,6 +18,7 @@ type StackItem = {
   refill_days_left: number | null;
   last_refilled_at: string | null;
 };
+
 type SearchItem = {
   vendor: "fullscript" | "fallback";
   sku: string | null;
@@ -84,10 +85,8 @@ export default function TodaysPlan() {
           const json = await res.json();
           if (json?.ok) {
             setTakenMap(json.statuses || {});
-            // Sync to local fallback
             if (localKey) localStorage.setItem(localKey, JSON.stringify(json.statuses || {}));
           } else {
-            // fallback to local if available
             if (localKey) {
               const raw = localStorage.getItem(localKey);
               setTakenMap(raw ? JSON.parse(raw) : {});
@@ -124,7 +123,6 @@ export default function TodaysPlan() {
         return next;
       });
     } catch {
-      // Fallback to local only if DB write fails
       setTakenMap((prev) => {
         const next = { ...prev, [itemId]: nextVal };
         if (localKey) localStorage.setItem(localKey, JSON.stringify(next));
@@ -178,7 +176,7 @@ export default function TodaysPlan() {
   }
 
   return (
-    <div className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
+    <div id="todays-plan" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-4">
         <div>
           <h2 className="text-2xl font-bold text-[#041B2D]">🗓️ Today’s Plan</h2>
@@ -312,15 +310,12 @@ function StackManagerModal({ onClose, onAdded }: { onClose: () => void; onAdded:
           </div>
         )}
 
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 max-h:[50vh] overflow-auto pr-1">
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[50vh] overflow-auto pr-1">
           {items.map((it, idx) => (
             <div key={`${it.sku ?? idx}`} className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4">
               <div className="font-semibold text-[#041B2D]">{it.name}</div>
-              <div className="text-sm text-gray-700">
-                {(it.dose || "Dose not set").replace(/\*\*/g, "")}
-                {it.timing && it.timing !== "AM" && it.timing !== "PM" ? ` • ${it.timing}` : ""}
-              </div>
-              <div className="text-xs text-gray-600">{it.dose ?? ""}</div>
+              <div className="text-sm text-gray-700">{it.brand ?? "—"}</div>
+              <div className="text-xs text-gray-600">{it.dose ? it.dose : ""}</div>
               <div className="text-xs text-gray-500 mt-1">
                 {it.price != null ? `~$${Number(it.price).toFixed(2)}` : ""}
               </div>
@@ -401,7 +396,8 @@ function TimingBlock({
                         {it.name}{it.brand ? ` — ${it.brand}` : ""}
                       </div>
                       <div className="text-sm text-gray-700">
-                        {it.dose || "Dose not set"}{it.timing && it.timing !== "AM" && it.timing !== "PM" ? ` • ${it.timing}` : ""}
+                        {(it.dose || "Dose not set").replace(/\*\*/g, "")}
+                        {it.timing && it.timing !== "AM" && it.timing !== "PM" ? ` • ${it.timing}` : ""}
                       </div>
                       {it.notes && <div className="text-xs text-gray-600 mt-0.5">{it.notes}</div>}
                       {low && (
@@ -414,13 +410,13 @@ function TimingBlock({
 
                   <div className="flex items-center gap-2">
                     {link ? (
-                  <a
-                    className="inline-flex items-center rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
-                    href={link}
-                    target="_blank"
-                    rel="noopener noreferrer nofollow sponsored"
-                    title="Reorder"
-                  >
+                      <a
+                        className="inline-flex items-center rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
+                        href={link}
+                        target="_blank"
+                        rel="noopener noreferrer nofollow sponsored"
+                        title="Reorder"
+                      >
                         <PackageOpen className="w-4 h-4 mr-1" />
                         Reorder
                       </a>
