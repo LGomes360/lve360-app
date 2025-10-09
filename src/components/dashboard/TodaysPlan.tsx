@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { CheckCircle2, Circle, TriangleAlert, PackageOpen, Pill, Search } from "lucide-react";
 
+/* =========================
+   Types
+========================= */
 type StackRow = { id: string; created_at: string };
 type StackItem = {
   id: string;
@@ -31,15 +34,27 @@ type SearchItem = {
 
 export default function TodaysPlan() {
   const supabase = createClientComponentClient();
+
+  /* -------------------------
+     State
+  ------------------------- */
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [stack, setStack] = useState<StackRow | null>(null);
   const [items, setItems] = useState<StackItem[]>([]);
   const [showManager, setShowManager] = useState(false);
 
-  // DB persisted "taken today" statuses
+  // DB-persisted "taken today" statuses
   const [takenMap, setTakenMap] = useState<Record<string, boolean>>({});
   const today = new Date().toISOString().slice(0, 10);
+
+  // Toast
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // Local fallback key (only if API fails)
   const localKey = useMemo(() => {
@@ -47,18 +62,20 @@ export default function TodaysPlan() {
     return `lve360_taken_${userId}_${today}`;
   }, [userId, today]);
 
-  // Fetch latest stack + items + today statuses
+  /* -------------------------
+     Load: user → latest stack → items → today statuses
+  ------------------------- */
   useEffect(() => {
     (async () => {
       const { data: userWrap } = await supabase.auth.getUser();
       const uid = userWrap?.user?.id ?? null;
       setUserId(uid);
-
       if (!uid) {
         setLoading(false);
         return;
       }
 
+      // Latest stack
       const { data: stacksRows } = await supabase
         .from("stacks")
         .select("id, created_at")
@@ -70,15 +87,17 @@ export default function TodaysPlan() {
       setStack(latest);
 
       if (latest?.id) {
+        // Items
         const { data: itemRows } = await supabase
           .from("stacks_items")
           .select("id, stack_id, name, brand, dose, timing, notes, link_amazon, link_fullscript, refill_days_left, last_refilled_at")
           .eq("stack_id", latest.id)
           .order("created_at", { ascending: true });
+
         const arr = (itemRows ?? []) as StackItem[];
         setItems(arr);
 
-        // Load today's statuses from API
+        // Today's statuses from API (fallback to local)
         try {
           const res = await fetch(`/api/intake/status?stack_id=${latest.id}`, { cache: "no-store" });
           const json = await res.json();
@@ -103,7 +122,11 @@ export default function TodaysPlan() {
     })();
   }, [supabase, localKey]);
 
-  // Toggle an item (persist to DB; fallback to local)
+  /* -------------------------
+     Actions
+  ------------------------- */
+
+  // Toggle a single item (DB, with local fallback)
   async function toggleTaken(itemId: string) {
     const nextVal = !takenMap[itemId];
 
@@ -121,6 +144,7 @@ export default function TodaysPlan() {
         if (localKey) localStorage.setItem(localKey, JSON.stringify(next));
         return next;
       });
+      setToast(nextVal ? "Marked item taken" : "Marked item not taken");
     } catch {
       // Fallback to local only if DB write fails
       setTakenMap((prev) => {
@@ -128,49 +152,35 @@ export default function TodaysPlan() {
         if (localKey) localStorage.setItem(localKey, JSON.stringify(next));
         return next;
       });
+      setToast(nextVal ? "Marked item taken" : "Marked item not taken");
     }
-  }// Mark all items for today as taken (true) or not (false)
-async function markAll(taken: boolean) {
-  const ids = items.map(i => i.id);
-  if (ids.length === 0) return;
+  }
 
-  // Fire-and-forget to the API (we update UI regardless, then rely on retries later)
-  await Promise.allSettled(
-    ids.map(id =>
-      fetch("/api/intake/set", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ item_id: id, taken }),
-      })
-    )
-  );
-
-  // Update local UI + localStorage fallback
-  setTakenMap(() => {
-    const next: Record<string, boolean> = {};
-    ids.forEach(id => (next[id] = taken));
-    if (localKey) localStorage.setItem(localKey, JSON.stringify(next));
-    return next;
-  });
-  setToast(taken ? "Marked all items taken" : "Cleared all items");
-}
-
-  // Split by timing
-  const itemsAM = items.filter((i) => (i.timing ?? "").includes("AM"));
-  const itemsPM = items.filter((i) => (i.timing ?? "").includes("PM"));
-  const itemsOther = items.filter(
-    (i) => !i.timing || (i.timing !== "AM" && i.timing !== "PM" && i.timing !== "AM/PM")
-  );
-
-  // Completion %
-  const completion = useMemo(() => {
+  // Mark all items for today as taken (true) or not (false)
+  async function markAll(taken: boolean) {
     const ids = items.map((i) => i.id);
-    const total = ids.length || 1;
-    const done = ids.reduce((acc, id) => acc + (takenMap[id] ? 1 : 0), 0);
-    return Math.round((done / total) * 100);
-  }, [items, takenMap]);
+    if (ids.length === 0) return;
 
-  // Reload items helper (after adding new)
+    await Promise.allSettled(
+      ids.map((id) =>
+        fetch("/api/intake/set", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ item_id: id, taken }),
+        })
+      )
+    );
+
+    setTakenMap(() => {
+      const next: Record<string, boolean> = {};
+      ids.forEach((id) => (next[id] = taken));
+      if (localKey) localStorage.setItem(localKey, JSON.stringify(next));
+      return next;
+    });
+    setToast(taken ? "Marked all items taken" : "Cleared all items");
+  }
+
+  // Reload items (after adding new in modal)
   async function reloadItems() {
     if (!stack?.id) return;
     const { data: itemRows } = await supabase
@@ -179,7 +189,7 @@ async function markAll(taken: boolean) {
       .eq("stack_id", stack.id)
       .order("created_at", { ascending: true });
     setItems((itemRows ?? []) as StackItem[]);
-    // Refresh statuses too
+
     try {
       const res = await fetch(`/api/intake/status?stack_id=${stack.id}`, { cache: "no-store" });
       const json = await res.json();
@@ -190,6 +200,23 @@ async function markAll(taken: boolean) {
     } catch {}
   }
 
+  /* -------------------------
+     Derived
+  ------------------------- */
+  const itemsAM = items.filter((i) => (i.timing ?? "").includes("AM"));
+  const itemsPM = items.filter((i) => (i.timing ?? "").includes("PM"));
+  const itemsOther = items.filter((i) => !i.timing || (i.timing !== "AM" && i.timing !== "PM" && i.timing !== "AM/PM"));
+
+  const completion = useMemo(() => {
+    const ids = items.map((i) => i.id);
+    const total = ids.length || 1;
+    const done = ids.reduce((acc, id) => acc + (takenMap[id] ? 1 : 0), 0);
+    return Math.round((done / total) * 100);
+  }, [items, takenMap]);
+
+  /* -------------------------
+     Render
+  ------------------------- */
   if (loading) {
     return (
       <div id="todays-plan" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
@@ -214,32 +241,19 @@ async function markAll(taken: boolean) {
           Completion today:{" "}
           <button
             onClick={() => {
-              const allIds = items.map(i => i.id);
-              const allTaken = allIds.every(id => takenMap[id]);
-              // flip all
-              Promise.all(
-                allIds.map(id =>
-                  fetch("/api/intake/set", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ item_id: id, taken: !allTaken }),
-                  })
-                )
-              ).finally(() => {
-                const next: Record<string, boolean> = {};
-                allIds.forEach(id => (next[id] = !allTaken));
-                setTakenMap(next);
-              });
+              const allTaken = items.every((i) => takenMap[i.id]);
+              markAll(!allTaken); // if all taken → clear; else take all
             }}
             className="font-semibold text-[#06C1A0] underline underline-offset-2"
-            title="Toggle all items"
+            title="Click to toggle all items"
+            aria-label="Toggle all items for today"
           >
             {completion}%
           </button>
         </div>
-
       </div>
 
+      {/* AM / PM / Other */}
       <TimingBlock title="AM Routine" items={itemsAM} takenMap={takenMap} onToggle={toggleTaken} />
       <div className="mt-5">
         <TimingBlock title="PM Routine" items={itemsPM} takenMap={takenMap} onToggle={toggleTaken} />
@@ -274,7 +288,8 @@ async function markAll(taken: boolean) {
           }}
         />
       )}
-      {/* Toast */}
+
+      {/* Toast (keep this at bottom of the container) */}
       {toast && (
         <div className="fixed inset-x-0 bottom-6 z-[60] flex justify-center px-4">
           <div className="rounded-xl border border-purple-200 bg-white/90 backdrop-blur-md shadow-lg px-4 py-2 text-sm text-[#041B2D]">
@@ -286,20 +301,14 @@ async function markAll(taken: boolean) {
   );
 }
 
-/* ---------- Modal (search + add) ---------- */
+/* ============================================================
+   Modal (search + add)
+============================================================ */
 function StackManagerModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState<SearchItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-  
-  // auto-hide toast after 2.5s
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2500);
-    return () => clearTimeout(t);
-  }, [toast]);
 
   async function doSearch() {
     try {
@@ -351,7 +360,9 @@ function StackManagerModal({ onClose, onAdded }: { onClose: () => void; onAdded:
       <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xl font-semibold text-[#041B2D]">Manage Your Stack</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700" aria-label="Close">✕</button>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700" aria-label="Close">
+            ✕
+          </button>
         </div>
 
         <div className="flex gap-2">
@@ -387,26 +398,34 @@ function StackManagerModal({ onClose, onAdded }: { onClose: () => void; onAdded:
                 {it.price != null ? `~$${Number(it.price).toFixed(2)}` : ""}
               </div>
               <div className="mt-3 flex gap-2">
-                <button onClick={() => addToStack(it, "AM")} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white">Add to AM</button>
-                <button onClick={() => addToStack(it, "PM")} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white">Add to PM</button>
-                <button onClick={() => addToStack(it, "AM/PM")} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white">Add AM/PM</button>
+                <button onClick={() => addToStack(it, "AM")} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white">
+                  Add to AM
+                </button>
+                <button onClick={() => addToStack(it, "PM")} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white">
+                  Add to PM
+                </button>
+                <button onClick={() => addToStack(it, "AM/PM")} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white">
+                  Add AM/PM
+                </button>
               </div>
             </div>
           ))}
-          {items.length === 0 && !error && (
-            <div className="text-gray-600">Try searching for “magnesium”, “omega”, “ashwagandha”…</div>
-          )}
+          {items.length === 0 && !error && <div className="text-gray-600">Try “magnesium”, “omega”, “ashwagandha”…</div>}
         </div>
 
         <div className="mt-4 text-right">
-          <button onClick={onClose} className="rounded-lg border px-4 py-2 text-sm">Close</button>
+          <button onClick={onClose} className="rounded-lg border px-4 py-2 text-sm">
+            Close
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-/* ---------- Low stock banner ---------- */
+/* ============================================================
+   Banners & Blocks
+============================================================ */
 function LowStockBanner({ items }: { items: StackItem[] }) {
   const low = items.filter((i) => (i.refill_days_left ?? Infinity) <= 10);
   if (!low.length) return null;
@@ -418,7 +437,6 @@ function LowStockBanner({ items }: { items: StackItem[] }) {
   );
 }
 
-/* ---------- Timing block ---------- */
 function TimingBlock({
   title,
   items,
@@ -444,10 +462,7 @@ function TimingBlock({
             const link = it.link_fullscript || it.link_amazon || null;
             const low = (it.refill_days_left ?? Infinity) <= 10;
             return (
-              <li
-                key={it.id}
-                className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-3"
-              >
+              <li key={it.id} className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
                     <button
@@ -460,20 +475,18 @@ function TimingBlock({
                     </button>
                     <div>
                       <div className="font-semibold text-[#041B2D]">
-                        {it.name}{it.brand ? ` — ${it.brand}` : ""}
+                        {(it.name || "").replace(/^theanine$/i, "L-Theanine")}
+                        {it.brand ? ` — ${it.brand}` : ""}
                       </div>
                       <div className="text-sm text-gray-700">
                         {(it.dose || "Dose not set").replace(/\*\*/g, "")}
                         {it.timing && !["AM", "PM", "AM/PM"].includes(it.timing) ? ` • ${it.timing}` : ""}
                       </div>
                       {it.notes && (
-                      <div
-                        className="text-xs text-gray-600 mt-0.5 line-clamp-2"
-                        title={it.notes}
-                      >
-                        {it.notes}
-                      </div>
-                    )}
+                        <div className="text-xs text-gray-600 mt-0.5 line-clamp-2" title={it.notes}>
+                          {it.notes}
+                        </div>
+                      )}
                       {low && (
                         <div className="mt-1 inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
                           <TriangleAlert className="w-3 h-3" /> Refill soon
