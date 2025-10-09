@@ -84,6 +84,7 @@ export default function DashboardPage() {
         <DashboardSnapshot />
         {/* 1.5 Daily Log (quick entry) */}
         <DailyLog />
+        <WeeklyGoal />
         {/* 2) Today’s Plan (AM/PM checklist + manager) */}
         <TodaysPlan />
 
