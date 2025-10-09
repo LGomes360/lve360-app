@@ -1,20 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import { Loader2, Target, ChevronRight } from "lucide-react";
+import { Loader2, Target, ChevronRight, X } from "lucide-react";
 
 /**
- * WeeklyGoal.tsx
+ * WeeklyGoal.tsx — normalized goals, preset-only limit
  * GET  /api/goals?userId=<id>  -> { goals: string[], custom_goal: string|null }
  * POST /api/goals              -> { ok: true, goals: ... }
- *
- * Enhancements:
- * - Debounced autosave on change (800ms)
- * - Preset limit (max 3) with toast
- * - Character counter (0–80)
- * - Enter=save, Esc=revert focus
- * - Quick links after save
  */
 
 type GoalsGetResponse = {
@@ -22,6 +15,9 @@ type GoalsGetResponse = {
   custom_goal: string | null;
 };
 
+/* ---------------------------
+   Canonicals / aliases
+--------------------------- */
 const PRESETS = [
   "Sleep quality",
   "Morning energy",
@@ -29,12 +25,44 @@ const PRESETS = [
   "Stress",
   "Focus",
   "Gut comfort",
-];
+] as const;
+type Canonical = (typeof PRESETS)[number];
 
-const MAX_PRESETS = 3;
+const ALIAS_TO_CANONICAL: Record<string, Canonical> = {
+  // Weight
+  "weight loss": "Body weight",
+  "lose weight": "Body weight",
+  "bodyweight": "Body weight",
+  // Sleep
+  "improve sleep": "Sleep quality",
+  "sleep": "Sleep quality",
+  "sleep quality": "Sleep quality",
+  // Energy
+  "increase energy": "Morning energy",
+  "energy": "Morning energy",
+  "morning energy": "Morning energy",
+  // Focus
+  "cognitive performance": "Focus",
+  "focus": "Focus",
+  // Stress
+  "stress management": "Stress",
+  "stress": "Stress",
+  // Gut
+  "gut health": "Gut comfort",
+  "gut comfort": "Gut comfort",
+};
+
+/* ---------------------------
+   Config
+--------------------------- */
+const MAX_PRESETS = 3;   // limit only applies to presets
 const MAX_CHARS = 80;
 const AUTOSAVE_MS = 800;
+const CAP_TOTAL_TAGS = 8; // global cap after normalization (presets + others)
 
+/* ---------------------------
+   Component
+--------------------------- */
 export default function WeeklyGoal() {
   const supabase = createClientComponentClient();
 
@@ -44,6 +72,8 @@ export default function WeeklyGoal() {
 
   const [focus, setFocus] = useState<string>("");
   const [initialFocus, setInitialFocus] = useState<string>("");
+
+  // single source of truth for tags (presets + other)
   const [tags, setTags] = useState<string[]>([]);
   const [initialTags, setInitialTags] = useState<string[]>([]);
 
@@ -52,14 +82,30 @@ export default function WeeklyGoal() {
   const [savedOnce, setSavedOnce] = useState(false);
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // auto-hide toast
+  const PRESET_SET = useMemo(() => new Set(PRESETS), []);
+
+  // Derived: which saved tags are presets vs others
+  const selectedPresetTags = useMemo(
+    () => tags.filter((t) => PRESET_SET.has(t as Canonical)),
+    [tags, PRESET_SET]
+  );
+  const otherTags = useMemo(
+    () => tags.filter((t) => !PRESET_SET.has(t as Canonical)),
+    [tags, PRESET_SET]
+  );
+
+  /* ---------------------------
+     Toast auto-hide
+  --------------------------- */
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 2000);
     return () => clearTimeout(t);
   }, [toast]);
 
-  // load user id, then fetch goals
+  /* ---------------------------
+     Load user + goals
+  --------------------------- */
   useEffect(() => {
     (async () => {
       try {
@@ -86,12 +132,15 @@ export default function WeeklyGoal() {
           setLoading(false);
           return;
         }
+
         const json = (await res.json()) as GoalsGetResponse;
-        const t = Array.isArray(json.goals) ? json.goals : [];
+
+        // Normalize on load so UI starts clean
+        const normalized = normalizeGoals(Array.isArray(json.goals) ? json.goals : [], { capTotal: CAP_TOTAL_TAGS });
         const f = (json.custom_goal ?? "").slice(0, MAX_CHARS);
 
-        setTags(t);
-        setInitialTags(t);
+        setTags(normalized);
+        setInitialTags(normalized);
         setFocus(f);
         setInitialFocus(f);
       } catch {
@@ -102,7 +151,9 @@ export default function WeeklyGoal() {
     })();
   }, [supabase]);
 
-  // Debounced autosave when focus/tags change (after initial load)
+  /* ---------------------------
+     Debounced autosave
+  --------------------------- */
   useEffect(() => {
     if (loading || !userId) return;
     const changed = focus !== initialFocus || diff(tags, initialTags).length > 0;
@@ -119,6 +170,9 @@ export default function WeeklyGoal() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, tags]);
 
+  /* ---------------------------
+     Save (normalizes before POST)
+  --------------------------- */
   async function save(isAutosave = false) {
     if (!userId) {
       setErrorMsg("Not signed in.");
@@ -128,12 +182,14 @@ export default function WeeklyGoal() {
       setSaving(true);
       setErrorMsg(null);
 
+      const normalizedForSave = normalizeGoals(tags, { capTotal: CAP_TOTAL_TAGS });
+
       const res = await fetch("/api/goals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId,
-          goals: tags,
+          goals: normalizedForSave,
           custom_goal: (focus || "").trim() || null,
         }),
       });
@@ -143,11 +199,11 @@ export default function WeeklyGoal() {
         throw new Error(json?.error || `Save failed (${res.status})`);
       }
 
-      // Update baselines after a successful save
+      // Lock in baselines after save
+      setTags(normalizedForSave);
+      setInitialTags(normalizedForSave);
       setInitialFocus(focus);
-      setInitialTags(tags);
       setSavedOnce(true);
-
       if (!isAutosave) setToast("Weekly goal saved");
     } catch (e: any) {
       setErrorMsg(e?.message ?? "Save failed");
@@ -156,15 +212,28 @@ export default function WeeklyGoal() {
     }
   }
 
-  function toggleTag(t: string) {
-    setTags((prev) => {
-      if (prev.includes(t)) return prev.filter((x) => x !== t);
-      if (prev.length >= MAX_PRESETS) {
+  /* ---------------------------
+     UI actions
+  --------------------------- */
+  // Toggle within the PRESET subset (respect max)
+  function togglePreset(p: Canonical) {
+    const current = new Set(selectedPresetTags);
+    if (current.has(p)) {
+      current.delete(p);
+    } else {
+      if (selectedPresetTags.length >= MAX_PRESETS) {
         setToast(`You can choose up to ${MAX_PRESETS}`);
-        return prev;
+        return;
       }
-      return [...prev, t];
-    });
+      current.add(p);
+    }
+    // Recombine with other tags (unchanged)
+    setTags([...otherTags, ...Array.from(current)]);
+  }
+
+  // Remove an "other" tag chip
+  function removeOther(tag: string) {
+    setTags((prev) => prev.filter((t) => t.toLowerCase() !== tag.toLowerCase()));
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -172,7 +241,6 @@ export default function WeeklyGoal() {
       e.preventDefault();
       save(false);
     } else if (e.key === "Escape") {
-      // revert to last saved focus
       setFocus(initialFocus);
     }
   }
@@ -180,6 +248,9 @@ export default function WeeklyGoal() {
   const focusCount = focus.length;
   const changed = focus !== initialFocus || diff(tags, initialTags).length > 0;
 
+  /* ---------------------------
+     Render
+  --------------------------- */
   if (loading) {
     return (
       <div className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
@@ -241,11 +312,11 @@ export default function WeeklyGoal() {
         <div className="text-xs uppercase tracking-wide text-purple-600">Quick presets</div>
         <div className="mt-1 flex flex-wrap gap-2">
           {PRESETS.map((p) => {
-            const active = tags.includes(p);
+            const active = selectedPresetTags.includes(p);
             return (
               <button
                 key={p}
-                onClick={() => toggleTag(p)}
+                onClick={() => togglePreset(p)}
                 className={`rounded-full border px-3 py-1 text-sm ${
                   active ? "bg-purple-600 text-white border-purple-600" : "hover:bg-white"
                 }`}
@@ -258,9 +329,35 @@ export default function WeeklyGoal() {
           })}
         </div>
         <div className="mt-1 text-xs text-gray-500">
-          Choose up to {MAX_PRESETS}. {tags.length}/{MAX_PRESETS} selected.
+          Choose up to {MAX_PRESETS}. {selectedPresetTags.length}/{MAX_PRESETS} selected.
         </div>
       </div>
+
+      {/* Other tags (non-preset) */}
+      {otherTags.length > 0 && (
+        <div className="mt-3">
+          <div className="text-xs uppercase tracking-wide text-purple-600">Other tags</div>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {otherTags.map((t) => (
+              <span
+                key={t}
+                className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm text-gray-700"
+                title={t}
+              >
+                {t}
+                <button
+                  onClick={() => removeOther(t)}
+                  className="ml-1 text-gray-500 hover:text-gray-700"
+                  aria-label={`Remove ${t}`}
+                  title="Remove"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Footer actions */}
       <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -292,7 +389,7 @@ export default function WeeklyGoal() {
         </button>
       </div>
 
-      {/* Toast (aria-live for screen readers) */}
+      {/* Toast */}
       {toast && (
         <div className="fixed inset-x-0 bottom-6 z-[60] flex justify-center px-4" aria-live="polite">
           <div className="rounded-xl border border-purple-200 bg-white/90 backdrop-blur-md shadow-lg px-4 py-2 text-sm text-[#041B2D]">
@@ -304,7 +401,9 @@ export default function WeeklyGoal() {
   );
 }
 
-/* utils */
+/* ---------------------------
+   Helpers
+--------------------------- */
 async function safeJson(res: Response) {
   try {
     return await res.json();
@@ -312,10 +411,38 @@ async function safeJson(res: Response) {
     return null;
   }
 }
-
 function diff(a: string[], b: string[]) {
-  const A = new Set(a), B = new Set(b);
-  const add = a.filter((x) => !B.has(x));
-  const rem = b.filter((x) => !A.has(x));
+  const A = new Set(a.map((s) => s.toLowerCase()));
+  const B = new Set(b.map((s) => s.toLowerCase()));
+  const add = a.filter((x) => !B.has(x.toLowerCase()));
+  const rem = b.filter((x) => !A.has(x.toLowerCase()));
   return [...add, ...rem];
+}
+
+function toTitle(s: string) {
+  return s.replace(/\w\S*/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase());
+}
+
+/** Normalize: trim, alias→canonical, dedupe (case-insensitive), title-case others, cap total. */
+function normalizeGoals(incoming: string[], opts?: { capTotal?: number }): string[] {
+  const capTotal = opts?.capTotal ?? 8;
+  const cleaned = (incoming || [])
+    .map((s) => (s ?? "").toString().trim().replace(/\s+/g, " "))
+    .filter(Boolean);
+
+  const mapped = cleaned.map((s) => {
+    const key = s.toLowerCase();
+    return (ALIAS_TO_CANONICAL as any)[key] ?? toTitle(s);
+  });
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const g of mapped) {
+    const k = g.toLowerCase();
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(g);
+    }
+  }
+  return out.slice(0, capTotal);
 }
