@@ -10,6 +10,7 @@ import TodaysPlan from "@/components/dashboard/TodaysPlan";
 import ProgressTracker from "@/components/dashboard/ProgressTracker";
 import InsightsFeed from "@/components/dashboard/InsightsFeed";
 import NextSteps from "@/components/dashboard/NextSteps";
+import DailyLog from "@/components/dashboard/DailyLog";
 
 export default function DashboardPage() {
   const supabase = createClientComponentClient();
@@ -80,7 +81,8 @@ export default function DashboardPage() {
 
         {/* 1) Greeting & Snapshot */}
         <DashboardSnapshot />
-
+        {/* 1.5 Daily Log (quick entry) */}
+        <DailyLog />
         {/* 2) Today’s Plan (AM/PM checklist + manager) */}
         <TodaysPlan />
 
