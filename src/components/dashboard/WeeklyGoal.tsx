@@ -1,15 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { Loader2, Target, ChevronRight } from "lucide-react";
 
 /**
  * WeeklyGoal.tsx
- * - Talks to your existing API:
- *   GET  /api/goals?userId=<id>  -> { goals: string[], custom_goal: string|null }
- *   POST /api/goals              -> { ok: true, goals: ... }
- * - Updates ONLY: custom_goal (string) and goals (string[])
+ * GET  /api/goals?userId=<id>  -> { goals: string[], custom_goal: string|null }
+ * POST /api/goals              -> { ok: true, goals: ... }
+ *
+ * Enhancements:
+ * - Debounced autosave on change (800ms)
+ * - Preset limit (max 3) with toast
+ * - Character counter (0–80)
+ * - Enter=save, Esc=revert focus
+ * - Quick links after save
  */
 
 type GoalsGetResponse = {
@@ -26,6 +31,10 @@ const PRESETS = [
   "Gut comfort",
 ];
 
+const MAX_PRESETS = 3;
+const MAX_CHARS = 80;
+const AUTOSAVE_MS = 800;
+
 export default function WeeklyGoal() {
   const supabase = createClientComponentClient();
 
@@ -34,15 +43,19 @@ export default function WeeklyGoal() {
   const [userId, setUserId] = useState<string | null>(null);
 
   const [focus, setFocus] = useState<string>("");
+  const [initialFocus, setInitialFocus] = useState<string>("");
   const [tags, setTags] = useState<string[]>([]);
+  const [initialTags, setInitialTags] = useState<string[]>([]);
 
   const [toast, setToast] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [savedOnce, setSavedOnce] = useState(false);
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // auto-hide toast
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2200);
+    const t = setTimeout(() => setToast(null), 2000);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -74,9 +87,14 @@ export default function WeeklyGoal() {
           return;
         }
         const json = (await res.json()) as GoalsGetResponse;
-        setTags(Array.isArray(json.goals) ? json.goals : []);
-        setFocus(json.custom_goal ?? "");
-      } catch (e: any) {
+        const t = Array.isArray(json.goals) ? json.goals : [];
+        const f = (json.custom_goal ?? "").slice(0, MAX_CHARS);
+
+        setTags(t);
+        setInitialTags(t);
+        setFocus(f);
+        setInitialFocus(f);
+      } catch {
         setErrorMsg("Unable to load weekly goal.");
       } finally {
         setLoading(false);
@@ -84,7 +102,24 @@ export default function WeeklyGoal() {
     })();
   }, [supabase]);
 
-  async function save() {
+  // Debounced autosave when focus/tags change (after initial load)
+  useEffect(() => {
+    if (loading || !userId) return;
+    const changed = focus !== initialFocus || diff(tags, initialTags).length > 0;
+    if (!changed) return;
+
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(() => {
+      save(true).catch(() => {});
+    }, AUTOSAVE_MS);
+
+    return () => {
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, tags]);
+
+  async function save(isAutosave = false) {
     if (!userId) {
       setErrorMsg("Not signed in.");
       return;
@@ -108,7 +143,12 @@ export default function WeeklyGoal() {
         throw new Error(json?.error || `Save failed (${res.status})`);
       }
 
-      setToast("Weekly goal saved");
+      // Update baselines after a successful save
+      setInitialFocus(focus);
+      setInitialTags(tags);
+      setSavedOnce(true);
+
+      if (!isAutosave) setToast("Weekly goal saved");
     } catch (e: any) {
       setErrorMsg(e?.message ?? "Save failed");
     } finally {
@@ -117,8 +157,28 @@ export default function WeeklyGoal() {
   }
 
   function toggleTag(t: string) {
-    setTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
+    setTags((prev) => {
+      if (prev.includes(t)) return prev.filter((x) => x !== t);
+      if (prev.length >= MAX_PRESETS) {
+        setToast(`You can choose up to ${MAX_PRESETS}`);
+        return prev;
+      }
+      return [...prev, t];
+    });
   }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      save(false);
+    } else if (e.key === "Escape") {
+      // revert to last saved focus
+      setFocus(initialFocus);
+    }
+  }
+
+  const focusCount = focus.length;
+  const changed = focus !== initialFocus || diff(tags, initialTags).length > 0;
 
   if (loading) {
     return (
@@ -140,7 +200,7 @@ export default function WeeklyGoal() {
   }
 
   return (
-    <div className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
+    <div className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm" aria-label="Weekly goal">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-[#041B2D] flex items-center gap-2">
           <Target className="w-5 h-5 text-[#7C3AED]" />
@@ -155,12 +215,25 @@ export default function WeeklyGoal() {
       {/* Focus input */}
       <div className="mt-4">
         <label className="text-xs uppercase tracking-wide text-purple-600">Weekly focus</label>
-        <input
-          value={focus}
-          onChange={(e) => setFocus(e.target.value)}
-          placeholder="e.g., In bed by 10:30pm"
-          className="mt-1 w-full rounded-lg border px-3 py-2"
-        />
+        <div className="relative">
+          <input
+            value={focus}
+            onChange={(e) => setFocus(e.target.value.slice(0, MAX_CHARS))}
+            onKeyDown={onKeyDown}
+            placeholder="e.g., In bed by 10:30pm"
+            className="mt-1 w-full rounded-lg border px-3 py-2 pr-14"
+            aria-describedby="focus-limit"
+          />
+          <div
+            id="focus-limit"
+            className={`absolute right-2 top-1/2 -translate-y-1/2 text-xs ${
+              focusCount > MAX_CHARS - 10 ? "text-gray-700" : "text-gray-400"
+            }`}
+            aria-live="polite"
+          >
+            {focusCount}/{MAX_CHARS}
+          </div>
+        </div>
       </div>
 
       {/* Preset chips */}
@@ -177,33 +250,51 @@ export default function WeeklyGoal() {
                   active ? "bg-purple-600 text-white border-purple-600" : "hover:bg-white"
                 }`}
                 aria-pressed={active}
+                aria-label={`Toggle preset ${p}`}
               >
                 {p}
               </button>
             );
           })}
         </div>
+        <div className="mt-1 text-xs text-gray-500">
+          Choose up to {MAX_PRESETS}. {tags.length}/{MAX_PRESETS} selected.
+        </div>
       </div>
 
       {/* Footer actions */}
-      <div className="mt-4 flex items-center justify-between">
+      <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div className="text-xs text-gray-500">
           {focus ? `Current: “${focus}”` : "No goal set yet"}
+          {savedOnce && (
+            <>
+              {" "}|{" "}
+              <a href="#todays-plan" className="underline underline-offset-2 hover:text-[#041B2D]">
+                Today’s Plan
+              </a>{" "}
+              •{" "}
+              <a href="#progress" className="underline underline-offset-2 hover:text-[#041B2D]">
+                Progress
+              </a>
+            </>
+          )}
         </div>
+
         <button
-          onClick={save}
-          disabled={saving}
+          onClick={() => save(false)}
+          disabled={saving || !changed}
           className="inline-flex items-center rounded-xl bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] px-4 py-2 text-white font-semibold shadow-md disabled:opacity-60"
+          aria-disabled={saving || !changed}
         >
           {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-          Save goal
+          {changed ? "Save goal" : "Saved"}
           <ChevronRight className="w-4 h-4 ml-1" />
         </button>
       </div>
 
-      {/* Toast */}
+      {/* Toast (aria-live for screen readers) */}
       {toast && (
-        <div className="fixed inset-x-0 bottom-6 z-[60] flex justify-center px-4">
+        <div className="fixed inset-x-0 bottom-6 z-[60] flex justify-center px-4" aria-live="polite">
           <div className="rounded-xl border border-purple-200 bg-white/90 backdrop-blur-md shadow-lg px-4 py-2 text-sm text-[#041B2D]">
             {toast}
           </div>
@@ -220,4 +311,11 @@ async function safeJson(res: Response) {
   } catch {
     return null;
   }
+}
+
+function diff(a: string[], b: string[]) {
+  const A = new Set(a), B = new Set(b);
+  const add = a.filter((x) => !B.has(x));
+  const rem = b.filter((x) => !A.has(x));
+  return [...add, ...rem];
 }
