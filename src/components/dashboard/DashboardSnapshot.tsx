@@ -2,20 +2,22 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import { Loader2 } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 
 /**
- * Section 1 — Personalized Welcome & Daily Snapshot (v2)
+ * Section 1 — Personalized Welcome & Daily Snapshot (v3)
  * - Reads current user
  * - Fetches last 7 logs + current goals
  * - Fetches last 7 days supplement intake events → adherence %
+ * - Fetches latest AI summary (ai_summaries)
  * - Computes deltas + simple "wellness score"
- * - Renders KPIs: Weight Δ, Sleep (1–5), Energy (1–10) + Adherence chip
+ * - Renders KPIs: Weight Δ, Sleep (1–5), Energy (1–10) + Adherence chip + Coaching blurb
  *
  * Tables:
  *  - public.logs(user_id, log_date, weight, sleep, energy, notes)
  *  - public.goals(user_id, target_weight, target_sleep, target_energy, goals[])
  *  - public.intake_events(user_id, item_id, intake_date, taken)
+ *  - public.ai_summaries(user_id, summary, created_at)
  */
 
 type LogRow = {
@@ -32,6 +34,11 @@ type GoalsRow = {
   goals: string[] | null;
 };
 
+type AiSummaryRow = {
+  summary: string;
+  created_at: string;
+};
+
 export default function DashboardSnapshot() {
   const supabase = createClientComponentClient();
   const [loading, setLoading] = useState(true);
@@ -39,6 +46,7 @@ export default function DashboardSnapshot() {
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [goals, setGoals] = useState<GoalsRow | null>(null);
   const [adherence7, setAdherence7] = useState<number | null>(null);
+  const [latestAi, setLatestAi] = useState<AiSummaryRow | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -91,6 +99,16 @@ export default function DashboardSnapshot() {
         const total = (intake ?? []).length;
         const taken = (intake ?? []).filter((r: any) => r.taken).length;
         setAdherence7(total ? Math.round((taken / total) * 100) : null);
+
+        // 5) Fetch: latest AI summary (most recent one)
+        const { data: aiRows, error: aiErr } = await supabase
+          .from("ai_summaries")
+          .select("summary, created_at")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        if (aiErr) throw aiErr;
+        setLatestAi(aiRows?.[0] ?? null);
       } catch (e: any) {
         setError(e?.message ?? "Failed to load your snapshot.");
       } finally {
@@ -177,7 +195,7 @@ export default function DashboardSnapshot() {
   return (
     <div className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
       {/* Greeting + top chips */}
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-2">
         <h2 className="text-2xl font-bold text-[#041B2D]">
           👋 Good {getPartOfDay()}, {username}
         </h2>
@@ -194,6 +212,19 @@ export default function DashboardSnapshot() {
           )}
         </div>
       </div>
+
+      {/* Coaching blurb from latest AI summary */}
+      {latestAi?.summary && (
+        <div className="mb-4 text-[15px] text-[#041B2D] bg-gradient-to-br from-purple-50 to-yellow-50 border border-purple-100 rounded-xl p-3 flex items-start gap-2">
+          <Sparkles className="w-4 h-4 mt-0.5 text-[#7C3AED]" />
+          <div>
+            <div className="text-xs uppercase tracking-wide text-purple-600">
+              Coaching tip · {new Date(latestAi.created_at).toLocaleDateString()}
+            </div>
+            <div className="mt-0.5">{latestAi.summary}</div>
+          </div>
+        </div>
+      )}
 
       {!hasAnyData ? (
         <div className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4 text-gray-700">
