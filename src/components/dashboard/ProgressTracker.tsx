@@ -8,7 +8,7 @@ import { Loader2 } from "lucide-react";
  * ProgressTracker.tsx
  * - Reads last 30 logs and current goals
  * - Renders Weight, Sleep, Energy trends
- * - Uses tiny inline SVG sparklines + progress rings (no external chart libs)
+ * - Inline SVG sparklines + progress rings (no external chart libs)
  *
  * Tables:
  *  - public.logs(user_id, log_date, weight, sleep, energy)
@@ -112,29 +112,48 @@ export default function ProgressTracker() {
 
   if (loading) {
     return (
-      <div id="todays-plan" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
-        <Loader2 className="w-5 h-5 animate-spin text-purple-600 mr-2" />
-        <span className="text-gray-600">Loading progress…</span>
+      <div id="progress" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center">
+          <Loader2 className="w-5 h-5 animate-spin text-purple-600 mr-2" />
+          <span className="text-gray-600">Loading progress…</span>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
+    <div id="progress" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
       <h2 className="text-2xl font-bold text-[#041B2D] mb-4">📊 Progress Tracker</h2>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Weight */}
         <Card>
-          <Header title="Weight Trend" subtitle={goals?.target_weight != null ? `Target: ${goals.target_weight} lb` : undefined} />
+          <Header
+            title="Weight Trend"
+            subtitle={goals?.target_weight != null ? `Target: ${goals.target_weight} lb` : undefined}
+          />
           <BigNumber value={weightToday != null ? `${weightToday} lb` : "—"} />
-          <Sparkline label="Last 30 days" color="#7C3AED" points={weightSpark.points} w={weightSpark.w} h={weightSpark.h} />
+          <div className="mt-2" title="Sparkline shows your last 30 days of weights.">
+            <Sparkline
+              label="Last 30 days"
+              color="#7C3AED"
+              points={weightSpark.points}
+              w={weightSpark.w}
+              h={weightSpark.h}
+            />
+          </div>
         </Card>
 
         {/* Sleep */}
         <Card>
-          <Header title="Sleep Quality" subtitle={goals?.target_sleep != null ? `Target: ${goals.target_sleep} / 5` : undefined} />
-          <div className="flex items-center gap-4">
+          <Header
+            title="Sleep Quality"
+            subtitle={goals?.target_sleep != null ? `Target: ${goals.target_sleep} / 5` : undefined}
+          />
+          <div
+            className="flex items-center gap-4"
+            title="Ring shows your 7-day average vs. a max of 5."
+          >
             <ProgressRing value={sleep7 ?? 0} max={5} size={72} />
             <div>
               <div className="text-sm text-gray-600">7-day avg</div>
@@ -143,15 +162,27 @@ export default function ProgressTracker() {
               </div>
             </div>
           </div>
-          <div className="mt-2">
-            <Sparkline label="Last 30 days" color="#06C1A0" points={sleepSpark.points} w={sleepSpark.w} h={sleepSpark.h} />
+          <div className="mt-2" title="Sparkline shows your last 30 days of sleep ratings.">
+            <Sparkline
+              label="Last 30 days"
+              color="#06C1A0"
+              points={sleepSpark.points}
+              w={sleepSpark.w}
+              h={sleepSpark.h}
+            />
           </div>
         </Card>
 
         {/* Energy */}
         <Card>
-          <Header title="Energy Level" subtitle={goals?.target_energy != null ? `Target: ${goals.target_energy} / 10` : undefined} />
-          <div className="flex items-center gap-4">
+          <Header
+            title="Energy Level"
+            subtitle={goals?.target_energy != null ? `Target: ${goals.target_energy} / 10` : undefined}
+          />
+          <div
+            className="flex items-center gap-4"
+            title="Ring shows your 7-day average vs. a max of 10."
+          >
             <ProgressRing value={energy7 ?? 0} max={10} size={72} />
             <div>
               <div className="text-sm text-gray-600">7-day avg</div>
@@ -160,8 +191,14 @@ export default function ProgressTracker() {
               </div>
             </div>
           </div>
-          <div className="mt-2">
-            <Sparkline label="Last 30 days" color="#F59E0B" points={energySpark.points} w={energySpark.w} h={energySpark.h} />
+          <div className="mt-2" title="Sparkline shows your last 30 days of energy ratings.">
+            <Sparkline
+              label="Last 30 days"
+              color="#F59E0B"
+              points={energySpark.points}
+              w={energySpark.w}
+              h={energySpark.h}
+            />
           </div>
         </Card>
       </div>
@@ -227,6 +264,7 @@ function ProgressRing({ value, max, size = 72 }: { value: number; max: number; s
 
   return (
     <svg width={size} height={size}>
+      <title>{`Progress: ${Math.round(pct * 100)}% of maximum`}</title>
       <circle cx={size/2} cy={size/2} r={r} stroke="#E5E7EB" strokeWidth={stroke} fill="none" />
       <circle
         cx={size/2}
