@@ -152,6 +152,7 @@ async function markAll(taken: boolean) {
     if (localKey) localStorage.setItem(localKey, JSON.stringify(next));
     return next;
   });
+  setToast(taken ? "Marked all items taken" : "Cleared all items");
 }
 
   // Split by timing
@@ -273,6 +274,14 @@ async function markAll(taken: boolean) {
           }}
         />
       )}
+      {/* Toast */}
+      {toast && (
+        <div className="fixed inset-x-0 bottom-6 z-[60] flex justify-center px-4">
+          <div className="rounded-xl border border-purple-200 bg-white/90 backdrop-blur-md shadow-lg px-4 py-2 text-sm text-[#041B2D]">
+            {toast}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -283,6 +292,14 @@ function StackManagerModal({ onClose, onAdded }: { onClose: () => void; onAdded:
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState<SearchItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  
+  // auto-hide toast after 2.5s
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   async function doSearch() {
     try {
