@@ -781,7 +781,7 @@ function formatDate(iso?: string | null) {
 }
 
 /* ------------------------
-   Notes: update/insert (generic-typed, no `any`)
+   Notes: update/insert (2-generic Supabase fix)
 ------------------------ */
 type LogNoteRow = { id: string; notes: string | null };
 type LogInsert  = { user_id: string; log_date: string; notes: string };
@@ -797,8 +797,9 @@ async function upsertNoteForIndex(
   const date = logs[idx]?.log_date;
   if (!date) return;
 
+  // NOTE: supply BOTH generics: <Row, Result>
   const { data: existing, error } = await supabase
-    .from<LogNoteRow>("logs")
+    .from<LogNoteRow, LogNoteRow[]>("logs")
     .select("id, notes")
     .eq("user_id", userId)
     .eq("log_date", date)
@@ -813,18 +814,16 @@ async function upsertNoteForIndex(
   const rows = existing ?? [];
 
   if (rows[0]?.id) {
-    // append bullet if notes already exist
     const prev = rows[0].notes ?? "";
     const next = prev ? `${prev}\n• ${note}` : note;
 
     await supabase
-      .from<LogNoteRow>("logs")
-      .update({ notes: next })
+      .from<LogNoteRow, LogNoteRow>("logs")
+      .update({ notes: next } as Partial<LogNoteRow>)
       .eq("id", rows[0].id);
   } else {
-    // no row on that date yet → insert minimal log with this note
     await supabase
-      .from<LogInsert>("logs")
+      .from<LogInsert, LogInsert>("logs")
       .insert({ user_id: userId, log_date: date, notes: note });
   }
 }
