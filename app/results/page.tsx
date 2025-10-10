@@ -268,6 +268,7 @@ function ResultsContent() {
   const [warmingUp, setWarmingUp] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [ready, setReady] = useState(true);
+  const [stackId, setStackId] = useState<string | null>(null);
 
   const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
