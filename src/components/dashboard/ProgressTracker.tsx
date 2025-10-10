@@ -781,12 +781,14 @@ function formatDate(iso?: string | null) {
 }
 
 /* ------------------------
-   Notes: update/insert
+   Notes: update/insert (fixed typing)
 ------------------------ */
+type LogNoteRow = { id: string; notes: string | null };
+
 async function upsertNoteForIndex(
   supabase: ReturnType<typeof createClientComponentClient>,
   userId: string | null,
-  logs: LogRow[],
+  logs: { log_date: string }[],
   idx: number,
   note: string
 ) {
@@ -794,8 +796,7 @@ async function upsertNoteForIndex(
   const date = logs[idx]?.log_date;
   if (!date) return;
 
-  // find an existing row for that calendar date
-  const { data: existing } = await supabase
+  const { data: existing, error } = await supabase
     .from("logs")
     .select("id, notes")
     .eq("user_id", userId)
@@ -803,13 +804,22 @@ async function upsertNoteForIndex(
     .order("created_at", { ascending: false })
     .limit(1);
 
-  if (existing && existing[0]?.id) {
-    // append or set notes (simple: replace if empty; else append)
-    const prev = existing[0].notes ?? "";
+  if (error) {
+    // optional: surface or log silently
+    console.error("Fetch note row failed:", error.message);
+    return;
+  }
+
+  const rows = (existing ?? []) as LogNoteRow[];
+
+  if (rows[0]?.id) {
+    // append bullet if notes already exist
+    const prev = rows[0].notes ?? "";
     const next = prev ? `${prev}\n• ${note}` : note;
-    await supabase.from("logs").update({ notes: next }).eq("id", existing[0].id);
+    await supabase.from("logs").update({ notes: next }).eq("id", rows[0].id);
   } else {
-    // no row: insert minimal log with a note (weight/sleep/energy left null)
+    // no row on that date yet → insert minimal log with this note
     await supabase.from("logs").insert({ user_id: userId, log_date: date, notes: note });
   }
 }
+
