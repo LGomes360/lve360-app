@@ -781,7 +781,7 @@ function formatDate(iso?: string | null) {
 }
 
 /* ------------------------
-   Notes: update/insert (fixed typing)
+   Notes: update/insert (typing-safe)
 ------------------------ */
 type LogNoteRow = { id: string; notes: string | null };
 
@@ -805,7 +805,6 @@ async function upsertNoteForIndex(
     .limit(1);
 
   if (error) {
-    // optional: surface or log silently
     console.error("Fetch note row failed:", error.message);
     return;
   }
@@ -816,10 +815,16 @@ async function upsertNoteForIndex(
     // append bullet if notes already exist
     const prev = rows[0].notes ?? "";
     const next = prev ? `${prev}\n• ${note}` : note;
-    await supabase.from("logs").update({ notes: next }).eq("id", rows[0].id);
+
+    // Cast payload to any to avoid `never` inference on update()
+    await supabase
+      .from("logs")
+      .update({ notes: next } as any)
+      .eq("id", rows[0].id);
   } else {
     // no row on that date yet → insert minimal log with this note
-    await supabase.from("logs").insert({ user_id: userId, log_date: date, notes: note });
+    await supabase
+      .from("logs")
+      .insert({ user_id: userId, log_date: date, notes: note } as any);
   }
 }
-
