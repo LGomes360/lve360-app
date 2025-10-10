@@ -1,4 +1,9 @@
 "use client";
+// ADD: sidebar + (optional) premium gate
+import ResultsSidebar from "@/components/results/ResultsSidebar";
+// Optional gating (use later if you want to lock sections)
+// import PremiumGate from "@/components/PremiumGate";
+// import { useTier } from "@/hooks/useTier"; // if/when you have userId in this component
 
 import { motion } from "framer-motion";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -282,21 +287,23 @@ function ResultsContent() {
     return res.json();
   }
 
-  useEffect(() => {
-    if (!tallyId) return;
-    (async () => {
-      try {
-        const data = await api(
-          `/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`
-        );
-        const raw =
-          data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
-        setMarkdown(sanitizeMarkdown(raw));
-      } catch (e: any) {
-        console.warn(e);
-      }
-    })();
-  }, [tallyId]);
+useEffect(() => {
+  if (!tallyId) return;
+  (async () => {
+    try {
+      const data = await api(
+        `/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`
+      );
+      const raw =
+        data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
+      setMarkdown(sanitizeMarkdown(raw));
+      setStackId(data?.stack?.id ?? null); // <-- ADDED
+    } catch (e: any) {
+      console.warn(e);
+    }
+  })();
+}, [tallyId]);
+
 
   async function generateStack() {
     if (!tallyId) return setError("Missing submission ID.");
@@ -387,16 +394,24 @@ return (
     />
 
     {/* Content Container */}
-    <div className="relative z-10 max-w-4xl mx-auto py-20 px-6 font-sans">
-      <div className="text-center mb-10">
-        <h1 className="text-5xl sm:text-6xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent">
-          Your LVE360 Blueprint
-        </h1>
-        <p className="text-gray-600 mt-4 text-lg">
-          Personalized insights for Longevity • Vitality • Energy
-        </p>
-        <p className="mt-2 text-gray-500 text-sm">$15/month Premium Access</p>
-      </div>
+{/* Content Container */}
+<div className="relative z-10 max-w-6xl mx-auto py-20 px-6 font-sans">
+
+  {/* Header (unchanged content, just properly wrapped) */}
+  <div className="text-center mb-10">
+    <h1 className="text-5xl sm:text-6xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent">
+      Your LVE360 Blueprint
+    </h1>
+    <p className="text-gray-600 mt-4 text-lg">
+      Personalized insights for Longevity • Vitality • Energy
+    </p>
+    <p className="mt-2 text-gray-500 text-sm">$15/month Premium Access</p>
+  </div>  {/* <-- CLOSE header BEFORE opening the grid */}
+
+  {/* NEW: two-column grid */}
+  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    {/* LEFT column */}
+    <div className="lg:col-span-8">
 
       {/* actions */}
       <SectionCard title="Actions">
@@ -433,7 +448,7 @@ return (
 
       {error && <div className="text-center text-red-600 mb-6">{error}</div>}
 
-      {/* sections */}
+      {/* sections (all your existing SectionCards stay here, unchanged) */}
       {sec.intro && (
         <SectionCard title="Intro Summary">
           <Prose>{sec.intro}</Prose>
@@ -495,9 +510,10 @@ return (
         </SectionCard>
       )}
 
-      {/* disclaimer */}
+      {/* disclaimer (unchanged) */}
       <SectionCard title="Important Wellness Disclaimer">
         <p className="text-sm text-gray-700 leading-relaxed">
+          {/* your existing disclaimer text stays exactly as-is */}
           This plan from <strong>LVE360 (Longevity | Vitality | Energy)</strong>{" "}
           is for educational purposes only and is not medical advice. It is not
           intended to diagnose, treat, cure, or prevent any disease. Always
@@ -513,7 +529,7 @@ return (
         </p>
       </SectionCard>
 
-      {/* export PDF */}
+      {/* export PDF (unchanged) */}
       <div className="flex justify-center mt-8">
         <button
           onClick={exportPDF}
@@ -523,7 +539,21 @@ return (
           PDF
         </button>
       </div>
+    </div> {/* <-- CLOSE LEFT column */}
+
+    {/* RIGHT column: sticky sidebar */}
+    <div className="lg:col-span-4">
+      {stackId ? (
+        <ResultsSidebar stackId={stackId} />
+      ) : (
+        <div className="rounded-xl border p-4 text-sm text-gray-600">
+          Sidebar will appear after your stack loads.
+        </div>
+      )}
     </div>
+  </div> {/* <-- CLOSE GRID */}
+</div>  {/* <-- Content container stays closed here */}
+
   </motion.main>
 );
 }
