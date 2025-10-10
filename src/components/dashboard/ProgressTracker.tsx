@@ -781,13 +781,12 @@ function formatDate(iso?: string | null) {
 }
 
 /* ------------------------
-   Notes: update/insert (2-generic Supabase fix)
+   Notes: update/insert (Supabase typing made shallow to avoid TS recursion)
 ------------------------ */
 type LogNoteRow = { id: string; notes: string | null };
-type LogInsert  = { user_id: string; log_date: string; notes: string };
 
 async function upsertNoteForIndex(
-  supabase: ReturnType<typeof createClientComponentClient>,
+  supabase: any, // <- intentionally 'any' here to avoid “excessively deep” generic expansion
   userId: string | null,
   logs: { log_date: string }[],
   idx: number,
@@ -797,9 +796,9 @@ async function upsertNoteForIndex(
   const date = logs[idx]?.log_date;
   if (!date) return;
 
-  // NOTE: supply BOTH generics: <Row, Result>
-  const { data: existing, error } = await supabase
-    .from<LogNoteRow, LogNoteRow[]>("logs")
+  // Keep the query un-generic; cast data to our thin row type
+  const { data, error } = await supabase
+    .from("logs")
     .select("id, notes")
     .eq("user_id", userId)
     .eq("log_date", date)
@@ -811,19 +810,19 @@ async function upsertNoteForIndex(
     return;
   }
 
-  const rows = existing ?? [];
+  const rows = (data ?? []) as LogNoteRow[];
 
   if (rows[0]?.id) {
     const prev = rows[0].notes ?? "";
     const next = prev ? `${prev}\n• ${note}` : note;
 
     await supabase
-      .from<LogNoteRow, LogNoteRow>("logs")
-      .update({ notes: next } as Partial<LogNoteRow>)
+      .from("logs")
+      .update({ notes: next } as any) // minimal cast keeps TS happy
       .eq("id", rows[0].id);
   } else {
     await supabase
-      .from<LogInsert, LogInsert>("logs")
-      .insert({ user_id: userId, log_date: date, notes: note });
+      .from("logs")
+      .insert({ user_id: userId, log_date: date, notes: note } as any);
   }
 }
