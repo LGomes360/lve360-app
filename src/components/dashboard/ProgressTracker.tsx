@@ -781,9 +781,10 @@ function formatDate(iso?: string | null) {
 }
 
 /* ------------------------
-   Notes: update/insert (typing-safe)
+   Notes: update/insert (generic-typed, no `any`)
 ------------------------ */
 type LogNoteRow = { id: string; notes: string | null };
+type LogInsert  = { user_id: string; log_date: string; notes: string };
 
 async function upsertNoteForIndex(
   supabase: ReturnType<typeof createClientComponentClient>,
@@ -797,7 +798,7 @@ async function upsertNoteForIndex(
   if (!date) return;
 
   const { data: existing, error } = await supabase
-    .from("logs")
+    .from<LogNoteRow>("logs")
     .select("id, notes")
     .eq("user_id", userId)
     .eq("log_date", date)
@@ -809,22 +810,21 @@ async function upsertNoteForIndex(
     return;
   }
 
-  const rows = (existing ?? []) as LogNoteRow[];
+  const rows = existing ?? [];
 
   if (rows[0]?.id) {
     // append bullet if notes already exist
     const prev = rows[0].notes ?? "";
     const next = prev ? `${prev}\n• ${note}` : note;
 
-    // Cast payload to any to avoid `never` inference on update()
     await supabase
-      .from("logs")
-      .update({ notes: next } as any)
+      .from<LogNoteRow>("logs")
+      .update({ notes: next })
       .eq("id", rows[0].id);
   } else {
     // no row on that date yet → insert minimal log with this note
     await supabase
-      .from("logs")
-      .insert({ user_id: userId, log_date: date, notes: note } as any);
+      .from<LogInsert>("logs")
+      .insert({ user_id: userId, log_date: date, notes: note });
   }
 }
