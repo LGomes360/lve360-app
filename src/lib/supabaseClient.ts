@@ -1,24 +1,17 @@
-// -----------------------------------------------------------------------------
-// LVE360 // supabaseClient
-//
-// Browser-safe Supabase client using the ANON key.
-// Use this for client-side auth, queries, and inserts with row-level security.
-// -----------------------------------------------------------------------------
+// lib/supabaseClient.ts
+// Browser-only client (safe to import in client components)
+// Creates a singleton so we don’t spawn multiple instances.
+import { createBrowserClient } from '@supabase/ssr';
 
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/supabase";
+let _client:
+  | ReturnType<typeof createBrowserClient>
+  | null = null;
 
-// Required env vars
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("❌ Missing Supabase environment variables (URL or ANON_KEY).");
+export function supabaseBrowser() {
+  if (_client) return _client;
+  _client = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+  return _client;
 }
-
-// Strongly typed, safe for browser + server
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true, // persist user session in localStorage
-  },
-});
