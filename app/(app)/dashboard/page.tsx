@@ -13,6 +13,16 @@ import TodaysPlan from "@/components/dashboard/TodaysPlan";
 import ProgressTracker from "@/components/dashboard/ProgressTracker";
 import InsightsFeed from "@/components/dashboard/InsightsFeed";
 
+// app/dashboard/page.tsx (SERVER COMPONENT)
+import { requireTier } from '@/app/_auth/requireTier';
+import DashboardClient from './DashboardClient';
+
+export default async function Page() {
+  // Gate by tier BEFORE rendering any client UI
+  await requireTier(['premium', 'trial']);
+  return <DashboardClient />;
+}
+
 export default function DashboardPage() {
   const supabase = createClientComponentClient();
   const [user, setUser] = useState<any>(null);
