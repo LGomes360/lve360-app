@@ -194,15 +194,12 @@ export async function POST(req: NextRequest) {
           tier: "free",
           updated_at: new Date().toISOString(),
         };
-        
         if (canonicalUserId) insertPayload.id = canonicalUserId;
-        
         const { data: newUser, error: newUserError } = await supa
           .from("users")
           .insert(insertPayload)
           .select("id")
           .single();
-        
         if (newUserError) {
           console.error("User creation failed:", newUserError.message);
         } else if (newUser?.id) {
@@ -222,10 +219,10 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
-    // Insert submission
+    // Upsert submission by unique Tally submission id to prevent duplicates
     const { data: subRow, error: subErr } = await supa
       .from("submissions")
-      .insert(submissionRow)
+      .upsert(submissionRow, { onConflict: "tally_submission_id" })
       .select("id")
       .single();
     if (subErr || !subRow) {
@@ -239,53 +236,51 @@ export async function POST(req: NextRequest) {
       });
       return NextResponse.json({ ok: false, error: "DB insert failed" }, { status: 500 });
     }
-// --- STEP: Upsert into goals table so dashboard knows user’s readable goals ---
-if (userId && Array.isArray(data.goals)) {
-  try {
-    // Map raw IDs to readable goal names using the known Tally option map
-    const GOAL_MAP: Record<string, string> = {
-      "1b2b86fe-b99c-42f0-b4fd-8ff229c4c2f2": "Weight Loss",
-      "adc1b868-1c49-4f11-925d-be2d93b67e11": "Improve Sleep",
-      "d481337e-be2f-4216-8a76-95e1a96491de": "Build or Maintain Muscle",
-      "6a3094ba-a4b1-4fce-9db3-b92b1cf0efe9": "Cognitive Performance",
-      "adac2b70-5622-4f50-8e63-8d3dfa05aa8b": "Decrease Inflammation",
-      "07b6d212-c844-47f2-96bf-6ea906c933b9": "Longevity",
-      "d284f391-71a1-49b0-bddc-467ae8de7cee": "Increase Energy",
-      "d1ae4ecf-eb17-4308-93ff-b78bed426f0b": "Better Skin/Nails/Hair",
-      "7894b6c9-c199-4108-bb2f-c998c7265164": "Other",
-    };
 
-    const readableGoals = data.goals.map(
-      (g: string) => GOAL_MAP[g] ?? g
-    );
+    // --- STEP: Upsert into goals table so dashboard knows user’s readable goals ---
+    if (userId && Array.isArray(data.goals)) {
+      try {
+        // Map raw IDs to readable goal names using the known Tally option map
+        const GOAL_MAP: Record<string, string> = {
+          "1b2b86fe-b99c-42f0-b4fd-8ff229c4c2f2": "Weight Loss",
+          "adc1b868-1c49-4f11-925d-be2d93b67e11": "Improve Sleep",
+          "d481337e-be2f-4216-8a76-95e1a96491de": "Build or Maintain Muscle",
+          "6a3094ba-a4b1-4fce-9db3-b92b1cf0efe9": "Cognitive Performance",
+          "adac2b70-5622-4f50-8e63-8d3dfa05aa8b": "Decrease Inflammation",
+          "07b6d212-c844-47f2-96bf-6ea906c933b9": "Longevity",
+          "d284f391-71a1-49b0-bddc-467ae8de7cee": "Increase Energy",
+          "d1ae4ecf-eb17-4308-93ff-b78bed426f0b": "Better Skin/Nails/Hair",
+          "7894b6c9-c199-4108-bb2f-c998c7265164": "Other",
+        };
+        const readableGoals = data.goals.map((g: string) => GOAL_MAP[g] ?? g);
+        await supa
+          .from("goals")
+          .upsert(
+            {
+              user_id: userId,
+              goals: readableGoals,
+              custom_goal: null,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "user_id" }
+          );
+        console.log("✅ Goals upserted for user:", userId, readableGoals);
+      } catch (goalErr: any) {
+        console.error("❌ Goals upsert failed:", goalErr.message);
+        await supa.from("webhook_failures").insert({
+          source: "tally",
+          event_type: body?.eventType ?? null,
+          event_id: body?.eventId ?? null,
+          error_message: `goals_upsert_error: ${goalErr.message}`,
+          severity: "warning",
+          payload_json: body,
+        });
+      }
+    }
 
-    await supa
-      .from("goals")
-      .upsert(
-        {
-          user_id: userId,
-          goals: readableGoals,
-          custom_goal: null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" }
-      );
-
-    console.log("✅ Goals upserted for user:", userId, readableGoals);
-  } catch (goalErr: any) {
-    console.error("❌ Goals upsert failed:", goalErr.message);
-    await supa.from("webhook_failures").insert({
-      source: "tally",
-      event_type: body?.eventType ?? null,
-      event_id: body?.eventId ?? null,
-      error_message: `goals_upsert_error: ${goalErr.message}`,
-      severity: "warning",
-      payload_json: body,
-    });
-  }
-}
     const submissionId = subRow.id;
-    const resultsUrl = `https://app.lve360.com/results?submission_id=${submissionId}`;
+    // Use camelCase param to align with front-end redirect expectations and include email
+    const resultsUrl = `https://app.lve360.com/results?submissionId=${submissionId}&email=${encodeURIComponent(data.user_email ?? "")}`;
 
     // === NEW: Fire-and-forget stack generation ===
     try {
