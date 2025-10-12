@@ -4,6 +4,9 @@
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 
+// Re-export admin client so existing imports keep working
+export { supabaseAdmin } from './supabaseAdmin';
+
 export function supabaseServer() {
   const cookieStore = cookies();
   return createServerClient(
