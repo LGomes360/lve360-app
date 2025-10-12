@@ -3,8 +3,6 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 
-// If you render a client component for the UI, import it here:
-// import PremiumQuizClient from "./PremiumQuizClient"; // <-- adjust if you have it
 type StackRow = {
   id: string;
   submission_id: string | null;
@@ -12,30 +10,49 @@ type StackRow = {
   created_at: string | null;
   safety_status: "safe" | "warning" | "error" | null;
   summary: string | null;
-  sections: any | null; // { markdown?: string } etc.
+  sections: any | null;
 };
 
 export default async function Page() {
-  // Auth (no tier gate here so free users can see their basic results)
-  const cookieStore = cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { get: (name) => cookieStore.get(name)?.value } }
-  );
+  // ✅ build the server client from cookies (no manual URL/KEY)
+  const supabase = createServerComponentClient({ cookies });
 
-  const { data: { user } } = await supabase.auth.getUser();
+  // Require auth (or remove redirect if this page is public)
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Latest stack for this user
-  const { data: stack, error } = await supabase
+  // (Optional) gate by tier
+  const { data: profile } = await supabase
+    .from("users")
+    .select("tier")
+    .eq("id", user.id)
+    .maybeSingle<{ tier: string }>();
+  if (!profile || !["premium", "trial"].includes(profile.tier)) {
+    redirect("/upgrade");
+  }
+
+  const { data: stack } = await supabase
     .from("stacks")
-    .select("id, submission_id, tally_submission_id, created_at, safety_status, summary, sections")
+    .select(
+      "id, submission_id, tally_submission_id, created_at, safety_status, summary, sections"
+    )
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle<StackRow>();
 
-  // Render client UI (handles empty state nicely)
-  return <MyQuizClient stack={stack ?? null} />;
+  return (
+    <main className="max-w-5xl mx-auto p-6">
+      <h1 className="text-2xl font-semibold mb-4">My Quiz – Premium Results</h1>
+      {!stack ? (
+        <p>No previous results found.</p>
+      ) : (
+        <pre className="rounded bg-gray-50 p-4 overflow-auto text-sm">
+          {JSON.stringify(stack, null, 2)}
+        </pre>
+      )}
+    </main>
+  );
 }
