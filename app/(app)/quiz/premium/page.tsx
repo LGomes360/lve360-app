@@ -1,8 +1,10 @@
-// app/(app)/dashboard/my-quiz/page.tsx
+// app/(app)/quiz/premium/page.tsx
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { createServerClient } from "@supabase/auth-helpers-nextjs";
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 
+// If you render a client component for the UI, import it here:
+// import PremiumQuizClient from "./PremiumQuizClient"; // <-- adjust if you have it
 type StackRow = {
   id: string;
   submission_id: string | null;
