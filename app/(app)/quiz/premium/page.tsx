@@ -2,7 +2,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/auth-helpers-nextjs";
-import MyQuizClient from "./MyQuizClient";
 
 type StackRow = {
   id: string;
