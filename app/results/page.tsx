@@ -1,4 +1,9 @@
 "use client";
+// ADD: sidebar + (optional) premium gate
+import ResultsSidebar from "@/components/results/ResultsSidebar";
+// Optional gating (use later if you want to lock sections)
+// import PremiumGate from "@/components/PremiumGate";
+// import { useTier } from "@/hooks/useTier"; // if/when you have userId in this component
 
 import { motion } from "framer-motion";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -263,6 +268,7 @@ function ResultsContent() {
   const [warmingUp, setWarmingUp] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [ready, setReady] = useState(true);
+  const [stackId, setStackId] = useState<string | null>(null);
 
   const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
@@ -282,21 +288,23 @@ function ResultsContent() {
     return res.json();
   }
 
-  useEffect(() => {
-    if (!tallyId) return;
-    (async () => {
-      try {
-        const data = await api(
-          `/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`
-        );
-        const raw =
-          data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
-        setMarkdown(sanitizeMarkdown(raw));
-      } catch (e: any) {
-        console.warn(e);
-      }
-    })();
-  }, [tallyId]);
+useEffect(() => {
+  if (!tallyId) return;
+  (async () => {
+    try {
+      const data = await api(
+        `/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`
+      );
+      const raw =
+        data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
+      setMarkdown(sanitizeMarkdown(raw));
+      setStackId(data?.stack?.id ?? null); // <-- ADDED
+    } catch (e: any) {
+      console.warn(e);
+    }
+  })();
+}, [tallyId]);
+
 
   async function generateStack() {
     if (!tallyId) return setError("Missing submission ID.");
@@ -367,165 +375,162 @@ function ResultsContent() {
       // ✅ make sure framer-motion is imported at the top of the file:
       // import { motion } from "framer-motion";
       
-return (
-  <motion.main
-    className="relative isolate overflow-hidden min-h-screen bg-gradient-to-br from-[#F8F5FB] via-white to-[#EAFBF8]"
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.6 }}
-  >
-    {/* Ambient Background — matching home aesthetic */}
-    <div
-      className="pointer-events-none absolute -top-32 -left-24 h-96 w-96 rounded-full
-                 bg-[#A8F0E4] opacity-40 blur-3xl animate-[float_8s_ease-in-out_infinite]"
-      aria-hidden
-    />
-    <div
-      className="pointer-events-none absolute top-[20rem] -right-24 h-[28rem] w-[28rem] rounded-full
-                 bg-[#D9C2F0] opacity-30 blur-3xl animate-[float_10s_ease-in-out_infinite]"
-      aria-hidden
-    />
+  return (
+    <motion.main
+      className="relative isolate overflow-hidden min-h-screen bg-gradient-to-br from-[#F8F5FB] via-white to-[#EAFBF8]"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6 }}
+    >
+      {/* Ambient Background */}
+      <div
+        className="pointer-events-none absolute -top-32 -left-24 h-96 w-96 rounded-full bg-[#A8F0E4] opacity-40 blur-3xl animate-[float_8s_ease-in-out_infinite]"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute top-[20rem] -right-24 h-[28rem] w-[28rem] rounded-full bg-[#D9C2F0] opacity-30 blur-3xl animate-[float_10s_ease-in-out_infinite]"
+        aria-hidden
+      />
 
-    {/* Content Container */}
-    <div className="relative z-10 max-w-4xl mx-auto py-20 px-6 font-sans">
-      <div className="text-center mb-10">
-        <h1 className="text-5xl sm:text-6xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent">
-          Your LVE360 Blueprint
-        </h1>
-        <p className="text-gray-600 mt-4 text-lg">
-          Personalized insights for Longevity • Vitality • Energy
-        </p>
-        <p className="mt-2 text-gray-500 text-sm">$15/month Premium Access</p>
-      </div>
-
-      {/* actions */}
-      <SectionCard title="Actions">
-        <div className="flex flex-wrap gap-4 justify-center">
-          <CTAButton
-            onClick={generateStack}
-            variant="gradient"
-            disabled={warmingUp || generating || !ready}
-          >
-            {warmingUp
-              ? "⏳ Warming up…"
-              : generating
-              ? "🤖 Generating..."
-              : ready
-              ? "✨ Generate Free Report"
-              : "⏳ Preparing…"}
-          </CTAButton>
-
-          <CTAButton href="/upgrade" variant="premium">
-            Upgrade to Premium
-          </CTAButton>
+      {/* Content Container */}
+      <div className="relative z-10 max-w-6xl mx-auto py-20 px-6 font-sans">
+        {/* Header */}
+        <div className="text-center mb-10">
+          <h1 className="text-5xl sm:text-6xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent">
+            Your LVE360 Blueprint
+          </h1>
+          <p className="text-gray-600 mt-4 text-lg">Personalized insights for Longevity • Vitality • Energy</p>
+          <p className="mt-2 text-gray-500 text-sm">$15/month Premium Access</p>
         </div>
 
-        {(warmingUp || generating) && (
-          <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
-            {warmingUp
-              ? "⚡ Warming up the AI engines..."
-              : "💪 Crunching the numbers… this usually takes about 2 minutes."}
-          </p>
-        )}
+        {/* NEW: two-column layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* LEFT: existing content */}
+          <div className="lg:col-span-8">
+            {/* actions */}
+            <SectionCard title="Actions">
+              <div className="flex flex-wrap gap-4 justify-center">
+                <CTAButton onClick={generateStack} variant="gradient" disabled={warmingUp || generating || !ready}>
+                  {warmingUp ? "⏳ Warming up…" : generating ? "🤖 Generating..." : ready ? "✨ Generate Free Report" : "⏳ Preparing…"}
+                </CTAButton>
+                <CTAButton href="/upgrade" variant="premium">Upgrade to Premium</CTAButton>
+              </div>
 
-        <TwoMinuteCountdown running={generating} />
-      </SectionCard>
+              {(warmingUp || generating) && (
+                <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
+                  {warmingUp ? "⚡ Warming up the AI engines..." : "💪 Crunching the numbers… this usually takes about 2 minutes."}
+                </p>
+              )}
 
-      {error && <div className="text-center text-red-600 mb-6">{error}</div>}
+              <TwoMinuteCountdown running={generating} />
+            </SectionCard>
 
-      {/* sections */}
-      {sec.intro && (
-        <SectionCard title="Intro Summary">
-          <Prose>{sec.intro}</Prose>
-        </SectionCard>
-      )}
-      {sec.goals && (
-        <SectionCard title="Goals">
-          <Prose>{sec.goals}</Prose>
-        </SectionCard>
-      )}
-      {sec.contra && (
-        <SectionCard title="Contraindications & Med Interactions">
-          <Prose>{sec.contra}</Prose>
-        </SectionCard>
-      )}
-      {sec.current && (
-        <SectionCard title="Current Stack">
-          <Prose>{sec.current}</Prose>
-        </SectionCard>
-      )}
-      {sec.blueprint && (
-        <SectionCard title="Your Blueprint Recommendations">
-          <Prose>{sec.blueprint}</Prose>
-        </SectionCard>
-      )}
-      {sec.dosing && (
-        <SectionCard title="Dosing & Notes">
-          <Prose>{sec.dosing}</Prose>
-        </SectionCard>
-      )}
-      {sec.evidence && (
-        <SectionCard title="Evidence & References">
-          <LinksTable raw={sec.evidence} type="evidence" />
-        </SectionCard>
-      )}
-      {sec.shopping && (
-        <SectionCard title="Shopping Links">
-          <LinksTable raw={sec.shopping} type="shopping" />
-        </SectionCard>
-      )}
-      {sec.follow && (
-        <SectionCard title="Follow-up Plan">
-          <Prose>{sec.follow}</Prose>
-        </SectionCard>
-      )}
-      {sec.lifestyle && (
-        <SectionCard title="Lifestyle Prescriptions">
-          <Prose>{sec.lifestyle}</Prose>
-        </SectionCard>
-      )}
-      {sec.longevity && (
-        <SectionCard title="Longevity Levers">
-          <Prose>{sec.longevity}</Prose>
-        </SectionCard>
-      )}
-      {sec.weekTry && (
-        <SectionCard title="This Week Try">
-          <Prose>{sec.weekTry}</Prose>
-        </SectionCard>
-      )}
+            {error && <div className="text-center text-red-600 mb-6">{error}</div>}
 
-      {/* disclaimer */}
-      <SectionCard title="Important Wellness Disclaimer">
-        <p className="text-sm text-gray-700 leading-relaxed">
-          This plan from <strong>LVE360 (Longevity | Vitality | Energy)</strong>{" "}
-          is for educational purposes only and is not medical advice. It is not
-          intended to diagnose, treat, cure, or prevent any disease. Always
-          consult with your healthcare provider before starting new supplements
-          or making significant lifestyle changes, especially if you are
-          pregnant, nursing, managing a medical condition, or taking
-          prescriptions. Supplements are regulated under the Dietary Supplement
-          Health and Education Act (DSHEA); results vary and no outcomes are
-          guaranteed. If you experience unexpected effects, discontinue use and
-          seek professional care. By using this report, you agree that decisions
-          about your health remain your responsibility and that LVE360 is not
-          liable for how information is applied.
-        </p>
-      </SectionCard>
+            {/* sections */}
+            {sec.intro && (
+              <SectionCard title="Intro Summary">
+                <Prose>{sec.intro}</Prose>
+              </SectionCard>
+            )}
+            {sec.goals && (
+              <SectionCard title="Goals">
+                <Prose>{sec.goals}</Prose>
+              </SectionCard>
+            )}
+            {sec.contra && (
+              <SectionCard title="Contraindications & Med Interactions">
+                <Prose>{sec.contra}</Prose>
+              </SectionCard>
+            )}
+            {sec.current && (
+              <SectionCard title="Current Stack">
+                <Prose>{sec.current}</Prose>
+              </SectionCard>
+            )}
+            {sec.blueprint && (
+              <SectionCard title="Your Blueprint Recommendations">
+                <Prose>{sec.blueprint}</Prose>
+              </SectionCard>
+            )}
+            {sec.dosing && (
+              <SectionCard title="Dosing & Notes">
+                <Prose>{sec.dosing}</Prose>
+              </SectionCard>
+            )}
+            {sec.evidence && (
+              <SectionCard title="Evidence & References">
+                <LinksTable raw={sec.evidence} type="evidence" />
+              </SectionCard>
+            )}
+            {sec.shopping && (
+              <SectionCard title="Shopping Links">
+                <LinksTable raw={sec.shopping} type="shopping" />
+              </SectionCard>
+            )}
+            {sec.follow && (
+              <SectionCard title="Follow-up Plan">
+                <Prose>{sec.follow}</Prose>
+              </SectionCard>
+            )}
+            {sec.lifestyle && (
+              <SectionCard title="Lifestyle Prescriptions">
+                <Prose>{sec.lifestyle}</Prose>
+              </SectionCard>
+            )}
+            {sec.longevity && (
+              <SectionCard title="Longevity Levers">
+                <Prose>{sec.longevity}</Prose>
+              </SectionCard>
+            )}
+            {sec.weekTry && (
+              <SectionCard title="This Week Try">
+                <Prose>{sec.weekTry}</Prose>
+              </SectionCard>
+            )}
 
-      {/* export PDF */}
-      <div className="flex justify-center mt-8">
-        <button
-          onClick={exportPDF}
-          aria-label="Export PDF"
-          className="w-10 h-10 flex items-center justify-center rounded-md border border-gray-300 bg-white shadow-sm hover:shadow-md transition"
-        >
-          PDF
-        </button>
+            {/* disclaimer (unchanged text) */}
+            <SectionCard title="Important Wellness Disclaimer">
+              <p className="text-sm text-gray-700 leading-relaxed">
+                This plan from <strong>LVE360 (Longevity | Vitality | Energy)</strong>{" "}
+                is for educational purposes only and is not medical advice. It is not
+                intended to diagnose, treat, cure, or prevent any disease. Always
+                consult with your healthcare provider before starting new supplements
+                or making significant lifestyle changes, especially if you are
+                pregnant, nursing, managing a medical condition, or taking
+                prescriptions. Supplements are regulated under the Dietary Supplement
+                Health and Education Act (DSHEA); results vary and no outcomes are
+                guaranteed. If you experience unexpected effects, discontinue use and
+                seek professional care. By using this report, you agree that decisions
+                about your health remain your responsibility and that LVE360 is not
+                liable for how information is applied.
+              </p>
+            </SectionCard>
+
+            {/* export PDF */}
+            <div className="flex justify-center mt-8">
+              <button
+                onClick={exportPDF}
+                aria-label="Export PDF"
+                className="w-10 h-10 flex items-center justify-center rounded-md border border-gray-300 bg-white shadow-sm hover:shadow-md transition"
+              >
+                PDF
+              </button>
+            </div>
+          </div>
+
+          {/* RIGHT: sticky sidebar */}
+          <div className="lg:col-span-4">
+            {stackId ? (
+              <ResultsSidebar stackId={stackId} />
+            ) : (
+              <div className="rounded-xl border p-4 text-sm text-gray-600">Sidebar will appear after your stack loads.</div>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
-  </motion.main>
-);
+    </motion.main>
+  );
 }
 
 export default function ResultsPageWrapper() {
