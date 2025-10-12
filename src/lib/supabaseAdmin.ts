@@ -1,8 +1,12 @@
-// src/lib/supabaseAdmin.ts
-// Shim: re-export the canonical supabaseAdmin from src/lib/supabase
-// so all code can import from either module without causing duplicate initialization.
+// lib/supabaseAdmin.ts
+// Admin client with Service Role. Server-only, never import in client code.
+import 'server-only';
+import { createClient } from '@supabase/supabase-js';
 
-import { supabaseAdmin } from "./supabase";
-
-export { supabaseAdmin };
-export default supabaseAdmin;
+export function supabaseAdmin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,   // DO NOT expose to browser
+    { auth: { persistSession: false } }
+  );
+}
