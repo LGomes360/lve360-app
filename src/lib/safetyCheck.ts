@@ -1,14 +1,33 @@
 // -----------------------------------------------------------------------------
-// File: lib/safetyCheckDynamic.ts
-// Purpose: Pull safety rules dynamically from Supabase interactions table.
+// File: lib/safetyCheck.ts
+// Hybrid Safety Rule Evaluator for LVE360
+// • Primary: pulls interactions dynamically from Supabase
+// • Fallback: uses static rules if Supabase is unreachable or errors
 // -----------------------------------------------------------------------------
 
 import { createClient } from "@supabase/supabase-js";
-import type { SafetyInput, SafetyWarning } from "@/lib/safetyCheck"; // reuse the same types
 
+export type SafetyInput = {
+  medications?: string[];
+  supplements?: string[];
+  conditions?: string[];
+  pregnant?: string | null;
+};
+
+export type SafetyWarning = {
+  code: string;
+  severity: "info" | "warning" | "danger";
+  message: string;
+  recommendation?: string;
+  refs?: string[];
+};
+
+// -------------------------
+// Setup Supabase client (backend only)
+// -------------------------
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY! // Use service key only on backend routes
+  process.env.SUPABASE_SERVICE_KEY! // backend only
 );
 
 // -------------------------
@@ -17,32 +36,78 @@ const supabase = createClient(
 const includesAny = (hay: string[] = [], needles: string[] = []) =>
   hay.some((h) => needles.some((n) => h.toLowerCase().includes(n.toLowerCase())));
 
-// Optional cache to reduce DB hits
+// -------------------------
+// Static fallback safety rules (subset of your original)
+// -------------------------
+function evaluateSafetyStatic(input: SafetyInput): SafetyWarning[] {
+  const meds = (input.medications ?? []).map((m) => m.toLowerCase());
+  const supps = (input.supplements ?? []).map((s) => s.toLowerCase());
+  const conds = (input.conditions ?? []).map((c) => c.toLowerCase());
+  const out: SafetyWarning[] = [];
+
+  if (includesAny(meds, ["levothyroxine", "liothyronine", "thyroid"])) {
+    if (includesAny(supps, ["calcium", "iron", "magnesium", "zinc"])) {
+      out.push({
+        code: "thyroid_spacing",
+        severity: "warning",
+        message:
+          "Mineral supplements (Ca, Fe, Mg, Zn) can bind thyroid meds and reduce absorption.",
+        recommendation: "Take thyroid meds on empty stomach; separate by ≥4 hours.",
+      });
+    }
+  }
+
+  if (includesAny(meds, ["warfarin", "eliquis", "xarelto", "apixaban"])) {
+    if (includesAny(supps, ["fish oil", "omega", "garlic", "ginkgo", "vitamin e"])) {
+      out.push({
+        code: "bleeding_risk",
+        severity: "warning",
+        message:
+          "Certain supplements (omega-3s, garlic, ginkgo, vitamin E) may increase bleeding risk.",
+        recommendation: "Consult clinician and monitor for bruising or bleeding.",
+      });
+    }
+  }
+
+  if ((input.pregnant ?? "").toLowerCase() === "yes") {
+    if (includesAny(supps, ["vitamin a", "retinol", "licorice", "dong quai"])) {
+      out.push({
+        code: "pregnancy_caution",
+        severity: "danger",
+        message:
+          "Some botanicals and high-dose vitamin A are unsafe in pregnancy.",
+        recommendation:
+          "Avoid retinol and uterotonic herbs unless cleared by your provider.",
+      });
+    }
+  }
+
+  if (includesAny(conds, ["liver", "hepatitis"])) {
+    if (includesAny(supps, ["kava", "green tea extract", "black cohosh"])) {
+      out.push({
+        code: "liver_caution",
+        severity: "warning",
+        message: "Certain botanicals can stress the liver.",
+        recommendation: "Avoid or monitor liver enzymes periodically.",
+      });
+    }
+  }
+
+  return out;
+}
+
+// -------------------------
+// Dynamic version (Supabase-driven)
+// -------------------------
 let cachedInteractions: any[] | null = null;
 let cacheTimestamp = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-// -------------------------
-// Main Evaluation Function
-// -------------------------
-export async function evaluateSafetyDynamic(
-  input: SafetyInput
-): Promise<SafetyWarning[]> {
+async function evaluateSafetyDynamic(input: SafetyInput): Promise<SafetyWarning[]> {
   const now = Date.now();
-
-  // 1️⃣ Fetch interactions (with simple cache)
   if (!cachedInteractions || now - cacheTimestamp > CACHE_TTL_MS) {
     const { data, error } = await supabase.from("interactions").select("*");
-    if (error) {
-      console.error("⚠️ Error loading interactions:", error.message);
-      return [
-        {
-          code: "db_error",
-          severity: "error",
-          message: "Failed to load safety interactions from database.",
-        },
-      ];
-    }
+    if (error) throw new Error(error.message);
     cachedInteractions = data || [];
     cacheTimestamp = now;
   }
@@ -52,111 +117,74 @@ export async function evaluateSafetyDynamic(
   const conds = (input.conditions ?? []).map((c) => c.toLowerCase());
   const out: SafetyWarning[] = [];
 
-  // 2️⃣ Iterate through interaction rows
   for (const rule of cachedInteractions) {
     const ing = (rule.ingredient ?? "").toLowerCase();
-
-    // Check if supplement is in user's list
     if (!includesAny(supps, [ing])) continue;
 
-    // --- Thyroid meds ---
-    if (rule.binds_thyroid_meds && includesAny(meds, ["levothyroxine", "liothyronine", "thyroid"])) {
+    if (rule.binds_thyroid_meds && includesAny(meds, ["levothyroxine", "thyroid"])) {
       out.push({
         code: "thyroid_spacing",
         severity: "warning",
-        message: `${rule.ingredient} may bind thyroid medication and reduce absorption.`,
-        recommendation: rule.notes || "Separate doses by at least 4 hours.",
+        message: `${rule.ingredient} may bind thyroid meds.`,
+        recommendation: rule.notes || "Separate by 4 hours.",
       });
     }
-
-    // --- Anticoagulant bleeding risk ---
     if (rule.anticoagulants_bleeding_risk && includesAny(meds, ["warfarin", "eliquis", "xarelto", "apixaban"])) {
       out.push({
         code: "bleeding_risk",
         severity: "warning",
-        message: `${rule.ingredient} may increase bleeding risk with anticoagulants.`,
-        recommendation: rule.notes || "Monitor and consult your clinician.",
+        message: `${rule.ingredient} may increase bleeding risk.`,
+        recommendation: rule.notes || "Monitor closely.",
       });
     }
-
-    // --- Diabetes additive risk ---
-    if (rule.diabetes_meds_additive && includesAny(meds, ["metformin", "insulin", "glipizide", "empagliflozin"])) {
+    if (rule.diabetes_meds_additive && includesAny(meds, ["metformin", "insulin", "glipizide"])) {
       out.push({
         code: "blood_sugar_additive",
         severity: "warning",
-        message: `${rule.ingredient} may enhance glucose-lowering effects of medications.`,
-        recommendation: rule.notes || "Monitor glucose closely.",
+        message: `${rule.ingredient} may lower blood glucose further.`,
+        recommendation: rule.notes || "Monitor glucose levels.",
       });
     }
-
-    // --- Sedative additive risk ---
-    if (rule.sedatives_additive) {
-      out.push({
-        code: "sedative_additive",
-        severity: "info",
-        message: `${rule.ingredient} may increase sedation if combined with CNS depressants.`,
-        recommendation: rule.notes || "Use cautiously or at bedtime.",
-      });
-    }
-
-    // --- Antibiotic interaction ---
-    if (rule.antibiotics_interaction) {
-      out.push({
-        code: "antibiotic_interaction",
-        severity: "warning",
-        message: `${rule.ingredient} may interfere with antibiotic absorption or efficacy.`,
-        recommendation: rule.notes || "Separate by several hours.",
-      });
-    }
-
-    // --- Pregnancy caution ---
     if (rule.pregnancy_caution && (input.pregnant ?? "").toLowerCase() === "yes") {
       out.push({
         code: "pregnancy_caution",
         severity: "danger",
-        message: `${rule.ingredient} is not recommended during pregnancy.`,
-        recommendation: rule.notes || "Avoid unless prescribed by your provider.",
+        message: `${rule.ingredient} not recommended during pregnancy.`,
+        recommendation: rule.notes || "Avoid unless prescribed.",
       });
     }
-
-    // --- Liver/kidney cautions ---
     if (rule.liver_disease_caution && includesAny(conds, ["liver", "hepatitis", "cirrhosis"])) {
       out.push({
         code: "liver_caution",
         severity: "warning",
-        message: `${rule.ingredient} may pose risk for individuals with liver disease.`,
-        recommendation: rule.notes || "Use with caution or avoid.",
+        message: `${rule.ingredient} may stress the liver.`,
+        recommendation: rule.notes || "Use cautiously.",
       });
     }
     if (rule.kidney_disease_caution && includesAny(conds, ["renal", "kidney"])) {
       out.push({
         code: "kidney_caution",
         severity: "warning",
-        message: `${rule.ingredient} may increase kidney workload or stone risk.`,
-        recommendation: rule.notes || "Stay hydrated and monitor function.",
-      });
-    }
-
-    // --- Immunocompromised caution ---
-    if (rule.immunocompromised_caution && includesAny(conds, ["autoimmune", "immuno", "infection"])) {
-      out.push({
-        code: "immunocompromised_caution",
-        severity: "warning",
-        message: `${rule.ingredient} may not be appropriate for immunocompromised users.`,
-        recommendation: rule.notes || "Consult your clinician before use.",
-      });
-    }
-
-    // --- Caffeine stimulant caution ---
-    if (rule.caffeine_stimulant_caution && includesAny(supps, ["caffeine", "guarana", "yerba"])) {
-      out.push({
-        code: "caffeine_stimulant",
-        severity: "info",
-        message: `${rule.ingredient} has stimulant properties that can worsen anxiety or insomnia.`,
-        recommendation: rule.notes || "Take early in the day.",
+        message: `${rule.ingredient} may increase kidney workload.`,
+        recommendation: rule.notes || "Stay hydrated, avoid high doses.",
       });
     }
   }
 
   return out;
+}
+
+// -------------------------
+// Hybrid export
+// -------------------------
+export async function evaluateSafety(input: SafetyInput): Promise<SafetyWarning[]> {
+  try {
+    const dynamic = await evaluateSafetyDynamic(input);
+    if (dynamic.length) return dynamic;
+    console.warn("⚠️ No DB-based rules matched; falling back to static rules.");
+    return evaluateSafetyStatic(input);
+  } catch (err) {
+    console.error("⚠️ Safety DB check failed:", (err as Error).message);
+    return evaluateSafetyStatic(input);
+  }
 }
