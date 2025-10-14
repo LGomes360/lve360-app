@@ -68,6 +68,24 @@ export interface StackItem {
   caution?: string | null;
   citations?: string[] | null;
 
+  type StackItemInsert = {
+  stack_id: string;
+  user_id: string;
+  user_email: string | null;
+  name: string;
+  dose: string | null;
+  timing: string | null;
+  notes: string | null;
+  rationale: string | null;
+  caution: string | null;
+  citations: string[] | null; // your column is jsonb; leaving as array in code is fine
+  link_amazon: string | null;
+  link_fullscript: string | null;
+  link_thorne: string | null;
+  link_other: string | null;
+  cost_estimate: number | null;
+};
+
   // Category links (populated by enrichAffiliateLinks from public.supplements)
   link_budget?: string | null;
   link_trusted?: string | null;
@@ -917,44 +935,48 @@ export async function generateStackForSubmission(id: string) {
     if (parentId && user_id) {
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parentId);
 
-      const rows = withEvidence
-        .map((it) => {
-          const normName = normalizeSupplementName(it?.name ?? "");
-          const safeName = cleanName(normName);
-          if (!safeName || safeName.toLowerCase() === "null") {
-            console.error("🚨 Blocking insert of invalid item", {
-              stack_id: parentId,
-              user_id,
-              rawName: it?.name,
-              normalized: normName,
-              item: it,
-            });
-            return null;
-          }
-          return {
-            stack_id: parentId,
-            user_id,
-            user_email: userEmail,
-            name: safeName, // normalized
-            dose: it.dose ?? null,
-            timing: it.timing ?? null,
-            notes: it.notes ?? null,
-            rationale: it.rationale ?? null,
-            caution: it.caution ?? null,
+const rows: StackItemInsert[] = withEvidence
+  .map((it) => {
+    const normName = normalizeSupplementName(it?.name ?? "");
+    const safeName = cleanName(normName);
 
-            // store citations as array JSON in jsonb column (no stringify if jsonb)
-            citations: it.citations ?? null,
+    if (!safeName || safeName.toLowerCase() === "null") {
+      console.error("🚨 Blocking insert of invalid item", {
+        stack_id: parent.id,
+        user_id,
+        rawName: it?.name,
+        normalized: normName,
+        item: it,
+      });
+      return null;
+    }
 
-            // Persist links
-            link_amazon: it.link_amazon ?? null,
-            link_fullscript: it.link_fullscript ?? null,
-            link_thorne: it.link_thorne ?? null,
-            link_other: it.link_other ?? null,
+    const row: StackItemInsert = {
+      stack_id: parent.id,
+      user_id: user_id!,
+      user_email: userEmail ?? null,
+      name: safeName,
+      dose: it.dose ?? null,
+      timing: it.timing ?? null,
+      notes: it.notes ?? null,
+      rationale: it.rationale ?? null,
+      caution: it.caution ?? null,
 
-            cost_estimate: it.cost_estimate ?? null,
-          };
-        })
-        .filter((r): r is Record<string, any> => r !== null);
+      // store array; Supabase jsonb accepts it
+      citations: it.citations ?? null,
+
+      link_amazon: it.link_amazon ?? null,
+      link_fullscript: it.link_fullscript ?? null,
+      link_thorne: it.link_thorne ?? null,
+      link_other: it.link_other ?? null,
+      cost_estimate: it.cost_estimate ?? null,
+    };
+
+    return row;
+  })
+  // Proper narrowing: element type is (StackItemInsert | null)
+  .filter((r): r is StackItemInsert => r !== null);
+
 
       console.log("✅ Prepared stack_items rows:", rows.length);
 
