@@ -3,9 +3,9 @@
 // LVE360 // Generate Stack (with Safety Integration) — 2025-10-13
 //
 // What this route does:
-// 1) Accepts { submission_id }.
+// 1) Accepts { submission_id } OR { tally_submission_id }.
 // 2) Loads submission + (if present) the existing stack (by submission_id).
-// 3) (Your generation logic lives where indicated — unchanged.)
+// 3) (Your generation logic lives where indicated — unchanged).
 // 4) After items exist (from stacks_items or submission_supplements), it
 //    evaluates safety using the HYBRID safety engine (DB-backed with static fallback).
 // 5) Persists safety_warnings (jsonb) + safety_status ('safe'|'warning'|'error') to stacks.
@@ -13,6 +13,9 @@
 //
 // This file is production-ready, idempotent, and safe to re-run.
 // -----------------------------------------------------------------------------
+
+export const runtime = "nodejs";          // keep consistent with other API routes
+export const dynamic = "force-dynamic";   // avoid stale ISR issues for API
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
@@ -59,8 +62,8 @@ function parseListish(val: unknown): string[] {
   if (!val) return [];
   if (Array.isArray(val)) {
     return val
-      .map(v => (typeof v === "string" ? v : JSON.stringify(v)))
-      .map(v => v.trim())
+      .map((v) => (typeof v === "string" ? v : JSON.stringify(v)))
+      .map((v) => v.trim())
       .filter(Boolean);
   }
   const raw = String(val).trim();
@@ -68,14 +71,14 @@ function parseListish(val: unknown): string[] {
   // Split on common delimiters: newlines, commas, semicolons
   return raw
     .split(/\r?\n|[,;]/g)
-    .map(s => s.trim())
+    .map((s) => s.trim())
     .filter(Boolean);
 }
 
 function pickSafetyStatus(warnings: SafetyWarning[]): "safe" | "warning" | "error" {
   if (!warnings || warnings.length === 0) return "safe";
-  if (warnings.some(w => w.severity === "danger")) return "error";
-  if (warnings.some(w => w.severity === "warning")) return "warning";
+  if (warnings.some((w) => w.severity === "danger")) return "error";
+  if (warnings.some((w) => w.severity === "warning")) return "warning";
   return "safe";
 }
 
@@ -99,6 +102,29 @@ async function logWebhookFailure(payload: {
     // Avoid throw; never let logging break the route
     console.error("webhook_failures insert failed:", (e as Error).message);
   }
+}
+
+// UUID checker
+function isUUID(id: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+}
+
+// Resolve submission identifier (UUID or Tally short id)
+async function resolveSubmissionId(maybeShortOrUuid?: string): Promise<string | null> {
+  if (!maybeShortOrUuid) return null;
+  if (isUUID(maybeShortOrUuid)) return maybeShortOrUuid;
+
+  const { data, error } = await supa
+    .from("submissions")
+    .select("id")
+    .eq("tally_submission_id", maybeShortOrUuid)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[GENERATE-STACK] resolveSubmissionId error:", error);
+    return null;
+  }
+  return data?.id ?? null;
 }
 
 // -----------------------------
@@ -125,15 +151,11 @@ async function getSubmission(submission_id: string): Promise<SubmissionRow | nul
   return (data as SubmissionRow) ?? null;
 }
 
-async function getOrCreateStackForSubmission(
-  submission: SubmissionRow
-): Promise<StackRow> {
+async function getOrCreateStackForSubmission(submission: SubmissionRow): Promise<StackRow> {
   // 1) Try to find an existing stack by submission_id
   const { data: existing, error: findErr } = await supa
     .from("stacks")
-    .select(
-      "id, submission_id, user_id, user_email, items, safety_status, safety_warnings"
-    )
+    .select("id, submission_id, user_id, user_email, items, safety_status, safety_warnings")
     .eq("submission_id", submission.id)
     .maybeSingle();
 
@@ -163,9 +185,7 @@ async function getOrCreateStackForSubmission(
   const { data: created, error: insErr } = await supa
     .from("stacks")
     .insert(insertPayload)
-    .select(
-      "id, submission_id, user_id, user_email, items, safety_status, safety_warnings"
-    )
+    .select("id, submission_id, user_id, user_email, items, safety_status, safety_warnings")
     .single();
 
   if (insErr || !created) {
@@ -232,7 +252,7 @@ async function getSubmissionSupplementNames(submission_id: string): Promise<stri
 // Below we provide a placeholder `ensureStackGenerated` that just returns the
 // current stack as-is. Replace the internals to call your actual generator.
 //
-async function ensureStackGenerated(submission: SubmissionRow, stack: StackRow): Promise<void> {
+async function ensureStackGenerated(_submission: SubmissionRow, _stack: StackRow): Promise<void> {
   // Example (pseudo):
   // await generateStackForSubmission(submission.id);
   // No-op here; assume generation happened upstream or earlier in the pipeline.
@@ -244,82 +264,25 @@ async function ensureStackGenerated(submission: SubmissionRow, stack: StackRow):
 // -----------------------------
 export async function POST(req: NextRequest) {
   try {
-import { supabaseAdmin } from "@/lib/supabaseAdmin"; // already present elsewhere in file
+    const body = await req.json().catch(() => ({}));
+    let submission_id: string | undefined = body?.submission_id;
+    const tally_short: string | undefined = body?.tally_submission_id;
 
-// helper
-function isUUID(x: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(x);
-}
+    if (!submission_id && tally_short) {
+      submission_id = (await resolveSubmissionId(tally_short)) ?? undefined;
+    }
 
-async function resolveSubmissionId(maybeShortOrUuid?: string): Promise<string | null> {
-  if (!maybeShortOrUuid) return null;
-  if (isUUID(maybeShortOrUuid)) return maybeShortOrUuid;
-
-  // lookup by Tally short id
-  const { data, error } = await supabaseAdmin
-    .from("submissions")
-    .select("id")
-    .eq("tally_submission_id", maybeShortOrUuid)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[GENERATE-STACK] resolveSubmissionId error:", error);
-    return null;
-  }
-  return data?.id ?? null;
-}
-
-// inside POST handler:
-import { supabaseAdmin } from "@/lib/supabaseAdmin"; // already present elsewhere in file
-
-// helper
-function isUUID(x: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(x);
-}
-
-async function resolveSubmissionId(maybeShortOrUuid?: string): Promise<string | null> {
-  if (!maybeShortOrUuid) return null;
-  if (isUUID(maybeShortOrUuid)) return maybeShortOrUuid;
-
-  // lookup by Tally short id
-  const { data, error } = await supabaseAdmin
-    .from("submissions")
-    .select("id")
-    .eq("tally_submission_id", maybeShortOrUuid)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[GENERATE-STACK] resolveSubmissionId error:", error);
-    return null;
-  }
-  return data?.id ?? null;
-}
-
-// inside POST handler:
-const body = await req.json().catch(() => ({}));
-let submission_id: string | undefined = body?.submission_id;
-const tally_short: string | undefined = body?.tally_submission_id;
-
-if (!submission_id && tally_short) {
-  submission_id = await resolveSubmissionId(tally_short) ?? undefined;
-}
-
-if (!submission_id) {
-  return NextResponse.json(
-    { ok: false, error: "Missing submission identifier (submission_id or tally_submission_id)" },
-    { status: 400 }
-  );
-}
-
-
+    if (!submission_id) {
+      return NextResponse.json(
+        { ok: false, error: "Missing submission identifier (submission_id or tally_submission_id)" },
+        { status: 400 }
+      );
+    }
 
     // 1) Load submission
     const submission = await getSubmission(submission_id);
     if (!submission) {
-      return NextResponse.json(
-        { ok: false, error: "Submission not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ ok: false, error: "Submission not found" }, { status: 404 });
     }
 
     // 2) Get or create parent stack row
@@ -331,7 +294,7 @@ if (!submission_id) {
     // 4) Resolve supplement names from items, fallback to submission_supplements
     let itemRows = await getStackItems(stack.id);
     let supplementNames: string[] = itemRows
-      .map(i => (i?.name ? String(i.name).trim() : ""))
+      .map((i) => (i?.name ? String(i.name).trim() : ""))
       .filter(Boolean);
 
     if (supplementNames.length === 0) {
@@ -407,9 +370,9 @@ if (!submission_id) {
         warnings: safetyWarnings,
         counts: {
           total: safetyWarnings.length,
-          danger: safetyWarnings.filter(w => w.severity === "danger").length,
-          warning: safetyWarnings.filter(w => w.severity === "warning").length,
-          info: safetyWarnings.filter(w => w.severity === "info").length,
+          danger: safetyWarnings.filter((w) => w.severity === "danger").length,
+          warning: safetyWarnings.filter((w) => w.severity === "warning").length,
+          info: safetyWarnings.filter((w) => w.severity === "info").length,
         },
       },
     });
@@ -420,35 +383,29 @@ if (!submission_id) {
       severity: "fatal",
       context: null,
     });
-    return NextResponse.json(
-      { ok: false, error: err?.message ?? "Internal error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err?.message ?? "Internal error" }, { status: 500 });
   }
 }
 
 // -----------------------------
 // (Optional) GET handler for quick, manual checks
-// GET /api/generate-stack?submission_id=uuid
+// GET /api/generate-stack?submission_id=uuid OR ?tally_submission_id=short
 // -----------------------------
 export async function GET(req: NextRequest) {
-// inside GET handler:
-const { searchParams } = new URL(req.url);
-let submission_id = searchParams.get("submission_id") ?? undefined;
-const shortId = searchParams.get("tally_submission_id") ?? undefined;
+  const { searchParams } = new URL(req.url);
+  let submission_id = searchParams.get("submission_id") ?? undefined;
+  const shortId = searchParams.get("tally_submission_id") ?? undefined;
 
-if (!submission_id && shortId) {
-  submission_id = await resolveSubmissionId(shortId) ?? undefined;
-}
+  if (!submission_id && shortId) {
+    submission_id = (await resolveSubmissionId(shortId)) ?? undefined;
+  }
 
-if (!submission_id) {
-  return NextResponse.json(
-    { ok: false, error: "Missing submission identifier (submission_id or tally_submission_id)" },
-    { status: 400 }
-  );
-}
-
-// then delegate to POST as you already do
+  if (!submission_id) {
+    return NextResponse.json(
+      { ok: false, error: "Missing submission identifier (submission_id or tally_submission_id)" },
+      { status: 400 }
+    );
+  }
 
   // Delegate to POST implementation for single code path
   return POST(
