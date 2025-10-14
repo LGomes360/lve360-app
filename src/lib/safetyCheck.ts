@@ -216,3 +216,12 @@ export async function evaluateSafety(input: {
     return STATIC_RULES;
   }
 }
+// ----------------------------------------------------------------------------
+// Fallback Export for generateStack.ts Compatibility
+// ----------------------------------------------------------------------------
+
+export function applySafetyChecks(stack: any, userData: any) {
+  // Basic wrapper: simply return stack if no logic defined
+  // (prevents Next.js build error until safety checks are implemented)
+  return stack;
+}
