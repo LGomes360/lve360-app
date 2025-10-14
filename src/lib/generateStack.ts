@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/consistent-type-imports */
 /* eslint-disable no-console */
 // ----------------------------------------------------------------------------
-// LVE360 — generateStack.ts (STABLE, AI-first)
-// Purpose: Generate Markdown, keep validation logs, never throw on content
-// quality; parse items, safety+enrichment, evidence+shopping override, persist.
+// LVE360 — generateStack.ts (AI-first, with item persistence)
+// Purpose: Generate Markdown, keep validation logs (never throw on content
+// quality); parse items; run safety + enrichment; override Evidence & Shopping;
+// persist parent metadata AND stacks_items rows in Supabase.
 // ----------------------------------------------------------------------------
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
@@ -16,8 +17,8 @@ import { getTopCitationsFor } from "@/lib/evidence";
 import evidenceIndex from "@/evidence/evidence_index_top3.json";
 
 // ---- Config -----------------------------------------------------------------
-const TODAY = "2025-09-21";
-const MIN_WORDS = 1000;                    // relaxed to avoid spurious fails
+const TODAY = "2025-09-21";              // deterministic for logs/tests
+const MIN_WORDS = 1000;                  // relaxed to avoid spurious fails
 const MIN_BP_ROWS = 10;
 const MIN_ANALYSIS_SENTENCES = 3;
 
@@ -52,43 +53,71 @@ export interface StackItem {
   caution?: string | null;
   citations?: string[] | null;
 
-  // Category links (from public.supplements)
+  // Category links (from public.supplements via enrichAffiliateLinks)
   link_budget?: string | null;
   link_trusted?: string | null;
   link_clean?: string | null;
   link_default?: string | null;
 
-  // Destination links persisted into stacks_items
+  // Chosen destination links that we persist into stacks_items
   link_amazon?: string | null;
   link_fullscript?: string | null;
   link_thorne?: string | null;
   link_other?: string | null;
 
   cost_estimate?: number | null;
+
+  // optional passthroughs
+  brand?: string | null;
+  link_type?: string | null;
+  is_custom?: boolean | null;
 }
 
 interface EvidenceEntry { url?: string | null; [key: string]: any }
 type EvidenceIndex = Record<string, EvidenceEntry[]>;
 const EVIDENCE: EvidenceIndex = evidenceIndex as unknown as EvidenceIndex;
 
+// Row shape for insert
+type InsertItemRow = {
+  stack_id: string;
+  user_id: string | null;
+  user_email: string | null;
+  name: string;
+  brand: string | null;
+  dose: string | null;
+  timing: string | null;
+  notes: string | null;
+  rationale: string | null;
+  caution: string | null;
+  citations: string[] | null;        // jsonb
+  cost_estimate: number | null;
+  link_amazon: string | null;
+  link_thorne: string | null;
+  link_fullscript: string | null;
+  link_other: string | null;
+  link_type: string | null;
+  is_custom: boolean | null;
+};
+
 // ---- Utils ------------------------------------------------------------------
 const wc = (t: string) => t.trim().split(/\s+/).length;
 const hasEnd = (t: string) => t.includes("## END");
 const seeDN = "See Dosing & Notes";
 
-function cleanName(raw: string): string {
-  if (!raw) return "";
-  return raw.replace(/[*_`#]/g, "").replace(/\s+/g, " ").trim();
-}
+const cleanName = (raw: string) =>
+  (raw || "").replace(/[*_`#]/g, "").replace(/\s+/g, " ").trim();
 
-function age(dob: string | null) {
+const age = (dob: string | null) => {
   if (!dob) return null;
   const d = new Date(dob);
   const t = new Date(TODAY);
   let a = t.getFullYear() - d.getFullYear();
   if (t < new Date(t.getFullYear(), d.getMonth(), d.getDate())) a--;
   return a;
-}
+};
+
+const extractUserId = (sub: any): string | null =>
+  sub?.user_id ?? (typeof sub.user === "object" ? sub.user?.id : null) ?? null;
 
 function normalizeTiming(raw?: string | null): string | null {
   if (!raw) return null;
@@ -131,6 +160,7 @@ function normalizeSupplementName(name: string): string {
 
   if (collapsed === "l") return "L-Theanine";
   if (collapsed === "b") return "B-Vitamins";
+
   if (collapsed.includes("vitamin b complex") || collapsed.includes("b complex") || collapsed.includes("b-vitamins"))
     return "B-Vitamins";
 
@@ -164,13 +194,8 @@ const ALIAS_MAP: Record<string, string> = {
   "Acetyl-L-carnitine": "acetyl-l-carnitine",
 };
 
-function toSlug(s: string) {
-  return (s || "")
-    .toLowerCase()
-    .replace(/[^\w\s()+/.-]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+const toSlug = (s: string) =>
+  (s || "").toLowerCase().replace(/[^\w\s()+/.-]/g, "").replace(/\s+/g, " ").trim();
 
 function buildEvidenceCandidates(normName: string): string[] {
   const candidates: string[] = [];
@@ -178,9 +203,7 @@ function buildEvidenceCandidates(normName: string): string[] {
   if (alias) candidates.push(alias);
 
   const lower = toSlug(normName);
-  if (lower) {
-    candidates.push(lower, lower.replace(/\s+/g, "-"), lower.replace(/\s+/g, ""));
-  }
+  if (lower) candidates.push(lower, lower.replace(/\s+/g, "-"), lower.replace(/\s+/g, ""));
 
   const expansions: Record<string, string[]> = {
     "Omega-3": ["omega-3 (epa+dha)", "omega-3", "omega 3"],
@@ -203,18 +226,14 @@ function buildEvidenceCandidates(normName: string): string[] {
 
 // ---- Evidence helpers --------------------------------------------------------
 function sanitizeCitationsModel(urls: string[]): string[] {
-  return (urls || [])
-    .map((u) => (typeof u === "string" ? u.trim() : ""))
-    .filter((u) => MODEL_CITE_RE.test(u));
+  return (urls || []).map((u) => (typeof u === "string" ? u.trim() : "")).filter((u) => MODEL_CITE_RE.test(u));
 }
-
 function getTopCitationsFromJson(key: string, limit = 3): string[] {
   const arr = EVIDENCE[key] as EvidenceEntry[] | undefined;
   if (!arr || !Array.isArray(arr)) return [];
   const urls = arr.map((e) => (e?.url || "").trim()).filter((u) => CURATED_CITE_RE.test(u));
   return urls.slice(0, limit);
 }
-
 function lookupCuratedForCandidates(candidates: string[], limit = 3): string[] {
   for (const key of candidates) {
     const citations = getTopCitationsFor(key, 2);
@@ -236,10 +255,10 @@ function lookupCuratedForCandidates(candidates: string[], limit = 3): string[] {
   return [];
 }
 
-// ---- Evidence & shopping rendering ------------------------------------------
-function hostOf(u: string): string {
+// ---- Evidence & Shopping section builders -----------------------------------
+const hostOf = (u: string) => {
   try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; }
-}
+};
 function labelForUrl(u: string): string {
   const h = hostOf(u);
   if (/pubmed\.ncbi\.nlm\.nih\.gov/i.test(h)) return "PubMed";
@@ -325,7 +344,7 @@ function buildShoppingLinksSection(items: StackItem[]): string {
 function parseStackFromMarkdown(md: string): StackItem[] {
   const base: Record<string, any> = {};
 
-  // Blueprint table
+  // 1) Blueprint table
   const blueprint = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
   if (blueprint) {
     const rows = blueprint[1].split("\n").filter((l) => l.trim().startsWith("|"));
@@ -337,7 +356,7 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     });
   }
 
-  // Current Stack table
+  // 2) Current Stack table
   const current = md.match(/## Current Stack([\s\S]*?)(\n## |$)/i);
   if (current) {
     const rows = current[1].split("\n").filter((l) => l.trim().startsWith("|"));
@@ -356,7 +375,7 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     });
   }
 
-  // Dosing bullets
+  // 3) Dosing bullets
   const dosing = md.match(/## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i);
   if (dosing) {
     const lines = dosing[1].split("\n").filter((l) => l.trim().length > 0);
@@ -430,9 +449,7 @@ async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
 }
 
 // ---- Validation --------------------------------------------------------------
-function headingsOK(md: string) {
-  return HEADINGS.slice(0, -1).every((h) => md.includes(h));
-}
+const headingsOK = (md: string) => HEADINGS.slice(0, -1).every((h) => md.includes(h));
 function blueprintOK(md: string) {
   const sec = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n\|)/i);
   if (!sec) return false;
@@ -458,7 +475,7 @@ function narrativesOK(md: string) {
     return true;
   });
 }
-function ensureEnd(md: string) { return hasEnd(md) ? md : md + "\n\n## END"; }
+const ensureEnd = (md: string) => (hasEnd(md) ? md : md + "\n\n## END");
 
 // ---- Link policy -------------------------------------------------------------
 function normalizeBrandPref(p?: string | null): "budget" | "trusted" | "clean" | "default" {
@@ -494,6 +511,10 @@ export async function generateStackForSubmission(id: string) {
 
   const sub = (await getSubmissionWithChildren(id)) as SubmissionWithChildren | null;
   if (!sub) throw new Error(`Submission row not found for id=${id}`);
+
+  const user_id = extractUserId(sub);
+  const userEmail =
+    (sub as any)?.user?.email ?? (sub as any)?.user_email ?? (sub as any)?.email ?? null;
 
   const msgs: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt() },
@@ -594,15 +615,17 @@ export async function generateStackForSubmission(id: string) {
   const shoppingRe = /## Shopping Links([\s\S]*?)(?=\n## |\n## END|$)/i;
   md = shoppingRe.test(md) ? md.replace(shoppingRe, shoppingSection) : md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
 
-  // Parent (light) upsert: the route persists sections; we log tokens/model here
+  // ---- Persist parent (light) and items -------------------------------------
+  // Parent upsert to track tokens/model/safety; route will persist sections.
+  let parentId: string | null = null;
   try {
-    await supabaseAdmin
+    const { data: parent, error } = await supabaseAdmin
       .from("stacks")
       .upsert(
         {
           submission_id: id,
-          user_id: (sub as any)?.user?.id ?? (sub as any)?.user_id ?? null,
-          user_email: (sub as any)?.user?.email ?? (sub as any)?.user_email ?? (sub as any)?.email ?? null,
+          user_id,
+          user_email: userEmail,
           tally_submission_id: (sub as any)?.tally_submission_id ?? null,
           version: modelUsed,
           tokens_used: tokensUsed,
@@ -613,10 +636,58 @@ export async function generateStackForSubmission(id: string) {
         },
         { onConflict: "submission_id" }
       )
-      .select()
+      .select("id")
       .maybeSingle();
+
+    if (error) console.error("Supabase stacks upsert error:", error);
+    parentId = parent?.id ?? null;
   } catch (err) {
     console.warn("Stacks upsert warning:", err);
+  }
+
+  // Items: delete + insert (do NOT require user_id — column is nullable)
+  if (parentId) {
+    try {
+      await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parentId);
+
+      const rows: (InsertItemRow | null)[] = withEvidence.map((it) => {
+        const normName = normalizeSupplementName(it?.name ?? "");
+        const safeName = cleanName(normName);
+        if (!safeName || safeName.toLowerCase() === "null") {
+          console.error("🚨 Blocking insert of invalid item", { stack_id: parentId, rawName: it?.name, normalized: normName });
+          return null;
+        }
+        return {
+          stack_id: parentId!,
+          user_id: user_id ?? null,
+          user_email: userEmail ?? null,
+          name: safeName,
+          brand: it.brand ?? null,
+          dose: it.dose ?? null,
+          timing: it.timing ?? null,
+          notes: it.notes ?? null,
+          rationale: it.rationale ?? null,
+          caution: it.caution ?? null,
+          citations: it.citations ?? null,            // jsonb array or null
+          cost_estimate: it.cost_estimate ?? null,
+          link_amazon: it.link_amazon ?? null,
+          link_thorne: it.link_thorne ?? null,
+          link_fullscript: it.link_fullscript ?? null,
+          link_other: it.link_other ?? null,
+          link_type: it.link_type ?? null,
+          is_custom: it.is_custom ?? null,
+        };
+      });
+
+      const cleanRows = rows.filter((r): r is InsertItemRow => r !== null);
+      if (cleanRows.length > 0) {
+        const { error } = await supabaseAdmin.from("stacks_items").insert(cleanRows);
+        if (error) console.error("⚠️ Failed to insert stacks_items:", error);
+        else console.log(`✅ Inserted ${cleanRows.length} stack items for stack ${parentId}`);
+      }
+    } catch (err) {
+      console.error("stacks_items upsert exception:", err);
+    }
   }
 
   return {
