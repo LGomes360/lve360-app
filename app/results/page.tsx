@@ -273,20 +273,20 @@ function ResultsContent() {
   const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
 
-  async function api(path: string, body?: any) {
-    const res = await fetch(
-      path,
-      body
-        ? {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          }
-        : {}
-    );
-    if (!res.ok) throw new Error(`API ${res.status}`);
-    return res.json();
+async function api(path: string, body?: any) {
+  const res = await fetch(
+    path,
+    body
+      ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      : {}
+  );
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json?.ok === false) {
+    const msg = json?.error ? `${json.error}` : `HTTP ${res.status}`;
+    throw new Error(msg);
   }
+  return json;
+}
 
 useEffect(() => {
   if (!tallyId) return;
