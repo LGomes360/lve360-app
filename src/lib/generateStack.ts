@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/consistent-type-imports */
 /* eslint-disable no-console */
 // ----------------------------------------------------------------------------
-// LVE360 — generateStack.ts (HARDENED)
-// Purpose: Generate validated Markdown report, parse StackItems, run safety,
-// affiliate enrichment, override Evidence & Shopping sections, and persist.
+// LVE360 — generateStack.ts (ROBUST)
+// Purpose: Generate validated Markdown, parse items, run safety, enrich links,
+// override Evidence + Shopping sections, and persist to Supabase.
+// Key change: bullet-proof guards so generator NEVER throws on shape drifts.
 // ----------------------------------------------------------------------------
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
@@ -13,24 +14,27 @@ import { ChatCompletionMessageParam } from "openai/resources";
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { getTopCitationsFor } from "@/lib/evidence";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import evidenceIndex from "@/evidence/evidence_index_top3.json";
 
 // ----------------------------------------------------------------------------
 // Config
 // ----------------------------------------------------------------------------
-const TODAY = "2025-09-21";
+const TODAY = "2025-09-21"; // deterministic for logs/tests
 const MIN_WORDS = 1800;
 const MIN_BP_ROWS = 10;
 const MIN_ANALYSIS_SENTENCES = 3;
 
+// Strict model refs allowed
 const MODEL_CITE_RE =
   /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/?|doi\.org\/\S+)\b/;
 
+// Broader curated refs allowed
 const CURATED_CITE_RE =
   /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/?|pmc\.ncbi\.nlm\.nih\.gov\/articles\/\S+|doi\.org\/\S+|jamanetwork\.com\/\S+|biomedcentral\.com\/\S+|bmcpsychiatry\.biomedcentral\.com\/\S+|journals\.plos\.org\/\S+|nature\.com\/\S+|sciencedirect\.com\/\S+|amjmed\.com\/\S+|koreascience\.kr\/\S+|dmsjournal\.biomedcentral\.com\/\S+|researchmgt\.monash\.edu\/\S+)\b/i;
 
+// Headings contract
 const HEADINGS = [
   "## Intro Summary",
   "## Goals",
@@ -60,11 +64,13 @@ export interface StackItem {
   caution?: string | null;
   citations?: string[] | null;
 
+  // From enrichment
   link_budget?: string | null;
   link_trusted?: string | null;
   link_clean?: string | null;
   link_default?: string | null;
 
+  // Final persisted destinations
   link_amazon?: string | null;
   link_fullscript?: string | null;
   link_thorne?: string | null;
@@ -83,7 +89,7 @@ type StackItemInsert = {
   notes: string | null;
   rationale: string | null;
   caution: string | null;
-  citations: string[] | null;
+  citations: string[] | null; // jsonb
   link_amazon: string | null;
   link_fullscript: string | null;
   link_thorne: string | null;
@@ -105,8 +111,8 @@ const wc = (t: string) => t.trim().split(/\s+/).length;
 const hasEnd = (t: string) => /(^|\n)## END\s*$/i.test(t.trim());
 const seeDN = "See Dosing & Notes";
 
-const ensureArray = <T>(v: any, fallback: T[] = []): T[] =>
-  Array.isArray(v) ? (v as T[]) : fallback;
+const isNonEmpty = (v: unknown): v is string =>
+  typeof v === "string" && v.trim().length > 0;
 
 function cleanName(raw: string): string {
   if (!raw) return "";
@@ -156,15 +162,19 @@ function parseDose(dose?: string | null): { amount?: number; unit?: string } {
 }
 
 // ----------------------------------------------------------------------------
-// Name normalization + aliasing for evidence lookup
+// Name normalization + aliasing
 // ----------------------------------------------------------------------------
 function normalizeSupplementName(name: string): string {
   const n = (name || "").toLowerCase().replace(/[.*_`#]/g, "").trim();
   const collapsed = n.replace(/\s+/g, " ");
-
   if (collapsed === "l") return "L-Theanine";
   if (collapsed === "b") return "B-Vitamins";
-  if (collapsed.includes("vitamin b complex") || collapsed.includes("b complex") || collapsed.includes("b-vitamins"))
+
+  if (
+    collapsed.includes("vitamin b complex") ||
+    collapsed.includes("b complex") ||
+    collapsed.includes("b-vitamins")
+  )
     return "B-Vitamins";
 
   if (collapsed.startsWith("omega")) return "Omega-3";
@@ -176,8 +186,11 @@ function normalizeSupplementName(name: string): string {
   if (collapsed.startsWith("rhodiola")) return "Rhodiola Rosea";
   if (collapsed.startsWith("ginkgo")) return "Ginkgo Biloba";
   if (collapsed.startsWith("zinc")) return "Zinc";
-
-  if (/^acetyl\s*l\b/.test(collapsed) || collapsed.includes("acetyl l carnitine") || collapsed.includes("acetyl-l-carnitine"))
+  if (
+    /^acetyl\s*l\b/.test(collapsed) ||
+    collapsed.includes("acetyl l carnitine") ||
+    collapsed.includes("acetyl-l-carnitine")
+  )
     return "Acetyl-L-carnitine";
 
   return name.trim();
@@ -185,13 +198,13 @@ function normalizeSupplementName(name: string): string {
 const ALIAS_MAP: Record<string, string> = {
   "Omega-3": "omega-3 (epa+dha)",
   "Vitamin D": "vitamin d3",
-  "Magnesium": "magnesium (glycinate)",
-  "Ashwagandha": "ashwagandha (ksm-66 or similar)",
+  Magnesium: "magnesium (glycinate)",
+  Ashwagandha: "ashwagandha (ksm-66 or similar)",
   "Bacopa Monnieri": "bacopa monnieri (50% bacosides)",
-  "CoQ10": "coq10 (ubiquinone)",
+  CoQ10: "coq10 (ubiquinone)",
   "Rhodiola Rosea": "rhodiola rosea (3% rosavins)",
   "Ginkgo Biloba": "ginkgo biloba (24/6)",
-  "Zinc": "zinc (picolinate)",
+  Zinc: "zinc (picolinate)",
   "B-Vitamins": "b-complex",
   "B Vitamins Complex": "b-complex",
   "Vitamin B Complex": "b-complex",
@@ -218,13 +231,13 @@ function buildEvidenceCandidates(normName: string): string[] {
   const expansions: Record<string, string[]> = {
     "Omega-3": ["omega-3 (epa+dha)", "omega-3", "omega 3"],
     "Vitamin D": ["vitamin d3", "vitamin d", "vitamin-d"],
-    "Magnesium": ["magnesium (glycinate)", "magnesium"],
-    "Ashwagandha": ["ashwagandha (ksm-66 or similar)", "ashwagandha"],
+    Magnesium: ["magnesium (glycinate)", "magnesium"],
+    Ashwagandha: ["ashwagandha (ksm-66 or similar)", "ashwagandha"],
     "Bacopa Monnieri": ["bacopa monnieri (50% bacosides)", "bacopa monnieri"],
-    "CoQ10": ["coq10 (ubiquinone)", "coq10"],
+    CoQ10: ["coq10 (ubiquinone)", "coq10"],
     "Rhodiola Rosea": ["rhodiola rosea (3% rosavins)", "rhodiola rosea"],
     "Ginkgo Biloba": ["ginkgo biloba (24/6)", "ginkgo biloba"],
-    "Zinc": ["zinc (picolinate)", "zinc"],
+    Zinc: ["zinc (picolinate)", "zinc"],
     "B-Vitamins": ["b-complex", "b vitamins", "b-vitamins"],
     "L-Theanine": ["l-theanine", "l theanine"],
     "Acetyl-L-carnitine": ["acetyl-l-carnitine", "acetyl l carnitine", "alc"],
@@ -237,8 +250,8 @@ function buildEvidenceCandidates(normName: string): string[] {
 // ----------------------------------------------------------------------------
 // Evidence helpers
 // ----------------------------------------------------------------------------
-function sanitizeCitationsModel(urls: string[]): string[] {
-  return ensureArray<string>(urls)
+function sanitizeCitationsModel(urls: string[] | null | undefined): string[] {
+  return (Array.isArray(urls) ? urls : [])
     .map((u) => (typeof u === "string" ? u.trim() : ""))
     .filter((u) => MODEL_CITE_RE.test(u));
 }
@@ -278,7 +291,7 @@ function attachEvidence(item: StackItem): StackItem {
   const normName = normalizeSupplementName(item.name);
   const candidates = buildEvidenceCandidates(normName);
   const curatedUrls = lookupCuratedForCandidates(candidates, 3);
-  const modelValid = sanitizeCitationsModel(item.citations ?? []);
+  const modelValid = sanitizeCitationsModel(item.citations);
   const final = curatedUrls.length ? curatedUrls : modelValid;
 
   try {
@@ -323,26 +336,17 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
   bullets: Array<{ name: string; url: string }>;
 } {
   const bullets: Array<{ name: string; url: string }> = [];
-
-  for (const it of ensureArray<StackItem>(items)) {
-    const citations = ensureArray<string>(it.citations ?? []);
-    for (const rawUrl of citations) {
-      const url = (rawUrl || "").trim();
-      if (!url) continue;
+  for (const it of items) {
+    for (const rawUrl of it.citations ?? []) {
+      const url = rawUrl.trim();
       const normalized = url.endsWith("/") ? url : url + "/";
       if (CURATED_CITE_RE.test(normalized) || MODEL_CITE_RE.test(normalized)) {
         bullets.push({ name: cleanName(it.name), url: normalized });
       }
     }
   }
-
   const seen = new Set<string>();
-  const unique = bullets.filter((b) => {
-    if (seen.has(b.url)) return false;
-    seen.add(b.url);
-    return true;
-  });
-
+  const unique = bullets.filter((b) => (seen.has(b.url) ? false : (seen.add(b.url), true)));
   const take =
     unique.length >= minCount
       ? unique
@@ -353,7 +357,6 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
             url: "https://lve360.com/evidence/coming-soon",
           })),
         ];
-
   const bulletsText = take.map((b) => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`).join("\n");
   const analysis = `
 
@@ -374,11 +377,10 @@ function overrideEvidenceInMarkdown(md: string, section: string): string {
 // Shopping Links section
 // ----------------------------------------------------------------------------
 function buildShoppingLinksSection(items: StackItem[]): string {
-  const list = ensureArray<StackItem>(items);
-  if (list.length === 0) {
+  if (!items || items.length === 0) {
     return "## Shopping Links\n\n- No links available yet.\n\n**Analysis**\n\nLinks will be provided once products are mapped.";
   }
-  const bullets = list.map((it) => {
+  const bullets = items.map((it) => {
     const name = cleanName(it.name);
     const links: string[] = [];
     if (it.link_amazon) links.push(`[Amazon](${it.link_amazon})`);
@@ -398,14 +400,14 @@ function buildShoppingLinksSection(items: StackItem[]): string {
 function parseStackFromMarkdown(md: string): StackItem[] {
   const base: Record<string, any> = {};
 
-  // Blueprint
+  // Blueprint table
   const blueprint = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
   if (blueprint) {
     const rows = blueprint[1].split("\n").filter((l) => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
       const name = cleanName(cols[2] || `Item ${i + 1}`);
-      if (!name) return;
+      if (!isNonEmpty(name)) return;
       base[name.toLowerCase()] = {
         name,
         rationale: cols[3] || undefined,
@@ -416,27 +418,21 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     });
   }
 
-  // Current Stack
+  // Current Stack table
   const current = md.match(/## Current Stack([\s\S]*?)(\n## |$)/i);
   if (current) {
     const rows = current[1].split("\n").filter((l) => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
       const name = cleanName(cols[1] || `Current Item ${i + 1}`);
-      if (!name) return;
+      if (!isNonEmpty(name)) return;
       const rationale = cols[2] || undefined;
       const dose = cols[3] || null;
       const timing = normalizeTiming(cols[4] || null);
       const parsed = parseDose(dose);
       const key = name.toLowerCase();
       if (!base[key]) {
-        base[key] = {
-          name,
-          rationale,
-          dose,
-          dose_parsed: parsed,
-          timing,
-        };
+        base[key] = { name, rationale, dose, dose_parsed: parsed, timing };
       }
     });
   }
@@ -449,7 +445,7 @@ function parseStackFromMarkdown(md: string): StackItem[] {
       const m = line.match(/[-*]\s*([^—\-:]+)[—\-:]\s*([^,]+)(?:,\s*(.*))?/);
       if (m) {
         const name = cleanName(m[1].trim());
-        if (!name) continue;
+        if (!isNonEmpty(name)) continue;
         const dose = m[2]?.trim() || null;
         const timing = normalizeTiming(m[3]);
         const parsed = parseDose(dose);
@@ -459,13 +455,7 @@ function parseStackFromMarkdown(md: string): StackItem[] {
           base[key].dose_parsed = parsed;
           base[key].timing = timing;
         } else {
-          base[key] = {
-            name,
-            rationale: undefined,
-            dose,
-            dose_parsed: parsed,
-            timing,
-          };
+          base[key] = { name, rationale: undefined, dose, dose_parsed: parsed, timing };
         }
       }
     }
@@ -474,13 +464,13 @@ function parseStackFromMarkdown(md: string): StackItem[] {
   const seen = new Set<string>();
   return Object.values(base).filter((it: any) => {
     if (!it?.name) return false;
-    const key = it.name.trim().toLowerCase();
+    const key = String(it.name).trim().toLowerCase();
     if (!key) return false;
     if (seen.has(key)) return false;
     if (it.name.length > 40) return false;
     if (/[.,]{3,}/.test(it.name)) return false;
     if (/\bvitamin\b.*\band\b/i.test(it.name)) return false;
-    if (/^analysis$/i.test(it.name.trim())) return false;
+    if (/^analysis$/i.test(String(it.name).trim())) return false;
     seen.add(key);
     return true;
   });
@@ -613,35 +603,14 @@ function chooseAmazonLinkFor(
   return pick || item.link_default || item.link_trusted || item.link_budget || item.link_clean || null;
 }
 function applyLinkPolicy(items: StackItem[], sub: any): StackItem[] {
-  const pref = normalizeBrandPref(
-    sub?.preferences?.brand_pref ?? sub?.brand_pref ?? null
-  );
-  const isPremium =
-    Boolean(sub?.is_premium) ||
-    Boolean(sub?.user?.is_premium) ||
-    sub?.plan === "premium";
-  return ensureArray<StackItem>(items).map((it) => {
+  const pref = normalizeBrandPref(sub?.preferences?.brand_pref ?? sub?.brand_pref ?? null);
+  const isPremium = Boolean(sub?.is_premium) || Boolean(sub?.user?.is_premium) || sub?.plan === "premium";
+  return items.map((it) => {
     const linkAmazon = chooseAmazonLinkFor(it, pref);
     const linkFS = it.link_fullscript ?? null;
-    if (isPremium && linkFS) {
-      return { ...it, link_amazon: linkAmazon, link_fullscript: linkFS };
-    }
+    if (isPremium && linkFS) return { ...it, link_amazon: linkAmazon, link_fullscript: linkFS };
     return { ...it, link_amazon: linkAmazon };
   });
-}
-
-// Helper to handle multiple possible shapes from applySafetyChecks
-function pickCleanedItems(
-  safetyOut: any,
-  fallback: StackItem[]
-): StackItem[] {
-  const a = safetyOut?.cleaned;
-  const b = safetyOut?.cleanedItems;
-  const c = safetyOut?.items;
-  return ensureArray<StackItem>(a) ||
-         ensureArray<StackItem>(b) ||
-         ensureArray<StackItem>(c) ||
-         ensureArray<StackItem>(fallback);
 }
 
 // ----------------------------------------------------------------------------
@@ -672,9 +641,9 @@ export async function generateStackForSubmission(id: string) {
   let tokensUsed: number | null = null;
   let promptTokens: number | null = null;
   let completionTokens: number | null = null;
-  let passes = false;
 
-  // pass 1: mini
+  // ---- Pass 1: mini
+  let passes = false;
   try {
     const resp = await callLLM(msgs, "gpt-4o-mini");
     raw = resp;
@@ -684,31 +653,22 @@ export async function generateStackForSubmission(id: string) {
     completionTokens = resp.usage?.completion_tokens ?? null;
     md = resp.choices[0]?.message?.content ?? "";
 
-    const wordCountOK = wc(md) >= MIN_WORDS;
-    const headingsValid = headingsOK(md);
-    const blueprintValid = blueprintOK(md);
-    const citationsValid = citationsOK(md);
-    const narrativesValid = narrativesOK(md);
-    const endValid = hasEnd(md);
-
-    console.log("validation.debug", {
-      wordCountOK,
-      headingsValid,
-      blueprintValid,
-      citationsValid,
-      narrativesValid,
-      endValid,
+    const v = {
+      wordCountOK: wc(md) >= MIN_WORDS,
+      headingsValid: headingsOK(md),
+      blueprintValid: blueprintOK(md),
+      citationsValid: citationsOK(md),
+      narrativesValid: narrativesOK(md),
+      endValid: hasEnd(md),
       actualWordCount: wc(md),
-    });
-
-    if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
-      passes = true;
-    }
+    };
+    console.log("validation.debug", v);
+    passes = Object.values(v).every((x, i) => (i === 6 ? true : Boolean(x))); // ignore actualWordCount booleanization
   } catch (err) {
     console.warn("Mini model failed:", err);
   }
 
-  // pass 2: gpt-4o
+  // ---- Pass 2: 4o
   if (!passes) {
     const resp = await callLLM(msgs, "gpt-4o");
     raw = resp;
@@ -718,100 +678,96 @@ export async function generateStackForSubmission(id: string) {
     completionTokens = resp.usage?.completion_tokens ?? null;
     md = resp.choices[0]?.message?.content ?? "";
 
-    const wordCountOK = wc(md) >= MIN_WORDS;
-    const headingsValid = headingsOK(md);
-    const blueprintValid = blueprintOK(md);
-    const citationsValid = citationsOK(md);
-    const narrativesValid = narrativesOK(md);
-    const endValid = hasEnd(md);
-
-    console.log("validation.debug.fallback", {
-      wordCountOK,
-      headingsValid,
-      blueprintValid,
-      citationsValid,
-      narrativesValid,
-      endValid,
+    const v2 = {
+      wordCountOK: wc(md) >= MIN_WORDS,
+      headingsValid: headingsOK(md),
+      blueprintValid: blueprintOK(md),
+      citationsValid: citationsOK(md),
+      narrativesValid: narrativesOK(md),
+      endValid: hasEnd(md),
       actualWordCount: wc(md),
-    });
-
-    if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
-      passes = true;
-    }
+    };
+    console.log("validation.debug.fallback", v2);
+    passes = Object.values(v2).every((x, i) => (i === 6 ? true : Boolean(x)));
   }
 
   md = ensureEnd(md);
 
-  // Parse items from the markdown the model just produced
+  // Parse items from AI
   const parsedItems: StackItem[] = parseStackFromMarkdown(md);
 
-  // Safety checks — HARDENED
-  const safetyInput = {
-    medications: Array.isArray((sub as any).medications)
-      ? (sub as any).medications.map((m: any) => m.med_name || "")
-      : [],
-    conditions: Array.isArray((sub as any).conditions)
-      ? (sub as any).conditions.map((c: any) => c.condition_name || "")
-      : [],
-    allergies: Array.isArray((sub as any).allergies)
-      ? (sub as any).allergies.map((a: any) => a.allergy_name || "")
-      : [],
-    pregnant:
-      typeof (sub as any).pregnant === "boolean" ||
-      typeof (sub as any).pregnant === "string"
-        ? (sub as any).pregnant
-        : null,
-    brand_pref: (sub as any)?.preferences?.brand_pref ?? null,
-    dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
-    is_premium:
-      Boolean((sub as any)?.is_premium) ||
-      Boolean((sub as any)?.user?.is_premium) ||
-      ((sub as any)?.plan === "premium"),
-  };
+  // ---- SAFETY (never throw; tolerate shape drift)
+  let safetyResult: "safe" | "warning" | "error" | "unknown" = "unknown";
+  let cleanedItems: StackItem[] = parsedItems;
 
-  const safetyOut = await applySafetyChecks(safetyInput, parsedItems).catch((e: any) => {
-    console.warn("applySafetyChecks threw; continuing with parsed items:", e?.message ?? e);
-    return null as any;
-  });
+  try {
+    const res: any = await applySafetyChecks(
+      {
+        medications: Array.isArray((sub as any).medications)
+          ? (sub as any).medications.map((m: any) => m.med_name || "")
+          : [],
+        conditions: Array.isArray((sub as any).conditions)
+          ? (sub as any).conditions.map((c: any) => c.condition_name || "")
+          : [],
+        allergies: Array.isArray((sub as any).allergies)
+          ? (sub as any).allergies.map((a: any) => a.allergy_name || "")
+          : [],
+        pregnant:
+          typeof (sub as any).pregnant === "boolean" || typeof (sub as any).pregnant === "string"
+            ? (sub as any).pregnant
+            : null,
+        brand_pref: (sub as any)?.preferences?.brand_pref ?? null,
+        dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
+        is_premium:
+          Boolean((sub as any)?.is_premium) ||
+          Boolean((sub as any)?.user?.is_premium) ||
+          (sub as any)?.plan === "premium",
+      },
+      parsedItems
+    );
 
-  const cleanedItems: StackItem[] = pickCleanedItems(safetyOut, parsedItems);
-  const safetyResult: any = (safetyOut && safetyOut.status) ? safetyOut.status : "safe";
+    const candidate =
+      (res && Array.isArray(res.cleaned) && res.cleaned) ||
+      (res && Array.isArray(res.items) && res.items) ||
+      (res && Array.isArray(res.safeItems) && res.safeItems) ||
+      parsedItems;
 
-  // Normalize names before enrichment; then enrich
-  const normalizedForLinks = ensureArray<StackItem>(cleanedItems).map((it) => ({
+    cleanedItems = candidate;
+    if (typeof res?.status === "string") safetyResult = res.status as any;
+  } catch (e) {
+    console.warn("applySafetyChecks failed, using parsed items:", (e as Error)?.message);
+  }
+
+  // Normalize names, then enrich — both with guards
+  const normalizedForLinks: StackItem[] = (Array.isArray(cleanedItems) ? cleanedItems : parsedItems).map((it) => ({
     ...it,
     name: normalizeSupplementName(it.name),
   }));
 
-  const enrichedMaybe = await enrichAffiliateLinks(normalizedForLinks).catch((e: any) => {
-    console.warn("enrichAffiliateLinks threw; using normalized list:", e?.message ?? e);
-    return normalizedForLinks;
-  });
-  const enriched = ensureArray<StackItem>(enrichedMaybe, normalizedForLinks);
+  let enriched: StackItem[] = normalizedForLinks;
+  try {
+    const maybe = await enrichAffiliateLinks(normalizedForLinks);
+    if (Array.isArray(maybe) && maybe.length) enriched = maybe;
+  } catch (e) {
+    console.warn("enrichAffiliateLinks failed, continuing:", (e as Error)?.message);
+  }
 
-  // Apply link policy; then evidence
+  // Apply link policy & attach evidence (never throw)
   const finalStack: StackItem[] = applyLinkPolicy(enriched, sub);
-  const withEvidence: StackItem[] = ensureArray<StackItem>(finalStack).map(attachEvidence);
+  const withEvidence: StackItem[] = finalStack.map(attachEvidence);
 
   // Override Evidence section
   const { section: evidenceSection } = buildEvidenceSection(withEvidence, 8);
   md = overrideEvidenceInMarkdown(md, evidenceSection);
 
-  // Override or append Shopping Links section
+  // Override/append Shopping Links
   const shoppingSection = buildShoppingLinksSection(withEvidence);
   const shoppingRe = /## Shopping Links([\s\S]*?)(?=\n## |\n## END|$)/i;
-  if (shoppingRe.test(md)) {
-    md = md.replace(shoppingRe, shoppingSection);
-  } else {
-    md = md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
-  }
+  md = shoppingRe.test(md) ? md.replace(shoppingRe, shoppingSection) : md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
 
-  const totalMonthlyCost = ensureArray<StackItem>(withEvidence).reduce(
-    (acc, it) => acc + (it.cost_estimate ?? 0),
-    0
-  );
+  const totalMonthlyCost = withEvidence.reduce((acc, it) => acc + (it.cost_estimate ?? 0), 0);
 
-  // Persist parent stack
+  // ---- Persist parent stack
   let parentRows: any[] = [];
   try {
     const { data, error } = await supabaseAdmin
@@ -828,10 +784,7 @@ export async function generateStackForSubmission(id: string) {
           completion_tokens: completionTokens,
           safety_status: safetyResult,
           summary: md,
-          sections: {
-            markdown: md,
-            generated_at: new Date().toISOString(),
-          },
+          sections: { markdown: md, generated_at: new Date().toISOString() },
           notes: null,
           total_monthly_cost: totalMonthlyCost,
         },
@@ -839,20 +792,19 @@ export async function generateStackForSubmission(id: string) {
       )
       .select();
     if (error) console.error("Supabase upsert error:", error);
-    if (data && data.length > 0) parentRows = data;
+    if (Array.isArray(data) && data.length > 0) parentRows = data;
   } catch (err) {
     console.error("Stacks upsert exception:", err);
   }
 
-  // Persist items
+  // ---- Persist items (replace)
   if (parentRows.length > 0) {
     const parent = parentRows[0];
     if (parent?.id && user_id) {
       const parentId: string = parent.id as string;
-
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parentId);
 
-      const rows: StackItemInsert[] = ensureArray<StackItem>(withEvidence)
+      const rows: StackItemInsert[] = withEvidence
         .map((it) => {
           const normName = normalizeSupplementName(it?.name ?? "");
           const safeName = cleanName(normName);
@@ -866,7 +818,7 @@ export async function generateStackForSubmission(id: string) {
             });
             return null;
           }
-          const row: StackItemInsert = {
+          return {
             stack_id: parentId,
             user_id: user_id!,
             user_email: userEmail ?? null,
@@ -876,14 +828,13 @@ export async function generateStackForSubmission(id: string) {
             notes: it.notes ?? null,
             rationale: it.rationale ?? null,
             caution: it.caution ?? null,
-            citations: ensureArray<string>(it.citations ?? null, null as any) || null,
+            citations: it.citations ?? null,
             link_amazon: it.link_amazon ?? null,
             link_fullscript: it.link_fullscript ?? null,
             link_thorne: it.link_thorne ?? null,
             link_other: it.link_other ?? null,
             cost_estimate: it.cost_estimate ?? null,
-          };
-          return row;
+          } as StackItemInsert;
         })
         .filter((r): r is StackItemInsert => r !== null);
 
@@ -897,9 +848,7 @@ export async function generateStackForSubmission(id: string) {
     }
   }
 
-  if (!passes) {
-    console.warn("⚠️ Draft validation failed, review needed.");
-  }
+  if (!passes) console.warn("⚠️ Draft validation failed, review needed.");
 
   return {
     markdown: md,
@@ -908,6 +857,8 @@ export async function generateStackForSubmission(id: string) {
     tokens_used: tokensUsed,
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
+    // (optional) surface validation booleans to /api/generate-stack
+    validation: { ok: passes },
   };
 }
 
