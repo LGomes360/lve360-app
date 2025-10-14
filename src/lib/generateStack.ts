@@ -74,13 +74,33 @@ export interface StackItem {
   link_default?: string | null;
 
   // Destination links persisted into stacks_items
-  link_amazon?: string | null;     // <- chosen from the 4 categories
-  link_fullscript?: string | null; // <- as provided by enrichment (if any)
+  link_amazon?: string | null;     // chosen from the 4 categories
+  link_fullscript?: string | null; // as provided by enrichment (if any)
   link_thorne?: string | null;
   link_other?: string | null;
 
   cost_estimate?: number | null;
 }
+
+// Insert payload for stacks_items (used in map/filter narrowing)
+type StackItemInsert = {
+  stack_id: string;
+  user_id: string;
+  user_email: string | null;
+  name: string;
+  dose: string | null;
+  timing: string | null;
+  notes: string | null;
+  rationale: string | null;
+  caution: string | null;
+  citations: string[] | null; // jsonb column accepts array directly
+  link_amazon: string | null;
+  link_fullscript: string | null;
+  link_thorne: string | null;
+  link_other: string | null;
+  cost_estimate: number | null;
+};
+
 
 // Insert payload for stacks_items (used in map/filter narrowing)
 type StackItemInsert = {
