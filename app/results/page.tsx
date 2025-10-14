@@ -1,22 +1,19 @@
 "use client";
-// ADD: sidebar + (optional) premium gate
-import ResultsSidebar from "@/components/results/ResultsSidebar";
-// Optional gating (use later if you want to lock sections)
-// import PremiumGate from "@/components/PremiumGate";
-// import { useTier } from "@/hooks/useTier"; // if/when you have userId in this component
 
-import { motion } from "framer-motion";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
 import CTAButton from "@/components/CTAButton";
+import ResultsSidebar from "@/components/results/ResultsSidebar";
+// import PremiumGate from "@/components/PremiumGate";
+// import { useTier } from "@/hooks/useTier";
 
 /* ───────── helpers ───────── */
 function sanitizeMarkdown(md: string): string {
-  return md
-    ? md.replace(/^```[a-z]*\n/i, "").replace(/```$/, "").trim()
-    : md;
+  return md ? md.replace(/^```[a-z]*\n/i, "").replace(/```$/, "").trim() : md;
 }
 function escapeRegExp(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -51,26 +48,15 @@ function Prose({ children }: { children: string }) {
             />
           ),
           table: ({ node, ...props }) => (
-            <table
-              className="w-full border-collapse my-4 text-sm shadow-sm"
-              {...props}
-            />
+            <table className="w-full border-collapse my-4 text-sm shadow-sm" {...props} />
           ),
-          thead: ({ node, ...props }) => (
-            <thead className="bg-[#06C1A0] text-white" {...props} />
-          ),
-          th: ({ node, ...props }) => (
-            <th className="px-3 py-0.5 text-left font-semibold" {...props} />
-          ),
+          thead: ({ node, ...props }) => <thead className="bg-[#06C1A0] text-white" {...props} />,
+          th: ({ node, ...props }) => <th className="px-3 py-0.5 text-left font-semibold" {...props} />,
           td: ({ node, ...props }) => (
             <td className="px-3 py-0.5 border-t border-gray-200 align-middle" {...props} />
           ),
-          tr: ({ node, ...props }) => (
-            <tr className="even:bg-gray-50" {...props} />
-          ),
-          strong: ({ node, ...props }) => (
-            <strong className="font-semibold text-[#041B2D]" {...props} />
-          ),
+          tr: ({ node, ...props }) => <tr className="even:bg-gray-50" {...props} />,
+          strong: ({ node, ...props }) => <strong className="font-semibold text-[#041B2D]" {...props} />,
         }}
       >
         {children}
@@ -80,43 +66,26 @@ function Prose({ children }: { children: string }) {
 }
 
 /* Evidence + Shopping table */
-function LinksTable({
-  raw,
-  type,
-}: {
-  raw: string;
-  type: "evidence" | "shopping";
-}) {
+function LinksTable({ raw, type }: { raw: string; type: "evidence" | "shopping" }) {
   const linkRe = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
 
   const lines = raw.split("\n").map((l) => l.trim());
   const bulletLines = lines.filter((l) => l.startsWith("-"));
-  const analysisIndex = lines.findIndex((l) =>
-    l.toLowerCase().startsWith("**analysis")
-  );
-  const analysis =
-    analysisIndex !== -1 ? lines.slice(analysisIndex).join(" ") : null;
+  const analysisIndex = lines.findIndex((l) => l.toLowerCase().startsWith("**analysis"));
+  const analysis = analysisIndex !== -1 ? lines.slice(analysisIndex).join(" ") : null;
 
   const rows = bulletLines
     .map((line) => {
       const matches = Array.from(line.matchAll(linkRe));
       if (matches.length === 0) return null;
-
       const namePart = line.replace(/^-+\s*/, "").split(":")[0].trim();
-      if (namePart.toLowerCase().includes("evidence pending")) {
-        return null; // ✅ skip placeholder rows
-      }
-
-      const links = matches.map((m) => ({
-        text: m[1],
-        url: m[2],
-      }));
-
+      if (namePart.toLowerCase().includes("evidence pending")) return null; // skip placeholders
+      const links = matches.map((m) => ({ text: m[1], url: m[2] }));
       return { name: namePart, links };
     })
     .filter(Boolean) as { name: string; links: { text: string; url: string }[] }[];
 
-  // Add-All-to-Cart
+  // Add-All-to-Cart for Amazon
   let allCartUrl: string | null = null;
   if (type === "shopping") {
     const asinRegex = /(?:dp|gp\/product|gp\/aw\/d)\/([A-Z0-9]{10})(?=[/?]|$)/;
@@ -128,11 +97,8 @@ function LinksTable({
         })
       )
       .filter(Boolean) as string[];
-
     if (asins.length > 0) {
-      const parts = asins.map(
-        (asin, i) => `ASIN.${i + 1}=${asin}&Quantity.${i + 1}=1`
-      );
+      const parts = asins.map((asin, i) => `ASIN.${i + 1}=${asin}&Quantity.${i + 1}=1`);
       allCartUrl = `https://www.amazon.com/gp/aws/cart/add.html?${parts.join("&")}&tag=lve360-20`;
     }
   }
@@ -159,9 +125,7 @@ function LinksTable({
                     size="sm"
                     className="px-2 py-0.5 text-xs min-w-0"
                   >
-                    {type === "shopping"
-                      ? `Buy on ${link.text}`
-                      : link.text}
+                    {type === "shopping" ? `Buy on ${link.text}` : link.text}
                   </CTAButton>
                 ))}
               </td>
@@ -172,32 +136,19 @@ function LinksTable({
 
       {allCartUrl && (
         <div className="mt-3">
-          <CTAButton
-            href={allCartUrl}
-            variant="premium"
-            size="md"
-            className="px-4 py-2 text-sm"
-          >
+          <CTAButton href={allCartUrl} variant="premium" size="md" className="px-4 py-2 text-sm">
             🛒 Add All to Cart
           </CTAButton>
         </div>
       )}
 
-      {analysis && (
-        <p className="mt-3 text-sm text-gray-700 leading-relaxed">{analysis}</p>
-      )}
+      {analysis && <p className="mt-3 text-sm text-gray-700 leading-relaxed">{analysis}</p>}
     </div>
   );
 }
 
 /* Section card wrapper */
-function SectionCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
       <h2 className="text-xl font-semibold text-[#06C1A0] mb-4">{title}</h2>
@@ -205,7 +156,8 @@ function SectionCard({
     </div>
   );
 }
-// --- 2-minute countdown (starts when `running` is true) ---
+
+/* --- 2-minute countdown --- */
 function TwoMinuteCountdown({
   running,
   onDone,
@@ -219,10 +171,10 @@ function TwoMinuteCountdown({
 
   useEffect(() => {
     if (!running) {
-      setRemaining(seconds);     // reset when not running
+      setRemaining(seconds);
       return;
     }
-    setRemaining(seconds);       // fresh start when toggled on
+    setRemaining(seconds);
     const id = setInterval(() => {
       setRemaining((t) => {
         if (t <= 1) {
@@ -245,17 +197,10 @@ function TwoMinuteCountdown({
   return (
     <div className="text-center mt-3">
       <p className="text-gray-600">
-        ⏱ Estimated time remaining:{" "}
-        <span className="font-semibold text-teal-600">
-          {m}:{s}
-        </span>
+        ⏱ Estimated time remaining: <span className="font-semibold text-teal-600">{m}:{s}</span>
       </p>
-      {/* Progress bar */}
       <div className="w-64 h-2 bg-gray-200 rounded-full mt-2 mx-auto">
-        <div
-          className="h-2 bg-teal-500 rounded-full transition-all duration-1000"
-          style={{ width: `${pct}%` }}
-        />
+        <div className="h-2 bg-teal-500 rounded-full transition-all duration-1000" style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -264,6 +209,8 @@ function TwoMinuteCountdown({
 /* ───────── page ───────── */
 function ResultsContent() {
   const [error, setError] = useState<string | null>(null);
+  const [traceId, setTraceId] = useState<string | null>(null);
+  const [steps, setSteps] = useState<string[]>([]);
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [warmingUp, setWarmingUp] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -273,60 +220,76 @@ function ResultsContent() {
   const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
 
-async function api(path: string, body?: any) {
-  const res = await fetch(
-    path,
-    body
-      ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-      : {}
-  );
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || json?.ok === false) {
-    const msg = json?.error ? `${json.error}` : `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return json;
-}
-
-useEffect(() => {
-  if (!tallyId) return;
-  (async () => {
-    try {
-      const data = await api(
-        `/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`
-      );
-      const raw =
-        data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
-      setMarkdown(sanitizeMarkdown(raw));
-      setStackId(data?.stack?.id ?? null); // <-- ADDED
-    } catch (e: any) {
-      console.warn(e);
+  // Minimal fetch helper with good error surfacing
+  async function api(path: string, body?: any) {
+    const res = await fetch(
+      path,
+      body
+        ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+        : {}
+    );
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || json?.ok === false) {
+      const msg = json?.error ? `${json.error}` : `HTTP ${res.status}`;
+      throw new Error(msg);
     }
-  })();
-}, [tallyId]);
+    return json;
+  }
 
+  // On load: try to display any existing stack
+  useEffect(() => {
+    if (!tallyId) return;
+    (async () => {
+      try {
+        const data = await api(`/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`);
+        const raw = data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
+        setMarkdown(sanitizeMarkdown(raw));
+        setStackId(data?.stack?.id ?? null);
+      } catch (e: any) {
+        console.warn(e);
+      }
+    })();
+  }, [tallyId]);
 
+  // Generate handler
   async function generateStack() {
     if (!tallyId) return setError("Missing submission ID.");
     try {
-      setWarmingUp(true);
       setError(null);
-      await new Promise((r) => setTimeout(r, 3000));
+      setTraceId(null);
+      setSteps([]);
+      setWarmingUp(true);
+
+      // small UX delay so the warming state is visible; not strictly required
+      await new Promise((r) => setTimeout(r, 800));
       setWarmingUp(false);
       setGenerating(true);
 
-      const data = await api("/api/generate-stack", {
-        tally_submission_id: tallyId,
-      });
+      // 1) Kick off generation
+      const data = await api("/api/generate-stack", { tally_submission_id: tallyId });
 
-      const raw =
-        data?.stack?.sections?.markdown ??
+      // keep breadcrumbs for debugging
+      setTraceId(data?.trace_id ?? null);
+      setSteps(Array.isArray(data?.steps) ? data.steps : []);
+
+      // 2) Prefer immediate AI markdown if available
+      const first =
         data?.ai?.markdown ??
+        data?.stack?.sections?.markdown ??
         data?.stack?.summary ??
         "";
-      setMarkdown(sanitizeMarkdown(raw));
+      if (first) setMarkdown(sanitizeMarkdown(first));
+
+      // 3) Follow up with a clean re-fetch to ensure DB state
+      const refreshed = await api(`/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`);
+      const finalMd =
+        refreshed?.stack?.sections?.markdown ??
+        refreshed?.stack?.summary ??
+        first;
+      setMarkdown(sanitizeMarkdown(finalMd));
+      setStackId(refreshed?.stack?.id ?? data?.stack?.id ?? null);
     } catch (e: any) {
-      setError(e.message ?? "Unknown error");
+      setError(e?.message ?? "Unknown error");
     } finally {
       setGenerating(false);
       setWarmingUp(false);
@@ -352,10 +315,7 @@ useEffect(() => {
     return {
       intro: extractSection(md, ["Intro Summary", "Summary"]),
       goals: extractSection(md, ["Goals"]),
-      contra: extractSection(md, [
-        "Contraindications & Med Interactions",
-        "Contraindications",
-      ]),
+      contra: extractSection(md, ["Contraindications & Med Interactions", "Contraindications"]),
       current: extractSection(md, ["Current Stack"]),
       blueprint: extractSection(md, [
         "Your Blueprint Recommendations",
@@ -370,11 +330,8 @@ useEffect(() => {
       longevity: extractSection(md, ["Longevity Levers"]),
       weekTry: extractSection(md, ["This Week Try", "Weekly Experiment"]),
     };
- }, [markdown]);
+  }, [markdown]);
 
-      // ✅ make sure framer-motion is imported at the top of the file:
-      // import { motion } from "framer-motion";
-      
   return (
     <motion.main
       className="relative isolate overflow-hidden min-h-screen bg-gradient-to-br from-[#F8F5FB] via-white to-[#EAFBF8]"
@@ -403,9 +360,9 @@ useEffect(() => {
           <p className="mt-2 text-gray-500 text-sm">$15/month Premium Access</p>
         </div>
 
-        {/* NEW: two-column layout */}
+        {/* two-column layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* LEFT: existing content */}
+          {/* LEFT */}
           <div className="lg:col-span-8">
             {/* actions */}
             <SectionCard title="Actions">
@@ -413,16 +370,28 @@ useEffect(() => {
                 <CTAButton onClick={generateStack} variant="gradient" disabled={warmingUp || generating || !ready}>
                   {warmingUp ? "⏳ Warming up…" : generating ? "🤖 Generating..." : ready ? "✨ Generate Free Report" : "⏳ Preparing…"}
                 </CTAButton>
-                <CTAButton href="/upgrade" variant="premium">Upgrade to Premium</CTAButton>
+                <CTAButton href="/upgrade" variant="premium">
+                  Upgrade to Premium
+                </CTAButton>
               </div>
 
               {(warmingUp || generating) && (
                 <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
-                  {warmingUp ? "⚡ Warming up the AI engines..." : "💪 Crunching the numbers… this usually takes about 2 minutes."}
+                  {warmingUp
+                    ? "⚡ Warming up the AI engines..."
+                    : "💪 Crunching the numbers… this usually takes about 2 minutes."}
                 </p>
               )}
 
               <TwoMinuteCountdown running={generating} />
+
+              {/* live debug line (only when we have breadcrumbs) */}
+              {(traceId || steps.length > 0) && (
+                <p className="text-center text-xs text-gray-500 mt-3">
+                  Trace: <span className="font-mono">{traceId ?? "—"}</span>
+                  {steps.length > 0 ? ` · ${steps.join(" > ")}` : null}
+                </p>
+              )}
             </SectionCard>
 
             {error && <div className="text-center text-red-600 mb-6">{error}</div>}
@@ -489,21 +458,17 @@ useEffect(() => {
               </SectionCard>
             )}
 
-            {/* disclaimer (unchanged text) */}
+            {/* disclaimer */}
             <SectionCard title="Important Wellness Disclaimer">
               <p className="text-sm text-gray-700 leading-relaxed">
-                This plan from <strong>LVE360 (Longevity | Vitality | Energy)</strong>{" "}
-                is for educational purposes only and is not medical advice. It is not
-                intended to diagnose, treat, cure, or prevent any disease. Always
-                consult with your healthcare provider before starting new supplements
-                or making significant lifestyle changes, especially if you are
-                pregnant, nursing, managing a medical condition, or taking
-                prescriptions. Supplements are regulated under the Dietary Supplement
-                Health and Education Act (DSHEA); results vary and no outcomes are
-                guaranteed. If you experience unexpected effects, discontinue use and
-                seek professional care. By using this report, you agree that decisions
-                about your health remain your responsibility and that LVE360 is not
-                liable for how information is applied.
+                This plan from <strong>LVE360 (Longevity | Vitality | Energy)</strong> is for educational purposes only
+                and is not medical advice. It is not intended to diagnose, treat, cure, or prevent any disease. Always
+                consult with your healthcare provider before starting new supplements or making significant lifestyle
+                changes, especially if you are pregnant, nursing, managing a medical condition, or taking prescriptions.
+                Supplements are regulated under the Dietary Supplement Health and Education Act (DSHEA); results vary
+                and no outcomes are guaranteed. If you experience unexpected effects, discontinue use and seek
+                professional care. By using this report, you agree that decisions about your health remain your
+                responsibility and that LVE360 is not liable for how information is applied.
               </p>
             </SectionCard>
 
@@ -524,7 +489,9 @@ useEffect(() => {
             {stackId ? (
               <ResultsSidebar stackId={stackId} />
             ) : (
-              <div className="rounded-xl border p-4 text-sm text-gray-600">Sidebar will appear after your stack loads.</div>
+              <div className="rounded-xl border p-4 text-sm text-gray-600">
+                Sidebar will appear after your stack loads.
+              </div>
             )}
           </div>
         </div>
