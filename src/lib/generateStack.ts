@@ -802,7 +802,7 @@ export async function generateStackForSubmission(id: string) {
   );
 
  // Normalize names before enrichment so aliases resolve correctly
-const normalizedForLinks = cleaned.map(it => ({
+const normalizedForLinks = cleaned.map((it: any) => ({
   ...it,
   name: normalizeSupplementName(it.name),
 }));
