@@ -12,13 +12,13 @@ import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 import type { ChatCompletionMessageParam } from "openai/resources";
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getTopCitationsFor } from "@/lib/evidence";
 import evidenceIndex from "@/evidence/evidence_index_top3.json";
 
 // ---- Config -----------------------------------------------------------------
 const TODAY = "2025-09-21";              // deterministic for logs/tests
-const MIN_WORDS = 1000;                  // relaxed to avoid spurious fails
+const MIN_WORDS = 1000;                  // relaxed to match real generations
 const MIN_BP_ROWS = 10;
 const MIN_ANALYSIS_SENTENCES = 3;
 
@@ -40,7 +40,7 @@ const HEADINGS = [
   "## Longevity Levers",
   "## This Week Try",
   "## END",
-];
+] as const;
 
 // ---- Types ------------------------------------------------------------------
 export interface StackItem {
@@ -77,7 +77,7 @@ interface EvidenceEntry { url?: string | null; [key: string]: any }
 type EvidenceIndex = Record<string, EvidenceEntry[]>;
 const EVIDENCE: EvidenceIndex = evidenceIndex as unknown as EvidenceIndex;
 
-// Row shape for insert
+// Row shape for insert (matches your schema; user_id nullable)
 type InsertItemRow = {
   stack_id: string;
   user_id: string | null;
@@ -616,7 +616,6 @@ export async function generateStackForSubmission(id: string) {
   md = shoppingRe.test(md) ? md.replace(shoppingRe, shoppingSection) : md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
 
   // ---- Persist parent (light) and items -------------------------------------
-  // Parent upsert to track tokens/model/safety; route will persist sections.
   let parentId: string | null = null;
   try {
     const { data: parent, error } = await supabaseAdmin
@@ -633,6 +632,10 @@ export async function generateStackForSubmission(id: string) {
           completion_tokens: completionTokens,
           safety_status: safetyStatus,
           total_monthly_cost: withEvidence.reduce((acc, it) => acc + (it.cost_estimate ?? 0), 0),
+          // NOTE: your route also persists sections/summary; leaving them here
+          // keeps the legacy path working if the route changes.
+          summary: md,
+          sections: { markdown: md, generated_at: new Date().toISOString() },
         },
         { onConflict: "submission_id" }
       )
@@ -645,7 +648,7 @@ export async function generateStackForSubmission(id: string) {
     console.warn("Stacks upsert warning:", err);
   }
 
-  // Items: delete + insert (do NOT require user_id — column is nullable)
+  // Items: delete + insert (user_id nullable, do NOT gate on user_id)
   if (parentId) {
     try {
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parentId);
@@ -668,7 +671,7 @@ export async function generateStackForSubmission(id: string) {
           notes: it.notes ?? null,
           rationale: it.rationale ?? null,
           caution: it.caution ?? null,
-          citations: it.citations ?? null,            // jsonb array or null
+          citations: it.citations ?? null,
           cost_estimate: it.cost_estimate ?? null,
           link_amazon: it.link_amazon ?? null,
           link_thorne: it.link_thorne ?? null,
@@ -684,6 +687,8 @@ export async function generateStackForSubmission(id: string) {
         const { error } = await supabaseAdmin.from("stacks_items").insert(cleanRows);
         if (error) console.error("⚠️ Failed to insert stacks_items:", error);
         else console.log(`✅ Inserted ${cleanRows.length} stack items for stack ${parentId}`);
+      } else {
+        console.log("ℹ️ No valid items parsed from markdown.");
       }
     } catch (err) {
       console.error("stacks_items upsert exception:", err);
