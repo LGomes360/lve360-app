@@ -3,19 +3,13 @@
 // LVE360 // Generate Stack (AI-first + Safety) — 2025-10-14
 //
 // What this route does:
-// 1) Accepts { submission_id } OR { tally_submission_id } (POST body) or via GET.
+// 1) Accepts { submission_id } OR { tally_submission_id } (POST) or via GET.
 // 2) Loads submission; gets/creates a stack row for that submission.
-// 3) Calls your generator (src/lib/generateStack.ts) to produce AI markdown.
+// 3) Calls generator (src/lib/generateStack.ts) to produce AI markdown.
 //    • If the generator returns with validation warnings, we DO NOT throw.
-//    • If the generator THROWS, we DO NOT 500. We mark generator_failed and
-//      fall back to any previously saved markdown.
-//    • We ALWAYS persist AI markdown when we have it.
+//    • We ALWAYS persist the AI markdown to stacks.summary/sections.
 // 4) Computes safety warnings and status from current items (or submission_supplements fallback).
 // 5) Returns enriched payload + breadcrumbs (`trace_id`, `steps`, `generation_status`).
-//
-// Notes:
-// • No imports inside functions (prevents build errors).
-// • Idempotent and safe to re-run.
 // -----------------------------------------------------------------------------
 
 export const runtime = "nodejs";
@@ -48,9 +42,9 @@ type StackRow = {
   tally_submission_id?: string | null;
   user_id: string | null;
   user_email: string | null;
-  items: any; // jsonb array (we re-read stacks_items as needed)
+  items: any;
   safety_status: "safe" | "warning" | "error" | null;
-  safety_warnings: any | null; // jsonb[]
+  safety_warnings: any | null;
 };
 
 type StackItemRow = {
@@ -61,7 +55,7 @@ type StackItemRow = {
 };
 
 // -----------------------------
-// Small helpers
+// Helpers
 // -----------------------------
 const nowIso = () => new Date().toISOString();
 const isUUID = (id: string) =>
@@ -152,37 +146,26 @@ async function getSubmission(submission_id: string): Promise<SubmissionRow | nul
 }
 
 async function getOrCreateStackForSubmission(submission: SubmissionRow): Promise<StackRow> {
-  // Try existing
-  const { data: existing, error: findErr } = await supa
+  const { data: existing } = await supa
     .from("stacks")
     .select("id, submission_id, user_id, user_email, items, safety_status, safety_warnings, tally_submission_id")
     .eq("submission_id", submission.id)
     .maybeSingle();
 
-  if (findErr) {
-    await logWebhookFailure({
-      event_type: "fetch_stack_error",
-      error_message: findErr.message,
-      severity: "critical",
-      context: { submission_id: submission.id },
-    });
-  }
   if (existing) return existing as StackRow;
 
-  // Create minimal shell
-  const insertPayload: Partial<StackRow> = {
-    submission_id: submission.id,
-    user_id: submission.user_id,
-    user_email: submission.user_email,
-    items: [],
-    safety_status: null,
-    safety_warnings: [],
-    ...(submission.tally_submission_id ? { tally_submission_id: submission.tally_submission_id } : {}),
-  };
-
+  // create shell
   const { data: created, error: insErr } = await supa
     .from("stacks")
-    .insert(insertPayload)
+    .insert({
+      submission_id: submission.id,
+      user_id: submission.user_id,
+      user_email: submission.user_email,
+      items: [],
+      safety_status: null,
+      safety_warnings: [],
+      tally_submission_id: submission.tally_submission_id ?? null,
+    })
     .select("id, submission_id, user_id, user_email, items, safety_status, safety_warnings, tally_submission_id")
     .single();
 
@@ -191,7 +174,7 @@ async function getOrCreateStackForSubmission(submission: SubmissionRow): Promise
       event_type: "insert_stack_error",
       error_message: insErr?.message ?? "unknown_insert_error",
       severity: "critical",
-      context: { submission_id: submission.id, insertPayload },
+      context: { submission_id: submission.id },
     });
     throw new Error("Failed to create stack row");
   }
@@ -238,7 +221,7 @@ async function getSubmissionSupplementNames(submission_id: string): Promise<stri
 }
 
 // -----------------------------
-// POST handler
+// POST
 // -----------------------------
 export async function POST(req: NextRequest) {
   const t0 = Date.now();
@@ -272,35 +255,37 @@ export async function POST(req: NextRequest) {
     }
 
     steps.push("ensure-stack");
-    let stack = await getOrCreateStackForSubmission(submission);
+    const stack = await getOrCreateStackForSubmission(submission);
 
-    // --- Generate AI report (do NOT throw on validation warnings; don't 500 even if generator throws) ---
+    // --- Generate AI report (AI-first; do NOT throw on validation warnings) ---
     steps.push("generate-stack");
     let ai: any = null;
-    let generation_status: "ai" | "ai_with_warnings" | "generator_failed" = "ai";
+    let generation_status: "ai" | "ai_with_warnings" = "ai";
 
     try {
       ai = await generateStackForSubmission(submission.id);
       const ok = ai?.validation?.ok ?? true;
-      steps.push(ok ? "generator-ok" : "generator-ok-with-warnings");
       if (!ok) generation_status = "ai_with_warnings";
+      steps.push(ok ? "generator-ok" : "generator-ok-with-warnings");
     } catch (e: any) {
-      steps.push("generator-failed");
-      generation_status = "generator_failed";
+      steps.push("generator-hard-fail");
       await logWebhookFailure({
         event_type: "generator_error",
         error_message: e?.message ?? String(e),
         severity: "error",
         context: { trace_id, submission_id: submission.id },
       });
-      // We DO NOT return 500; we will fall back to previously saved markdown if present.
+      return NextResponse.json(
+        { ok: false, error: "Generator threw before returning markdown", trace_id, steps },
+        { status: 500 }
+      );
     }
 
-    // Re-select items (generator may have created them)
+    // Re-read items (generator may have created them)
     steps.push("fetch-items");
     let itemRows = await getStackItems(stack.id);
 
-    // If none yet, fallback to submission_supplements for SAFETY ONLY (no UI fallback text)
+    // Build supplement name list for safety (falls back to submission_supplements)
     steps.push("make-supplement-list");
     let supplementNames: string[] = itemRows
       .map((i) => (i?.name ? String(i.name).trim() : ""))
@@ -309,21 +294,8 @@ export async function POST(req: NextRequest) {
       supplementNames = await getSubmissionSupplementNames(submission.id);
     }
 
-    // Persist AI sections ALWAYS when we have markdown; else attempt to reuse any previously saved markdown
-    let markdownToUse: string = String(ai?.markdown ?? "");
-    if (!markdownToUse) {
-      const { data: existingForMd } = await supa
-        .from("stacks")
-        .select("sections, summary")
-        .eq("id", stack.id)
-        .maybeSingle();
-      const prev = (existingForMd as any)?.sections?.markdown ?? (existingForMd as any)?.summary ?? "";
-      if (prev) {
-        steps.push("reuse-previous-markdown");
-        markdownToUse = String(prev);
-      }
-    }
-
+    // Persist AI sections ALWAYS
+    const markdownToUse: string = String(ai?.markdown ?? "");
     steps.push("persist-ai-sections");
     if (markdownToUse) {
       const { error: saveErr } = await supa
@@ -331,8 +303,8 @@ export async function POST(req: NextRequest) {
         .update({
           summary: markdownToUse.slice(0, 800),
           sections: { markdown: markdownToUse },
+          tally_submission_id: submission.tally_submission_id ?? null, // make GET-by-short reliable
           updated_at: nowIso(),
-          ...(submission.tally_submission_id ? { tally_submission_id: submission.tally_submission_id } : {}),
         })
         .eq("id", stack.id);
 
@@ -347,13 +319,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Derive user factors for safety
+    // Safety evaluation
     steps.push("derive-user-factors");
     const medications = parseListish(submission.medications);
     const conditions = parseListish(submission.conditions);
     const pregnant = (submission.pregnant ?? "").trim() || null;
 
-    // Safety evaluation
     steps.push("safety-eval");
     const safetyWarnings = await evaluateSafety({
       medications,
@@ -363,7 +334,6 @@ export async function POST(req: NextRequest) {
     });
     const safetyStatus = pickSafetyStatus(safetyWarnings);
 
-    // Persist safety
     steps.push("persist-safety");
     const { error: updErr } = await supa
       .from("stacks")
@@ -373,7 +343,6 @@ export async function POST(req: NextRequest) {
         updated_at: nowIso(),
       })
       .eq("id", stack.id);
-
     if (updErr) {
       steps.push("persist-safety-failed");
       await logWebhookFailure({
@@ -384,13 +353,13 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Optional: write a generation_runs row (ignore if table doesn't exist)
+    // Non-fatal telemetry (ignore if table missing)
     try {
       const duration_ms = Date.now() - t0;
       await supa.from("generation_runs").insert({
         submission_id,
         trace_id,
-        status: generation_status,
+        status: generation_status === "ai" ? "ok" : "ok_with_warnings",
         steps,
         duration_ms,
         model_used: ai?.model_used ?? null,
@@ -398,9 +367,7 @@ export async function POST(req: NextRequest) {
         completion_tokens: ai?.completion_tokens ?? null,
         validation: ai?.validation ?? null,
       });
-    } catch {
-      // non-fatal
-    }
+    } catch {}
 
     // Final re-select
     steps.push("final-select");
@@ -417,12 +384,11 @@ export async function POST(req: NextRequest) {
       itemRows = await getStackItems(stack.id);
     }
 
-    const ok = true;
     const duration_ms = Date.now() - t0;
     console.log(`[GENERATE-STACK ${trace_id}] done in ${duration_ms}ms steps=${steps.join(" > ")}`);
 
     return NextResponse.json({
-      ok,
+      ok: true,
       trace_id,
       duration_ms,
       steps,
@@ -464,10 +430,7 @@ export async function POST(req: NextRequest) {
 }
 
 // -----------------------------
-// GET handler — accepts both ids via query
-//   /api/generate-stack?submission_id=<uuid|short>
-//   OR
-//   /api/generate-stack?tally_submission_id=<short>
+// GET — accepts both ids via query
 // -----------------------------
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -486,7 +449,6 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Delegate to POST for a single code path
   return POST(
     new NextRequest(req.url, {
       method: "POST",
