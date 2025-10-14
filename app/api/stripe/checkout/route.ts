@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const stripe = new Stripe(stripeKey, { apiVersion: "2023-10-16" });
+    const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
 
     // --- REQUEST BODY ---
     const { plan, email } = await req.json().catch(() => ({}));
