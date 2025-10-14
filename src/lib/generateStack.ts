@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/consistent-type-imports */
 /* eslint-disable no-console */
 // ----------------------------------------------------------------------------
-// LVE360 — generateStack.ts (REWRITTEN)
+// LVE360 — generateStack.ts (PATCHED, safe + minimal)
 // Purpose: Generate validated Markdown report, parse StackItems, run safety,
 // affiliate enrichment (Amazon category links + Fullscript), attach evidence,
-// override Markdown Evidence section, and persist into Supabase.
+// override Markdown Evidence & Shopping sections, and persist into Supabase.
 // ----------------------------------------------------------------------------
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
@@ -12,7 +12,11 @@ import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 import { ChatCompletionMessageParam } from "openai/resources";
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
-import { supabaseAdmin } from "@/lib/supabase";
+
+// ⚠️ PATCH: use the admin client (your routes expect server-side admin)
+// import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+
 import { getTopCitationsFor } from "@/lib/evidence";
 
 // --- Curated evidence index (JSON) ------------------------------------------
@@ -181,7 +185,6 @@ function normalizeSupplementName(name: string): string {
   return name.trim();
 }
 
-
 const ALIAS_MAP: Record<string, string> = {
   "Omega-3": "omega-3 (epa+dha)",
   "Vitamin D": "vitamin d3",
@@ -201,7 +204,6 @@ const ALIAS_MAP: Record<string, string> = {
   "L-Theanine": "l-theanine",
   "Acetyl-L-carnitine": "acetyl-l-carnitine",
 };
-
 
 function toSlug(s: string) {
   return (s || "")
@@ -383,6 +385,7 @@ function overrideEvidenceInMarkdown(md: string, section: string): string {
   if (headerRe.test(md)) return md.replace(headerRe, section);
   return md.replace(/\n## END/i, `\n\n${section}\n\n## END`);
 }
+
 // ----------------------------------------------------------------------------
 // Shopping Links section rendering
 // ----------------------------------------------------------------------------
@@ -664,7 +667,6 @@ function applyLinkPolicy(items: StackItem[], sub: any): StackItem[] {
     let linkFS = it.link_fullscript ?? null;
 
     // Premium policy: prefer Fullscript if available, but still keep Amazon set
-    // (UI can prefer link_fullscript when present and user is premium)
     if (isPremium && linkFS) {
       return { ...it, link_amazon: linkAmazon, link_fullscript: linkFS };
     }
@@ -674,7 +676,7 @@ function applyLinkPolicy(items: StackItem[], sub: any): StackItem[] {
 }
 
 // ----------------------------------------------------------------------------
-// Main Export
+// Main Export (PATCHED: no throws after we have md)
 // ----------------------------------------------------------------------------
 export async function generateStackForSubmission(id: string) {
   if (!id) throw new Error("submissionId required");
@@ -703,6 +705,7 @@ export async function generateStackForSubmission(id: string) {
   let completionTokens: number | null = null;
   let passes = false;
 
+  // --- First pass (mini), then fallback (gpt-4o) if validation fails
   try {
     const resp = await callLLM(msgs, "gpt-4o-mini");
     raw = resp;
@@ -712,7 +715,6 @@ export async function generateStackForSubmission(id: string) {
     completionTokens = resp.usage?.completion_tokens ?? null;
     md = resp.choices[0]?.message?.content ?? "";
 
-    // Validation
     const wordCountOK = wc(md) >= MIN_WORDS;
     const headingsValid = headingsOK(md);
     const blueprintValid = blueprintOK(md);
@@ -738,103 +740,145 @@ export async function generateStackForSubmission(id: string) {
   }
 
   if (!passes) {
-    const resp = await callLLM(msgs, "gpt-4o");
-    raw = resp;
-    modelUsed = resp.model ?? "gpt-4o";
-    tokensUsed = resp.usage?.total_tokens ?? null;
-    promptTokens = resp.usage?.prompt_tokens ?? null;
-    completionTokens = resp.usage?.completion_tokens ?? null;
-    md = resp.choices[0]?.message?.content ?? "";
+    try {
+      const resp = await callLLM(msgs, "gpt-4o");
+      raw = resp;
+      modelUsed = resp.model ?? "gpt-4o";
+      tokensUsed = resp.usage?.total_tokens ?? null;
+      promptTokens = resp.usage?.prompt_tokens ?? null;
+      completionTokens = resp.usage?.completion_tokens ?? null;
+      md = resp.choices[0]?.message?.content ?? "";
 
-    const wordCountOK = wc(md) >= MIN_WORDS;
-    const headingsValid = headingsOK(md);
-    const blueprintValid = blueprintOK(md);
-    const citationsValid = citationsOK(md);
-    const narrativesValid = narrativesOK(md);
-    const endValid = hasEnd(md);
+      const wordCountOK = wc(md) >= MIN_WORDS;
+      const headingsValid = headingsOK(md);
+      const blueprintValid = blueprintOK(md);
+      const citationsValid = citationsOK(md);
+      const narrativesValid = narrativesOK(md);
+      const endValid = hasEnd(md);
 
-    console.log("validation.debug.fallback", {
-      wordCountOK,
-      headingsValid,
-      blueprintValid,
-      citationsValid,
-      narrativesValid,
-      endValid,
-      actualWordCount: wc(md),
-    });
+      console.log("validation.debug.fallback", {
+        wordCountOK,
+        headingsValid,
+        blueprintValid,
+        citationsValid,
+        narrativesValid,
+        endValid,
+        actualWordCount: wc(md),
+      });
 
-    if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
-      passes = true;
+      if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
+        passes = true;
+      }
+    } catch (e) {
+      // ⚠️ PATCH: even if the fallback call fails, we continue with whatever md we have
+      console.warn("Fallback model failed:", e);
     }
   }
 
+  // Always make sure we end cleanly
   md = ensureEnd(md);
 
-  const parsedItems: StackItem[] = parseStackFromMarkdown(md);
+  // --- Everything below is NON-FATAL (⚠️ PATCH: guarded to NEVER throw) ---
+  let parsedItems: StackItem[] = [];
+  try {
+    parsedItems = parseStackFromMarkdown(md);
+  } catch (e) {
+    console.warn("parseStackFromMarkdown failed:", e);
+  }
 
-  // Safety checks
-  const safetyInput = {
-    medications: Array.isArray((sub as any).medications)
-      ? (sub as any).medications.map((m: any) => m.med_name || "")
-      : [],
-    conditions: Array.isArray((sub as any).conditions)
-      ? (sub as any).conditions.map((c: any) => c.condition_name || "")
-      : [],
-    allergies: Array.isArray((sub as any).allergies)
-      ? (sub as any).allergies.map((a: any) => a.allergy_name || "")
-      : [],
-    pregnant:
-      typeof (sub as any).pregnant === "boolean" ||
-      typeof (sub as any).pregnant === "string"
-        ? (sub as any).pregnant
-        : null,
-    brand_pref: (sub as any)?.preferences?.brand_pref ?? null,
-    dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
-    is_premium:
-      Boolean((sub as any)?.is_premium) ||
-      Boolean((sub as any)?.user?.is_premium) ||
-      ((sub as any)?.plan === "premium"),
-  };
+  // Safety checks (guarded)
+  let safetyStatus: string | null = null;
+  let cleanedItems: StackItem[] = parsedItems;
+  try {
+    const safetyInput = {
+      medications: Array.isArray((sub as any).medications)
+        ? (sub as any).medications.map((m: any) => m.med_name || "")
+        : [],
+      conditions: Array.isArray((sub as any).conditions)
+        ? (sub as any).conditions.map((c: any) => c.condition_name || "")
+        : [],
+      allergies: Array.isArray((sub as any).allergies)
+        ? (sub as any).allergies.map((a: any) => a.allergy_name || "")
+        : [],
+      pregnant:
+        typeof (sub as any).pregnant === "boolean" ||
+        typeof (sub as any).pregnant === "string"
+          ? (sub as any).pregnant
+          : null,
+      brand_pref: (sub as any)?.preferences?.brand_pref ?? null,
+      dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
+      is_premium:
+        Boolean((sub as any)?.is_premium) ||
+        Boolean((sub as any)?.user?.is_premium) ||
+        ((sub as any)?.plan === "premium"),
+    };
 
-  const { cleaned, status: safetyResult } = await applySafetyChecks(
-    safetyInput,
-    parsedItems
-  );
+    const { cleaned, status } = await applySafetyChecks(safetyInput, parsedItems);
+    cleanedItems = cleaned;
+    safetyStatus = status;
+  } catch (e) {
+    console.warn("applySafetyChecks failed:", e);
+  }
 
- // Normalize names before enrichment so aliases resolve correctly
-const normalizedForLinks = cleaned.map((it: any) => ({
-  ...it,
-  name: normalizeSupplementName(it.name),
-}));
+  // Normalize names before enrichment so aliases resolve correctly
+  let normalizedForLinks: StackItem[] = cleanedItems.map((it: any) => ({
+    ...it,
+    name: normalizeSupplementName(it.name),
+  }));
 
-// Enrich with links (expects to fill link_budget/trusted/clean/default and possibly link_fullscript)
-const enriched = await enrichAffiliateLinks(normalizedForLinks);
+  // Enrichment (guarded)
+  let enriched: StackItem[] = normalizedForLinks;
+  try {
+    enriched = await enrichAffiliateLinks(normalizedForLinks);
+  } catch (e) {
+    console.warn("enrichAffiliateLinks failed:", e);
+  }
 
+  // Link policy (never throws)
+  let finalStack: StackItem[] = [];
+  try {
+    finalStack = applyLinkPolicy(enriched, sub);
+  } catch (e) {
+    console.warn("applyLinkPolicy failed:", e);
+    finalStack = enriched;
+  }
 
-  // Apply link policy: pick Amazon category from quiz, prefer Fullscript for premium
-  const finalStack: StackItem[] = applyLinkPolicy(enriched, sub);
+  // Evidence attach (guarded)
+  let withEvidence: StackItem[] = finalStack;
+  try {
+    withEvidence = finalStack.map(attachEvidence);
+  } catch (e) {
+    console.warn("attachEvidence failed:", e);
+  }
 
-  // Evidence attach
-  const withEvidence: StackItem[] = finalStack.map(attachEvidence);
+  // Override Evidence & Shopping sections (guarded)
+  try {
+    const { section: evidenceSection } = buildEvidenceSection(withEvidence, 8);
+    md = overrideEvidenceInMarkdown(md, evidenceSection);
+  } catch (e) {
+    console.warn("overrideEvidenceInMarkdown failed:", e);
+  }
 
-  // Override evidence section in markdown
-  const { section: evidenceSection } = buildEvidenceSection(withEvidence, 8);
-  md = overrideEvidenceInMarkdown(md, evidenceSection);
+  try {
+    const shoppingSection = buildShoppingLinksSection(withEvidence);
+    const shoppingRe = /## Shopping Links([\s\S]*?)(?=\n## |\n## END|$)/i;
+    if (shoppingRe.test(md)) {
+      md = md.replace(shoppingRe, shoppingSection);
+    } else {
+      md = md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
+    }
+  } catch (e) {
+    console.warn("buildShoppingLinksSection failed:", e);
+  }
 
-  const totalMonthlyCost = withEvidence.reduce(
-    (acc, it) => acc + (it.cost_estimate ?? 0),
-    0
-  );
-// Override or append Shopping Links section in markdown
-const shoppingSection = buildShoppingLinksSection(withEvidence);
-const shoppingRe = /## Shopping Links([\s\S]*?)(?=\n## |\n## END|$)/i;
-if (shoppingRe.test(md)) {
-  md = md.replace(shoppingRe, shoppingSection);
-} else {
-  md = md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
-}
-  // Persist parent stack
-  let parentRows: any[] = [];
+  // Cost (safe)
+  let totalMonthlyCost = 0;
+  try {
+    totalMonthlyCost = withEvidence.reduce((acc, it) => acc + (it.cost_estimate ?? 0), 0);
+  } catch {}
+
+  // Persist parent stack (guarded)
+  let parentId: string | null = null;
   try {
     const { data, error } = await supabaseAdmin
       .from("stacks")
@@ -848,7 +892,7 @@ if (shoppingRe.test(md)) {
           tokens_used: tokensUsed,
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
-          safety_status: safetyResult,
+          safety_status: safetyStatus,
           summary: md,
           sections: {
             markdown: md,
@@ -859,18 +903,19 @@ if (shoppingRe.test(md)) {
         },
         { onConflict: "submission_id" }
       )
-      .select();
+      .select()
+      .maybeSingle();
+
     if (error) console.error("Supabase upsert error:", error);
-    if (data && data.length > 0) parentRows = data;
+    parentId = (data as any)?.id ?? null;
   } catch (err) {
     console.error("Stacks upsert exception:", err);
   }
 
-  // Persist items
-  if (parentRows.length > 0) {
-    const parent = parentRows[0];
-    if (parent?.id && user_id) {
-      await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
+  // Persist items (guarded)
+  try {
+    if (parentId && user_id) {
+      await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parentId);
 
       const rows = withEvidence
         .map((it) => {
@@ -878,7 +923,7 @@ if (shoppingRe.test(md)) {
           const safeName = cleanName(normName);
           if (!safeName || safeName.toLowerCase() === "null") {
             console.error("🚨 Blocking insert of invalid item", {
-              stack_id: parent.id,
+              stack_id: parentId,
               user_id,
               rawName: it?.name,
               normalized: normName,
@@ -887,7 +932,7 @@ if (shoppingRe.test(md)) {
             return null;
           }
           return {
-            stack_id: parent.id,
+            stack_id: parentId,
             user_id,
             user_email: userEmail,
             name: safeName, // normalized
@@ -896,9 +941,11 @@ if (shoppingRe.test(md)) {
             notes: it.notes ?? null,
             rationale: it.rationale ?? null,
             caution: it.caution ?? null,
-            citations: it.citations ? JSON.stringify(it.citations) : null,
 
-            // Persist links (Amazon chosen by preference, FS preferred for premium but optional)
+            // store citations as array JSON in jsonb column (no stringify if jsonb)
+            citations: it.citations ?? null,
+
+            // Persist links
             link_amazon: it.link_amazon ?? null,
             link_fullscript: it.link_fullscript ?? null,
             link_thorne: it.link_thorne ?? null,
@@ -907,16 +954,18 @@ if (shoppingRe.test(md)) {
             cost_estimate: it.cost_estimate ?? null,
           };
         })
-        .filter((r) => r !== null);
+        .filter((r): r is Record<string, any> => r !== null);
 
-      console.log("✅ Prepared stack_items rows:", rows);
+      console.log("✅ Prepared stack_items rows:", rows.length);
 
-      if ((rows as any[]).length > 0) {
-        const { error } = await supabaseAdmin.from("stacks_items").insert(rows as any[]);
+      if (rows.length > 0) {
+        const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
         if (error) console.error("⚠️ Failed to insert stacks_items:", error);
-        else console.log(`✅ Inserted ${(rows as any[]).length} stack items for stack ${parent.id}`);
+        else console.log(`✅ Inserted ${rows.length} stack items for stack ${parentId}`);
       }
     }
+  } catch (e) {
+    console.error("Persist items failed:", e);
   }
 
   if (!passes) {
