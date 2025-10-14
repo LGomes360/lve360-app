@@ -241,7 +241,7 @@ function ResultsContent() {
     if (!tallyId) return;
     (async () => {
       try {
-        const data = await api(`/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`);
+        const data = await api(`/api/get-stack?tally_submission_id=${encodeURIComponent(tallyId)}`);
         const raw = data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
         setMarkdown(sanitizeMarkdown(raw));
         setStackId(data?.stack?.id ?? null);
@@ -281,7 +281,7 @@ function ResultsContent() {
       if (first) setMarkdown(sanitizeMarkdown(first));
 
       // 3) Follow up with a clean re-fetch to ensure DB state
-      const refreshed = await api(`/api/get-stack?submission_id=${encodeURIComponent(tallyId)}`);
+      const refreshed = await api(`/api/get-stack?tally_submission_id=${encodeURIComponent(tallyId)}`);
       const finalMd =
         refreshed?.stack?.sections?.markdown ??
         refreshed?.stack?.summary ??
