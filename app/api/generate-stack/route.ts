@@ -244,15 +244,74 @@ async function ensureStackGenerated(submission: SubmissionRow, stack: StackRow):
 // -----------------------------
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const submission_id: string | undefined = body?.submission_id;
+import { supabaseAdmin } from "@/lib/supabaseAdmin"; // already present elsewhere in file
 
-    if (!submission_id) {
-      return NextResponse.json(
-        { ok: false, error: "Missing submission_id" },
-        { status: 400 }
-      );
-    }
+// helper
+function isUUID(x: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(x);
+}
+
+async function resolveSubmissionId(maybeShortOrUuid?: string): Promise<string | null> {
+  if (!maybeShortOrUuid) return null;
+  if (isUUID(maybeShortOrUuid)) return maybeShortOrUuid;
+
+  // lookup by Tally short id
+  const { data, error } = await supabaseAdmin
+    .from("submissions")
+    .select("id")
+    .eq("tally_submission_id", maybeShortOrUuid)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[GENERATE-STACK] resolveSubmissionId error:", error);
+    return null;
+  }
+  return data?.id ?? null;
+}
+
+// inside POST handler:
+import { supabaseAdmin } from "@/lib/supabaseAdmin"; // already present elsewhere in file
+
+// helper
+function isUUID(x: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(x);
+}
+
+async function resolveSubmissionId(maybeShortOrUuid?: string): Promise<string | null> {
+  if (!maybeShortOrUuid) return null;
+  if (isUUID(maybeShortOrUuid)) return maybeShortOrUuid;
+
+  // lookup by Tally short id
+  const { data, error } = await supabaseAdmin
+    .from("submissions")
+    .select("id")
+    .eq("tally_submission_id", maybeShortOrUuid)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[GENERATE-STACK] resolveSubmissionId error:", error);
+    return null;
+  }
+  return data?.id ?? null;
+}
+
+// inside POST handler:
+const body = await req.json().catch(() => ({}));
+let submission_id: string | undefined = body?.submission_id;
+const tally_short: string | undefined = body?.tally_submission_id;
+
+if (!submission_id && tally_short) {
+  submission_id = await resolveSubmissionId(tally_short) ?? undefined;
+}
+
+if (!submission_id) {
+  return NextResponse.json(
+    { ok: false, error: "Missing submission identifier (submission_id or tally_submission_id)" },
+    { status: 400 }
+  );
+}
+
+
 
     // 1) Load submission
     const submission = await getSubmission(submission_id);
@@ -373,14 +432,24 @@ export async function POST(req: NextRequest) {
 // GET /api/generate-stack?submission_id=uuid
 // -----------------------------
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const submission_id = searchParams.get("submission_id");
-  if (!submission_id) {
-    return NextResponse.json(
-      { ok: false, error: "Missing submission_id" },
-      { status: 400 }
-    );
-  }
+// inside GET handler:
+const { searchParams } = new URL(req.url);
+let submission_id = searchParams.get("submission_id") ?? undefined;
+const shortId = searchParams.get("tally_submission_id") ?? undefined;
+
+if (!submission_id && shortId) {
+  submission_id = await resolveSubmissionId(shortId) ?? undefined;
+}
+
+if (!submission_id) {
+  return NextResponse.json(
+    { ok: false, error: "Missing submission identifier (submission_id or tally_submission_id)" },
+    { status: 400 }
+  );
+}
+
+// then delegate to POST as you already do
+
   // Delegate to POST implementation for single code path
   return POST(
     new NextRequest(req.url, {
