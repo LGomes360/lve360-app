@@ -7,7 +7,9 @@
 // 2) Loads submission; gets/creates a stack row for that submission.
 // 3) Calls your generator (src/lib/generateStack.ts) to produce AI markdown.
 //    • If the generator returns with validation warnings, we DO NOT throw.
-//    • We ALWAYS persist the AI markdown to stacks.summary/sections.
+//    • If the generator THROWS, we DO NOT 500. We mark generator_failed and
+//      fall back to any previously saved markdown.
+//    • We ALWAYS persist AI markdown when we have it.
 // 4) Computes safety warnings and status from current items (or submission_supplements fallback).
 // 5) Returns enriched payload + breadcrumbs (`trace_id`, `steps`, `generation_status`).
 //
@@ -175,7 +177,6 @@ async function getOrCreateStackForSubmission(submission: SubmissionRow): Promise
     items: [],
     safety_status: null,
     safety_warnings: [],
-    // keep a copy of the short id for easier lookups elsewhere
     ...(submission.tally_submission_id ? { tally_submission_id: submission.tally_submission_id } : {}),
   };
 
@@ -273,10 +274,10 @@ export async function POST(req: NextRequest) {
     steps.push("ensure-stack");
     let stack = await getOrCreateStackForSubmission(submission);
 
-    // --- Generate AI report (AI-first; do NOT throw on validation warnings) ---
+    // --- Generate AI report (do NOT throw on validation warnings; don't 500 even if generator throws) ---
     steps.push("generate-stack");
     let ai: any = null;
-    let generation_status: "ai" | "ai_with_warnings" = "ai";
+    let generation_status: "ai" | "ai_with_warnings" | "generator_failed" = "ai";
 
     try {
       ai = await generateStackForSubmission(submission.id);
@@ -284,17 +285,15 @@ export async function POST(req: NextRequest) {
       steps.push(ok ? "generator-ok" : "generator-ok-with-warnings");
       if (!ok) generation_status = "ai_with_warnings";
     } catch (e: any) {
-      steps.push("generator-hard-fail");
+      steps.push("generator-failed");
+      generation_status = "generator_failed";
       await logWebhookFailure({
         event_type: "generator_error",
         error_message: e?.message ?? String(e),
         severity: "error",
         context: { trace_id, submission_id: submission.id },
       });
-      return NextResponse.json(
-        { ok: false, error: "Generator threw before returning markdown", trace_id, steps },
-        { status: 500 }
-      );
+      // We DO NOT return 500; we will fall back to previously saved markdown if present.
     }
 
     // Re-select items (generator may have created them)
@@ -310,8 +309,21 @@ export async function POST(req: NextRequest) {
       supplementNames = await getSubmissionSupplementNames(submission.id);
     }
 
-    // Persist AI sections ALWAYS (even if validation warns)
-    const markdownToUse: string = String(ai?.markdown ?? "");
+    // Persist AI sections ALWAYS when we have markdown; else attempt to reuse any previously saved markdown
+    let markdownToUse: string = String(ai?.markdown ?? "");
+    if (!markdownToUse) {
+      const { data: existingForMd } = await supa
+        .from("stacks")
+        .select("sections, summary")
+        .eq("id", stack.id)
+        .maybeSingle();
+      const prev = (existingForMd as any)?.sections?.markdown ?? (existingForMd as any)?.summary ?? "";
+      if (prev) {
+        steps.push("reuse-previous-markdown");
+        markdownToUse = String(prev);
+      }
+    }
+
     steps.push("persist-ai-sections");
     if (markdownToUse) {
       const { error: saveErr } = await supa
@@ -320,7 +332,6 @@ export async function POST(req: NextRequest) {
           summary: markdownToUse.slice(0, 800),
           sections: { markdown: markdownToUse },
           updated_at: nowIso(),
-          // helpful: keep the short id in stacks too, if missing
           ...(submission.tally_submission_id ? { tally_submission_id: submission.tally_submission_id } : {}),
         })
         .eq("id", stack.id);
@@ -379,7 +390,7 @@ export async function POST(req: NextRequest) {
       await supa.from("generation_runs").insert({
         submission_id,
         trace_id,
-        status: generation_status === "ai" ? "ok" : "ok_with_warnings",
+        status: generation_status,
         steps,
         duration_ms,
         model_used: ai?.model_used ?? null,
@@ -387,8 +398,8 @@ export async function POST(req: NextRequest) {
         completion_tokens: ai?.completion_tokens ?? null,
         validation: ai?.validation ?? null,
       });
-    } catch (e: any) {
-      // non-fatal if table is missing
+    } catch {
+      // non-fatal
     }
 
     // Final re-select
