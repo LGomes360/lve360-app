@@ -16,7 +16,7 @@ const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY!;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://app.lve360.com";
 
-const stripe = new Stripe(STRIPE_SECRET, { apiVersion: "2024-06-20" });
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {apiVersion: "2024-06-20",});
 
 // ------------------- MAIN HANDLER -------------------
 export async function POST(req: NextRequest) {
