@@ -13,8 +13,7 @@ import { ChatCompletionMessageParam } from "openai/resources";
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 
-// ⚠️ PATCH: use the admin client (your routes expect server-side admin)
-// import { supabaseAdmin } from "@/lib/supabase";
+// Use the admin client on server
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 import { getTopCitationsFor } from "@/lib/evidence";
@@ -53,7 +52,7 @@ const HEADINGS = [
   "## Longevity Levers",
   "## This Week Try",
   "## END",
-];
+] as const;
 
 // ----------------------------------------------------------------------------
 // Types
@@ -68,7 +67,23 @@ export interface StackItem {
   caution?: string | null;
   citations?: string[] | null;
 
-  type StackItemInsert = {
+  // Category links (populated by enrichAffiliateLinks from public.supplements)
+  link_budget?: string | null;
+  link_trusted?: string | null;
+  link_clean?: string | null;
+  link_default?: string | null;
+
+  // Destination links persisted into stacks_items
+  link_amazon?: string | null;     // <- chosen from the 4 categories
+  link_fullscript?: string | null; // <- as provided by enrichment (if any)
+  link_thorne?: string | null;
+  link_other?: string | null;
+
+  cost_estimate?: number | null;
+}
+
+// Insert payload for stacks_items (used in map/filter narrowing)
+type StackItemInsert = {
   stack_id: string;
   user_id: string;
   user_email: string | null;
@@ -78,13 +93,14 @@ export interface StackItem {
   notes: string | null;
   rationale: string | null;
   caution: string | null;
-  citations: string[] | null; // your column is jsonb; leaving as array in code is fine
+  citations: string[] | null; // jsonb column accepts array directly
   link_amazon: string | null;
   link_fullscript: string | null;
   link_thorne: string | null;
   link_other: string | null;
   cost_estimate: number | null;
 };
+
 
   // Category links (populated by enrichAffiliateLinks from public.supplements)
   link_budget?: string | null;
