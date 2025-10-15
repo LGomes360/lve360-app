@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState, useCallback } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
@@ -11,6 +11,7 @@ import ResultsSidebar from "@/components/results/ResultsSidebar";
 
 /* ───────── helpers ───────── */
 function sanitizeMarkdown(md: string): string {
+  // Strip code fences and trailing guardrail marker
   return (md || "")
     .replace(/^```[a-z]*\n/i, "")
     .replace(/```$/, "")
@@ -81,13 +82,13 @@ function LinksTable({ raw, type }: { raw: string; type: "evidence" | "shopping" 
       const matches = Array.from(line.matchAll(linkRe));
       if (matches.length === 0) return null;
       const namePart = line.replace(/^-+\s*/, "").split(":")[0].trim();
-      if (namePart.toLowerCase().includes("evidence pending")) return null;
+      if (namePart.toLowerCase().includes("evidence pending")) return null; // skip placeholders
       const links = matches.map((m) => ({ text: m[1], url: m[2] }));
       return { name: namePart, links };
     })
     .filter(Boolean) as { name: string; links: { text: string; url: string }[] }[];
 
-  // Amazon Add-All
+  // Add-All-to-Cart for Amazon
   let allCartUrl: string | null = null;
   if (type === "shopping") {
     const asinRegex = /(?:dp|gp\/product|gp\/aw\/d)\/([A-Z0-9]{10})(?=[/?]|$)/;
@@ -159,6 +160,55 @@ function SectionCard({ title, children }: { title: string; children: React.React
   );
 }
 
+/* --- 2-minute countdown --- */
+function TwoMinuteCountdown({
+  running,
+  onDone,
+  seconds = 120,
+}: {
+  running: boolean;
+  onDone?: () => void;
+  seconds?: number;
+}) {
+  const [remaining, setRemaining] = useState(seconds);
+
+  useEffect(() => {
+    if (!running) {
+      setRemaining(seconds);
+      return;
+    }
+    setRemaining(seconds);
+    const id = setInterval(() => {
+      setRemaining((t) => {
+        if (t <= 1) {
+          clearInterval(id);
+          onDone?.();
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [running, seconds, onDone]);
+
+  if (!running) return null;
+
+  const m = Math.floor(remaining / 60);
+  const s = (remaining % 60).toString().padStart(2, "0");
+  const pct = ((seconds - remaining) / seconds) * 100;
+
+  return (
+    <div className="text-center mt-3">
+      <p className="text-gray-600">
+        ⏱ Estimated time remaining: <span className="font-semibold text-teal-600">{m}:{s}</span>
+      </p>
+      <div className="w-64 h-2 bg-gray-200 rounded-full mt-2 mx-auto">
+        <div className="h-2 bg-teal-500 rounded-full transition-all duration-1000" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
 /* ───────── page ───────── */
 function ResultsContent() {
   const [error, setError] = useState<string | null>(null);
@@ -169,37 +219,29 @@ function ResultsContent() {
   const [stackId, setStackId] = useState<string | null>(null);
 
   const searchParams = useSearchParams();
-  const qSubmission = searchParams?.get("submission_id") ?? null;
-  const qTally = searchParams?.get("tally_submission_id") ?? null;
+  const tallyId = searchParams?.get("tally_submission_id") ?? null;
 
-  // Determine which key we’ll use in API calls
-  const idParam = qSubmission ?? qTally;
-  const idKey = qSubmission ? "submission_id" : "tally_submission_id";
+  async function api(path: string, body?: any) {
+    const res = await fetch(
+      path,
+      body
+        ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+        : {}
+    );
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || json?.ok === false) {
+      const msg = json?.error ? `${json.error}` : `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+    return json;
+  }
 
-  const api = useCallback(
-    async (path: string, body?: any) => {
-      const res = await fetch(path, {
-        cache: "no-store",
-        ...(body
-          ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-          : {}),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || json?.ok === false) {
-        const msg = json?.error ? `${json.error}` : `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
-      return json;
-    },
-    []
-  );
-
-  // Load any existing stack once the page opens
+  // Load any existing stack
   useEffect(() => {
-    if (!idParam) return;
+    if (!tallyId) return;
     (async () => {
       try {
-        const data = await api(`/api/get-stack?${idKey}=${encodeURIComponent(idParam)}`);
+        const data = await api(`/api/get-stack?tally_submission_id=${encodeURIComponent(tallyId)}`);
         const raw = data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
         setMarkdown(sanitizeMarkdown(raw));
         setStackId(data?.stack?.id ?? null);
@@ -207,48 +249,18 @@ function ResultsContent() {
         console.warn(e);
       }
     })();
-  }, [idParam, idKey, api]);
-
-  // Poll helper (used after generation so we wait for stacks_items to be written)
-  async function pollForItems(): Promise<void> {
-    if (!idParam) return;
-    const tries = 6;
-    const delayMs = 1200;
-    for (let i = 0; i < tries; i++) {
-      try {
-        const refreshed = await api(`/api/get-stack?${idKey}=${encodeURIComponent(idParam)}`);
-        const finalMd =
-          refreshed?.stack?.sections?.markdown ??
-          refreshed?.stack?.summary ??
-          "";
-        if (finalMd) setMarkdown(sanitizeMarkdown(finalMd));
-        setStackId(refreshed?.stack?.id ?? null);
-
-        const itemCount =
-          (Array.isArray(refreshed?.items) && refreshed.items.length) ||
-          (Array.isArray(refreshed?.stack?.items) && refreshed.stack.items.length) ||
-          0;
-
-        if (itemCount > 0) return; // done
-      } catch {
-        // keep polling
-      }
-      await new Promise((r) => setTimeout(r, delayMs));
-    }
-  }
+  }, [tallyId]);
 
   async function generateStack() {
-    if (!idParam) return setError("Missing submission ID.");
+    if (!tallyId) return setError("Missing submission ID.");
     try {
       setError(null);
       setWarmingUp(true);
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 800));
       setWarmingUp(false);
       setGenerating(true);
 
-      // fire the generator with the correct id key
-      const payload = { [idKey]: idParam } as any;
-      const data = await api("/api/generate-stack", payload);
+      const data = await api("/api/generate-stack", { tally_submission_id: tallyId });
 
       // Prefer AI markdown immediately
       const first =
@@ -258,20 +270,16 @@ function ResultsContent() {
         "";
       if (first) setMarkdown(sanitizeMarkdown(first));
 
-      // Now poll the DB for the stacks_items to be persisted
-      await pollForItems();
+      // Clean re-fetch to ensure DB state is synced
+      const refreshed = await api(`/api/get-stack?tally_submission_id=${encodeURIComponent(tallyId)}`);
+      const finalMd =
+        refreshed?.stack?.sections?.markdown ??
+        refreshed?.stack?.summary ??
+        first;
+      setMarkdown(sanitizeMarkdown(finalMd));
+      setStackId(refreshed?.stack?.id ?? data?.stack?.id ?? null);
     } catch (e: any) {
       setError(e?.message ?? "Unknown error");
-      // try to show whatever is already saved
-      try {
-        const refreshed = await api(`/api/get-stack?${idKey}=${encodeURIComponent(idParam)}`);
-        const finalMd =
-          refreshed?.stack?.sections?.markdown ??
-          refreshed?.stack?.summary ??
-          "";
-        if (finalMd) setMarkdown(sanitizeMarkdown(finalMd));
-        setStackId(refreshed?.stack?.id ?? null);
-      } catch {}
     } finally {
       setGenerating(false);
       setWarmingUp(false);
@@ -279,10 +287,9 @@ function ResultsContent() {
   }
 
   async function exportPDF() {
-    if (!idParam) return;
+    if (!tallyId) return;
     try {
-      // export-pdf accepts either a UUID or the short id via the submission_id parameter
-      const res = await fetch(`/api/export-pdf?submission_id=${encodeURIComponent(idParam)}`, { cache: "no-store" });
+      const res = await fetch(`/api/export-pdf?submission_id=${encodeURIComponent(tallyId)}`);
       if (!res.ok) throw new Error(`PDF export failed (${res.status})`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -356,9 +363,6 @@ function ResultsContent() {
                 <CTAButton href="/upgrade" variant="premium">
                   Upgrade to Premium
                 </CTAButton>
-                <CTAButton onClick={exportPDF} variant="secondary">
-                  ⬇️ Download PDF
-                </CTAButton>
               </div>
 
               {(warmingUp || generating) && (
@@ -368,6 +372,8 @@ function ResultsContent() {
                     : "💪 Crunching the numbers… this usually takes about 2 minutes."}
                 </p>
               )}
+
+              {/* Removed the old “Trace:” debug line on purpose */}
             </SectionCard>
 
             {error && <div className="text-center text-red-600 mb-6">{error}</div>}
@@ -447,6 +453,17 @@ function ResultsContent() {
                 responsibility and that LVE360 is not liable for how information is applied.
               </p>
             </SectionCard>
+
+            {/* export PDF */}
+            <div className="flex justify-center mt-8">
+              <button
+                onClick={exportPDF}
+                aria-label="Export PDF"
+                className="w-10 h-10 flex items-center justify-center rounded-md border border-gray-300 bg-white shadow-sm hover:shadow-md transition"
+              >
+                PDF
+              </button>
+            </div>
           </div>
 
           {/* RIGHT: sticky sidebar */}
