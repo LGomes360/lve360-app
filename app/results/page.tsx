@@ -8,12 +8,15 @@ import remarkGfm from "remark-gfm";
 
 import CTAButton from "@/components/CTAButton";
 import ResultsSidebar from "@/components/results/ResultsSidebar";
-// import PremiumGate from "@/components/PremiumGate";
-// import { useTier } from "@/hooks/useTier";
 
 /* ───────── helpers ───────── */
 function sanitizeMarkdown(md: string): string {
-  return md ? md.replace(/^```[a-z]*\n/i, "").replace(/```$/, "").trim() : md;
+  // Strip code fences and trailing guardrail marker
+  return (md || "")
+    .replace(/^```[a-z]*\n/i, "")
+    .replace(/```$/, "")
+    .replace(/\n?## END\s*$/i, "")
+    .trim();
 }
 function escapeRegExp(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -209,8 +212,6 @@ function TwoMinuteCountdown({
 /* ───────── page ───────── */
 function ResultsContent() {
   const [error, setError] = useState<string | null>(null);
-  const [traceId, setTraceId] = useState<string | null>(null);
-  const [steps, setSteps] = useState<string[]>([]);
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [warmingUp, setWarmingUp] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -220,7 +221,6 @@ function ResultsContent() {
   const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
 
-  // Minimal fetch helper with good error surfacing
   async function api(path: string, body?: any) {
     const res = await fetch(
       path,
@@ -236,7 +236,7 @@ function ResultsContent() {
     return json;
   }
 
-  // On load: try to display any existing stack
+  // Load any existing stack
   useEffect(() => {
     if (!tallyId) return;
     (async () => {
@@ -251,28 +251,18 @@ function ResultsContent() {
     })();
   }, [tallyId]);
 
-  // Generate handler
   async function generateStack() {
     if (!tallyId) return setError("Missing submission ID.");
     try {
       setError(null);
-      setTraceId(null);
-      setSteps([]);
       setWarmingUp(true);
-
-      // small UX delay so the warming state is visible; not strictly required
       await new Promise((r) => setTimeout(r, 800));
       setWarmingUp(false);
       setGenerating(true);
 
-      // 1) Kick off generation
       const data = await api("/api/generate-stack", { tally_submission_id: tallyId });
 
-      // keep breadcrumbs for debugging
-      setTraceId(data?.trace_id ?? null);
-      setSteps(Array.isArray(data?.steps) ? data.steps : []);
-
-      // 2) Prefer immediate AI markdown if available
+      // Prefer AI markdown immediately
       const first =
         data?.ai?.markdown ??
         data?.stack?.sections?.markdown ??
@@ -280,7 +270,7 @@ function ResultsContent() {
         "";
       if (first) setMarkdown(sanitizeMarkdown(first));
 
-      // 3) Follow up with a clean re-fetch to ensure DB state
+      // Clean re-fetch to ensure DB state is synced
       const refreshed = await api(`/api/get-stack?tally_submission_id=${encodeURIComponent(tallyId)}`);
       const finalMd =
         refreshed?.stack?.sections?.markdown ??
@@ -299,7 +289,7 @@ function ResultsContent() {
   async function exportPDF() {
     if (!tallyId) return;
     try {
-      const res = await fetch(`/api/export-pdf?submission_id=${tallyId}`);
+      const res = await fetch(`/api/export-pdf?submission_id=${encodeURIComponent(tallyId)}`);
       if (!res.ok) throw new Error(`PDF export failed (${res.status})`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -349,7 +339,7 @@ function ResultsContent() {
         aria-hidden
       />
 
-      {/* Content Container */}
+      {/* Content */}
       <div className="relative z-10 max-w-6xl mx-auto py-20 px-6 font-sans">
         {/* Header */}
         <div className="text-center mb-10">
@@ -383,15 +373,7 @@ function ResultsContent() {
                 </p>
               )}
 
-              <TwoMinuteCountdown running={generating} />
-
-              {/* live debug line (only when we have breadcrumbs) */}
-              {(traceId || steps.length > 0) && (
-                <p className="text-center text-xs text-gray-500 mt-3">
-                  Trace: <span className="font-mono">{traceId ?? "—"}</span>
-                  {steps.length > 0 ? ` · ${steps.join(" > ")}` : null}
-                </p>
-              )}
+              {/* Removed the old “Trace:” debug line on purpose */}
             </SectionCard>
 
             {error && <div className="text-center text-red-600 mb-6">{error}</div>}
