@@ -801,8 +801,10 @@ export async function generateStackForSubmission(id: string) {
     parsedItems
   );
 
- // Normalize names before enrichment so aliases resolve correctly
-const normalizedForLinks = cleaned.map(it => ({
+// Normalize names before enrichment so aliases resolve correctly
+type CleanedItem = { name: string; [k: string]: unknown };
+
+const normalizedForLinks = (cleaned as CleanedItem[]).map((it: CleanedItem) => ({
   ...it,
   name: normalizeSupplementName(it.name),
 }));
