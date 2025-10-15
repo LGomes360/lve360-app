@@ -1,315 +1,474 @@
 "use client";
 
-import * as React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
+import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-type StackItem = {
-  id?: string;
-  name: string;
-  dose: string | null;
-  timing: string | null; // "AM" | "PM" | "AM/PM" | null
-  notes?: string | null;
-  rationale?: string | null;
-  caution?: string | null;
-  citations?: string[] | null;
-  link_amazon?: string | null;
-  link_fullscript?: string | null;
-  link_thorne?: string | null;
-  link_other?: string | null;
-};
+import CTAButton from "@/components/CTAButton";
+import ResultsSidebar from "@/components/results/ResultsSidebar";
 
-type GetStackResp = {
-  ok: boolean;
-  found?: boolean;
-  stack?: {
-    id: string;
-    submission_id: string;
-    tally_submission_id?: string | null;
-    summary?: string | null;
-    sections?: { markdown?: string } | null;
-    safety_status?: "safe" | "warning" | "error" | null;
-    safety_warnings?: any[] | null;
-    total_monthly_cost?: number | null;
-    updated_at?: string | null;
-  } | null;
-};
-
-type GenerateResp = {
-  ok?: boolean;
-  trace_id?: string;
-  steps?: string[];
-  generation_status?: "ai" | "ai_with_warnings";
-  ai?: {
-    markdown: string | null;
-    model_used: string | null;
-    validation?: { ok?: boolean } | null;
-  } | null;
-  stack?: any;
-  items?: Array<{ id: string; stack_id: string; name: string; timing: string | null; dose: string | null }>;
-};
-
-function byTiming(items: StackItem[]) {
-  const am: StackItem[] = [];
-  const pm: StackItem[] = [];
-  const any: StackItem[] = [];
-  for (const it of items) {
-    const t = (it.timing || "").toUpperCase();
-    if (t === "AM") am.push(it);
-    else if (t === "PM") pm.push(it);
-    else if (t === "AM/PM") { am.push(it); pm.push(it); }
-    else any.push(it);
+/* ───────── helpers ───────── */
+function sanitizeMarkdown(md: string): string {
+  return (md || "")
+    .replace(/^```[a-z]*\n/i, "")
+    .replace(/```$/, "")
+    .replace(/\n?## END\s*$/i, "")
+    .trim();
+}
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function extractSection(md: string, heads: string[]): string | null {
+  if (!md) return null;
+  let start = -1;
+  for (const h of heads) {
+    const re = new RegExp(`^##\\s*${escapeRegExp(h)}\\b.*`, "mi");
+    const m = re.exec(md);
+    if (m && (start === -1 || (m.index ?? -1) < start)) start = m.index;
   }
-  return { am, pm, any };
+  if (start === -1) return null;
+  const tail = md.slice(start + 1);
+  const next = /\n##\s+/m.exec(tail);
+  const end = next ? start + 1 + next.index : md.length;
+  let slice = md.slice(start, end);
+  return slice.replace(/^##\s*[^\n]+\n?/, "").trim();
 }
 
-function prettyDose(it: StackItem) {
-  if (!it.dose && !it.notes) return "";
-  if (it.dose && it.notes) return `${it.dose} — ${it.notes}`;
-  return it.dose ?? it.notes ?? "";
+/* Markdown renderer */
+function Prose({ children }: { children: string }) {
+  return (
+    <div className="prose prose-gray max-w-none">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h2: ({ node, ...props }) => (
+            <h2
+              className="text-2xl font-bold text-teal-600 mt-8 mb-4 border-b border-gray-200 pb-1"
+              {...props}
+            />
+          ),
+          table: ({ node, ...props }) => (
+            <table className="w-full border-collapse my-4 text-sm shadow-sm" {...props} />
+          ),
+          thead: ({ node, ...props }) => <thead className="bg-[#06C1A0] text-white" {...props} />,
+          th: ({ node, ...props }) => <th className="px-3 py-0.5 text-left font-semibold" {...props} />,
+          td: ({ node, ...props }) => (
+            <td className="px-3 py-0.5 border-t border-gray-200 align-middle" {...props} />
+          ),
+          tr: ({ node, ...props }) => <tr className="even:bg-gray-50" {...props} />,
+          strong: ({ node, ...props }) => <strong className="font-semibold text-[#041B2D]" {...props} />,
+        }}
+      >
+        {children}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
-export default function ResultsPage() {
-  const search = useSearchParams();
-  const submissionParam = search.get("submission_id") ?? undefined;
-  const tallyParam = search.get("tally_submission_id") ?? undefined;
+/* Evidence + Shopping table */
+function LinksTable({ raw, type }: { raw: string; type: "evidence" | "shopping" }) {
+  const linkRe = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
 
-  const idForApi = submissionParam ?? tallyParam ?? ""; // either is fine; our APIs resolve the short id when needed
+  const lines = raw.split("\n").map((l) => l.trim());
+  const bulletLines = lines.filter((l) => l.startsWith("-"));
+  const analysisIndex = lines.findIndex((l) => l.toLowerCase().startsWith("**analysis"));
+  const analysis = analysisIndex !== -1 ? lines.slice(analysisIndex).join(" ") : null;
 
-  const [loading, setLoading] = useState(false);
-  const [traceId, setTraceId] = useState<string | null>(null);
-  const [markdown, setMarkdown] = useState<string>("");
-  const [items, setItems] = useState<StackItem[]>([]);
-  const [pdfHref, setPdfHref] = useState<string>("");
-  const [status, setStatus] = useState<"idle" | "ready" | "warn" | "error">("idle");
-  const [message, setMessage] = useState<string>("");
+  const rows = bulletLines
+    .map((line) => {
+      const matches = Array.from(line.matchAll(linkRe));
+      if (matches.length === 0) return null;
+      const namePart = line.replace(/^-+\s*/, "").split(":")[0].trim();
+      if (namePart.toLowerCase().includes("evidence pending")) return null;
+      const links = matches.map((m) => ({ text: m[1], url: m[2] }));
+      return { name: namePart, links };
+    })
+    .filter(Boolean) as { name: string; links: { text: string; url: string }[] }[];
 
-  const fetchStack = useCallback(async () => {
-    if (!idForApi) return;
-    try {
-      // get stack + sections + items (items come from a separate query in your GET-STACK route)
-      const res = await fetch(`/api/get-stack?submission_id=${encodeURIComponent(idForApi)}`, { cache: "no-store" });
-      const json: any = await res.json();
-
-      if (!json?.ok) throw new Error("Failed to load stack");
-
-      const md =
-        json?.stack?.sections?.markdown ??
-        json?.stack?.summary ??
-        "";
-
-      setMarkdown(md || "");
-      setItems(Array.isArray(json?.stack?.items) ? json.stack.items : Array.isArray(json?.items) ? json.items : []);
-      setStatus(json?.stack?.safety_status === "error" ? "warn" : "ready");
-      setPdfHref(`/api/export-pdf?submission_id=${encodeURIComponent(idForApi)}`);
-    } catch (e: any) {
-      console.error("fetchStack error:", e?.message || e);
-      setStatus("error");
-      setMessage("We couldn’t load your report yet. Try Generate again.");
+  // Amazon Add-All
+  let allCartUrl: string | null = null;
+  if (type === "shopping") {
+    const asinRegex = /(?:dp|gp\/product|gp\/aw\/d)\/([A-Z0-9]{10})(?=[/?]|$)/;
+    const asins = rows
+      .flatMap((r) =>
+        r.links.map((link) => {
+          const m = asinRegex.exec(link.url);
+          return m ? m[1] : null;
+        })
+      )
+      .filter(Boolean) as string[];
+    if (asins.length > 0) {
+      const parts = asins.map((asin, i) => `ASIN.${i + 1}=${asin}&Quantity.${i + 1}=1`);
+      allCartUrl = `https://www.amazon.com/gp/aws/cart/add.html?${parts.join("&")}&tag=lve360-20`;
     }
-  }, [idForApi]);
-
-  const onGenerate = useCallback(async () => {
-    if (!idForApi) {
-      setMessage("Missing submission identifier.");
-      return;
-    }
-    setLoading(true);
-    setMessage("");
-    setStatus("idle");
-    try {
-      const res = await fetch(`/api/generate-stack`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          submissionParam
-            ? { submission_id: submissionParam }
-            : { tally_submission_id: tallyParam }
-        ),
-      });
-      const json: GenerateResp = await res.json();
-
-      // We no longer hard-fail on non-OK; generator is fail-safe.
-      setTraceId(json?.trace_id ?? null);
-
-      // Prefer freshly returned markdown if present
-      const md = json?.ai?.markdown ?? json?.stack?.sections?.markdown ?? "";
-      if (md) setMarkdown(md);
-
-      // Items might be returned directly or fetched after persist
-      if (Array.isArray(json?.items) && json.items.length) {
-        setItems(
-          json.items.map((r: any) => ({
-            id: r.id,
-            name: r.name,
-            dose: r.dose ?? null,
-            timing: r.timing ?? null,
-          }))
-        );
-      } else {
-        // fallback: pull via GET so we have persisted rows
-        await fetchStack();
-      }
-
-      const okish = json?.generation_status ? json.generation_status !== "error" : true;
-      setStatus(okish ? (json?.generation_status === "ai_with_warnings" ? "warn" : "ready") : "warn");
-      setPdfHref(`/api/export-pdf?submission_id=${encodeURIComponent(idForApi)}`);
-    } catch (e: any) {
-      console.error("generate error:", e?.message || e);
-      setStatus("warn");
-      setMessage("Report generated with warnings. Content may be partial.");
-      // still try to render whatever we have on disk
-      await fetchStack();
-    } finally {
-      setLoading(false);
-    }
-  }, [fetchStack, idForApi, submissionParam, tallyParam]);
-
-  useEffect(() => { fetchStack(); }, [fetchStack]);
-
-  const grouped = useMemo(() => byTiming(items), [items]);
+  }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10">
-      <header className="mb-6">
-        <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-slate-800">
-          Your <span className="text-teal-600">LVE360</span> Blueprint
-        </h1>
-        <p className="mt-2 text-slate-600">Personalized insights for Longevity • Vitality • Energy</p>
-      </header>
+    <div>
+      <table className="w-full border-collapse my-2 text-sm shadow-sm">
+        <thead className="bg-[#06C1A0] text-white">
+          <tr>
+            <th className="px-3 py-0.5 text-left">Item</th>
+            <th className="px-3 py-0.5 text-left">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className="even:bg-gray-50 border-t">
+              <td className="px-3 py-0.5">{r.name}</td>
+              <td className="px-3 py-0.5 space-x-2">
+                {r.links.map((link, j) => (
+                  <CTAButton
+                    key={j}
+                    href={link.url}
+                    variant={type === "shopping" ? "primary" : "secondary"}
+                    size="sm"
+                    className="px-2 py-0.5 text-xs min-w-0"
+                  >
+                    {type === "shopping" ? `Buy on ${link.text}` : link.text}
+                  </CTAButton>
+                ))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
 
-      <section className="mb-6 rounded-2xl bg-white/70 shadow-sm ring-1 ring-slate-100">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={onGenerate}
-              disabled={loading || !idForApi}
-              className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-white hover:bg-emerald-600 disabled:opacity-50"
-            >
-              {loading ? "Generating…" : "✨ Generate Free Report"}
-            </button>
-            <a
-              href="/pricing"
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-white hover:opacity-90"
-            >
-              Upgrade to Premium
-            </a>
-            <a
-              href={pdfHref || "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              onClick={(e) => { if (!pdfHref) e.preventDefault(); }}
-            >
-              ⬇️ Download PDF
-            </a>
+      {allCartUrl && (
+        <div className="mt-3">
+          <CTAButton href={allCartUrl} variant="premium" size="md" className="px-4 py-2 text-sm">
+            🛒 Add All to Cart
+          </CTAButton>
+        </div>
+      )}
+
+      {analysis && <p className="mt-3 text-sm text-gray-700 leading-relaxed">{analysis}</p>}
+    </div>
+  );
+}
+
+/* Section card wrapper */
+function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
+      <h2 className="text-xl font-semibold text-[#06C1A0] mb-4">{title}</h2>
+      {children}
+    </div>
+  );
+}
+
+/* ───────── page ───────── */
+function ResultsContent() {
+  const [error, setError] = useState<string | null>(null);
+  const [markdown, setMarkdown] = useState<string | null>(null);
+  const [warmingUp, setWarmingUp] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [ready, setReady] = useState(true);
+  const [stackId, setStackId] = useState<string | null>(null);
+
+  const searchParams = useSearchParams();
+  const qSubmission = searchParams?.get("submission_id") ?? null;
+  const qTally = searchParams?.get("tally_submission_id") ?? null;
+
+  // Determine which key we’ll use in API calls
+  const idParam = qSubmission ?? qTally;
+  const idKey = qSubmission ? "submission_id" : "tally_submission_id";
+
+  const api = useCallback(
+    async (path: string, body?: any) => {
+      const res = await fetch(path, {
+        cache: "no-store",
+        ...(body
+          ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+          : {}),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.ok === false) {
+        const msg = json?.error ? `${json.error}` : `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      return json;
+    },
+    []
+  );
+
+  // Load any existing stack once the page opens
+  useEffect(() => {
+    if (!idParam) return;
+    (async () => {
+      try {
+        const data = await api(`/api/get-stack?${idKey}=${encodeURIComponent(idParam)}`);
+        const raw = data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
+        setMarkdown(sanitizeMarkdown(raw));
+        setStackId(data?.stack?.id ?? null);
+      } catch (e: any) {
+        console.warn(e);
+      }
+    })();
+  }, [idParam, idKey, api]);
+
+  // Poll helper (used after generation so we wait for stacks_items to be written)
+  async function pollForItems(): Promise<void> {
+    if (!idParam) return;
+    const tries = 6;
+    const delayMs = 1200;
+    for (let i = 0; i < tries; i++) {
+      try {
+        const refreshed = await api(`/api/get-stack?${idKey}=${encodeURIComponent(idParam)}`);
+        const finalMd =
+          refreshed?.stack?.sections?.markdown ??
+          refreshed?.stack?.summary ??
+          "";
+        if (finalMd) setMarkdown(sanitizeMarkdown(finalMd));
+        setStackId(refreshed?.stack?.id ?? null);
+
+        const itemCount =
+          (Array.isArray(refreshed?.items) && refreshed.items.length) ||
+          (Array.isArray(refreshed?.stack?.items) && refreshed.stack.items.length) ||
+          0;
+
+        if (itemCount > 0) return; // done
+      } catch {
+        // keep polling
+      }
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+
+  async function generateStack() {
+    if (!idParam) return setError("Missing submission ID.");
+    try {
+      setError(null);
+      setWarmingUp(true);
+      await new Promise((r) => setTimeout(r, 600));
+      setWarmingUp(false);
+      setGenerating(true);
+
+      // fire the generator with the correct id key
+      const payload = { [idKey]: idParam } as any;
+      const data = await api("/api/generate-stack", payload);
+
+      // Prefer AI markdown immediately
+      const first =
+        data?.ai?.markdown ??
+        data?.stack?.sections?.markdown ??
+        data?.stack?.summary ??
+        "";
+      if (first) setMarkdown(sanitizeMarkdown(first));
+
+      // Now poll the DB for the stacks_items to be persisted
+      await pollForItems();
+    } catch (e: any) {
+      setError(e?.message ?? "Unknown error");
+      // try to show whatever is already saved
+      try {
+        const refreshed = await api(`/api/get-stack?${idKey}=${encodeURIComponent(idParam)}`);
+        const finalMd =
+          refreshed?.stack?.sections?.markdown ??
+          refreshed?.stack?.summary ??
+          "";
+        if (finalMd) setMarkdown(sanitizeMarkdown(finalMd));
+        setStackId(refreshed?.stack?.id ?? null);
+      } catch {}
+    } finally {
+      setGenerating(false);
+      setWarmingUp(false);
+    }
+  }
+
+  async function exportPDF() {
+    if (!idParam) return;
+    try {
+      // export-pdf accepts either a UUID or the short id via the submission_id parameter
+      const res = await fetch(`/api/export-pdf?submission_id=${encodeURIComponent(idParam)}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(`PDF export failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 5_000);
+    } catch (e: any) {
+      setError(e.message ?? "PDF export failed");
+    }
+  }
+
+  const sec = useMemo(() => {
+    const md = markdown ?? "";
+    return {
+      intro: extractSection(md, ["Intro Summary", "Summary"]),
+      goals: extractSection(md, ["Goals"]),
+      contra: extractSection(md, ["Contraindications & Med Interactions", "Contraindications"]),
+      current: extractSection(md, ["Current Stack"]),
+      blueprint: extractSection(md, [
+        "Your Blueprint Recommendations",
+        'High-Impact "Bang-for-Buck" Additions',
+        "High-Impact Bang-for-Buck Additions",
+      ]),
+      dosing: extractSection(md, ["Dosing & Notes", "Dosing"]),
+      evidence: extractSection(md, ["Evidence & References"]),
+      shopping: extractSection(md, ["Shopping Links"]),
+      follow: extractSection(md, ["Follow-up Plan"]),
+      lifestyle: extractSection(md, ["Lifestyle Prescriptions"]),
+      longevity: extractSection(md, ["Longevity Levers"]),
+      weekTry: extractSection(md, ["This Week Try", "Weekly Experiment"]),
+    };
+  }, [markdown]);
+
+  return (
+    <motion.main
+      className="relative isolate overflow-hidden min-h-screen bg-gradient-to-br from-[#F8F5FB] via-white to-[#EAFBF8]"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6 }}
+    >
+      {/* Ambient Background */}
+      <div
+        className="pointer-events-none absolute -top-32 -left-24 h-96 w-96 rounded-full bg-[#A8F0E4] opacity-40 blur-3xl animate-[float_8s_ease-in-out_infinite]"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute top-[20rem] -right-24 h-[28rem] w-[28rem] rounded-full bg-[#D9C2F0] opacity-30 blur-3xl animate-[float_10s_ease-in-out_infinite]"
+        aria-hidden
+      />
+
+      {/* Content */}
+      <div className="relative z-10 max-w-6xl mx-auto py-20 px-6 font-sans">
+        {/* Header */}
+        <div className="text-center mb-10">
+          <h1 className="text-5xl sm:text-6xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent">
+            Your LVE360 Blueprint
+          </h1>
+          <p className="text-gray-600 mt-4 text-lg">Personalized insights for Longevity • Vitality • Energy</p>
+          <p className="mt-2 text-gray-500 text-sm">$15/month Premium Access</p>
+        </div>
+
+        {/* two-column layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* LEFT */}
+          <div className="lg:col-span-8">
+            {/* actions */}
+            <SectionCard title="Actions">
+              <div className="flex flex-wrap gap-4 justify-center">
+                <CTAButton onClick={generateStack} variant="gradient" disabled={warmingUp || generating || !ready}>
+                  {warmingUp ? "⏳ Warming up…" : generating ? "🤖 Generating..." : ready ? "✨ Generate Free Report" : "⏳ Preparing…"}
+                </CTAButton>
+                <CTAButton href="/upgrade" variant="premium">
+                  Upgrade to Premium
+                </CTAButton>
+                <CTAButton onClick={exportPDF} variant="secondary">
+                  ⬇️ Download PDF
+                </CTAButton>
+              </div>
+
+              {(warmingUp || generating) && (
+                <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
+                  {warmingUp
+                    ? "⚡ Warming up the AI engines..."
+                    : "💪 Crunching the numbers… this usually takes about 2 minutes."}
+                </p>
+              )}
+            </SectionCard>
+
+            {error && <div className="text-center text-red-600 mb-6">{error}</div>}
+
+            {/* sections */}
+            {sec.intro && (
+              <SectionCard title="Intro Summary">
+                <Prose>{sec.intro}</Prose>
+              </SectionCard>
+            )}
+            {sec.goals && (
+              <SectionCard title="Goals">
+                <Prose>{sec.goals}</Prose>
+              </SectionCard>
+            )}
+            {sec.contra && (
+              <SectionCard title="Contraindications & Med Interactions">
+                <Prose>{sec.contra}</Prose>
+              </SectionCard>
+            )}
+            {sec.current && (
+              <SectionCard title="Current Stack">
+                <Prose>{sec.current}</Prose>
+              </SectionCard>
+            )}
+            {sec.blueprint && (
+              <SectionCard title="Your Blueprint Recommendations">
+                <Prose>{sec.blueprint}</Prose>
+              </SectionCard>
+            )}
+            {sec.dosing && (
+              <SectionCard title="Dosing & Notes">
+                <Prose>{sec.dosing}</Prose>
+              </SectionCard>
+            )}
+            {sec.evidence && (
+              <SectionCard title="Evidence & References">
+                <LinksTable raw={sec.evidence} type="evidence" />
+              </SectionCard>
+            )}
+            {sec.shopping && (
+              <SectionCard title="Shopping Links">
+                <LinksTable raw={sec.shopping} type="shopping" />
+              </SectionCard>
+            )}
+            {sec.follow && (
+              <SectionCard title="Follow-up Plan">
+                <Prose>{sec.follow}</Prose>
+              </SectionCard>
+            )}
+            {sec.lifestyle && (
+              <SectionCard title="Lifestyle Prescriptions">
+                <Prose>{sec.lifestyle}</Prose>
+              </SectionCard>
+            )}
+            {sec.longevity && (
+              <SectionCard title="Longevity Levers">
+                <Prose>{sec.longevity}</Prose>
+              </SectionCard>
+            )}
+            {sec.weekTry && (
+              <SectionCard title="This Week Try">
+                <Prose>{sec.weekTry}</Prose>
+              </SectionCard>
+            )}
+
+            {/* disclaimer */}
+            <SectionCard title="Important Wellness Disclaimer">
+              <p className="text-sm text-gray-700 leading-relaxed">
+                This plan from <strong>LVE360 (Longevity | Vitality | Energy)</strong> is for educational purposes only
+                and is not medical advice. It is not intended to diagnose, treat, cure, or prevent any disease. Always
+                consult with your healthcare provider before starting new supplements or making significant lifestyle
+                changes, especially if you are pregnant, nursing, managing a medical condition, or taking prescriptions.
+                Supplements are regulated under the Dietary Supplement Health and Education Act (DSHEA); results vary
+                and no outcomes are guaranteed. If you experience unexpected effects, discontinue use and seek
+                professional care. By using this report, you agree that decisions about your health remain your
+                responsibility and that LVE360 is not liable for how information is applied.
+              </p>
+            </SectionCard>
           </div>
 
-          {/* subtle status, no scary banners */}
-          <div className="text-sm text-slate-500">
-            {status === "ready" && "Ready"}
-            {status === "warn" && "Generated with warnings"}
-            {status === "error" && "Couldn’t load yet"}
-            {traceId ? <span className="ml-2 opacity-70">Trace: {traceId}</span> : null}
+          {/* RIGHT: sticky sidebar */}
+          <div className="lg:col-span-4">
+            {stackId ? (
+              <ResultsSidebar stackId={stackId} />
+            ) : (
+              <div className="rounded-xl border p-4 text-sm text-gray-600">
+                Sidebar will appear after your stack loads.
+              </div>
+            )}
           </div>
         </div>
-        {message ? (
-          <div className="px-4 pb-3 text-sm text-amber-700">{message}</div>
-        ) : null}
-      </section>
+      </div>
+    </motion.main>
+  );
+}
 
-      <main className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Markdown content */}
-        <article className="lg:col-span-8 rounded-2xl bg-white/70 p-5 shadow-sm ring-1 ring-slate-100">
-          {markdown ? (
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              className="prose prose-slate max-w-none prose-h2:mt-8 prose-h2:text-slate-800 prose-table:overflow-hidden"
-              components={{
-                table: ({ node, ...props }) => (
-                  <div className="overflow-x-auto">
-                    <table {...props} />
-                  </div>
-                ),
-              }}
-            >
-              {markdown}
-            </ReactMarkdown>
-          ) : (
-            <p className="text-slate-500">No report yet. Click “Generate Free Report”.</p>
-          )}
-        </article>
-
-        {/* Sidebar: AM / PM schedule */}
-        <aside className="lg:col-span-4 space-y-6">
-          <div className="rounded-2xl bg-white/70 p-5 shadow-sm ring-1 ring-slate-100">
-            <h3 className="mb-3 text-lg font-semibold text-slate-800">Dosing Schedule</h3>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="rounded-xl border border-slate-200 p-3">
-                  <div className="mb-2 font-semibold text-slate-700">AM</div>
-                  {grouped.am.length ? (
-                    <ul className="space-y-1 text-sm">
-                      {grouped.am.map((it, i) => (
-                        <li key={`am-${i}`} className="flex justify-between gap-3">
-                          <span className="text-slate-800">{it.name}</span>
-                          <span className="text-slate-500">{prettyDose(it)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="text-sm text-slate-400">None</div>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <div className="rounded-xl border border-slate-200 p-3">
-                  <div className="mb-2 font-semibold text-slate-700">PM</div>
-                  {grouped.pm.length ? (
-                    <ul className="space-y-1 text-sm">
-                      {grouped.pm.map((it, i) => (
-                        <li key={`pm-${i}`} className="flex justify-between gap-3">
-                          <span className="text-slate-800">{it.name}</span>
-                          <span className="text-slate-500">{prettyDose(it)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="text-sm text-slate-400">None</div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {grouped.any.length ? (
-              <div className="mt-4 rounded-xl border border-slate-200 p-3">
-                <div className="mb-2 font-semibold text-slate-700">Any time</div>
-                <ul className="space-y-1 text-sm">
-                  {grouped.any.map((it, i) => (
-                    <li key={`any-${i}`} className="flex justify-between gap-3">
-                      <span className="text-slate-800">{it.name}</span>
-                      <span className="text-slate-500">{prettyDose(it)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-
-          {/* Safety summary card */}
-          <div className="rounded-2xl bg-white/70 p-5 shadow-sm ring-1 ring-slate-100">
-            <h3 className="mb-2 text-lg font-semibold text-slate-800">Safety</h3>
-            <p className="text-sm text-slate-600">
-              This plan is educational and not medical advice. If you take prescriptions or have conditions,
-              discuss changes with your clinician.
-            </p>
-          </div>
-        </aside>
-      </main>
-    </div>
+export default function ResultsPageWrapper() {
+  return (
+    <Suspense fallback={<p className="text-center py-8">Loading...</p>}>
+      <ResultsContent />
+    </Suspense>
   );
 }
