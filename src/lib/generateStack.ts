@@ -1,35 +1,28 @@
 /* eslint-disable @typescript-eslint/consistent-type-imports */
 /* eslint-disable no-console */
-// ---------------------------------------------------------------------------
-// LVE360 — generateStack.ts (fail-safe, item-creating, production-safe)
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+// LVE360 — generateStack.ts (robust with fallback → stacks_items always filled)
+// ----------------------------------------------------------------------------
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
 import { ChatCompletionMessageParam } from "openai/resources";
-
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { getTopCitationsFor } from "@/lib/evidence";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-// ships in repo; if path differs, adjust:
 import evidenceIndex from "@/evidence/evidence_index_top3.json";
 
-// -----------------------------
+// ----------------------------------------------------------------------------
 // Config
-// -----------------------------
+// ----------------------------------------------------------------------------
 const TODAY = "2025-09-21";
 const MIN_WORDS = 1800;
 const MIN_BP_ROWS = 10;
 const MIN_ANALYSIS_SENTENCES = 3;
 
-const MODEL_MINI = "gpt-4o-mini";
-const MODEL_FULL = "gpt-4o";
-
-const MODEL_CITE_RE =
-  /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/?|doi\.org\/\S+)\b/;
-
+const MODEL_CITE_RE = /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/?|doi\.org\/\S+)\b/;
 const CURATED_CITE_RE =
   /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/?|pmc\.ncbi\.nlm\.nih\.gov\/articles\/\S+|doi\.org\/\S+|jamanetwork\.com\/\S+|biomedcentral\.com\/\S+|bmcpsychiatry\.biomedcentral\.com\/\S+|journals\.plos\.org\/\S+|nature\.com\/\S+|sciencedirect\.com\/\S+|amjmed\.com\/\S+|koreascience\.kr\/\S+|dmsjournal\.biomedcentral\.com\/\S+|researchmgt\.monash\.edu\/\S+)\b/i;
 
@@ -49,9 +42,9 @@ const HEADINGS = [
   "## END",
 ] as const;
 
-// -----------------------------
+// ----------------------------------------------------------------------------
 // Types
-// -----------------------------
+// ----------------------------------------------------------------------------
 export interface StackItem {
   name: string;
   dose?: string | null;
@@ -77,7 +70,7 @@ export interface StackItem {
 
 type StackItemInsert = {
   stack_id: string;
-  user_id: string | null;        // allow null (schema permits)
+  user_id: string;
   user_email: string | null;
   name: string;
   dose: string | null;
@@ -85,7 +78,7 @@ type StackItemInsert = {
   notes: string | null;
   rationale: string | null;
   caution: string | null;
-  citations: string[] | null;    // jsonb
+  citations: string[] | null;
   link_amazon: string | null;
   link_fullscript: string | null;
   link_thorne: string | null;
@@ -93,26 +86,19 @@ type StackItemInsert = {
   cost_estimate: number | null;
 };
 
-interface EvidenceEntry { url?: string | null; [k: string]: any }
+interface EvidenceEntry {
+  url?: string | null;
+  [key: string]: any;
+}
 type EvidenceIndex = Record<string, EvidenceEntry[]>;
 const EVIDENCE: EvidenceIndex = evidenceIndex as unknown as EvidenceIndex;
 
-// -----------------------------
-// Utils
-// -----------------------------
+// ----------------------------------------------------------------------------
+// Utilities
+// ----------------------------------------------------------------------------
 const wc = (t: string) => t.trim().split(/\s+/).length;
 const hasEnd = (t: string) => /(^|\n)## END\s*$/i.test(t.trim());
 const seeDN = "See Dosing & Notes";
-
-function sanitizeMarkdown(md: string): string {
-  if (!md) return "";
-  let s = md.replace(/^```[a-z]*\n/i, "").replace(/```$/i, "");
-  s = s.replace(/\n{3,}/g, "\n\n");
-  // ensure END appears once at the end
-  const idx = s.indexOf("\n## END");
-  if (idx !== -1) s = s.slice(0, idx) + "\n## END";
-  return s.trim();
-}
 
 function cleanName(raw: string): string {
   if (!raw) return "";
@@ -120,12 +106,13 @@ function cleanName(raw: string): string {
 }
 function age(dob: string | null) {
   if (!dob) return null;
-  const d = new Date(dob); const t = new Date(TODAY);
+  const d = new Date(dob);
+  const t = new Date(TODAY);
   let a = t.getFullYear() - d.getFullYear();
   if (t < new Date(t.getFullYear(), d.getMonth(), d.getDate())) a--;
   return a;
 }
-function extractUserId(sub: any) {
+function extractUserId(sub: any): string | null {
   return sub?.user_id ?? (typeof sub.user === "object" ? sub.user?.id : null) ?? null;
 }
 function normalizeTiming(raw?: string | null): string | null {
@@ -143,23 +130,24 @@ function normalizeUnit(u?: string | null) {
   if (s === "mg" || s === "g") return s;
   return s || null;
 }
-function parseDose(dose?: string | null) {
+function parseDose(dose?: string | null): { amount?: number; unit?: string } {
   if (!dose) return {};
   const cleaned = dose.replace(/[,]/g, " ").replace(/\s+/g, " ");
-  const nums = cleaned.match(/(\d+(?:\.\d+)?)/g);
-  if (!nums) return {};
-  const amount = parseFloat(nums[nums.length - 1]);
+  const matches = cleaned.match(/(\d+(?:\.\d+)?)/g);
+  if (!matches) return {};
+  const amount = parseFloat(matches[matches.length - 1]);
   const unitMatch = cleaned.match(/(mcg|μg|ug|mg|g|iu)\b/i);
   const rawUnit = unitMatch ? unitMatch[1] : "";
   let unit = normalizeUnit(rawUnit);
   let val = amount;
-  if (unit === "g") { val = amount * 1000; unit = "mg"; }
+  if (unit === "g") {
+    val = amount * 1000;
+    unit = "mg";
+  }
   return { amount: val, unit: unit ?? undefined };
 }
 
-// -----------------------------
-// Name normalization + aliasing
-// -----------------------------
+// Name normalization & aliasing
 function normalizeSupplementName(name: string): string {
   const n = (name || "").toLowerCase().replace(/[.*_`#]/g, "").trim();
   const collapsed = n.replace(/\s+/g, " ");
@@ -197,14 +185,20 @@ const ALIAS_MAP: Record<string, string> = {
   "Acetyl-L-carnitine": "acetyl-l-carnitine",
 };
 function toSlug(s: string) {
-  return (s || "").toLowerCase().replace(/[^\w\s()+/.-]/g, "").replace(/\s+/g, " ").trim();
+  return (s || "")
+    .toLowerCase()
+    .replace(/[^\w\s()+/.-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 function buildEvidenceCandidates(normName: string): string[] {
-  const c: string[] = [];
+  const candidates: string[] = [];
   const alias = ALIAS_MAP[normName];
-  if (alias) c.push(alias);
+  if (alias) candidates.push(alias);
   const lower = toSlug(normName);
-  if (lower) c.push(lower, lower.replace(/\s+/g, "-"), lower.replace(/\s+/g, ""));
+  if (lower) {
+    candidates.push(lower, lower.replace(/\s+/g, "-"), lower.replace(/\s+/g, ""));
+  }
   const expansions: Record<string, string[]> = {
     "Omega-3": ["omega-3 (epa+dha)", "omega-3", "omega 3"],
     "Vitamin D": ["vitamin d3", "vitamin d", "vitamin-d"],
@@ -219,13 +213,11 @@ function buildEvidenceCandidates(normName: string): string[] {
     "L-Theanine": ["l-theanine", "l theanine"],
     "Acetyl-L-carnitine": ["acetyl-l-carnitine", "acetyl l carnitine", "alc"],
   };
-  if (expansions[normName]) c.push(...expansions[normName]);
-  return Array.from(new Set(c)).filter(Boolean);
+  if (expansions[normName]) candidates.push(...expansions[normName]);
+  return Array.from(new Set(candidates)).filter(Boolean);
 }
 
-// -----------------------------
-// Evidence helpers & override
-// -----------------------------
+// Evidence helpers
 function sanitizeCitationsModel(urls: string[]): string[] {
   return (urls || []).map(u => (typeof u === "string" ? u.trim() : "")).filter(u => MODEL_CITE_RE.test(u));
 }
@@ -237,30 +229,46 @@ function getTopCitationsFromJson(key: string, limit = 3): string[] {
 }
 function lookupCuratedForCandidates(candidates: string[], limit = 3): string[] {
   for (const key of candidates) {
-    const cites = getTopCitationsFor(key, 2);
-    if (cites.length) return cites;
+    const citations = getTopCitationsFor(key, 2);
+    if (citations.length) return citations;
   }
-  const slugged = candidates.map(toSlug);
-  for (const cand of slugged) {
+  const sluggedCandidates = candidates.map(toSlug);
+  for (const cand of sluggedCandidates) {
     for (const jsonKey of Object.keys(EVIDENCE)) {
       const slugKey = toSlug(jsonKey);
       if (slugKey.includes(cand) || cand.includes(slugKey)) {
         const hits = getTopCitationsFromJson(jsonKey, limit);
-        if (hits.length) return hits;
+        if (hits.length) {
+          try { console.log("evidence.fuzzy_match", { cand, jsonKey, hits }); } catch {}
+          return hits;
+        }
       }
     }
   }
   return [];
 }
 function attachEvidence(item: StackItem): StackItem {
-  const norm = normalizeSupplementName(item.name);
-  const curated = lookupCuratedForCandidates(buildEvidenceCandidates(norm), 3);
+  const normName = normalizeSupplementName(item.name);
+  const candidates = buildEvidenceCandidates(normName);
+  const curatedUrls = lookupCuratedForCandidates(candidates, 3);
   const modelValid = sanitizeCitationsModel(item.citations ?? []);
-  const final = curated.length ? curated : modelValid;
-  return { ...item, name: norm, citations: final.length ? final : null };
+  const final = curatedUrls.length ? curatedUrls : modelValid;
+  try {
+    console.log("evidence.lookup", {
+      rawName: item.name,
+      normName,
+      curatedCount: curatedUrls.length,
+      keptFromModel: modelValid.length,
+    });
+  } catch {}
+  return { ...item, name: normName, citations: final.length ? final : null };
 }
-function hostOf(u: string) { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } }
-function labelForUrl(u: string) {
+
+// Evidence section rendering & override
+function hostOf(u: string): string {
+  try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; }
+}
+function labelForUrl(u: string): string {
   const h = hostOf(u);
   if (/pubmed\.ncbi\.nlm\.nih\.gov/i.test(h)) return "PubMed";
   if (/pmc\.ncbi\.nlm\.nih\.gov/i.test(h)) return "PMC";
@@ -275,11 +283,11 @@ function labelForUrl(u: string) {
   if (/monash\.edu/i.test(h)) return "Monash";
   return h || "Source";
 }
-function buildEvidenceSection(items: StackItem[], minCount = 8) {
+function buildEvidenceSection(items: StackItem[], minCount = 8): { section: string; bullets: Array<{ name: string; url: string }>; } {
   const bullets: Array<{ name: string; url: string }> = [];
   for (const it of items) {
-    const cites = it.citations ?? [];
-    for (const rawUrl of cites) {
+    const citations = it.citations ?? [];
+    for (const rawUrl of citations) {
       const url = rawUrl.trim();
       const normalized = url.endsWith("/") ? url : url + "/";
       if (CURATED_CITE_RE.test(normalized) || MODEL_CITE_RE.test(normalized)) {
@@ -288,31 +296,34 @@ function buildEvidenceSection(items: StackItem[], minCount = 8) {
     }
   }
   const seen = new Set<string>();
-  const unique = bullets.filter(b => (seen.has(b.url) ? false : (seen.add(b.url), true)));
-  const take = unique.length >= minCount ? unique : [
-    ...unique,
-    ...Array.from({ length: Math.max(0, minCount - unique.length) }).map(() => ({
-      name: "Evidence pending",
-      url: "https://lve360.com/evidence/coming-soon",
-    })),
-  ];
+  const unique = bullets.filter(b => { if (seen.has(b.url)) return false; seen.add(b.url); return true; });
+  const take =
+    unique.length >= minCount
+      ? unique
+      : [
+          ...unique,
+          ...Array.from({ length: minCount - unique.length }).map(() => ({
+            name: "Evidence pending",
+            url: "https://lve360.com/evidence/coming-soon",
+          })),
+        ];
   const bulletsText = take.map(b => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`).join("\n");
   const analysis = `
 
 **Analysis**
 
-These references come from LVE360’s curated evidence index and replace any model-generated references.`;
+These references are pulled from LVE360’s curated evidence index (PubMed/PMC/DOI and other trusted journals) and replace any model-generated references.
+`;
   const section = `## Evidence & References\n\n${bulletsText}${analysis}`;
   return { section, bullets: take };
 }
 function overrideEvidenceInMarkdown(md: string, section: string): string {
-  const re = /## Evidence & References([\s\S]*?)(?=\n## |\n## END|$)/i;
-  return re.test(md) ? md.replace(re, section) : md.replace(/\n## END/i, `\n\n${section}\n\n## END`);
+  const headerRe = /## Evidence & References([\s\S]*?)(?=\n## |\n## END|$)/i;
+  if (headerRe.test(md)) return md.replace(headerRe, section);
+  return md.replace(/\n## END/i, `\n\n${section}\n\n## END`);
 }
 
-// -----------------------------
 // Shopping Links section
-// -----------------------------
 function buildShoppingLinksSection(items: StackItem[]): string {
   if (!items || items.length === 0) {
     return "## Shopping Links\n\n- No links available yet.\n\n**Analysis**\n\nLinks will be provided once products are mapped.";
@@ -329,26 +340,30 @@ function buildShoppingLinksSection(items: StackItem[]): string {
   return `## Shopping Links\n\n${bullets.join("\n")}\n\n**Analysis**\n\nThese links are provided for convenience. Premium users may see Fullscript options when available; Amazon links are shown for everyone.`;
 }
 
-// -----------------------------
 // Parser: Markdown → StackItem[]
-// -----------------------------
 function parseStackFromMarkdown(md: string): StackItem[] {
   const base: Record<string, any> = {};
 
-  // Blueprint
-  const blueprint = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |\n## END|$)/i);
+  // Blueprint table
+  const blueprint = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
   if (blueprint) {
     const rows = blueprint[1].split("\n").filter(l => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map(c => c.trim());
       const name = cleanName(cols[2] || `Item ${i + 1}`);
       if (!name) return;
-      base[name.toLowerCase()] = { name, rationale: cols[3] || undefined, dose: null, dose_parsed: null, timing: null };
+      base[name.toLowerCase()] = {
+        name,
+        rationale: cols[3] || undefined,
+        dose: null,
+        dose_parsed: null,
+        timing: null,
+      };
     });
   }
 
-  // Current Stack
-  const current = md.match(/## Current Stack([\s\S]*?)(\n## |\n## END|$)/i);
+  // Current Stack table
+  const current = md.match(/## Current Stack([\s\S]*?)(\n## |$)/i);
   if (current) {
     const rows = current[1].split("\n").filter(l => l.trim().startsWith("|"));
     rows.slice(1).forEach((row, i) => {
@@ -360,7 +375,15 @@ function parseStackFromMarkdown(md: string): StackItem[] {
       const timing = normalizeTiming(cols[4] || null);
       const parsed = parseDose(dose);
       const key = name.toLowerCase();
-      if (!base[key]) base[key] = { name, rationale, dose, dose_parsed: parsed, timing };
+      if (!base[key]) {
+        base[key] = {
+          name,
+          rationale,
+          dose,
+          dose_parsed: parsed,
+          timing,
+        };
+      }
     });
   }
 
@@ -370,19 +393,20 @@ function parseStackFromMarkdown(md: string): StackItem[] {
     const lines = dosing[1].split("\n").filter(l => l.trim().length > 0);
     for (const line of lines) {
       const m = line.match(/[-*]\s*([^—\-:]+)[—\-:]\s*([^,]+)(?:,\s*(.*))?/);
-      if (!m) continue;
-      const name = cleanName(m[1].trim());
-      if (!name) continue;
-      const dose = m[2]?.trim() || null;
-      const timing = normalizeTiming(m[3]);
-      const parsed = parseDose(dose);
-      const key = name.toLowerCase();
-      if (base[key]) {
-        base[key].dose = dose;
-        base[key].dose_parsed = parsed;
-        base[key].timing = timing;
-      } else {
-        base[key] = { name, rationale: undefined, dose, dose_parsed: parsed, timing };
+      if (m) {
+        const name = cleanName(m[1].trim());
+        if (!name) continue;
+        const dose = m[2]?.trim() || null;
+        const timing = normalizeTiming(m[3]);
+        const parsed = parseDose(dose);
+        const key = name.toLowerCase();
+        if (base[key]) {
+          base[key].dose = dose;
+          base[key].dose_parsed = parsed;
+          base[key].timing = timing;
+        } else {
+          base[key] = { name, rationale: undefined, dose, dose_parsed: parsed, timing };
+        }
       }
     }
   }
@@ -391,7 +415,8 @@ function parseStackFromMarkdown(md: string): StackItem[] {
   return Object.values(base).filter((it: any) => {
     if (!it?.name) return false;
     const key = it.name.trim().toLowerCase();
-    if (!key || seen.has(key)) return false;
+    if (!key) return false;
+    if (seen.has(key)) return false;
     if (it.name.length > 40) return false;
     if (/[.,]{3,}/.test(it.name)) return false;
     if (/\bvitamin\b.*\band\b/i.test(it.name)) return false;
@@ -401,26 +426,46 @@ function parseStackFromMarkdown(md: string): StackItem[] {
   });
 }
 
-// -----------------------------
-// Prompts & LLM
-// -----------------------------
+// ----------------------------------------------------------------------------
+// Prompts
+// ----------------------------------------------------------------------------
 function systemPrompt() {
   return `
 You are **LVE360 Concierge AI**, a friendly but professional wellness coach.
 Tone: encouraging, plain-English, never clinical or robotic.
+Always explain *why it matters* in a supportive, human way.
+Always greet the client by name in the Intro Summary if provided.
 
 Return **plain ASCII Markdown only** with headings EXACTLY:
 
 ${HEADINGS.slice(0, -1).join("\n")}
 
-Tables must use \`Column | Column\` pipe format.
-Each section must end with **Analysis** (≥${MIN_ANALYSIS_SENTENCES} sentences).
+Tables must use \`Column | Column\` pipe format, **no curly quotes or bullets**.
+Every table/list MUST be followed by **Analysis** ≥${MIN_ANALYSIS_SENTENCES} sentences that:
+• Summarize the section
+• Explain why it matters
+• Give practical implication
 
-• **Your Blueprint Recommendations** → Table: Rank | Supplement | Why it Matters, ≥${MIN_BP_ROWS} rows.
-  Add: *“See Dosing & Notes for amounts and timing.”*
+### Section-specific rules
+• **Intro Summary** → Must greet by name (if available) and include ≥2–3 sentences.  
+• **Goals** → Table: Goal | Description, followed by Analysis.  
+• **Current Stack** → Table: Medication/Supplement | Purpose | Dosage | Timing, followed by Analysis.  
+• **Your Blueprint Recommendations** → 3-column table: Rank | Supplement | Why it Matters.  
+  Must include ≥${MIN_BP_ROWS} unique rows.  
+  If fewer than ${MIN_BP_ROWS}, regenerate until quota met.  
+  Add: *“See Dosing & Notes for amounts and timing.”*  
+  Follow with 3–5 sentence Analysis.  
+• **Dosing & Notes** → List + Analysis explaining amounts, timing, and safety notes.  
+• **Evidence & References** → At least 8 bullet points with PubMed/DOI URLs, followed by Analysis.  
+• **Shopping Links** → Provide links + Analysis.  
+• **Follow-up Plan** → At least 3 checkpoints + Analysis.  
+• **Lifestyle Prescriptions** → ≥3 actionable changes + Analysis.  
+• **Longevity Levers** → ≥3 strategies + Analysis.  
+• **This Week Try** → Exactly 3 micro-habits + Analysis.  
+• If Dose/Timing unknown → use “${seeDN}”.  
+• Finish with line \`## END\`.  
 
-Finish with \`## END\`.
-If your internal check fails, regenerate before responding.`;
+If internal check fails, regenerate before responding.`;
 }
 function userPrompt(sub: SubmissionWithChildren) {
   return `
@@ -432,20 +477,25 @@ ${JSON.stringify({ ...sub, age: age((sub as any).dob ?? null), today: TODAY }, n
 ### TASK
 Generate the full report per the rules above.`;
 }
+
+// LLM
 async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-  return openai.chat.completions.create({ model, temperature: 0.7, max_tokens: 4096, messages });
+  return openai.chat.completions.create({
+    model,
+    temperature: 0.7,
+    max_tokens: 4096,
+    messages,
+  });
 }
 
-// -----------------------------
-// Validation (for logging only)
-// -----------------------------
+// Validation helpers
 function headingsOK(md: string) { return HEADINGS.slice(0, -1).every(h => md.includes(h)); }
 function blueprintOK(md: string) {
-  const sec = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |\n## END|$)/i);
+  const sec = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n\|)/i);
   if (!sec) return false;
-  const rows = sec[1].split("\n").filter(l => l.trim().startsWith("|")).slice(1);
+  const rows = sec[0].split("\n").filter(l => l.startsWith("|")).slice(1);
   return rows.length >= MIN_BP_ROWS;
 }
 function citationsOK(md: string) {
@@ -458,121 +508,22 @@ function citationsOK(md: string) {
 function narrativesOK(md: string) {
   const sections = md.split("\n## ").slice(1);
   return sections.every(sec => {
-    const text = sec.split("\n").filter(l => !l.startsWith("|") && !l.trim().startsWith("-")).join(" ");
-    const sentences = text.split(/[.!?]/).map(s => s.trim()).filter(Boolean);
+    const lines = sec.split("\n");
+    const textBlock = lines
+      .filter(l => !l.startsWith("|") && !l.trim().startsWith("-"))
+      .join(" ");
+    const sentences = textBlock
+      .split(/[.!?]/)
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
     if (sec.startsWith("Intro Summary") && sentences.length < 2) return false;
     if (!sec.startsWith("Intro Summary") && sentences.length < MIN_ANALYSIS_SENTENCES) return false;
     return true;
   });
 }
 function ensureEnd(md: string) { return hasEnd(md) ? md : md + "\n\n## END"; }
-function computeValidation(md: string) {
-  const wordCountOK = wc(md) >= MIN_WORDS;
-  const headingsValid = headingsOK(md);
-  const blueprintValid = blueprintOK(md);
-  const citationsValid = citationsOK(md);
-  const narrativesValid = narrativesOK(md);
-  const endValid = hasEnd(md);
-  const ok = wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid;
-  return { wordCountOK, headingsValid, blueprintValid, citationsValid, narrativesValid, endValid, actualWordCount: wc(md), ok };
-}
 
-// -----------------------------
-// Skeleton (last-resort)
-// -----------------------------
-function skeletonMarkdown(sub: any): string {
-  const who = (sub?.name || sub?.user?.name || sub?.user?.email || "there") as string;
-  return `## Intro Summary
-Hi ${who}, this is a draft fallback while the AI engine was busy. You'll still see dosing, links and safety once we complete enrichment.
-
-## Goals
-| Goal | Description |
-| --- | --- |
-| Energy | Improve day-long energy and focus |
-
-## Contraindications & Med Interactions
-- Will be checked against your meds/conditions in this draft.
-
-## Current Stack
-| Medication/Supplement | Purpose | Dosage | Timing |
-| --- | --- | --- | --- |
-
-## Your Blueprint Recommendations
-| Rank | Supplement | Why it Matters |
-| --- | --- | --- |
-| 1 | Omega-3 | ${seeDN} |
-| 2 | Magnesium | ${seeDN} |
-| 3 | Vitamin D | ${seeDN} |
-| 4 | Zinc | ${seeDN} |
-| 5 | B-Vitamins | ${seeDN} |
-| 6 | Rhodiola Rosea | ${seeDN} |
-| 7 | L-Theanine | ${seeDN} |
-| 8 | Ashwagandha | ${seeDN} |
-| 9 | CoQ10 | ${seeDN} |
-| 10 | Ginkgo Biloba | ${seeDN} |
-
-See Dosing & Notes for amounts and timing.
-
-## Dosing & Notes
-- Omega-3 — 1–2 g EPA+DHA/day, AM/PM
-- Magnesium — 200–400 mg, PM
-- Vitamin D — 2000 IU, AM
-
-## Evidence & References
-- Evidence pending: [DOI](https://doi.org/10.0000/example/)
-- Evidence pending: [PubMed](https://pubmed.ncbi.nlm.nih.gov/1/)
-- Evidence pending: [PubMed](https://pubmed.ncbi.nlm.nih.gov/2/)
-- Evidence pending: [PubMed](https://pubmed.ncbi.nlm.nih.gov/3/)
-- Evidence pending: [PubMed](https://pubmed.ncbi.nlm.nih.gov/4/)
-- Evidence pending: [PubMed](https://pubmed.ncbi.nlm.nih.gov/5/)
-- Evidence pending: [PubMed](https://pubmed.ncbi.nlm.nih.gov/6/)
-- Evidence pending: [PubMed](https://pubmed.ncbi.nlm.nih.gov/7/)
-
-**Analysis**
-These placeholders are replaced by curated references once generation succeeds.
-
-## Shopping Links
-- Placeholder — links attach after enrichment.
-
-**Analysis**
-Links are added for convenience and do not constitute endorsements.
-
-## Follow-up Plan
-- Check back in 2 weeks to review adherence and effects.
-
-**Analysis**
-Follow-ups help adjust dosing and ensure safety.
-
-## Lifestyle Prescriptions
-- Walk 10–15 min after meals
-- Protein at breakfast
-- Lights-out cadence at night
-
-**Analysis**
-Small daily habits create compounding benefits.
-
-## Longevity Levers
-- Sleep regularity
-- VO₂/zone-2 work
-- Strength 2–3×/wk
-
-**Analysis**
-Foundational levers drive most of the results.
-
-## This Week Try
-- 10-minute post-dinner walk
-- 2 liters water per day
-- 5-minute breathwork on waking
-
-**Analysis**
-Keep it simple and consistent.
-
-## END`;
-}
-
-// -----------------------------
-// Link policy
-// -----------------------------
+// Preference → link policy
 function normalizeBrandPref(p?: string | null): "budget" | "trusted" | "clean" | "default" {
   const s = (p || "").toLowerCase();
   if (s.includes("budget") || s.includes("cost")) return "budget";
@@ -581,7 +532,8 @@ function normalizeBrandPref(p?: string | null): "budget" | "trusted" | "clean" |
   return "default";
 }
 function chooseAmazonLinkFor(item: StackItem, pref: "budget" | "trusted" | "clean" | "default"): string | null {
-  const pick = pref === "budget" ? item.link_budget
+  const pick =
+    pref === "budget" ? item.link_budget
     : pref === "trusted" ? item.link_trusted
     : pref === "clean" ? item.link_clean
     : item.link_default;
@@ -593,218 +545,277 @@ function applyLinkPolicy(items: StackItem[], sub: any): StackItem[] {
   return items.map(it => {
     const linkAmazon = chooseAmazonLinkFor(it, pref);
     const linkFS = it.link_fullscript ?? null;
-    return isPremium && linkFS ? { ...it, link_amazon: linkAmazon, link_fullscript: linkFS }
-                               : { ...it, link_amazon: linkAmazon };
+    if (isPremium && linkFS) return { ...it, link_amazon: linkAmazon, link_fullscript: linkFS };
+    return { ...it, link_amazon: linkAmazon };
   });
 }
 
-// -----------------------------
-// MAIN
-// -----------------------------
+// Build items from submission_supplements (fallback path)
+function itemsFromSubmissionSupps(sub: any): StackItem[] {
+  const supps = Array.isArray(sub?.submission_supplements) ? sub.submission_supplements : [];
+  const out: StackItem[] = [];
+  for (const s of supps) {
+    const name = cleanName(String(s?.name || "").trim());
+    if (!name) continue;
+    out.push({
+      name,
+      dose: s?.dose ?? null,
+      dose_parsed: parseDose(s?.dose ?? null),
+      timing: normalizeTiming(s?.timing ?? null),
+      notes: null,
+      rationale: null,
+      caution: null,
+      citations: null,
+    });
+  }
+  return out;
+}
+
+// ----------------------------------------------------------------------------
+// Main
+// ----------------------------------------------------------------------------
 export async function generateStackForSubmission(id: string) {
+  if (!id) throw new Error("submissionId required");
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
+
+  const sub = await getSubmissionWithChildren(id);
+  if (!sub) throw new Error(`Submission row not found for id=${id}`);
+
+  const user_id = extractUserId(sub);
+  const userEmail =
+    (sub as any)?.user?.email ??
+    (sub as any)?.user_email ??
+    (sub as any)?.email ??
+    null;
+
+  const msgs: ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt() },
+    { role: "user", content: userPrompt(sub) },
+  ];
+
+  let md = "";
+  let raw: any = null;
+  let modelUsed = "unknown";
+  let tokensUsed: number | null = null;
+  let promptTokens: number | null = null;
+  let completionTokens: number | null = null;
+
+  let validations: {
+    wordCountOK: boolean;
+    headingsValid: boolean;
+    blueprintValid: boolean;
+    citationsValid: boolean;
+    narrativesValid: boolean;
+    endValid: boolean;
+    actualWordCount: number;
+    ok: boolean;
+  } | null = null;
+
+  // pass 1: mini
   try {
-    const sub = await getSubmissionWithChildren(id);
-    // If somehow missing, still return skeleton so the route never 500s
-    if (!sub) {
-      const md0 = ensureEnd(sanitizeMarkdown(skeletonMarkdown(null)));
-      return { markdown: md0, raw: null, model_used: "none", tokens_used: null, prompt_tokens: null, completion_tokens: null, validation: computeValidation(md0) };
-    }
+    const resp = await callLLM(msgs, "gpt-4o-mini");
+    raw = resp;
+    modelUsed = resp.model ?? "gpt-4o-mini";
+    tokensUsed = resp.usage?.total_tokens ?? null;
+    promptTokens = resp.usage?.prompt_tokens ?? null;
+    completionTokens = resp.usage?.completion_tokens ?? null;
+    md = resp.choices[0]?.message?.content ?? "";
 
-    const user_id = extractUserId(sub);
-    const userEmail =
-      (sub as any)?.user?.email ??
-      (sub as any)?.user_email ??
-      (sub as any)?.email ??
-      null;
+    const wordCountOK = wc(md) >= MIN_WORDS;
+    const headingsValid = headingsOK(md);
+    const blueprintValid = blueprintOK(md);
+    const citationsValid = citationsOK(md);
+    const narrativesValid = narrativesOK(md);
+    const endValid = hasEnd(md);
+    const ok = wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid;
 
-    const msgs: ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt() },
-      { role: "user", content: userPrompt(sub) },
-    ];
+    validations = {
+      wordCountOK, headingsValid, blueprintValid, citationsValid, narrativesValid, endValid,
+      actualWordCount: wc(md), ok
+    };
 
-    let md = "";
-    let raw: any = null;
-    let modelUsed = "none";
-    let tokensUsed: number | null = null;
-    let promptTokens: number | null = null;
-    let completionTokens: number | null = null;
-
-    // pass 1
-    if (process.env.OPENAI_API_KEY) {
-      try {
-        const resp = await callLLM(msgs, MODEL_MINI);
-        raw = resp; modelUsed = resp.model ?? MODEL_MINI;
-        tokensUsed = resp.usage?.total_tokens ?? null;
-        promptTokens = resp.usage?.prompt_tokens ?? null;
-        completionTokens = resp.usage?.completion_tokens ?? null;
-        md = resp.choices?.[0]?.message?.content ?? "";
-      } catch (e) {
-        console.warn("mini failed:", e);
-      }
-    }
-
-    let validations = computeValidation(md);
     console.log("validation.debug", validations);
 
-    // pass 2
-    if (!validations.ok && process.env.OPENAI_API_KEY) {
-      try {
-        const resp = await callLLM(msgs, MODEL_FULL);
-        raw = resp; modelUsed = resp.model ?? MODEL_FULL;
-        tokensUsed = resp.usage?.total_tokens ?? tokensUsed;
-        promptTokens = resp.usage?.prompt_tokens ?? promptTokens;
-        completionTokens = resp.usage?.completion_tokens ?? completionTokens;
-        md = resp.choices?.[0]?.message?.content ?? md;
-      } catch (e) {
-        console.warn("full failed:", e);
-      }
-      validations = computeValidation(md);
-      console.log("validation.debug.fallback", validations);
+    if (!ok) {
+      // fall through to big model
+    } else {
+      // success
     }
-
-    // last resort
-    if (!md) md = skeletonMarkdown(sub);
-    md = ensureEnd(sanitizeMarkdown(md));
-
-    // Parse → fallback backfill from submission_supplements if empty
-    let parsedItems: StackItem[] = parseStackFromMarkdown(md);
-    if (!parsedItems.length) {
-      const ss = (sub as any)?.submission_supplements || (sub as any)?.supplements || [];
-      if (Array.isArray(ss) && ss.length) {
-        parsedItems = ss
-          .map((r: any) => {
-            const name = cleanName(r?.name || r?.supplement_name || "");
-            if (!name) return null;
-            return { name, dose: r?.dose ?? null, timing: normalizeTiming(r?.timing ?? null), rationale: r?.purpose ?? undefined } as StackItem;
-          })
-          .filter(Boolean) as StackItem[];
-      }
-    }
-    if (!parsedItems.length) {
-      parsedItems = [
-        { name: "Omega-3", dose: null, timing: "AM/PM" },
-        { name: "Magnesium", dose: null, timing: "PM" },
-        { name: "Vitamin D", dose: null, timing: "AM" },
-      ];
-    }
-
-    // Safety → Enrichment → Link policy → Evidence
-    const safetyInput = {
-      medications: Array.isArray((sub as any).medications) ? (sub as any).medications.map((m: any) => m.med_name || "") : [],
-      conditions: Array.isArray((sub as any).conditions) ? (sub as any).conditions.map((c: any) => c.condition_name || "") : [],
-      allergies: Array.isArray((sub as any).allergies) ? (sub as any).allergies.map((a: any) => a.allergy_name || "") : [],
-      pregnant: typeof (sub as any).pregnant === "boolean" || typeof (sub as any).pregnant === "string" ? (sub as any).pregnant : null,
-      brand_pref: (sub as any)?.preferences?.brand_pref ?? null,
-      dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
-      is_premium: Boolean((sub as any)?.is_premium) || Boolean((sub as any)?.user?.is_premium) || ((sub as any)?.plan === "premium"),
-    };
-
-    const { cleaned, status: safetyStatus } = await applySafetyChecks(safetyInput, parsedItems);
-
-    const normalizedForLinks = cleaned.map((it: any) => ({ ...it, name: normalizeSupplementName(it.name) }));
-    const enriched = await enrichAffiliateLinks(normalizedForLinks);
-
-    const withLinks = applyLinkPolicy(enriched, sub);
-    const withEvidence = withLinks.map(attachEvidence);
-
-    // Evidence + Shopping overrides
-    const { section: evidenceSection } = buildEvidenceSection(withEvidence, 8);
-    md = overrideEvidenceInMarkdown(md, evidenceSection);
-
-    const shoppingSection = buildShoppingLinksSection(withEvidence);
-    const shoppingRe = /## Shopping Links([\s\S]*?)(?=\n## |\n## END|$)/i;
-    md = shoppingRe.test(md) ? md.replace(shoppingRe, shoppingSection) : md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
-
-    const totalMonthlyCost = withEvidence.reduce((acc, it) => acc + (it.cost_estimate ?? 0), 0);
-
-    // Persist parent stack
-    let parentId: string | null = null;
-    try {
-      const { data, error } = await supabaseAdmin
-        .from("stacks")
-        .upsert(
-          {
-            submission_id: id,
-            user_id,
-            user_email: userEmail,
-            tally_submission_id: (sub as any)?.tally_submission_id ?? null,
-            version: modelUsed,
-            tokens_used: tokensUsed,
-            prompt_tokens: promptTokens,
-            completion_tokens: completionTokens,
-            safety_status: safetyStatus,
-            summary: md,
-            sections: { markdown: md, generated_at: new Date().toISOString() },
-            notes: null,
-            total_monthly_cost: totalMonthlyCost,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "submission_id" }
-        )
-        .select("id")
-        .single();
-
-      if (error) console.error("stacks upsert error:", error);
-      parentId = (data as any)?.id ?? null;
-    } catch (e) {
-      console.error("stacks upsert exception:", e);
-    }
-
-    // Persist child items (no user_id requirement)
-    if (parentId) {
-      try {
-        await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parentId);
-        const rows: StackItemInsert[] = withEvidence.map(it => ({
-          stack_id: parentId!,
-          user_id: user_id ?? null,
-          user_email: userEmail ?? null,
-          name: cleanName(normalizeSupplementName(it?.name ?? "")) || "Item",
-          dose: it.dose ?? null,
-          timing: it.timing ?? null,
-          notes: it.notes ?? null,
-          rationale: it.rationale ?? null,
-          caution: it.caution ?? null,
-          citations: it.citations ?? null,
-          link_amazon: it.link_amazon ?? null,
-          link_fullscript: it.link_fullscript ?? null,
-          link_thorne: it.link_thorne ?? null,
-          link_other: it.link_other ?? null,
-          cost_estimate: it.cost_estimate ?? null,
-        }));
-        if (rows.length) {
-          const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
-          if (error) console.error("stacks_items insert error:", error);
-          else console.log(`✅ Inserted ${rows.length} stack items for stack ${parentId}`);
-        }
-      } catch (e) {
-        console.error("stacks_items persist exception:", e);
-      }
-    }
-
-    // Return without throwing
-    return {
-      markdown: md,
-      raw,
-      model_used: modelUsed,
-      tokens_used: tokensUsed,
-      prompt_tokens: promptTokens,
-      completion_tokens: completionTokens,
-      validation: computeValidation(md),
-    };
-  } catch (fatal: any) {
-    // ABSOLUTE guard: even if something unexpected slips through, never throw to the route
-    console.error("generateStack fatal guard:", fatal?.message || fatal);
-    const md = ensureEnd(sanitizeMarkdown(skeletonMarkdown(null)));
-    return {
-      markdown: md,
-      raw: null,
-      model_used: "none",
-      tokens_used: null,
-      prompt_tokens: null,
-      completion_tokens: null,
-      validation: computeValidation(md),
-    };
+  } catch (err) {
+    console.warn("Mini model failed:", err);
   }
+
+  // pass 2: gpt-4o
+  if (!validations || !validations.ok) {
+    const resp = await callLLM(msgs, "gpt-4o");
+    raw = resp;
+    modelUsed = resp.model ?? "gpt-4o";
+    tokensUsed = resp.usage?.total_tokens ?? null;
+    promptTokens = resp.usage?.prompt_tokens ?? null;
+    completionTokens = resp.usage?.completion_tokens ?? null;
+    md = resp.choices[0]?.message?.content ?? "";
+
+    const wordCountOK = wc(md) >= MIN_WORDS;
+    const headingsValid = headingsOK(md);
+    const blueprintValid = blueprintOK(md);
+    const citationsValid = citationsOK(md);
+    const narrativesValid = narrativesOK(md);
+    const endValid = hasEnd(md);
+    const ok = wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid;
+
+    validations = {
+      wordCountOK, headingsValid, blueprintValid, citationsValid, narrativesValid, endValid,
+      actualWordCount: wc(md), ok
+    };
+
+    console.log("validation.debug.fallback", validations);
+  }
+
+  md = ensureEnd(md);
+
+  // Parse items from the AI
+  let parsedItems: StackItem[] = parseStackFromMarkdown(md);
+
+  // --- Fallback if AI parsing produced zero items ---
+  if (parsedItems.length === 0) {
+    console.warn("Parser yielded 0 items — falling back to submission_supplements.");
+    parsedItems = itemsFromSubmissionSupps(sub);
+  }
+
+  // Safety → returns "cleaned" items
+  const safetyInput = {
+    medications: Array.isArray((sub as any).medications)
+      ? (sub as any).medications.map((m: any) => m.med_name || "")
+      : [],
+    conditions: Array.isArray((sub as any).conditions)
+      ? (sub as any).conditions.map((c: any) => c.condition_name || "")
+      : [],
+    allergies: Array.isArray((sub as any).allergies)
+      ? (sub as any).allergies.map((a: any) => a.allergy_name || "")
+      : [],
+    pregnant:
+      typeof (sub as any).pregnant === "boolean" ||
+      typeof (sub as any).pregnant === "string"
+        ? (sub as any).pregnant
+        : null,
+    brand_pref: (sub as any)?.preferences?.brand_pref ?? null,
+    dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
+    is_premium:
+      Boolean((sub as any)?.is_premium) ||
+      Boolean((sub as any)?.user?.is_premium) ||
+      ((sub as any)?.plan === "premium"),
+  };
+
+  const { cleaned, status: safetyResult } = await applySafetyChecks(safetyInput, parsedItems);
+
+  // Normalize names → enrich links → link policy → evidence
+  const normalizedForLinks = cleaned.map((it: any) => ({ ...it, name: normalizeSupplementName(it.name) }));
+  const enriched = await enrichAffiliateLinks(normalizedForLinks);
+  const withPolicy = applyLinkPolicy(enriched, sub);
+  const withEvidence: StackItem[] = withPolicy.map(attachEvidence);
+
+  // Override Evidence & Shopping in markdown
+  const { section: evidenceSection } = buildEvidenceSection(withEvidence, 8);
+  md = overrideEvidenceInMarkdown(md, evidenceSection);
+
+  const shoppingSection = buildShoppingLinksSection(withEvidence);
+  const shoppingRe = /## Shopping Links([\s\S]*?)(?=\n## |\n## END|$)/i;
+  if (shoppingRe.test(md)) md = md.replace(shoppingRe, shoppingSection);
+  else md = md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
+
+  const totalMonthlyCost = withEvidence.reduce((acc, it) => acc + (it.cost_estimate ?? 0), 0);
+
+  // Persist parent stack
+  let parentRows: any[] = [];
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("stacks")
+      .upsert(
+        {
+          submission_id: id,
+          user_id,
+          user_email: userEmail,
+          tally_submission_id: (sub as any)?.tally_submission_id ?? null,
+          version: modelUsed,
+          tokens_used: tokensUsed,
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+          safety_status: safetyResult,
+          summary: md,
+          sections: { markdown: md, generated_at: new Date().toISOString() },
+          notes: null,
+          total_monthly_cost: totalMonthlyCost,
+        },
+        { onConflict: "submission_id" }
+      )
+      .select();
+    if (error) console.error("Supabase upsert error:", error);
+    if (data && data.length > 0) parentRows = data;
+  } catch (err) {
+    console.error("Stacks upsert exception:", err);
+  }
+
+  // Persist stacks_items (always, thanks to fallback)
+  if (parentRows.length > 0) {
+    const parent = parentRows[0];
+    if (parent?.id && user_id) {
+      const parentId: string = parent.id as string;
+
+      await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parentId);
+
+      const rows: StackItemInsert[] = withEvidence
+        .map((it) => {
+          const normName = normalizeSupplementName(it?.name ?? "");
+          const safeName = cleanName(normName);
+          if (!safeName || safeName.toLowerCase() === "null") {
+            console.error("🚨 Blocking insert of invalid item", {
+              stack_id: parentId,
+              user_id,
+              rawName: it?.name,
+              normalized: normName,
+              item: it,
+            });
+            return null;
+          }
+          return {
+            stack_id: parentId,
+            user_id: user_id!,
+            user_email: userEmail ?? null,
+            name: safeName,
+            dose: it.dose ?? null,
+            timing: it.timing ?? null,
+            notes: it.notes ?? null,
+            rationale: it.rationale ?? null,
+            caution: it.caution ?? null,
+            citations: it.citations ?? null,
+            link_amazon: it.link_amazon ?? null,
+            link_fullscript: it.link_fullscript ?? null,
+            link_thorne: it.link_thorne ?? null,
+            link_other: it.link_other ?? null,
+            cost_estimate: it.cost_estimate ?? null,
+          } as StackItemInsert;
+        })
+        .filter((r): r is StackItemInsert => r !== null);
+
+      console.log("✅ Prepared stack_items rows:", rows.length);
+
+      if (rows.length > 0) {
+        const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
+        if (error) console.error("⚠️ Failed to insert stacks_items:", error);
+        else console.log(`✅ Inserted ${rows.length} stack items for stack ${parentId}`);
+      }
+    }
+  }
+
+  return {
+    markdown: md,
+    raw,
+    model_used: modelUsed,
+    tokens_used: tokensUsed,
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    validation: validations ?? undefined,
+  };
 }
 
 export default generateStackForSubmission;
