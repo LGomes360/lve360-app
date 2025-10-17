@@ -5,9 +5,10 @@
 //   - submissionId: UUID (preferred)
 //   - OR tally_submission_id: short Tally id (e.g., "jaJMeJQ")
 // Behavior:
-//   - Free users CAN generate their Blueprint (mode="free", optional cap)
+//   - Free users CAN generate (mode="free", optional cap hint)
 //   - Premium users get full stack (mode="premium")
 //   - Robust tally resolution (handles o↔0 tail) + webhook lag backoff
+//   - Generator errors are caught; we return a graceful fallback (0 items)
 // Returns: { ok: true, mode, user_tier, stack, itemsInserted, ai }
 // -----------------------------------------------------------------------------
 
@@ -30,6 +31,16 @@ interface SubmissionRow {
 interface UserRow {
   id: string;
   tier: string | null;
+}
+
+interface FallbackResult {
+  markdown: string;
+  raw: {
+    stack_id: string;
+    items: any[];
+    safety_status: "warning";
+    safety_warnings: string[];
+  };
 }
 
 // ---- tiny local wrapper to avoid TS bark if generator lacks 2nd arg ---------
@@ -134,7 +145,7 @@ async function countItemsForStack(stackId: string): Promise<number> {
 async function logFailure(source: string, message: string, payload: unknown): Promise<void> {
   try {
     await supabaseAdmin.from("webhook_failures").insert({
-      id: (globalThis as any).crypto?.randomUUID?.() ?? undefined,
+      // let DB default handle id if present
       source,
       event_type: "generator_error",
       error_message: String(message).slice(0, 500),
@@ -144,6 +155,77 @@ async function logFailure(source: string, message: string, payload: unknown): Pr
   } catch (e) {
     console.warn("[generate-stack] failed to log error:", e);
   }
+}
+
+function fallbackMarkdown(email: string | null, warnings: string[]): string {
+  const w = warnings.length ? warnings.map((x) => `- ${x}`).join("\n") : "- Unknown error";
+  return [
+    "# LVE360 Personalized Blueprint",
+    email ? `**Email:** ${email}` : "",
+    "**Safety:** WARNING",
+    "**Warnings:**",
+    w,
+    "",
+    "## Your Stack",
+    "_We couldn’t complete generation just now. Please retry in a moment._",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function ensureFallbackStack(
+  submission: SubmissionRow,
+  warnings: string[]
+): Promise<FallbackResult> {
+  // Ensure a stacks row exists with empty items + warnings
+  let stackId: string | null = null;
+
+  const { data: existing } = await supabaseAdmin
+    .from("stacks")
+    .select("id")
+    .eq("submission_id", submission.id)
+    .maybeSingle();
+
+  if (existing?.id) {
+    stackId = existing.id;
+    await supabaseAdmin
+      .from("stacks")
+      .update({
+        user_id: submission.user_id,
+        items: [] as any[],
+        safety_status: "warning",
+        safety_warnings: warnings,
+      })
+      .eq("id", stackId);
+    // Best-effort clear items to avoid stale children
+    await supabaseAdmin.from("stacks_items").delete().eq("stack_id", stackId);
+  } else {
+    const { data: ins } = await supabaseAdmin
+      .from("stacks")
+      .insert({
+        submission_id: submission.id,
+        user_id: submission.user_id,
+        items: [] as any[],
+        safety_status: "warning",
+        safety_warnings: warnings,
+      })
+      .select("id")
+      .maybeSingle();
+    stackId = ins?.id ?? null;
+  }
+
+  if (!stackId) {
+    // If even that fails, synthesize a local response
+    return {
+      markdown: fallbackMarkdown(submission.user_email, warnings),
+      raw: { stack_id: "unknown", items: [], safety_status: "warning", safety_warnings: warnings },
+    };
+  }
+
+  return {
+    markdown: fallbackMarkdown(submission.user_email, warnings),
+    raw: { stack_id: stackId, items: [], safety_status: "warning", safety_warnings: warnings },
+  };
 }
 
 // ---- handler ----------------------------------------------------------------
@@ -161,7 +243,7 @@ export async function POST(req: NextRequest) {
       (body["tally_submission_id"] ?? body["tallyId"] ?? body["tally"] ?? "")?.toString().trim() ||
       null;
 
-    console.log("[API] /api/generate-stack received:", { submissionId, tallyShort });
+    console.info("[API] /api/generate-stack received:", { submissionId, tallyShort });
 
     // Resolve tally → UUID if needed (tolerate webhook lag)
     if (!submissionId && tallyShort) {
@@ -171,7 +253,7 @@ export async function POST(req: NextRequest) {
         await logFailure("generate-stack", msg, { body });
         return NextResponse.json({ ok: false, error: msg }, { status: 409 });
       }
-      console.log("[API] Resolved tally_submission_id ->", submissionId);
+      console.info("[API] Resolved tally_submission_id ->", submissionId);
     }
 
     if (!submissionId) {
@@ -196,11 +278,34 @@ export async function POST(req: NextRequest) {
     const mode: Mode = tier === "premium" ? "premium" : "free";
 
     // Generate & persist (single source of truth in the generator)
-    // Hint the generator to cap Free stacks; Premium uncapped (or higher cap).
-    const result = await callGenerator(submissionId, {
-      mode,
-      maxItems: mode === "free" ? 3 : undefined,
-    });
+    // Hint: cap Free stacks; Premium uncapped (or higher cap).
+    let result: any;
+    try {
+      result = await callGenerator(submissionId, {
+        mode,
+        maxItems: mode === "free" ? 3 : undefined,
+      });
+    } catch (genErr: unknown) {
+      const msg = (genErr as any)?.message ?? genErr;
+      console.error("[generate-stack] generator threw:", msg);
+      await logFailure("generate-stack", String(msg), { submissionId, mode });
+
+      // Fallback: ensure a safe stacks row with zero items and clear warning
+      const fb = await ensureFallbackStack(submission, [
+        "Generation temporarily failed (map on undefined). Please retry.",
+      ]);
+      return NextResponse.json(
+        {
+          ok: true,
+          mode,
+          user_tier: tier,
+          stack: fb,
+          itemsInserted: 0,
+          ai: { markdown: fb.markdown, raw: fb.raw },
+        },
+        { status: 200 }
+      );
+    }
 
     // Count items actually written (best-effort)
     const stackId: string | undefined = result?.raw?.stack_id;
