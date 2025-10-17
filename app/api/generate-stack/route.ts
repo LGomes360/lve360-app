@@ -4,9 +4,10 @@
 // Accepts body:
 //   - submissionId: UUID (preferred)
 //   - OR tally_submission_id: short Tally id (e.g. "jaJMeJQ")
-// Returns JSON: { ok: true, stack, itemsInserted, ai }
+// Returns JSON: { ok: true, mode, user_tier, stack, itemsInserted, ai }
 // Notes:
-// - Premium gate checks users.tier === 'premium'
+// - Free users ARE allowed to generate their Blueprint report
+// - Premium users get full stack (free can be capped by maxItems hint)
 // - Robust tally resolution handles o↔0 typo tail and webhook lag
 // -----------------------------------------------------------------------------
 
@@ -15,7 +16,7 @@ import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generateStackForSubmission } from "@/lib/generateStack";
 
-// --- Helpers -----------------------------------------------------------------
+// ---- helpers ----------------------------------------------------------------
 
 function normalizeTallyCandidates(id?: string | null): string[] {
   if (!id) return [];
@@ -25,8 +26,8 @@ function normalizeTallyCandidates(id?: string | null): string[] {
   const last = a[a.length - 1];
   const flipped =
     last === "o" ? (() => { a[a.length - 1] = "0"; return a.join(""); })()
-    : last === "0" ? (() => { a[a.length - 1] = "o"; return a.join(""); })()
-    : null;
+  : last === "0" ? (() => { a[a.length - 1] = "o"; return a.join(""); })()
+  : null;
   const set = new Set<string>([s]);
   if (flipped && flipped !== s) set.add(flipped);
   return Array.from(set);
@@ -112,7 +113,7 @@ async function logFailure(source: string, message: string, payload: any) {
   }
 }
 
-// --- Handler -----------------------------------------------------------------
+// ---- handler ----------------------------------------------------------------
 
 export async function POST(req: NextRequest) {
   let submissionId: string | null = null;
@@ -143,7 +144,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: msg }, { status: 400 });
     }
 
-    // Load submission to get user_id for Premium gating
+    // Load submission (may or may not have user_id yet; Free users still allowed)
     const submission = await fetchSubmissionBasics(submissionId);
     if (!submission?.id) {
       const msg = `Submission ${submissionId} not found`;
@@ -151,31 +152,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: msg }, { status: 404 });
     }
 
-    // --- Premium Gate: users.tier must be 'premium'
-    if (!submission.user_id) {
-      const msg = `Submission ${submissionId} has no user_id`;
-      await logFailure("generate-stack", msg, { submissionId, submission });
-      return NextResponse.json({ ok: false, error: msg }, { status: 400 });
+    // Determine tier & mode — DO NOT block Free users
+    let tier: string = "free";
+    if (submission.user_id) {
+      const user = await fetchUserTierById(submission.user_id);
+      tier = (user?.tier ?? "free") as string;
     }
-
-    const user = await fetchUserTierById(submission.user_id);
-    if (!user) {
-      const msg = `User ${submission.user_id} not found`;
-      await logFailure("generate-stack", msg, { submissionId, submission });
-      return NextResponse.json({ ok: false, error: msg }, { status: 404 });
-    }
-
-    if (user.tier !== "premium") {
-      const msg = "User is not premium";
-      // You could also include upgrade hints here if desired
-      return NextResponse.json(
-        { ok: false, error: msg, user_tier: user.tier ?? null },
-        { status: 403 }
-      );
-    }
+    const mode = tier === "premium" ? "premium" : "free";
 
     // Generate + persist via library (single source of truth)
-    const result = await generateStackForSubmission(submissionId);
+    // Pass tier-aware hints if your generator supports it; otherwise it can ignore.
+    const genFn = generateStackForSubmission as any;
+    const result = await genFn(submissionId, {
+      mode,                           // "free" | "premium"
+      maxItems: mode === "free" ? 3 : undefined, // optional cap for Free
+    });
 
     // Count items actually written
     const stackId = result?.raw?.stack_id as string | undefined;
@@ -184,6 +175,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         ok: true,
+        mode,
+        user_tier: tier,
         stack: result,
         itemsInserted,
         ai: { markdown: result?.markdown ?? null, raw: result?.raw ?? null },
