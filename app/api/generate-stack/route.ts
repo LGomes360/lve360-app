@@ -4,28 +4,53 @@
 // Accepts body:
 //   - submissionId: UUID (preferred)
 //   - OR tally_submission_id: short Tally id (e.g. "jaJMeJQ")
-//
 // Returns JSON: { ok: true, stack, itemsInserted, ai }
+// Notes:
+// - Premium gate checks users.tier === 'premium'
+// - Robust tally resolution handles o↔0 typo tail and webhook lag
 // -----------------------------------------------------------------------------
+
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generateStackForSubmission } from "@/lib/generateStack";
 
+// --- Helpers -----------------------------------------------------------------
+
+function normalizeTallyCandidates(id?: string | null): string[] {
+  if (!id) return [];
+  const s = String(id).trim();
+  if (!s) return [];
+  const a = s.split("");
+  const last = a[a.length - 1];
+  const flipped =
+    last === "o" ? (() => { a[a.length - 1] = "0"; return a.join(""); })()
+    : last === "0" ? (() => { a[a.length - 1] = "o"; return a.join(""); })()
+    : null;
+  const set = new Set<string>([s]);
+  if (flipped && flipped !== s) set.add(flipped);
+  return Array.from(set);
+}
+
 // Poll Supabase briefly to wait for a row to exist (covers webhook lag)
-async function waitForSubmission(tallyId: string, timeoutMs = 7000) {
+async function waitForSubmissionByTally(
+  tallyShort: string,
+  timeoutMs = 7000
+): Promise<string | null> {
   const start = Date.now();
   let delay = 200; // ms
+  const candidates = normalizeTallyCandidates(tallyShort);
+
   while (Date.now() - start < timeoutMs) {
     const { data, error } = await supabaseAdmin
       .from("submissions")
-      .select("id")
-      .eq("tally_submission_id", tallyId)
+      .select("id,tally_submission_id")
+      .in("tally_submission_id", candidates)
       .limit(1)
       .maybeSingle();
 
     if (error) {
-      console.error("Error checking submission:", error);
+      console.error("[generate-stack] Error checking submission:", error);
       break;
     }
     if (data?.id) return data.id;
@@ -36,76 +61,139 @@ async function waitForSubmission(tallyId: string, timeoutMs = 7000) {
   return null;
 }
 
-export async function POST(req: NextRequest) {
+async function fetchSubmissionBasics(submissionId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("submissions")
+    .select("id,user_id,user_email,tally_submission_id")
+    .eq("id", submissionId)
+    .maybeSingle();
+
+  if (error) throw new Error(`DB error reading submission: ${error.message}`);
+  return data; // may be null if not found
+}
+
+async function fetchUserTierById(userId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("users")
+    .select("id,tier")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) throw new Error(`DB error reading user: ${error.message}`);
+  return data; // {id,tier} | null
+}
+
+async function countItemsForStack(stackId: string): Promise<number> {
+  const { count, error } = await supabaseAdmin
+    .from("stacks_items")
+    .select("*", { count: "exact", head: true })
+    .eq("stack_id", stackId);
+
+  if (error) {
+    console.error("[generate-stack] Count error:", error);
+    return 0;
+  }
+  return count ?? 0;
+}
+
+async function logFailure(source: string, message: string, payload: any) {
   try {
-    const body = await req.json().catch(() => ({}));
-    let submissionId =
+    await supabaseAdmin.from("webhook_failures").insert({
+      id: crypto.randomUUID(),
+      source,
+      event_type: "generator_error",
+      error_message: message?.slice(0, 500) ?? "Unknown error",
+      severity: "error",
+      payload_json: JSON.stringify(payload ?? {}),
+    });
+  } catch (e) {
+    // best-effort logging; never throw here
+    console.warn("[generate-stack] failed to log error:", e);
+  }
+}
+
+// --- Handler -----------------------------------------------------------------
+
+export async function POST(req: NextRequest) {
+  let submissionId: string | null = null;
+
+  try {
+    const body = await req.json().catch(() => ({} as any));
+    submissionId =
       (body.submissionId ?? body.submission_id ?? "")?.toString().trim() || null;
     const tallyShort =
-      (
-        body.tally_submission_id ??
-        body.tallyId ??
-        body.tally ??
-        ""
-      )?.toString().trim() || null;
+      (body.tally_submission_id ?? body.tallyId ?? body.tally ?? "")?.toString().trim() ||
+      null;
 
-    console.log("[API] generate-stack received:", { submissionId, tallyShort });
+    console.log("[API] /api/generate-stack received:", { submissionId, tallyShort });
 
-    // Resolve tally → UUID if needed
+    // Resolve tally → UUID if needed (with webhook lag tolerance)
     if (!submissionId && tallyShort) {
-      // 👇 new: wait briefly in case webhook hasn’t inserted yet
-      submissionId = await waitForSubmission(tallyShort);
-
+      submissionId = await waitForSubmissionByTally(tallyShort);
       if (!submissionId) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: `Submission not found yet for tally_submission_id=${tallyShort}`,
-          },
-          { status: 409 } // conflict: likely still processing
-        );
+        const msg = `Submission not found yet for tally_submission_id=${tallyShort}`;
+        await logFailure("generate-stack", msg, { body });
+        return NextResponse.json({ ok: false, error: msg }, { status: 409 });
       }
-      console.log("[API] Resolved tally_submission_id →", submissionId);
+      console.log("[API] Resolved tally_submission_id ->", submissionId);
     }
 
     if (!submissionId) {
+      const msg = "submissionId required (or provide tally_submission_id)";
+      return NextResponse.json({ ok: false, error: msg }, { status: 400 });
+    }
+
+    // Load submission to get user_id for Premium gating
+    const submission = await fetchSubmissionBasics(submissionId);
+    if (!submission?.id) {
+      const msg = `Submission ${submissionId} not found`;
+      await logFailure("generate-stack", msg, { submissionId });
+      return NextResponse.json({ ok: false, error: msg }, { status: 404 });
+    }
+
+    // --- Premium Gate: users.tier must be 'premium'
+    if (!submission.user_id) {
+      const msg = `Submission ${submissionId} has no user_id`;
+      await logFailure("generate-stack", msg, { submissionId, submission });
+      return NextResponse.json({ ok: false, error: msg }, { status: 400 });
+    }
+
+    const user = await fetchUserTierById(submission.user_id);
+    if (!user) {
+      const msg = `User ${submission.user_id} not found`;
+      await logFailure("generate-stack", msg, { submissionId, submission });
+      return NextResponse.json({ ok: false, error: msg }, { status: 404 });
+    }
+
+    if (user.tier !== "premium") {
+      const msg = "User is not premium";
+      // You could also include upgrade hints here if desired
       return NextResponse.json(
-        {
-          ok: false,
-          error: "submissionId required (or provide tally_submission_id)",
-        },
-        { status: 400 }
+        { ok: false, error: msg, user_tier: user.tier ?? null },
+        { status: 403 }
       );
     }
 
-    // ✅ Single source of truth — let the lib handle all DB writes
+    // Generate + persist via library (single source of truth)
     const result = await generateStackForSubmission(submissionId);
 
     // Count items actually written
-    let itemsInserted = 0;
-    if (result?.raw?.stack_id) {
-      const { count } = await supabaseAdmin
-        .from("stacks_items")
-        .select("*", { count: "exact", head: true })
-        .eq("stack_id", result.raw.stack_id);
-
-      itemsInserted = count ?? 0;
-    }
+    const stackId = result?.raw?.stack_id as string | undefined;
+    const itemsInserted = stackId ? await countItemsForStack(stackId) : 0;
 
     return NextResponse.json(
       {
         ok: true,
         stack: result,
         itemsInserted,
-        ai: { markdown: result.markdown, raw: result.raw },
+        ai: { markdown: result?.markdown ?? null, raw: result?.raw ?? null },
       },
       { status: 200 }
     );
   } catch (err: any) {
-    console.error("Unhandled error in generate-stack:", err);
-    return NextResponse.json(
-      { ok: false, error: String(err?.message ?? err) },
-      { status: 500 }
-    );
+    const msg = String(err?.message ?? err ?? "Unknown error");
+    console.error("[generate-stack] Unhandled error:", err);
+    await logFailure("generate-stack", msg, { submissionId });
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
