@@ -800,9 +800,20 @@ export async function generateStackForSubmission(
 
   // --- Tier cap (Free vs Premium) BEFORE safety/enrichment -------------------
   const cappedItems = asArray(parsedItems).slice(0, cap);
+  
+  type SafetyStatus = "safe" | "warning" | "error";
+  interface SafetyOutput {
+    cleaned: StackItem[];
+    status: SafetyStatus;
+  }
+  
+  function coerceSafetyStatus(s: any): SafetyStatus {
+    return s === "safe" ? "safe" : s === "error" ? "error" : "warning";
+  }
 
+  
   // --- Safety checks (deep) --------------------------------------------------
-  const safetyInput = {
+  const safetyInput = { /* keep your existing fields exactly */ 
     medications: Array.isArray((sub as any).medications)
       ? (sub as any).medications.map((m: any) => m.med_name || "")
       : [],
@@ -819,26 +830,27 @@ export async function generateStackForSubmission(
         : null,
     brand_pref: (sub as any)?.preferences?.brand_pref ?? null,
     dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
-    is_premium: mode === "premium" // override with route-provided mode
+    is_premium: mode === "premium",
   };
+  
+  let safetyStatus: SafetyStatus = "warning";
+  let cleanedItems: StackItem[] = cappedItems;
+  
+  try {
+    const res = (await applySafetyChecks(safetyInput, cappedItems)) as Partial<SafetyOutput> | null;
+    cleanedItems = asArray<StackItem>((res?.cleaned as StackItem[]) ?? cappedItems);
+    safetyStatus = coerceSafetyStatus(res?.status);
+  } catch (e) {
+    console.warn("applySafetyChecks failed; continuing with uncautioned items.", e);
+  }
+  
+  // Normalize names before enrichment so aliases resolve correctly (no spread on unknown)
+  const normalizedForLinks: StackItem[] = cleanedItems.map((it) => {
+    const copy: StackItem = { ...it };
+    copy.name = normalizeSupplementName(copy.name ?? "");
+    return copy;
+  });
 
-  const safetyResult = await (async () => {
-    try {
-      const res = await applySafetyChecks(safetyInput, cappedItems);
-      // Some earlier crashes were ".map" on undefined — guard here:
-      const cleaned = asArray(res?.cleaned);
-      return { status: res?.status ?? "warning", cleaned };
-    } catch (e) {
-      console.warn("applySafetyChecks failed; continuing with uncautioned items.", e);
-      return { status: "warning" as const, cleaned: cappedItems };
-    }
-  })();
-
-  // Normalize names before enrichment so aliases resolve correctly
-  const normalizedForLinks = asArray(safetyResult.cleaned).map((it) => ({
-    ...it,
-    name: normalizeSupplementName(it?.name ?? ""),
-  }));
 
   // Enrich with links (expects to fill link_budget/trusted/clean/default and possibly link_fullscript)
   const enriched = await (async () => {
