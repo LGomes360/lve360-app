@@ -902,7 +902,7 @@ export async function generateStackForSubmission(
           tokens_used: tokensUsed,
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
-          safety_status: safetyResult.status,
+          safety_status: safetyStatus,
           summary: md,
           sections: {
             markdown: md,
@@ -986,7 +986,7 @@ export async function generateStackForSubmission(
   const raw = {
     ...(llmRaw ?? {}),
     stack_id: stackId ?? undefined,
-    safety_status: safetyResult.status,
+    safety_status: safetyStatus,
     mode,
     item_cap: cap,
   };
