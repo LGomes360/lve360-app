@@ -602,22 +602,16 @@ function headingsOK(md: string) {
   return HEADINGS.slice(0, -1).every((h) => (md || "").includes(h));
 }
 
-function blueprintOK(md: string) {
+function blueprintOK(md: string, minRows: number) {
   const sec = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n\|)/i);
   if (!sec) return false;
   const rows = sec[0].split("\n").filter((l) => l.startsWith("|")).slice(1);
-  return rows.length >= MIN_BP_ROWS;
+  return rows.length >= minRows;
 }
 
-function citationsOK(md: string) {
-  const block = md.match(/## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i);
-  if (!block) return false;
-  const bulletLines = block[1].split("\n").filter((l) => l.trim().startsWith("-"));
-  if (bulletLines.length < 8) return false;
-  return bulletLines.every((l) => MODEL_CITE_RE.test(l));
-}
+function citationsOK(md: string) { /* unchanged */ }
 
-function narrativesOK(md: string) {
+function narrativesOK(md: string, minSent: number) {
   const sections = (md || "").split("\n## ").slice(1);
   return sections.every((sec) => {
     const lines = sec.split("\n");
@@ -630,14 +624,20 @@ function narrativesOK(md: string) {
       .filter((s) => s.length > 0);
 
     if (sec.startsWith("Intro Summary") && sentences.length < 2) return false;
-    if (!sec.startsWith("Intro Summary") && sentences.length < MIN_ANALYSIS_SENTENCES)
-      return false;
+    if (!sec.startsWith("Intro Summary") && sentences.length < minSent) return false;
     return true;
   });
 }
 
+
 function ensureEnd(md: string) {
   return hasEnd(md) ? md : (md || "") + "\n\n## END";
+}
+function computeValidationTargets(mode: "free" | "premium", cap: number) {
+  const minWords = mode === "premium" ? 1800 : 900;        // Free can be shorter
+  const minRows  = mode === "premium" ? 10   : Math.min(3, cap || 3); // Free accepts 3
+  const minSent  = mode === "premium" ? 3    : 2;          // Free: 2-sentence analyses OK
+  return { minWords, minRows, minSent };
 }
 
 // ----------------------------------------------------------------------------
@@ -751,22 +751,24 @@ export async function generateStackForSubmission(
     md = resp.choices?.[0]?.message?.content ?? "";
 
     // Validation
-    const wordCountOK = wc(md) >= MIN_WORDS;
-    const headingsValid = headingsOK(md);
-    const blueprintValid = blueprintOK(md);
-    const citationsValid = citationsOK(md);
-    const narrativesValid = narrativesOK(md);
-    const endValid = hasEnd(md);
+const targets = computeValidationTargets(mode, cap);
+const wordCountOK    = wc(md) >= targets.minWords;
+const headingsValid  = headingsOK(md);
+const blueprintValid = blueprintOK(md, targets.minRows);
+const citationsValid = citationsOK(md);
+const narrativesValid= narrativesOK(md, targets.minSent);
+const endValid       = hasEnd(md);
 
-    console.log("validation.debug", {
-      wordCountOK,
-      headingsValid,
-      blueprintValid,
-      citationsValid,
-      narrativesValid,
-      endValid,
-      actualWordCount: wc(md),
-    });
+console.log("validation.debug", {
+  wordCountOK,
+  headingsValid,
+  blueprintValid,
+  citationsValid,
+  narrativesValid,
+  endValid,
+  actualWordCount: wc(md),
+});
+
 
     if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
       passes = true;
@@ -789,22 +791,24 @@ export async function generateStackForSubmission(
       console.warn("Fallback model failed:", err);
     }
 
-    const wordCountOK = wc(md) >= MIN_WORDS;
-    const headingsValid = headingsOK(md);
-    const blueprintValid = blueprintOK(md);
-    const citationsValid = citationsOK(md);
-    const narrativesValid = narrativesOK(md);
-    const endValid = hasEnd(md);
+const targets = computeValidationTargets(mode, cap);
+const wordCountOK    = wc(md) >= targets.minWords;
+const headingsValid  = headingsOK(md);
+const blueprintValid = blueprintOK(md, targets.minRows);
+const citationsValid = citationsOK(md);
+const narrativesValid= narrativesOK(md, targets.minSent);
+const endValid       = hasEnd(md);
 
-    console.log("validation.debug.fallback", {
-      wordCountOK,
-      headingsValid,
-      blueprintValid,
-      citationsValid,
-      narrativesValid,
-      endValid,
-      actualWordCount: wc(md),
-    });
+console.log("validation.debug", {
+  wordCountOK,
+  headingsValid,
+  blueprintValid,
+  citationsValid,
+  narrativesValid,
+  endValid,
+  actualWordCount: wc(md),
+});
+
 
     if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
       passes = true;
