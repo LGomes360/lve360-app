@@ -1,686 +1,992 @@
-// src/lib/generateStack.ts
-// -----------------------------------------------------------------------------
-// LVE360 Stack Generator (comprehensive, TS-safe)
-//
-// What this file does:
-// 1) Loads a normalized submission by id.
-// 2) Generates a supplement stack (LLM if available -> deterministic seeds).
-// 3) Enriches items with affiliate links (Amazon, Fullscript).
-// 4) Runs a Safety Engine (pregnancy + DB-backed interactions).
-// 5) Persists to `stacks` (single row per submission_id) and syncs `stacks_items`.
-// 6) Builds a Markdown "Blueprint" and validates it; applies fallback tightening.
-// 7) Returns { markdown, raw: { stack_id, items, safety_status, safety_warnings } }.
-//
-// Tier model:
-// - options.mode: "free" | "premium"  (passed from /api route)
-// - options.maxItems: optional cap (e.g., 3 for free)
-//   If omitted, defaults to 3 for free, 12 for premium.
-//
-// Notes:
-// - All DB interactions are best-effort and defensive (no `.map` on undefined).
-// - If tables like `interactions` or `stacks_items` are absent or differ, we
-//   swallow errors and keep `stacks.items` JSON as the source of truth.
-// - This file is intentionally verbose and explicit to avoid TypeScript barking.
-// -----------------------------------------------------------------------------
+/* eslint-disable @typescript-eslint/consistent-type-imports */
+/* eslint-disable no-console */
+// ----------------------------------------------------------------------------
+// LVE360 — generateStack.ts (REWRITTEN, HARDENED, TIER-AWARE)
+// Purpose: Generate validated Markdown report, parse StackItems, run safety,
+// affiliate enrichment (Amazon category links + Fullscript), attach evidence,
+// override Markdown Evidence section, and persist into Supabase.
+// ----------------------------------------------------------------------------
 
+import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
+import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
+import { ChatCompletionMessageParam } from "openai/resources";
+import { applySafetyChecks } from "@/lib/safetyCheck";
+import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getTopCitationsFor } from "@/lib/evidence";
 
-// ---------- Types ------------------------------------------------------------
+// --- Curated evidence index (JSON) ------------------------------------------
+import evidenceIndex from "@/evidence/evidence_index_top3.json";
 
+// ----------------------------------------------------------------------------
+// Config
+// ----------------------------------------------------------------------------
+const TODAY = "2025-09-21"; // deterministic for tests
+const MIN_WORDS = 1800;
+const MIN_BP_ROWS = 10;
+const MIN_ANALYSIS_SENTENCES = 3;
+
+// Model-generated refs allowed (strict)
+const MODEL_CITE_RE =
+  /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/?|doi\.org\/\S+)\b/;
+
+// Curated refs allowed (broader)
+const CURATED_CITE_RE =
+  /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/?|pmc\.ncbi\.nlm\.nih\.gov\/articles\/\S+|doi\.org\/\S+|jamanetwork\.com\/\S+|biomedcentral\.com\/\S+|bmcpsychiatry\.biomedcentral\.com\/\S+|journals\.plos\.org\/\S+|nature\.com\/\S+|sciencedirect\.com\/\S+|amjmed\.com\/\S+|koreascience\.kr\/\S+|dmsjournal\.biomedcentral\.com\/\S+|researchmgt\.monash\.edu\/\S+)\b/i;
+
+// Markdown headings contract
+const HEADINGS = [
+  "## Intro Summary",
+  "## Goals",
+  "## Contraindications & Med Interactions",
+  "## Current Stack",
+  "## Your Blueprint Recommendations",
+  "## Dosing & Notes",
+  "## Evidence & References",
+  "## Shopping Links",
+  "## Follow-up Plan",
+  "## Lifestyle Prescriptions",
+  "## Longevity Levers",
+  "## This Week Try",
+  "## END",
+];
+
+// ----------------------------------------------------------------------------
+// Types
+// ----------------------------------------------------------------------------
 export type GenerateMode = "free" | "premium";
 export interface GenerateOptions {
-  mode?: GenerateMode;
-  maxItems?: number;     // hard cap (e.g., 3 for Free)
-  forceRegenerate?: boolean; // if true, we will overwrite even if a prior stack exists
-}
-
-type Json = Record<string, any>;
-
-interface SubmissionRow {
-  id: string;
-  user_id: string | null;
-  user_email: string | null;
-
-  // Core normalized fields (best-effort; may be null/undefined on legacy rows)
-  goals?: string | null;
-  conditions?: string[] | null;
-  medications?: string[] | null;  // array of strings or structured objects, but we treat as string names
-  supplements?: string[] | null;  // current self-reported supplements
-  hormones?: string[] | null;
-  pregnant?: boolean | null;
-  allergies?: string[] | null;
-  sex?: string | null;
-
-  // Quick ratings & prefs
-  sleep_rating?: number | null;
-  energy_rating?: number | null;
-  dosing_pref?: string | null;
-  brand_pref?: string | null;
-
-  // Any other passthrough from webhook mapping:
-  [k: string]: any;
+  mode?: GenerateMode;       // default inferred from submission; route will pass
+  maxItems?: number;         // hard cap (e.g., 3 for free)
+  forceRegenerate?: boolean; // keep for parity with future use
 }
 
 export interface StackItem {
   name: string;
-  dose?: string;
-  timing?: string;
-  rationale?: string;
-  citations?: string[];      // refs/URLs/PMIDs
-  notes?: string;
-  order_index?: number;
+  dose?: string | null;
+  dose_parsed?: { amount?: number; unit?: string };
+  timing?: string | null;
+  rationale?: string | null;
+  notes?: string | null;
+  caution?: string | null;
+  citations?: string[] | null;
 
-  // Affiliate enrichment
-  amazon_url?: string | null;
-  fullscript_url?: string | null;
+  // Category links (populated by enrichAffiliateLinks from public.supplements)
+  link_budget?: string | null;
+  link_trusted?: string | null;
+  link_clean?: string | null;
+  link_default?: string | null;
 
-  // Safety
-  safety_flag?: "safe" | "warning" | "avoid";
-  safety_notes?: string[];
+  // Destination links persisted into stacks_items
+  link_amazon?: string | null;     // <- chosen from the 4 categories
+  link_fullscript?: string | null; // <- as provided by enrichment (if any)
+  link_thorne?: string | null;
+  link_other?: string | null;
+
+  cost_estimate?: number | null;
 }
 
-interface GeneratedResult {
-  stack_id: string;
-  items: StackItem[];
-  safety_status: "safe" | "warning" | "error";
-  safety_warnings: string[];
+interface EvidenceEntry {
+  url?: string | null;
+  [key: string]: any;
 }
 
-// ---------- Utilities (pure, TS-safe) ---------------------------------------
+type EvidenceIndex = Record<string, EvidenceEntry[]>;
+const EVIDENCE: EvidenceIndex = (evidenceIndex as unknown) as EvidenceIndex;
 
-const asArray = <T>(v: T[] | null | undefined): T[] => (Array.isArray(v) ? v : []);
-const nonEmpty = (s?: string | null) => (typeof s === "string" && s.trim().length ? s.trim() : "");
+// ----------------------------------------------------------------------------
+// Utilities
+// ----------------------------------------------------------------------------
+const wc = (t: string) => (t || "").trim().split(/\s+/).filter(Boolean).length;
+const hasEnd = (t: string) => (t || "").includes("## END");
+const seeDN = "See Dosing & Notes";
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
-const uniq = <T>(arr: T[]) => Array.from(new Set(arr));
+const asArray = <T>(v: T[] | null | undefined): T[] => (Array.isArray(v) ? v : []);
 
-function safeInt(n: unknown, def = 0): number {
-  const x = typeof n === "number" ? n : Number(n);
-  return Number.isFinite(x) ? x : def;
+function cleanName(raw: string): string {
+  if (!raw) return "";
+  return raw.replace(/[*_`#]/g, "").replace(/\s+/g, " ").trim();
 }
 
-function randomUUID(): string {
-  // Avoid TS/node polyfill differences across runtimes
-  try {
-    // @ts-ignore
-    if (globalThis && typeof globalThis.crypto?.randomUUID === "function") {
-      // @ts-ignore
-      return globalThis.crypto.randomUUID();
-    }
-  } catch {}
-  // Poor-man fallback
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
-    const r = (Math.random() * 16) | 0; // not cryptographic
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+function age(dob: string | null) {
+  if (!dob) return null;
+  const d = new Date(dob);
+  const t = new Date(TODAY);
+  let a = t.getFullYear() - d.getFullYear();
+  if (t < new Date(t.getFullYear(), d.getMonth(), d.getDate())) a--;
+  return a;
 }
 
-// ---------- Markdown builder & Validator ------------------------------------
+function extractUserId(sub: any): string | null {
+  return sub?.user_id ?? (typeof sub.user === "object" ? sub.user?.id : null) ?? null;
+}
 
-function toMarkdown(
-  sub: SubmissionRow,
-  items: StackItem[],
-  status: string,
-  warnings: string[]
-): string {
-  const out: string[] = [];
-  out.push(`# LVE360 Personalized Blueprint`);
-  if (sub.user_email) out.push(`**Email:** ${sub.user_email}`);
-  if (sub.goals) out.push(`**Goals:** ${sub.goals}`);
-  out.push(`**Safety:** ${status.toUpperCase()}`);
-  if (warnings.length) {
-    out.push(`**Warnings:**`);
-    for (const w of warnings) out.push(`- ${w}`);
+function normalizeTiming(raw?: string | null): string | null {
+  if (!raw) return null;
+  const s = raw.toLowerCase();
+  if (/\bam\b|morning/.test(s)) return "AM";
+  if (/\bpm\b|evening|night/.test(s)) return "PM";
+  if (/am\/pm|both|split|\bbid\b/.test(s)) return "AM/PM";
+  return raw.trim();
+}
+
+function normalizeUnit(u?: string | null) {
+  const s = (u ?? "").toLowerCase();
+  if (s === "μg" || s === "mcg" || s === "ug") return "mcg";
+  if (s === "iu") return "IU";
+  if (s === "mg" || s === "g") return s;
+  return s || null;
+}
+
+function parseDose(dose?: string | null): { amount?: number; unit?: string } {
+  if (!dose) return {};
+  const cleaned = dose.replace(/[,]/g, " ").replace(/\s+/g, " ");
+  const matches = cleaned.match(/(\d+(?:\.\d+)?)/g);
+  if (!matches) return {};
+  const amount = parseFloat(matches[matches.length - 1]);
+  const unitMatch = cleaned.match(/(mcg|μg|ug|mg|g|iu)\b/i);
+  const rawUnit = unitMatch ? unitMatch[1] : "";
+  let unit = normalizeUnit(rawUnit);
+  let val = amount;
+  if (unit === "g") {
+    val = amount * 1000;
+    unit = "mg";
   }
-  out.push("");
-  out.push(`## Your Stack`);
-  asArray(items).forEach((it, idx) => {
-    const title = `### ${idx + 1}. ${it.name}${it.dose ? ` — ${it.dose}` : ""}`;
-    out.push(title);
-    if (it.timing) out.push(`- **Timing:** ${it.timing}`);
-    if (it.rationale) out.push(`- **Why:** ${it.rationale}`);
-    if (it.amazon_url) out.push(`- **Amazon:** ${it.amazon_url}`);
-    if (it.fullscript_url) out.push(`- **Fullscript:** ${it.fullscript_url}`);
-    if (asArray(it.citations).length) {
-      out.push(`- **Citations:**`);
-      for (const c of asArray(it.citations)) out.push(`  - ${c}`);
-    }
-    if (it.safety_flag && it.safety_flag !== "safe") {
-      out.push(`- **Safety:** ${it.safety_flag.toUpperCase()}`);
-    }
-    if (it.notes) out.push(`- **Notes:** ${it.notes}`);
-    out.push("");
-  });
-  return out.join("\n");
+  return { amount: val, unit: unit ?? undefined };
 }
 
-// ---- Validator (restores your validation.debug logs) ------------------------
+// ----------------------------------------------------------------------------
+// Name normalization + aliasing for evidence lookup
+// ----------------------------------------------------------------------------
+function normalizeSupplementName(name: string): string {
+  const n = (name || "").toLowerCase().replace(/[.*_`#]/g, "").trim();
+  const collapsed = n.replace(/\s+/g, " ");
 
-const MAX_WORDS = 1200;
-const MIN_WORDS = 600;
+  if (collapsed === "l") return "L-Theanine";
+  if (collapsed === "b") return "B-Vitamins";
 
-function wordCount(s: string): number {
-  return (s || "").trim().split(/\s+/).filter(Boolean).length;
-}
-function hasSection(md: string, title: string): boolean {
-  const re = new RegExp(`^\\s*##\\s*${title}\\b`, "im");
-  return re.test(md);
-}
-function validHeadings(md: string): boolean {
-  const h1 = /^\s*#\s+.+/m.test(md);
-  const h2 = /^\s*##\s+.+/m.test(md);
-  return h1 && h2;
-}
-function citationsPresent(md: string): boolean {
-  return /Citations:\s*$/im.test(md) || /\bhttps?:\/\/\S+/i.test(md);
-}
-function narrativesPresent(md: string): boolean {
-  return /-\s*\*\*Why:\*\*/i.test(md);
-}
-function blueprintPresent(md: string): boolean {
-  return hasSection(md, "Your Stack");
-}
-function endMarkerValid(_md: string): boolean {
-  return true; // placeholder if you later adopt explicit end tokens
+  // Explicit catch for Vitamin B Complex
+  if (collapsed.includes("vitamin b complex") || collapsed.includes("b complex") || collapsed.includes("b-vitamins")) {
+    return "B-Vitamins";
+  }
+
+  if (collapsed.startsWith("omega")) return "Omega-3";
+  if (collapsed.startsWith("vitamin d")) return "Vitamin D";
+  if (collapsed.startsWith("mag")) return "Magnesium";
+  if (collapsed.startsWith("ashwa")) return "Ashwagandha";
+  if (collapsed.startsWith("bacopa")) return "Bacopa Monnieri";
+  if (collapsed.startsWith("coq")) return "CoQ10";
+  if (collapsed.startsWith("rhodiola")) return "Rhodiola Rosea";
+  if (collapsed.startsWith("ginkgo")) return "Ginkgo Biloba";
+  if (collapsed.startsWith("zinc")) return "Zinc";
+
+  if (/^acetyl\s*l\b/.test(collapsed) || collapsed.includes("acetyl l carnitine") || collapsed.includes("acetyl-l-carnitine"))
+    return "Acetyl-L-carnitine";
+
+  return name.trim();
 }
 
-function validateMarkdownBlueprint(md: string) {
-  const actualWordCount = wordCount(md);
-  const wordCountOK = actualWordCount >= MIN_WORDS && actualWordCount <= MAX_WORDS;
-  const headingsValid = validHeadings(md);
-  const blueprintValid = blueprintPresent(md);
-  const citationsValid = citationsPresent(md);
-  const narrativesValid = narrativesPresent(md);
-  const endValid = endMarkerValid(md);
-  return {
-    wordCountOK,
-    headingsValid,
-    blueprintValid,
-    citationsValid,
-    narrativesValid,
-    endValid,
-    actualWordCount,
+const ALIAS_MAP: Record<string, string> = {
+  "Omega-3": "omega-3 (epa+dha)",
+  "Vitamin D": "vitamin d3",
+  "Magnesium": "magnesium (glycinate)",
+  "Ashwagandha": "ashwagandha (ksm-66 or similar)",
+  "Bacopa Monnieri": "bacopa monnieri (50% bacosides)",
+  "CoQ10": "coq10 (ubiquinone)",
+  "Rhodiola Rosea": "rhodiola rosea (3% rosavins)",
+  "Ginkgo Biloba": "ginkgo biloba (24/6)",
+  "Zinc": "zinc (picolinate)",
+
+  // Vitamin B Complex handling
+  "B-Vitamins": "b-complex",
+  "B Vitamins Complex": "b-complex",
+  "Vitamin B Complex": "b-complex",
+
+  "L-Theanine": "l-theanine",
+  "Acetyl-L-carnitine": "acetyl-l-carnitine",
+};
+
+function toSlug(s: string) {
+  return (s || "")
+    .toLowerCase()
+    .replace(/[^\w\s()+/.-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildEvidenceCandidates(normName: string): string[] {
+  const candidates: string[] = [];
+  const alias = ALIAS_MAP[normName];
+  if (alias) candidates.push(alias);
+
+  const lower = toSlug(normName);
+  if (lower) {
+    candidates.push(lower, lower.replace(/\s+/g, "-"), lower.replace(/\s+/g, ""));
+  }
+
+  const expansions: Record<string, string[]> = {
+    "Omega-3": ["omega-3 (epa+dha)", "omega-3", "omega 3"],
+    "Vitamin D": ["vitamin d3", "vitamin d", "vitamin-d"],
+    "Magnesium": ["magnesium (glycinate)", "magnesium"],
+    "Ashwagandha": ["ashwagandha (ksm-66 or similar)", "ashwagandha"],
+    "Bacopa Monnieri": ["bacopa monnieri (50% bacosides)", "bacopa monnieri"],
+    "CoQ10": ["coq10 (ubiquinone)", "coq10"],
+    "Rhodiola Rosea": ["rhodiola rosea (3% rosavins)", "rhodiola rosea"],
+    "Ginkgo Biloba": ["ginkgo biloba (24/6)", "ginkgo biloba"],
+    "Zinc": ["zinc (picolinate)", "zinc"],
+    "B-Vitamins": ["b-complex", "b vitamins", "b-vitamins"],
+    "L-Theanine": ["l-theanine", "l theanine"],
+    "Acetyl-L-carnitine": ["acetyl-l-carnitine", "acetyl l carnitine", "alc"],
   };
+  if (expansions[normName]) candidates.push(...expansions[normName]);
+
+  return Array.from(new Set(candidates)).filter(Boolean);
 }
 
-function tightenMarkdown(md: string): string {
-  const words = (md || "").split(/\s+/);
-  if (words.length > MAX_WORDS) {
-    return words.slice(0, MAX_WORDS).join(" ") + "\n\n_Trimmed to meet length limits._";
+// ----------------------------------------------------------------------------
+// Evidence helpers
+// ----------------------------------------------------------------------------
+function sanitizeCitationsModel(urls: string[]): string[] {
+  return asArray(urls)
+    .map((u) => (typeof u === "string" ? u.trim() : ""))
+    .filter((u) => MODEL_CITE_RE.test(u));
+}
+
+function getTopCitationsFromJson(key: string, limit = 3): string[] {
+  const arr = EVIDENCE[key] as EvidenceEntry[] | undefined;
+  if (!arr || !Array.isArray(arr)) return [];
+  const urls = arr.map((e) => (e?.url || "").trim()).filter((u) => CURATED_CITE_RE.test(u));
+  return urls.slice(0, limit);
+}
+
+function lookupCuratedForCandidates(candidates: string[], limit = 3): string[] {
+  for (const key of candidates) {
+    const citations = getTopCitationsFor(key, 2);
+    if (citations.length) return citations;
   }
-  if (words.length < MIN_WORDS) {
-    return (
-      md +
-      `\n\n_Notes:_ This summary is intentionally concise. Future revisions will expand on dosing rationale and evidence links.`
-    );
+  const sluggedCandidates = candidates.map(toSlug);
+  for (const cand of sluggedCandidates) {
+    for (const jsonKey of Object.keys(EVIDENCE)) {
+      const slugKey = toSlug(jsonKey);
+      if (slugKey.includes(cand) || cand.includes(slugKey)) {
+        const hits = getTopCitationsFromJson(jsonKey, limit);
+        if (hits.length) {
+          console.log("evidence.fuzzy_match", { cand, jsonKey, hits });
+          return hits;
+        }
+      }
+    }
   }
-  return md;
+  return [];
 }
 
-function minimalBlueprintFromItems(sub: SubmissionRow, items: StackItem[]): string {
-  // If the primary build fails validation, we can synthesize a minimal but valid blueprint.
-  const warnings: string[] = [];
-  return toMarkdown(sub, items, "warning", warnings);
-}
+// ----------------------------------------------------------------------------
+// attachEvidence
+// ----------------------------------------------------------------------------
+function attachEvidence(item: StackItem): StackItem {
+  const normName = normalizeSupplementName(item.name);
+  const candidates = buildEvidenceCandidates(normName);
 
-// ---------- DB: Load submission + (optional) existing stack ------------------
+  const curatedUrls = lookupCuratedForCandidates(candidates, 3);
+  const modelValid = sanitizeCitationsModel(item.citations ?? []);
+  const final = curatedUrls.length ? curatedUrls : modelValid;
 
-async function getSubmission(submissionId: string): Promise<SubmissionRow> {
-  const { data, error } = await supabaseAdmin
-    .from("submissions")
-    .select(
-      [
-        "id",
-        "user_id",
-        "user_email",
-        "goals",
-        "conditions",
-        "medications",
-        "supplements",
-        "hormones",
-        "pregnant",
-        "allergies",
-        "sex",
-        "sleep_rating",
-        "energy_rating",
-        "dosing_pref",
-        "brand_pref",
-      ].join(",")
-    )
-    .eq("id", submissionId)
-    .maybeSingle();
-
-  if (error) throw new Error(`DB error loading submission: ${error.message}`);
-  if (!data) throw new Error(`Submission ${submissionId} not found`);
-  return data as SubmissionRow;
-}
-
-async function getExistingStackId(submissionId: string): Promise<string | null> {
-  const { data, error } = await supabaseAdmin
-    .from("stacks")
-    .select("id")
-    .eq("submission_id", submissionId)
-    .maybeSingle();
-  if (error) return null;
-  return data?.id ?? null;
-}
-
-// ---------- Generation (LLM optional, deterministic fallback) ----------------
-
-function baseSeedsByGoals(sub: SubmissionRow): StackItem[] {
-  // Deterministic seeds — safe and predictable
-  const commonCitations = [
-    "https://examine.com/supplements/",
-    "https://www.ncbi.nlm.nih.gov/pubmed/",
-  ];
-
-  const mk = (x: Partial<StackItem>, i: number): StackItem => ({
-    name: x.name ?? "Omega-3 (EPA+DHA)",
-    dose: x.dose ?? "1–2 g/day",
-    timing: x.timing ?? "With meals",
-    rationale: x.rationale ?? "General support",
-    citations: asArray(x.citations).length ? x.citations : commonCitations,
-    notes: x.notes,
-    order_index: i,
-    safety_flag: "safe",
-    safety_notes: [],
-    amazon_url: null,
-    fullscript_url: null,
-  });
-
-  const WEIGHT: StackItem[] = [
-    mk({ name: "Creatine Monohydrate", dose: "3–5 g/day", timing: "Anytime", rationale: "Lean mass & strength" }, 0),
-    mk({ name: "Fish Oil (EPA+DHA)", dose: "1–2 g/day", timing: "With meals", rationale: "Cardio-metabolic support" }, 1),
-    mk({ name: "Electrolytes (No Sugar)", dose: "As directed", timing: "During exercise", rationale: "Hydration & performance" }, 2),
-    mk({ name: "Green Tea Extract", dose: "250–500 mg", timing: "AM", rationale: "Metabolic support" }, 3),
-    mk({ name: "Magnesium Glycinate", dose: "200–400 mg/night", timing: "Evening", rationale: "Sleep & recovery" }, 4),
-  ];
-
-  const COGNITION: StackItem[] = [
-    mk({ name: "Omega-3 (EPA+DHA)", dose: "1–2 g/day", timing: "With meals", rationale: "Cognitive support" }, 0),
-    mk({ name: "Citicoline (CDP-Choline)", dose: "250–500 mg", timing: "AM", rationale: "Attention & memory" }, 1),
-    mk({ name: "L-Theanine", dose: "100–200 mg", timing: "With caffeine", rationale: "Smooth focus" }, 2),
-    mk({ name: "Magnesium Glycinate", dose: "200–400 mg/night", timing: "Evening", rationale: "Sleep & relaxation" }, 3),
-    mk({ name: "Rhodiola Rosea", dose: "200–400 mg", timing: "AM", rationale: "Stress/energy resilience" }, 4),
-  ];
-
-  const ENERGY: StackItem[] = [
-    mk({ name: "Rhodiola Rosea", dose: "200–400 mg", timing: "AM", rationale: "Fatigue resistance" }, 0),
-    mk({ name: "CoQ10", dose: "100–200 mg", timing: "With meals", rationale: "Mitochondrial support" }, 1),
-    mk({ name: "Vitamin D3 + K2", dose: "2000 IU + 100 mcg", timing: "With meals", rationale: "General vitality" }, 2),
-    mk({ name: "B-Complex", dose: "Per label", timing: "With meals", rationale: "Energy metabolism" }, 3),
-    mk({ name: "Creatine Monohydrate", dose: "3–5 g/day", timing: "Anytime", rationale: "Power & energy systems" }, 4),
-  ];
-
-  const LONGEVITY: StackItem[] = [
-    mk({ name: "Vitamin D3 + K2", dose: "2000 IU + 100 mcg", timing: "With meals", rationale: "Healthy aging" }, 0),
-    mk({ name: "Omega-3 (EPA+DHA)", dose: "1–2 g/day", timing: "With meals", rationale: "Cardio/brain support" }, 1),
-    mk({ name: "Magnesium Glycinate", dose: "200–400 mg/night", timing: "Evening", rationale: "Sleep & recovery" }, 2),
-    mk({ name: "Creatine Monohydrate", dose: "3–5 g/day", timing: "Anytime", rationale: "Healthy aging & strength" }, 3),
-    mk({ name: "CoQ10", dose: "100–200 mg", timing: "With meals", rationale: "Mitochondria" }, 4),
-  ];
-
-  const goals = (nonEmpty(sub.goals) || "").toLowerCase();
-  const list =
-    goals.includes("cogn") || goals.includes("brain") ? COGNITION
-    : goals.includes("weight") || goals.includes("fat") ? WEIGHT
-    : goals.includes("energy") ? ENERGY
-    : LONGEVITY;
-
-  // Personalization via prefs (notes)
-  const brand = nonEmpty(sub.brand_pref);
-  const dosing = nonEmpty(sub.dosing_pref);
-  return list.map((it) => {
-    const notes = asArray(it.safety_notes); // reuse array
-    const add: string[] = [];
-    if (brand) add.push(`Brand preference: ${brand}`);
-    if (dosing) add.push(`Dosing preference: ${dosing}`);
-    const noteText = [it.notes, add.length ? add.join(" • ") : null].filter(Boolean).join(" • ");
-    return { ...it, notes: noteText || undefined };
-  });
-}
-
-async function tryLLMGenerateItems(sub: SubmissionRow): Promise<StackItem[] | null> {
-  // Optional LLM path; non-throwing. If OPENAI_API_KEY missing or error, return null.
-  if (!process.env.OPENAI_API_KEY) return null;
   try {
-    // Lazy import to avoid bundler errors when key is absent
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const OpenAI = (await import("openai")).default;
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    console.log("evidence.lookup", {
+      rawName: item.name,
+      normName,
+      candidates,
+      curatedCount: curatedUrls.length,
+      keptFromModel: modelValid.length,
+    });
+  } catch (e) {}
 
-    const system = [
-      "You are LVE360, a supplement and safety planner.",
-      "Return a concise, actionable plan.",
-      "Do NOT include medical diagnoses.",
-      "Be precise with doses and timing.",
-    ].join(" ");
+  // overwrite name with normalized display name
+  return { ...item, name: normName, citations: final.length ? final : null };
+}
 
-    const userContext = {
-      email: sub.user_email ?? null,
-      goals: nonEmpty(sub.goals) ?? null,
-      conditions: asArray(sub.conditions),
-      medications: asArray(sub.medications),
-      supplements: asArray(sub.supplements),
-      hormones: asArray(sub.hormones),
-      pregnant: !!sub.pregnant,
-      sex: sub.sex ?? null,
-      sleep_rating: safeInt(sub.sleep_rating, 0),
-      energy_rating: safeInt(sub.energy_rating, 0),
-      dosing_pref: nonEmpty(sub.dosing_pref) ?? null,
-      brand_pref: nonEmpty(sub.brand_pref) ?? null,
-    };
+// ----------------------------------------------------------------------------
+// Evidence section rendering
+// ----------------------------------------------------------------------------
+function hostOf(u: string): string {
+  try {
+    return new URL(u).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
 
-    const prompt = [
-      "Create a JSON array of supplement items for the user.",
-      "Each item keys: name, dose, timing, rationale, citations[].",
-      "Limit to 12 items max. Be conservative if pregnant.",
-      "Return ONLY valid JSON (no markdown).",
-      JSON.stringify(userContext),
-    ].join("\n\n");
+function labelForUrl(u: string): string {
+  const h = hostOf(u);
+  if (/pubmed\.ncbi\.nlm\.nih\.gov/i.test(h)) return "PubMed";
+  if (/pmc\.ncbi\.nlm\.nih\.gov/i.test(h)) return "PMC";
+  if (/doi\.org/i.test(h)) return "DOI";
+  if (/jamanetwork\.com/i.test(h)) return "JAMA";
+  if (/biomedcentral\.com|bmcpsychiatry\.biomedcentral\.com|dmsjournal\.biomedcentral\.com/i.test(h)) return "BMC";
+  if (/journals\.plos\.org|plos\.org/i.test(h)) return "PLOS";
+  if (/nature\.com/i.test(h)) return "Nature";
+  if (/sciencedirect\.com/i.test(h)) return "ScienceDirect";
+  if (/amjmed\.com/i.test(h)) return "Am J Med";
+  if (/koreascience\.kr/i.test(h)) return "KoreaScience";
+  if (/monash\.edu/i.test(h)) return "Monash";
+  return h || "Source";
+}
 
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-    const resp = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.2,
-      response_format: { type: "json_object" }, // ensure JSON
+function buildEvidenceSection(items: StackItem[], minCount = 8): {
+  section: string;
+  bullets: Array<{ name: string; url: string }>;
+} {
+  const bullets: Array<{ name: string; url: string }> = [];
+
+  for (const it of asArray(items)) {
+    const citations = asArray(it.citations);
+    for (const rawUrl of citations) {
+      const url = (rawUrl || "").trim();
+      const normalized = url.endsWith("/") ? url : url + "/";
+      if (CURATED_CITE_RE.test(normalized) || MODEL_CITE_RE.test(normalized)) {
+        bullets.push({ name: cleanName(it.name), url: normalized });
+      }
+    }
+  }
+
+  // Dedup
+  const seen = new Set<string>();
+  const unique = bullets.filter((b) => {
+    if (seen.has(b.url)) return false;
+    seen.add(b.url);
+    return true;
+  });
+
+  // Pad to minCount
+  const take =
+    unique.length >= minCount
+      ? unique
+      : [
+          ...unique,
+          ...Array.from({ length: Math.max(0, minCount - unique.length) }).map(() => ({
+            name: "Evidence pending",
+            url: "https://lve360.com/evidence/coming-soon",
+          })),
+        ];
+
+  const bulletsText = take.map((b) => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`).join("\n");
+  const analysis = `
+
+**Analysis**
+
+These references are pulled from LVE360’s curated evidence index (PubMed/PMC/DOI and other trusted journals) and replace any model-generated references.
+`;
+
+  const section = `## Evidence & References\n\n${bulletsText}${analysis}`;
+  return { section, bullets: take };
+}
+
+function overrideEvidenceInMarkdown(md: string, section: string): string {
+  const headerRe = /## Evidence & References([\s\S]*?)(?=\n## |\n## END|$)/i;
+  if (headerRe.test(md)) return md.replace(headerRe, section);
+  return md.replace(/\n## END/i, `\n\n${section}\n\n## END`);
+}
+
+// ----------------------------------------------------------------------------
+// Shopping Links section rendering
+// ----------------------------------------------------------------------------
+function buildShoppingLinksSection(items: StackItem[]): string {
+  if (!items || items.length === 0) {
+    return "## Shopping Links\n\n- No links available yet.\n\n**Analysis**\n\nLinks will be provided once products are mapped.";
+  }
+
+  const bullets = items.map((it) => {
+    const name = cleanName(it.name);
+    const links: string[] = [];
+
+    if (it.link_amazon) links.push(`[Amazon](${it.link_amazon})`);
+    if (it.link_fullscript) links.push(`[Fullscript](${it.link_fullscript})`);
+    if (it.link_thorne) links.push(`[Thorne](${it.link_thorne})`);
+    if (it.link_other) links.push(`[Other](${it.link_other})`);
+
+    return `- **${name}**: ${links.join(" • ")}`;
+  });
+
+  return `## Shopping Links\n\n${bullets.join(
+    "\n"
+  )}\n\n**Analysis**\n\nThese links are provided for convenience. Premium users may see Fullscript options when available; Amazon links are shown for everyone.`;
+}
+
+// ----------------------------------------------------------------------------
+// Parser: Markdown → StackItem[]
+// ----------------------------------------------------------------------------
+function parseStackFromMarkdown(md: string): StackItem[] {
+  const base: Record<string, any> = {};
+
+  // 1) Your Blueprint Recommendations (table)
+  const blueprint = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
+  if (blueprint) {
+    const rows = blueprint[1].split("\n").filter((l) => l.trim().startsWith("|"));
+    rows.slice(1).forEach((row, i) => {
+      const cols = row.split("|").map((c) => c.trim());
+      const name = cleanName(cols[2] || `Item ${i + 1}`);
+      if (!name) return;
+      base[name.toLowerCase()] = {
+        name,
+        rationale: cols[3] || undefined,
+        dose: null,
+        dose_parsed: null,
+        timing: null,
+      };
+    });
+  }
+
+  // 2) Current Stack (table)
+  const current = md.match(/## Current Stack([\s\S]*?)(\n## |$)/i);
+  if (current) {
+    const rows = current[1].split("\n").filter((l) => l.trim().startsWith("|"));
+    rows.slice(1).forEach((row, i) => {
+      const cols = row.split("|").map((c) => c.trim());
+      const name = cleanName(cols[1] || `Current Item ${i + 1}`);
+      if (!name) return;
+      const rationale = cols[2] || undefined;
+      const dose = cols[3] || null;
+      const timing = normalizeTiming(cols[4] || null);
+      const parsed = parseDose(dose);
+      const key = name.toLowerCase();
+      if (!base[key]) {
+        base[key] = {
+          name,
+          rationale,
+          dose,
+          dose_parsed: parsed,
+          timing,
+        };
+      }
+    });
+  }
+
+  // 3) Dosing & Notes (bulleted list)
+  const dosing = md.match(/## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i);
+  if (dosing) {
+    const lines = dosing[1].split("\n").filter((l) => l.trim().length > 0);
+    for (const line of lines) {
+      const m = line.match(/[-*]\s*([^—\-:]+)[—\-:]\s*([^,]+)(?:,\s*(.*))?/);
+      if (m) {
+        const name = cleanName(m[1].trim());
+        if (!name) continue;
+        const dose = m[2]?.trim() || null;
+        const timing = normalizeTiming(m[3]);
+        const parsed = parseDose(dose);
+        const key = name.toLowerCase();
+        if (base[key]) {
+          base[key].dose = dose;
+          base[key].dose_parsed = parsed;
+          base[key].timing = timing;
+        } else {
+          base[key] = {
+            name,
+            rationale: undefined,
+            dose,
+            dose_parsed: parsed,
+            timing,
+          };
+        }
+      }
+    }
+  }
+
+  const seen = new Set<string>();
+  return Object.values(base).filter((it: any) => {
+    if (!it?.name) return false;
+    const key = it.name.trim().toLowerCase();
+    if (!key) return false;
+    if (seen.has(key)) return false;
+    if (it.name.length > 40) return false;
+    if (/[.,]{3,}/.test(it.name)) return false;
+    if (/\bvitamin\b.*\band\b/i.test(it.name)) return false;
+    if (/^analysis$/i.test(it.name.trim())) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// ----------------------------------------------------------------------------
+// Prompts
+// ----------------------------------------------------------------------------
+function systemPrompt() {
+  return `
+You are **LVE360 Concierge AI**, a friendly but professional wellness coach.
+Tone: encouraging, plain-English, never clinical or robotic.
+Always explain *why it matters* in a supportive, human way.
+Always greet the client by name in the Intro Summary if provided.
+
+Return **plain ASCII Markdown only** with headings EXACTLY:
+
+${HEADINGS.slice(0, -1).join("\n")}
+
+Tables must use \`Column | Column\` pipe format, **no curly quotes or bullets**.
+Every table/list MUST be followed by **Analysis** ≥${MIN_ANALYSIS_SENTENCES} sentences that:
+• Summarize the section
+• Explain why it matters
+• Give practical implication
+
+### Section-specific rules
+• **Intro Summary** → Must greet by name (if available) and include ≥2–3 sentences.  
+• **Goals** → Table: Goal | Description, followed by Analysis.  
+• **Current Stack** → Table: Medication/Supplement | Purpose | Dosage | Timing, followed by Analysis.  
+• **Your Blueprint Recommendations** → 3-column table: Rank | Supplement | Why it Matters.  
+  Must include ≥${MIN_BP_ROWS} unique rows.  
+  If fewer than ${MIN_BP_ROWS}, regenerate until quota met.  
+  Add: *“See Dosing & Notes for amounts and timing.”*  
+  Follow with 3–5 sentence Analysis.  
+• **Dosing & Notes** → List + Analysis explaining amounts, timing, and safety notes.  
+• **Evidence & References** → At least 8 bullet points with PubMed/DOI URLs, followed by Analysis.  
+• **Shopping Links** → Provide links + Analysis.  
+• **Follow-up Plan** → At least 3 checkpoints + Analysis.  
+• **Lifestyle Prescriptions** → ≥3 actionable changes + Analysis.  
+• **Longevity Levers** → ≥3 strategies + Analysis.  
+• **This Week Try** → Exactly 3 micro-habits + Analysis.  
+• If Dose/Timing unknown → use “${seeDN}”.  
+• Finish with line \`## END\`.  
+
+If internal check fails, regenerate before responding.`;
+}
+
+function userPrompt(sub: SubmissionWithChildren) {
+  return `
+### CLIENT
+\`\`\`json
+${JSON.stringify(
+  { ...sub, age: age((sub as any).dob ?? null), today: TODAY },
+  null,
+  2
+)}
+\`\`\`
+
+### TASK
+Generate the full report per the rules above.`;
+}
+
+// ----------------------------------------------------------------------------
+// LLM wrapper
+// ----------------------------------------------------------------------------
+async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
+  const { default: OpenAI } = await import("openai");
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+  return openai.chat.completions.create({
+    model,
+    temperature: 0.7,
+    max_tokens: 4096,
+    messages,
+  });
+}
+
+// ----------------------------------------------------------------------------
+// Validation helpers
+// ----------------------------------------------------------------------------
+function headingsOK(md: string) {
+  return HEADINGS.slice(0, -1).every((h) => (md || "").includes(h));
+}
+
+function blueprintOK(md: string) {
+  const sec = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n\|)/i);
+  if (!sec) return false;
+  const rows = sec[0].split("\n").filter((l) => l.startsWith("|")).slice(1);
+  return rows.length >= MIN_BP_ROWS;
+}
+
+function citationsOK(md: string) {
+  const block = md.match(/## Evidence & References([\s\S]*?)(\n## |\n## END|$)/i);
+  if (!block) return false;
+  const bulletLines = block[1].split("\n").filter((l) => l.trim().startsWith("-"));
+  if (bulletLines.length < 8) return false;
+  return bulletLines.every((l) => MODEL_CITE_RE.test(l));
+}
+
+function narrativesOK(md: string) {
+  const sections = (md || "").split("\n## ").slice(1);
+  return sections.every((sec) => {
+    const lines = sec.split("\n");
+    const textBlock = lines
+      .filter((l) => !l.startsWith("|") && !l.trim().startsWith("-"))
+      .join(" ");
+    const sentences = textBlock
+      .split(/[.!?]/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    if (sec.startsWith("Intro Summary") && sentences.length < 2) return false;
+    if (!sec.startsWith("Intro Summary") && sentences.length < MIN_ANALYSIS_SENTENCES)
+      return false;
+    return true;
+  });
+}
+
+function ensureEnd(md: string) {
+  return hasEnd(md) ? md : (md || "") + "\n\n## END";
+}
+
+// ----------------------------------------------------------------------------
+// Preference → Amazon category chooser, plus Premium Fullscript preference
+// ----------------------------------------------------------------------------
+function normalizeBrandPref(p?: string | null): "budget" | "trusted" | "clean" | "default" {
+  const s = (p || "").toLowerCase();
+  if (s.includes("budget") || s.includes("cost")) return "budget";
+  if (s.includes("trusted") || s.includes("brand")) return "trusted";
+  if (s.includes("clean")) return "clean";
+  return "default"; // “doesn’t matter”
+}
+
+function chooseAmazonLinkFor(item: StackItem, pref: "budget" | "trusted" | "clean" | "default"): string | null {
+  const pick =
+    pref === "budget" ? item.link_budget
+    : pref === "trusted" ? item.link_trusted
+    : pref === "clean" ? item.link_clean
+    : item.link_default;
+
+  // Robust fallbacks
+  return (
+    pick ||
+    item.link_default ||
+    item.link_trusted ||
+    item.link_budget ||
+    item.link_clean ||
+    null
+  );
+}
+
+function applyLinkPolicy(items: StackItem[], sub: any, mode: GenerateMode): StackItem[] {
+  const pref = normalizeBrandPref(
+    sub?.preferences?.brand_pref ??
+    sub?.brand_pref ??
+    null
+  );
+
+  // Options.mode overrides submission flags (route is source of truth)
+  const isPremium = mode === "premium" ||
+    Boolean(sub?.is_premium) ||
+    Boolean(sub?.user?.is_premium) ||
+    (sub?.plan === "premium");
+
+  return asArray(items).map((it) => {
+    const linkAmazon = chooseAmazonLinkFor(it, pref);
+    const linkFS = it.link_fullscript ?? null;
+
+    // Premium policy: prefer Fullscript if available, but still keep Amazon set
+    if (isPremium && linkFS) {
+      return { ...it, link_amazon: linkAmazon, link_fullscript: linkFS };
+    }
+    // Not premium or no FS link available → keep Amazon only
+    return { ...it, link_amazon: linkAmazon };
+  });
+}
+
+// ----------------------------------------------------------------------------
+// Main Export
+// ----------------------------------------------------------------------------
+export async function generateStackForSubmission(
+  id: string,
+  options?: GenerateOptions
+) {
+  if (!id) throw new Error("submissionId required");
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
+
+  // Tier + cap (route passes options; fall back to submission flags)
+  const modeFromOpts: GenerateMode | undefined = options?.mode;
+  const requestedCap = typeof options?.maxItems === "number" ? clamp(options.maxItems, 1, 20) : undefined;
+
+  const sub = await getSubmissionWithChildren(id);
+  if (!sub) throw new Error(`Submission row not found for id=${id}`);
+
+  const inferredPremium =
+    Boolean((sub as any)?.is_premium) ||
+    Boolean((sub as any)?.user?.is_premium) ||
+    ((sub as any)?.plan === "premium");
+
+  const mode: GenerateMode = modeFromOpts ?? (inferredPremium ? "premium" : "free");
+  const cap = requestedCap ?? (mode === "free" ? 3 : 12);
+
+  const user_id = extractUserId(sub);
+  const userEmail =
+    (sub as any)?.user?.email ??
+    (sub as any)?.user_email ??
+    (sub as any)?.email ??
+    null;
+
+  const msgs: ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt() },
+    { role: "user", content: userPrompt(sub) },
+  ];
+
+  let md = "";
+  let llmRaw: any = null;
+  let modelUsed = "unknown";
+  let tokensUsed: number | null = null;
+  let promptTokens: number | null = null;
+  let completionTokens: number | null = null;
+  let passes = false;
+
+  // ----- First attempt (faster model) ---------------------------------------
+  try {
+    const resp = await callLLM(msgs, "gpt-4o-mini");
+    llmRaw = resp;
+    modelUsed = resp.model ?? "gpt-4o-mini";
+    tokensUsed = resp.usage?.total_tokens ?? null;
+    promptTokens = resp.usage?.prompt_tokens ?? null;
+    completionTokens = resp.usage?.completion_tokens ?? null;
+    md = resp.choices?.[0]?.message?.content ?? "";
+
+    // Validation
+    const wordCountOK = wc(md) >= MIN_WORDS;
+    const headingsValid = headingsOK(md);
+    const blueprintValid = blueprintOK(md);
+    const citationsValid = citationsOK(md);
+    const narrativesValid = narrativesOK(md);
+    const endValid = hasEnd(md);
+
+    console.log("validation.debug", {
+      wordCountOK,
+      headingsValid,
+      blueprintValid,
+      citationsValid,
+      narrativesValid,
+      endValid,
+      actualWordCount: wc(md),
     });
 
-    const raw = resp.choices?.[0]?.message?.content?.trim() || "";
-    let parsed: any = null;
+    if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
+      passes = true;
+    }
+  } catch (err) {
+    console.warn("Mini model failed:", err);
+  }
+
+  // ----- Fallback attempt (stronger model) ----------------------------------
+  if (!passes) {
     try {
-      parsed = JSON.parse(raw);
-    } catch {
-      // Fallback: try to extract array if model wrapped
-      const m = raw.match(/\[[\s\S]*\]$/);
-      if (m) parsed = JSON.parse(m[0]);
+      const resp = await callLLM(msgs, "gpt-4o");
+      llmRaw = resp;
+      modelUsed = resp.model ?? "gpt-4o";
+      tokensUsed = resp.usage?.total_tokens ?? null;
+      promptTokens = resp.usage?.prompt_tokens ?? null;
+      completionTokens = resp.usage?.completion_tokens ?? null;
+      md = resp.choices?.[0]?.message?.content ?? "";
+    } catch (err) {
+      console.warn("Fallback model failed:", err);
     }
-    const items: StackItem[] = asArray(parsed?.items ?? parsed);
-    // Defensive normalization:
-    return items.map((it, i) => ({
-      name: nonEmpty(it?.name) || `Item ${i + 1}`,
-      dose: nonEmpty(it?.dose) || undefined,
-      timing: nonEmpty(it?.timing) || undefined,
-      rationale: nonEmpty(it?.rationale) || undefined,
-      citations: asArray(it?.citations).map(String),
-      order_index: i,
-      safety_flag: "safe",
-      safety_notes: [],
-      amazon_url: null,
-      fullscript_url: null,
-    }));
-  } catch (e) {
-    console.warn("[generator] LLM path failed, using deterministic seeds.", e);
-    return null;
+
+    const wordCountOK = wc(md) >= MIN_WORDS;
+    const headingsValid = headingsOK(md);
+    const blueprintValid = blueprintOK(md);
+    const citationsValid = citationsOK(md);
+    const narrativesValid = narrativesOK(md);
+    const endValid = hasEnd(md);
+
+    console.log("validation.debug.fallback", {
+      wordCountOK,
+      headingsValid,
+      blueprintValid,
+      citationsValid,
+      narrativesValid,
+      endValid,
+      actualWordCount: wc(md),
+    });
+
+    if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
+      passes = true;
+    }
   }
-}
 
-async function generateItems(sub: SubmissionRow, mode: GenerateMode): Promise<StackItem[]> {
-  // Try LLM if enabled; fallback to deterministic seeds
-  const llm = await tryLLMGenerateItems(sub);
-  const base = asArray(llm && llm.length ? llm : baseSeedsByGoals(sub));
+  md = ensureEnd(md);
 
-  // Simple nudge for mode (optional): nothing to do here; actual cap is applied later.
-  return base;
-}
+  // --- Parse items from Markdown --------------------------------------------
+  const parsedItems: StackItem[] = parseStackFromMarkdown(md);
 
-// ---------- Safety Engine (pregnancy + DB interactions) ---------------------
+  // --- Tier cap (Free vs Premium) BEFORE safety/enrichment -------------------
+  const cappedItems = asArray(parsedItems).slice(0, cap);
 
-interface InteractionRow {
-  ingredient: string | null;
-  binds_thyroid_meds?: boolean | null;
-  sep_hours_thyroid?: number | null;
-  anticoagulants_bleeding_risk?: boolean | null;
-  notes?: string | null;
-}
+  // --- Safety checks (deep) --------------------------------------------------
+  const safetyInput = {
+    medications: Array.isArray((sub as any).medications)
+      ? (sub as any).medications.map((m: any) => m.med_name || "")
+      : [],
+    conditions: Array.isArray((sub as any).conditions)
+      ? (sub as any).conditions.map((c: any) => c.condition_name || "")
+      : [],
+    allergies: Array.isArray((sub as any).allergies)
+      ? (sub as any).allergies.map((a: any) => a.allergy_name || "")
+      : [],
+    pregnant:
+      typeof (sub as any).pregnant === "boolean" ||
+      typeof (sub as any).pregnant === "string"
+        ? (sub as any).pregnant
+        : null,
+    brand_pref: (sub as any)?.preferences?.brand_pref ?? null,
+    dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
+    is_premium: mode === "premium" // override with route-provided mode
+  };
 
-async function applySafetyEngine(
-  items: StackItem[],
-  sub: SubmissionRow
-): Promise<{ status: GeneratedResult["safety_status"]; warnings: string[]; items: StackItem[] }> {
-  const warnings: string[] = [];
-  const safeItems: StackItem[] = asArray(items).map((it) => ({
+  const safetyResult = await (async () => {
+    try {
+      const res = await applySafetyChecks(safetyInput, cappedItems);
+      // Some earlier crashes were ".map" on undefined — guard here:
+      const cleaned = asArray(res?.cleaned);
+      return { status: res?.status ?? "warning", cleaned };
+    } catch (e) {
+      console.warn("applySafetyChecks failed; continuing with uncautioned items.", e);
+      return { status: "warning" as const, cleaned: cappedItems };
+    }
+  })();
+
+  // Normalize names before enrichment so aliases resolve correctly
+  const normalizedForLinks = asArray(safetyResult.cleaned).map((it) => ({
     ...it,
-    safety_flag: (it.safety_flag as any) || "safe",
-    safety_notes: asArray(it.safety_notes),
+    name: normalizeSupplementName(it?.name ?? ""),
   }));
 
-  // Pregnancy caution across the board
-  if (sub.pregnant) {
-    warnings.push("Pregnancy noted — verify all supplements with a clinician.");
-    for (const it of safeItems) {
-      it.safety_flag = it.safety_flag === "avoid" ? "avoid" : "warning";
-      it.safety_notes?.push?.("Pregnancy: verify safety/label dosing.");
+  // Enrich with links (expects to fill link_budget/trusted/clean/default and possibly link_fullscript)
+  const enriched = await (async () => {
+    try {
+      const r = await enrichAffiliateLinks(normalizedForLinks);
+      return asArray(r);
+    } catch (e) {
+      console.warn("enrichAffiliateLinks failed; skipping enrichment.", e);
+      return normalizedForLinks;
     }
+  })();
+
+  // Apply link policy: pick Amazon category from quiz, prefer Fullscript for premium
+  const finalStack: StackItem[] = applyLinkPolicy(enriched, sub, mode);
+
+  // Evidence attach
+  const withEvidence: StackItem[] = asArray(finalStack).map(attachEvidence);
+
+  // Override evidence section in markdown
+  const { section: evidenceSection } = buildEvidenceSection(withEvidence, 8);
+  md = overrideEvidenceInMarkdown(md, evidenceSection);
+
+  // Shopping Links section in markdown
+  const shoppingSection = buildShoppingLinksSection(withEvidence);
+  const shoppingRe = /## Shopping Links([\s\S]*?)(?=\n## |\n## END|$)/i;
+  if (shoppingRe.test(md)) {
+    md = md.replace(shoppingRe, shoppingSection);
+  } else {
+    md = md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
   }
 
-  // DB-backed interactions lookup per item (best-effort)
-  try {
-    for (const it of safeItems) {
-      const ingredient = nonEmpty(it.name).toLowerCase();
-      if (!ingredient) continue;
+  // Total monthly cost estimate (best-effort)
+  const totalMonthlyCost = asArray(withEvidence).reduce((acc, it) => acc + (it?.cost_estimate ?? 0), 0);
 
-      const { data, error } = await supabaseAdmin
-        .from("interactions")
-        .select("ingredient, binds_thyroid_meds, sep_hours_thyroid, anticoagulants_bleeding_risk, notes")
-        .ilike("ingredient", ingredient)
-        .limit(1);
-
-      if (error) continue;
-      const row = (asArray(data)[0] ?? null) as InteractionRow | null;
-      if (!row) continue;
-
-      // Thyroid binding (e.g., iron, calcium, magnesium forms)
-      if (row.binds_thyroid_meds) {
-        const sep = row.sep_hours_thyroid ?? 4;
-        it.safety_flag = it.safety_flag === "avoid" ? "avoid" : "warning";
-        (it.safety_notes ?? []).push(`Separate from thyroid meds by ${sep}+ hours.`);
-        warnings.push(`${it.name}: separate from thyroid meds.`);
-      }
-
-      // Anticoagulant risk (e.g., high-dose fish oil, ginkgo)
-      if (row.anticoagulants_bleeding_risk) {
-        it.safety_flag = "warning";
-        (it.safety_notes ?? []).push("Potential bleeding risk with anticoagulants—consult clinician.");
-        warnings.push(`${it.name}: potential bleeding risk with anticoagulants.`);
-      }
-
-      if (row.notes) (it.safety_notes ?? []).push(row.notes);
-    }
-  } catch {
-    // Swallow; safety engine is best-effort
-  }
-
-  const hasAvoid = safeItems.some((i) => i.safety_flag === "avoid");
-  const hasWarn = safeItems.some((i) => i.safety_flag === "warning");
-  const status: GeneratedResult["safety_status"] = hasAvoid ? "error" : hasWarn ? "warning" : "safe";
-
-  return { status, warnings: uniq(warnings), items: safeItems };
-}
-
-// ---------- Affiliate enrichment --------------------------------------------
-
-function mkAmazonLink(query: string): string {
-  // TODO: add your affiliate tag: &tag=lve360-20
-  return `https://www.amazon.com/s?k=${encodeURIComponent(query)}`;
-}
-function mkFullscriptLink(query: string): string {
-  // TODO: replace with Fullscript collection deeplink if available
-  return `https://us.fullscript.com/search?query=${encodeURIComponent(query)}`;
-}
-
-function enrichAffiliateLinks(items: StackItem[]): StackItem[] {
-  return asArray(items).map((it) => {
-    const q = [it.name, it.dose, it.timing].filter(Boolean).join(" ");
-    return {
-      ...it,
-      amazon_url: it.amazon_url ?? mkAmazonLink(q),
-      fullscript_url: it.fullscript_url ?? mkFullscriptLink(it.name),
-    };
-  });
-}
-
-// ---------- Persistence (stacks / stacks_items) ------------------------------
-
-async function upsertStack(
-  sub: SubmissionRow,
-  items: StackItem[],
-  safety: { status: GeneratedResult["safety_status"]; warnings: string[] },
-  mode: GenerateMode,
-  forceRegenerate: boolean
-): Promise<GeneratedResult> {
-  const normalized: StackItem[] = asArray(items).map((it, idx) => ({
-    name: nonEmpty(it.name) || `Item ${idx + 1}`,
-    dose: nonEmpty(it.dose) || undefined,
-    timing: nonEmpty(it.timing) || undefined,
-    rationale: nonEmpty(it.rationale) || undefined,
-    citations: asArray(it.citations).map(String),
-    notes: nonEmpty(it.notes) || undefined,
-    order_index: typeof it.order_index === "number" ? it.order_index : idx,
-    amazon_url: nonEmpty(it.amazon_url) || mkAmazonLink(it.name),
-    fullscript_url: nonEmpty(it.fullscript_url) || mkFullscriptLink(it.name),
-    safety_flag: (it.safety_flag as any) || "safe",
-    safety_notes: asArray(it.safety_notes),
-  }));
-
-  // Check for existing stack
-  const { data: existing, error: findErr } = await supabaseAdmin
-    .from("stacks")
-    .select("id, items")
-    .eq("submission_id", sub.id)
-    .maybeSingle();
-
+  // Persist parent stack
+  let parentRows: any[] = [];
   let stackId: string | null = null;
 
-  if (!findErr && existing?.id && !forceRegenerate) {
-    // Update existing
-    stackId = existing.id;
-    const { error: updErr } = await supabaseAdmin
-      .from("stacks")
-      .update({
-        user_id: sub.user_id,
-        items: normalized as unknown as Json[],
-        safety_status: safety.status,
-        safety_warnings: safety.warnings,
-        mode,
-      })
-      .eq("id", stackId);
-    if (updErr) throw new Error(`DB error updating stack: ${updErr.message}`);
-  } else if (!findErr && existing?.id && forceRegenerate) {
-    stackId = existing.id;
-    const { error: wipeErr } = await supabaseAdmin
-      .from("stacks")
-      .update({
-        user_id: sub.user_id,
-        items: normalized as unknown as Json[],
-        safety_status: safety.status,
-        safety_warnings: safety.warnings,
-        mode,
-      })
-      .eq("id", stackId);
-    if (wipeErr) throw new Error(`DB error overwriting stack: ${wipeErr.message}`);
-  } else {
-    // Insert new
-    const { data: ins, error: insErr } = await supabaseAdmin
-      .from("stacks")
-      .insert({
-        submission_id: sub.id,
-        user_id: sub.user_id,
-        items: normalized as unknown as Json[],
-        safety_status: safety.status,
-        safety_warnings: safety.warnings,
-        mode,
-      })
-      .select("id")
-      .maybeSingle();
-    if (insErr) throw new Error(`DB error inserting stack: ${insErr.message}`);
-    stackId = ins?.id ?? null;
-  }
-
-  if (!stackId) throw new Error(`Failed to resolve stack id for submission ${sub.id}`);
-
-  // Best-effort sync to stacks_items (optional schema)
   try {
-    await supabaseAdmin.from("stacks_items").delete().eq("stack_id", stackId);
-    const rows = normalized.map((it) => ({
-      stack_id: stackId,
-      user_id: sub.user_id,
-      submission_id: sub.id,
-      name: it.name,
-      dose: it.dose ?? null,
-      timing: it.timing ?? null,
-      rationale: it.rationale ?? null,
-      citations: (it.citations ?? []) as unknown as Json[],
-      amazon_url: it.amazon_url ?? null,
-      fullscript_url: it.fullscript_url ?? null,
-      safety_flag: it.safety_flag ?? "safe",
-      notes: it.notes ?? null,
-      order_index: typeof it.order_index === "number" ? it.order_index : 0,
-    }));
-    if (rows.length) {
-      await supabaseAdmin.from("stacks_items").insert(rows);
+    const { data, error } = await supabaseAdmin
+      .from("stacks")
+      .upsert(
+        {
+          submission_id: id,
+          user_id,
+          user_email: userEmail,
+          tally_submission_id: (sub as any)?.tally_submission_id ?? null,
+          version: modelUsed,
+          tokens_used: tokensUsed,
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+          safety_status: safetyResult.status,
+          summary: md,
+          sections: {
+            markdown: md,
+            generated_at: new Date().toISOString(),
+            mode,           // <- store mode for analytics
+            item_cap: cap,  // <- store cap for analytics
+          },
+          notes: null,
+          total_monthly_cost: totalMonthlyCost,
+        },
+        { onConflict: "submission_id" }
+      )
+      .select();
+
+    if (error) console.error("Supabase upsert error:", error);
+    if (data && data.length > 0) {
+      parentRows = data;
+      stackId = data[0]?.id ?? null;
     }
-  } catch (e) {
-    console.warn("[generator] stacks_items sync skipped (non-fatal):", e);
+  } catch (err) {
+    console.error("Stacks upsert exception:", err);
   }
+
+  // Persist items
+  if (parentRows.length > 0 && stackId && user_id) {
+    try {
+      await supabaseAdmin.from("stacks_items").delete().eq("stack_id", stackId);
+
+      const rows = asArray(withEvidence)
+        .map((it) => {
+          const normName = normalizeSupplementName(it?.name ?? "");
+          const safeName = cleanName(normName);
+          if (!safeName || safeName.toLowerCase() === "null") {
+            console.error("🚨 Blocking insert of invalid item", {
+              stack_id: stackId,
+              user_id,
+              rawName: it?.name,
+              normalized: normName,
+              item: it,
+            });
+            return null;
+          }
+          return {
+            stack_id: stackId,
+            user_id,
+            user_email: userEmail,
+            name: safeName, // normalized
+            dose: it.dose ?? null,
+            timing: it.timing ?? null,
+            notes: it.notes ?? null,
+            rationale: it.rationale ?? null,
+            caution: it.caution ?? null,
+            citations: it.citations ? JSON.stringify(asArray(it.citations)) : null,
+
+            // Persist links (Amazon chosen by preference, FS preferred for premium but optional)
+            link_amazon: it.link_amazon ?? null,
+            link_fullscript: it.link_fullscript ?? null,
+            link_thorne: it.link_thorne ?? null,
+            link_other: it.link_other ?? null,
+
+            cost_estimate: it.cost_estimate ?? null,
+          };
+        })
+        .filter((r): r is Record<string, any> => r !== null);
+
+      if (rows.length > 0) {
+        const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
+        if (error) console.error("⚠️ Failed to insert stacks_items:", error);
+        else console.log(`✅ Inserted ${rows.length} stack items for stack ${stackId}`);
+      }
+    } catch (e) {
+      console.warn("⚠️ stacks_items insert skipped due to error:", e);
+    }
+  }
+
+  if (!passes) {
+    console.warn("⚠️ Draft validation failed, review needed.");
+  }
+
+  // Return original telemetry AND add stack_id for the API route
+  const raw = {
+    ...(llmRaw ?? {}),
+    stack_id: stackId ?? undefined,
+    safety_status: safetyResult.status,
+    mode,
+    item_cap: cap,
+  };
 
   return {
-    stack_id: stackId,
-    items: normalized,
-    safety_status: safety.status,
-    safety_warnings: safety.warnings,
+    markdown: md,
+    raw,
+    model_used: modelUsed,
+    tokens_used: tokensUsed,
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
   };
 }
 
-// ---------- Main: generateStackForSubmission --------------------------------
-
-export async function generateStackForSubmission(
-  submissionId: string,
-  options?: GenerateOptions
-): Promise<{ markdown: string; raw: GeneratedResult }> {
-  const mode: GenerateMode = options?.mode === "premium" ? "premium" : "free";
-  const defaultCap = mode === "free" ? 3 : 12;
-  const cap = typeof options?.maxItems === "number" ? clamp(options.maxItems, 1, 20) : defaultCap;
-  const forceRegenerate = !!options?.forceRegenerate;
-
-  // 1) Load submission
-  const sub = await getSubmission(submissionId);
-
-  // 2) Generate items (LLM or deterministic)
-  const gen = await generateItems(sub, mode);
-
-  // 3) Cap for Free (or use provided cap)
-  const capped = asArray(gen).slice(0, cap);
-
-  // 4) Affiliate enrichment
-  const enriched = enrichAffiliateLinks(capped);
-
-  // 5) Safety engine
-  const { status, warnings, items: safeItems } = await applySafetyEngine(enriched, sub);
-
-  // 6) Persist to stacks (+ stacks_items best-effort)
-  const persisted = await upsertStack(sub, safeItems, { status, warnings }, mode, forceRegenerate);
-
-  // 7) Markdown Blueprint
-  let md = toMarkdown(sub, persisted.items, persisted.safety_status, persisted.safety_warnings);
-
-  // 8) Validate + fallback tighten
-  const v = validateMarkdownBlueprint(md);
-  console.info("validation.debug", v);
-  if (!v.wordCountOK || !v.headingsValid || !v.blueprintValid || !v.narrativesValid) {
-    // fallback: tighten and (if still invalid) synthesize a minimal blueprint
-    let tightened = tightenMarkdown(md);
-    const v2 = validateMarkdownBlueprint(tightened);
-    console.info("validation.debug.fallback", v2);
-    if (!v2.headingsValid || !v2.blueprintValid) {
-      tightened = minimalBlueprintFromItems(sub, persisted.items);
-    }
-    md = tightened;
-  }
-
-  return { markdown: md, raw: persisted };
-}
+export default generateStackForSubmission;
