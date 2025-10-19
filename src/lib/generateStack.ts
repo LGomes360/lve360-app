@@ -718,7 +718,10 @@ export async function generateStackForSubmission(
     ((sub as any)?.plan === "premium");
 
   const mode: GenerateMode = modeFromOpts ?? (inferredPremium ? "premium" : "free");
-  const cap = requestedCap ?? (mode === "free" ? 3 : 12);
+  // Only cap if the caller explicitly provided maxItems.
+  // Otherwise, do not cap (return all items).
+  const cap = requestedCap; // may be undefined
+
 
   const user_id = extractUserId(sub);
   const userEmail =
