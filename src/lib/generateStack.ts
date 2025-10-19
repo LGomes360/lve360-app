@@ -633,11 +633,17 @@ function narrativesOK(md: string, minSent: number) {
 function ensureEnd(md: string) {
   return hasEnd(md) ? md : (md || "") + "\n\n## END";
 }
-function computeValidationTargets(mode: "free" | "premium", cap: number) {
-  const minWords = mode === "premium" ? 1800 : 900;        // Free can be shorter
-  const minRows  = mode === "premium" ? 10   : Math.min(3, cap || 3); // Free accepts 3
-  const minSent  = mode === "premium" ? 3    : 2;          // Free: 2-sentence analyses OK
-  return { minWords, minRows, minSent };
+// --- Mode-aware validation targets ------------------------------------------
+function computeValidationTargets(mode: "free" | "premium", cap?: number) {
+  // Free can be shorter and have fewer rows; Premium keeps strict targets.
+  // If cap is undefined (no cap), use Free defaults that don’t depend on cap.
+  const minWords = mode === "premium" ? 1800 : 900;
+  const minRows  = mode === "premium" ? 10   : 3;                 // Free requires at least 3 rows
+  const minSent  = mode === "premium" ? 3    : 2;                 // Free allows 2-sentence analyses
+  // If you *do* pass a cap, keep "at most the cap" for Free (never >3 min).
+  return cap != null
+    ? { minWords, minRows: Math.min(3, cap || 3), minSent }
+    : { minWords, minRows, minSent };
 }
 
 // ----------------------------------------------------------------------------
