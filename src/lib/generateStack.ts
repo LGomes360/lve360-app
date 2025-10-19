@@ -824,7 +824,11 @@ console.log("validation.debug", {
   const parsedItems: StackItem[] = parseStackFromMarkdown(md);
 
   // --- Tier cap (Free vs Premium) BEFORE safety/enrichment -------------------
-  const cappedItems = asArray(parsedItems).slice(0, cap);
+  // Only cap if maxItems was provided. Otherwise, keep ALL items.
+  // This removes the 3-item limit for Free users.
+  const cappedItems = typeof cap === "number"
+    ? asArray(parsedItems).slice(0, cap)
+    : asArray(parsedItems);
   
   type SafetyStatus = "safe" | "warning" | "error";
   interface SafetyOutput {
