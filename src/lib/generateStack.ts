@@ -997,57 +997,83 @@ console.log("validation.debug", {
   // Persist items
   if (parentRows.length > 0 && stackId && user_id) {
     try {
-      await supabaseAdmin.from("stacks_items").delete().eq("stack_id", stackId);
+await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
 
-  const rows: Array<StackItemRow> = asArray(withEvidence)
-    .map<StackItemRow | null>((it) => {
-      const normName = normalizeSupplementName(it?.name ?? "");
-      const safeName = cleanName(normName);
-      if (!safeName || safeName.toLowerCase() === "null") {
-        console.error("🚨 Blocking insert of invalid item", {
-          stack_id: stackId,
-          user_id,
-          rawName: it?.name,
-          normalized: normName,
-          item: it,
-        });
-        return null;
-      }
-      const row: StackItemRow = {
+type StackItemRow = {
+  stack_id: string;
+  user_id: string;
+  user_email: string | null;
+  name: string;
+  dose: string | null;
+  timing: string | null;
+  notes: string | null;
+  rationale: string | null;
+  caution: string | null;
+  citations: string | null;
+  link_amazon: string | null;
+  link_fullscript: string | null;
+  link_thorne: string | null;
+  link_other: string | null;
+  cost_estimate: number | null;
+  is_current: boolean | null;
+  timing_bucket: string | null;
+  timing_text: string | null;
+};
+
+const stackId: string = parent.id;
+
+const rows: StackItemRow[] = (withEvidence || [])
+  .map((it) => {
+    const normName = normalizeSupplementName(it?.name ?? "");
+    const safeName = cleanName(normName);
+    if (!safeName || safeName.toLowerCase() === "null") {
+      console.error("🚨 Blocking insert of invalid item", {
         stack_id: stackId,
         user_id,
-        user_email: userEmail,
-        name: safeName, // normalized
-        dose: it.dose ?? null,
-        timing: it.timing ?? null,
-        notes: it.notes ?? null,
-        rationale: it.rationale ?? null,
-        caution: it.caution ?? null,
-        citations: it.citations ? JSON.stringify(asArray(it.citations)) : null,
-  
-        // Persist links (Amazon chosen by preference, FS preferred for premium but optional)
-        link_amazon: it.link_amazon ?? null,
-        link_fullscript: it.link_fullscript ?? null,
-        link_thorne: it.link_thorne ?? null,
-        link_other: it.link_other ?? null,
-  
-        cost_estimate: it.cost_estimate ?? null,
-        // NEW COLUMNS (add these in your Row type too or extend it)
-        is_current: Boolean(it.is_current ?? false) as any,
-        timing_bucket: it.timing_bucket ?? (classifyTimingBucket(it.timing_text ?? it.timing) || null) as any,
-        timing_text: it.timing_text ?? it.timing ?? null,
-      } as any; // keep TS happy if your StackItemRow type isn't updated yet
-      
-      };
-      return row;
-    })
-    .filter((r): r is StackItemRow => r !== null);
+        rawName: it?.name,
+      });
+      return null;
+    }
 
-      if (rows.length > 0) {
-        const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
-        if (error) console.error("⚠️ Failed to insert stacks_items:", error);
-        else console.log(`✅ Inserted ${rows.length} stack items for stack ${stackId}`);
-      }
+    const citations = Array.isArray(it.citations)
+      ? JSON.stringify(it.citations)
+      : null;
+
+    const timingText = (it as any).timing_text ?? it.timing ?? null;
+    const bucket =
+      (it as any).timing_bucket ?? classifyTimingBucket(timingText);
+
+    const row: StackItemRow = {
+      stack_id: stackId,
+      user_id,
+      user_email: userEmail,
+      name: safeName,
+      dose: it.dose ?? null,
+      timing: it.timing ?? null,
+      notes: it.notes ?? null,
+      rationale: it.rationale ?? null,
+      caution: it.caution ?? null,
+      citations,
+      link_amazon: it.link_amazon ?? null,
+      link_fullscript: it.link_fullscript ?? null,
+      link_thorne: it.link_thorne ?? null,
+      link_other: it.link_other ?? null,
+      cost_estimate: it.cost_estimate ?? null,
+      is_current: Boolean((it as any).is_current ?? false),
+      timing_bucket: bucket ?? null,
+      timing_text: timingText,
+    };
+
+    return row;
+  })
+  .filter((r): r is StackItemRow => r !== null);
+
+if (rows.length > 0) {
+  const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
+  if (error) console.error("⚠️ Failed to insert stacks_items:", error);
+  else console.log(`✅ Inserted ${rows.length} stack items for stack ${stackId}`);
+}
+
     } catch (e) {
       console.warn("⚠️ stacks_items insert skipped due to error:", e);
     }
