@@ -13,10 +13,13 @@ type Item = {
   link_fullscript?: string | null;
 };
 
+type Filter = "all" | "current" | "recommended";
+
 export default function ResultsSidebar({ stackId }: { stackId: string }) {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
 
   // --- fetch items for this stack ------------------------------------------------
   useEffect(() => {
@@ -51,7 +54,6 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
   }, [stackId]);
 
   // --- helpers ------------------------------------------------------------------
-  // Local classifier (used if timing_bucket isn't provided by API)
   function classify(text?: string | null): "AM" | "PM" | "AM/PM" | "Anytime" {
     if (!text) return "Anytime";
     const s = text.toLowerCase();
@@ -71,7 +73,6 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
       `${name} supplement`
     )}` + (amazonTag ? `&tag=${encodeURIComponent(amazonTag)}` : "");
 
-  // Click tracking via /api/r (server will decode + 302)
   const track = (
     url: string,
     src: "amazon" | "fullscript",
@@ -81,14 +82,26 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
     `&stack_id=${encodeURIComponent(stackId)}` +
     `&item=${encodeURIComponent(itemName)}`;
 
-  // --- bucket items --------------------------------------------------------------
+  // counts for tabs
+  const counts = useMemo(() => {
+    const current = items.filter((i) => Boolean(i.is_current)).length;
+    const recommended = items.filter((i) => !i.is_current).length;
+    return { all: items.length, current, recommended };
+  }, [items]);
+
+  // filter then bucket
+  const filtered = useMemo(() => {
+    if (filter === "current") return items.filter((i) => Boolean(i.is_current));
+    if (filter === "recommended") return items.filter((i) => !i.is_current);
+    return items;
+  }, [items, filter]);
+
   const { both, am, pm, any } = useMemo(() => {
     const BOTH: Item[] = [];
     const AM: Item[] = [];
     const PM: Item[] = [];
     const ANY: Item[] = [];
-
-    for (const i of items) {
+    for (const i of filtered) {
       const bucket =
         (i.timing_bucket as Item["timing_bucket"]) ??
         classify(i.timing_text ?? i.timing ?? null);
@@ -99,7 +112,7 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
       else ANY.push(i);
     }
     return { both: BOTH, am: AM, pm: PM, any: ANY };
-  }, [items]);
+  }, [filtered]);
 
   // --- UI guards ----------------------------------------------------------------
   if (loading || items.length === 0) return null;
@@ -150,6 +163,40 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
   return (
     <aside className="sticky top-4 space-y-6">
       {error && <div className="text-sm text-red-600">{error}</div>}
+
+      {/* Filter toggle */}
+      <div
+        role="tablist"
+        aria-label="Filter items"
+        className="flex w-full rounded-lg bg-zinc-100 p-1 text-xs"
+      >
+        {(["all", "current", "recommended"] as Filter[]).map((key) => {
+          const active = filter === key;
+          const label =
+            key === "all"
+              ? `All (${counts.all})`
+              : key === "current"
+              ? `Current (${counts.current})`
+              : `Recommended (${counts.recommended})`;
+          return (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={active}
+              onClick={() => setFilter(key)}
+              className={
+                "flex-1 rounded-md px-2 py-1 transition " +
+                (active
+                  ? "bg-white shadow text-zinc-900"
+                  : "text-zinc-600 hover:text-zinc-900")
+              }
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
       <p className="text-xs text-zinc-500">Tap a link to shop</p>
 
       {both.length > 0 && (
