@@ -1003,13 +1003,15 @@ console.log("validation.debug", {
 
 
   // Persist items
-  if (parentRows.length > 0 && stackId && user_id) {
-    try {
-      await supabaseAdmin.from("stacks_items").delete().eq("stack_id", stackId);
-    } catch (delErr) {
-      console.error("delete stacks_items failed:", delErr);
-    }
-  
+ // ---------------------------------------------------------------------------
+// Persist items (delete → rebuild → insert) for this stack
+// ---------------------------------------------------------------------------
+if (parentRows.length > 0 && stackId && user_id) {
+  try {
+    // 1) Clear existing items for this stack
+    await supabaseAdmin.from("stacks_items").delete().eq("stack_id", stackId);
+
+    // 2) Row shape for insert
     type StackItemRow = {
       stack_id: string;
       user_id: string;
@@ -1030,7 +1032,8 @@ console.log("validation.debug", {
       timing_bucket: string | null;
       timing_text: string | null;
     };
-  
+
+    // 3) Build rows from normalized/enriched items
     const rows: StackItemRow[] = (withEvidence || [])
       .map((it) => {
         const normName = normalizeSupplementName(it?.name ?? "");
@@ -1043,15 +1046,15 @@ console.log("validation.debug", {
           });
           return null;
         }
-  
+
         const citations = Array.isArray(it.citations)
           ? JSON.stringify(it.citations)
           : null;
-  
+
         const timingText = (it as any).timing_text ?? it.timing ?? null;
         const bucket =
           (it as any).timing_bucket ?? classifyTimingBucket(timingText);
-  
+
         const row: StackItemRow = {
           stack_id: stackId,
           user_id,
@@ -1072,21 +1075,24 @@ console.log("validation.debug", {
           timing_bucket: bucket ?? null,
           timing_text: timingText,
         };
-  
+
         return row;
       })
       .filter((r): r is StackItemRow => r !== null);
-  
+
+    // 4) Insert if we have rows
     if (rows.length > 0) {
       const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
-      if (error) console.error("⚠️ Failed to insert stacks_items:", error);
-      else console.log(`✅ Inserted ${rows.length} stack items for stack ${stackId}`);
+      if (error) {
+        console.error("⚠️ Failed to insert stacks_items:", error);
+      } else {
+        console.log(`✅ Inserted ${rows.length} stack items for stack ${stackId}`);
+      }
     }
+  } catch (e) {
+    console.warn("⚠️ stacks_items write failed:", e);
   }
-    } catch (e) {
-      console.warn("⚠️ stacks_items insert skipped due to error:", e);
-    }
-  }
+}
 
   if (!passes) {
     console.warn("⚠️ Draft validation failed, review needed.");
