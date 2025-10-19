@@ -993,87 +993,96 @@ console.log("validation.debug", {
   } catch (err) {
     console.error("Stacks upsert exception:", err);
   }
+  let stackRow: any = null;
+  let stackId: string | null = null;
+  
+  if (parentRows.length > 0 && parentRows[0]?.id) {
+    stackRow = parentRows[0];
+    stackId = String(parentRows[0].id);
+  }
+
 
   // Persist items
   if (parentRows.length > 0 && stackId && user_id) {
     try {
-await supabaseAdmin.from("stacks_items").delete().eq("stack_id", parent.id);
-
-type StackItemRow = {
-  stack_id: string;
-  user_id: string;
-  user_email: string | null;
-  name: string;
-  dose: string | null;
-  timing: string | null;
-  notes: string | null;
-  rationale: string | null;
-  caution: string | null;
-  citations: string | null;
-  link_amazon: string | null;
-  link_fullscript: string | null;
-  link_thorne: string | null;
-  link_other: string | null;
-  cost_estimate: number | null;
-  is_current: boolean | null;
-  timing_bucket: string | null;
-  timing_text: string | null;
-};
-
-const stackId: string = parent.id;
-
-const rows: StackItemRow[] = (withEvidence || [])
-  .map((it) => {
-    const normName = normalizeSupplementName(it?.name ?? "");
-    const safeName = cleanName(normName);
-    if (!safeName || safeName.toLowerCase() === "null") {
-      console.error("🚨 Blocking insert of invalid item", {
-        stack_id: stackId,
-        user_id,
-        rawName: it?.name,
-      });
-      return null;
+      await supabaseAdmin.from("stacks_items").delete().eq("stack_id", stackId);
+    } catch (delErr) {
+      console.error("delete stacks_items failed:", delErr);
     }
-
-    const citations = Array.isArray(it.citations)
-      ? JSON.stringify(it.citations)
-      : null;
-
-    const timingText = (it as any).timing_text ?? it.timing ?? null;
-    const bucket =
-      (it as any).timing_bucket ?? classifyTimingBucket(timingText);
-
-    const row: StackItemRow = {
-      stack_id: stackId,
-      user_id,
-      user_email: userEmail,
-      name: safeName,
-      dose: it.dose ?? null,
-      timing: it.timing ?? null,
-      notes: it.notes ?? null,
-      rationale: it.rationale ?? null,
-      caution: it.caution ?? null,
-      citations,
-      link_amazon: it.link_amazon ?? null,
-      link_fullscript: it.link_fullscript ?? null,
-      link_thorne: it.link_thorne ?? null,
-      link_other: it.link_other ?? null,
-      cost_estimate: it.cost_estimate ?? null,
-      is_current: Boolean((it as any).is_current ?? false),
-      timing_bucket: bucket ?? null,
-      timing_text: timingText,
+  
+    type StackItemRow = {
+      stack_id: string;
+      user_id: string;
+      user_email: string | null;
+      name: string;
+      dose: string | null;
+      timing: string | null;
+      notes: string | null;
+      rationale: string | null;
+      caution: string | null;
+      citations: string | null;
+      link_amazon: string | null;
+      link_fullscript: string | null;
+      link_thorne: string | null;
+      link_other: string | null;
+      cost_estimate: number | null;
+      is_current: boolean | null;
+      timing_bucket: string | null;
+      timing_text: string | null;
     };
-
-    return row;
-  })
-  .filter((r): r is StackItemRow => r !== null);
-
-if (rows.length > 0) {
-  const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
-  if (error) console.error("⚠️ Failed to insert stacks_items:", error);
-  else console.log(`✅ Inserted ${rows.length} stack items for stack ${stackId}`);
-}
-
+  
+    const rows: StackItemRow[] = (withEvidence || [])
+      .map((it) => {
+        const normName = normalizeSupplementName(it?.name ?? "");
+        const safeName = cleanName(normName);
+        if (!safeName || safeName.toLowerCase() === "null") {
+          console.error("🚨 Blocking insert of invalid item", {
+            stack_id: stackId,
+            user_id,
+            rawName: it?.name,
+          });
+          return null;
+        }
+  
+        const citations = Array.isArray(it.citations)
+          ? JSON.stringify(it.citations)
+          : null;
+  
+        const timingText = (it as any).timing_text ?? it.timing ?? null;
+        const bucket =
+          (it as any).timing_bucket ?? classifyTimingBucket(timingText);
+  
+        const row: StackItemRow = {
+          stack_id: stackId,
+          user_id,
+          user_email: userEmail,
+          name: safeName,
+          dose: it.dose ?? null,
+          timing: it.timing ?? null,
+          notes: it.notes ?? null,
+          rationale: it.rationale ?? null,
+          caution: it.caution ?? null,
+          citations,
+          link_amazon: it.link_amazon ?? null,
+          link_fullscript: it.link_fullscript ?? null,
+          link_thorne: it.link_thorne ?? null,
+          link_other: it.link_other ?? null,
+          cost_estimate: it.cost_estimate ?? null,
+          is_current: Boolean((it as any).is_current ?? false),
+          timing_bucket: bucket ?? null,
+          timing_text: timingText,
+        };
+  
+        return row;
+      })
+      .filter((r): r is StackItemRow => r !== null);
+  
+    if (rows.length > 0) {
+      const { error } = await supabaseAdmin.from("stacks_items").insert(rows);
+      if (error) console.error("⚠️ Failed to insert stacks_items:", error);
+      else console.log(`✅ Inserted ${rows.length} stack items for stack ${stackId}`);
+    }
+  }
     } catch (e) {
       console.warn("⚠️ stacks_items insert skipped due to error:", e);
     }
