@@ -1002,8 +1002,7 @@ console.log("validation.debug", {
   }
 
 
-  // Persist items
- // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // Persist items (delete → rebuild → insert) for this stack
 // ---------------------------------------------------------------------------
 if (parentRows.length > 0 && stackId && user_id) {
@@ -1094,27 +1093,27 @@ if (parentRows.length > 0 && stackId && user_id) {
   }
 }
 
-  if (!passes) {
-    console.warn("⚠️ Draft validation failed, review needed.");
-  }
+if (!passes) {
+  console.warn("⚠️ Draft validation failed, review needed.");
+}
 
-  // Return original telemetry AND add stack_id for the API route
-  const raw = {
-    ...(llmRaw ?? {}),
-    stack_id: stackId ?? undefined,
-    safety_status: safetyStatus,
-    mode,
-    item_cap: cap,
-  };
+// Return original telemetry AND add stack_id for the API route
+const raw = {
+  ...(llmRaw ?? {}),
+  stack_id: stackId ?? undefined,
+  safety_status: safetyStatus,
+  mode,
+  item_cap: cap,
+};
 
-  return {
-    markdown: md,
-    raw,
-    model_used: modelUsed,
-    tokens_used: tokensUsed,
-    prompt_tokens: promptTokens,
-    completion_tokens: completionTokens,
-  };
+return {
+  markdown: md,
+  raw,
+  model_used: modelUsed,
+  tokens_used: tokensUsed,
+  prompt_tokens: promptTokens,
+  completion_tokens: completionTokens,
+};
 }
 
 export default generateStackForSubmission;
