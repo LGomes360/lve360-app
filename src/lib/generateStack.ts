@@ -1000,15 +1000,6 @@ try {
   console.error("Stacks upsert exception:", err);
 }
 
-  let stackRow: any = null;
-  let stackId: string | null = null;
-  
-  if (parentRows.length > 0 && parentRows[0]?.id) {
-    stackRow = parentRows[0];
-    stackId = String(parentRows[0].id);
-  }
-
-
 // ---------------------------------------------------------------------------
 // Persist items (delete → rebuild → insert) for this stack
 // ---------------------------------------------------------------------------
