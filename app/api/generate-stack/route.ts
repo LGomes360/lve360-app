@@ -283,7 +283,7 @@ export async function POST(req: NextRequest) {
     try {
       result = await callGenerator(submissionId, {
         mode,
-        maxItems: mode === "free" ? 3 : undefined,
+        maxItems: mode === "free" ? 12 : undefined,
       });
     } catch (genErr: unknown) {
       const msg = (genErr as any)?.message ?? genErr;
