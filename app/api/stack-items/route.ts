@@ -40,9 +40,10 @@ export async function GET(req: NextRequest) {
 
     const { data: items, error } = await supabaseAdmin
       .from("stacks_items")
-      .select("id,name,timing,link_amazon,link_fullscript")
+      .select("id,name,dose,timing, timing_bucket, timing_text, is_current, link_amazon, link_fullscript")
       .eq("stack_id", stackId)
       .order("name");
+
 
     if (error) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
