@@ -70,7 +70,10 @@ export interface StackItem {
   notes?: string | null;
   caution?: string | null;
   citations?: string[] | null;
-
+  is_current?: boolean;           // ← new: true if listed in "Current Stack"
+  timing_bucket?: "AM" | "PM" | "AM/PM" | "Anytime" | null; // ← new normalized
+  timing_text?: string | null;    // ← new: original free-text timing
+  
   // Category links (populated by enrichAffiliateLinks from public.supplements)
   link_budget?: string | null;
   link_trusted?: string | null;
@@ -146,6 +149,21 @@ function normalizeTiming(raw?: string | null): string | null {
   if (/\bpm\b|evening|night/.test(s)) return "PM";
   if (/am\/pm|both|split|\bbid\b/.test(s)) return "AM/PM";
   return raw.trim();
+}
+
+function classifyTimingBucket(text?: string | null): "AM" | "PM" | "AM/PM" | "Anytime" | null {
+  if (!text) return null;
+  const s = text.toLowerCase();
+  const am = /\b(am|morning|breakfast)\b/.test(s);
+  const pm = /\b(pm|evening|night|bedtime)\b/.test(s);
+  const bothWords = /\b(bid|twice|2x|am\/pm|split)\b/.test(s);
+  const meals = /\b(with (meals?|food))\b/.test(s);
+  if (am && pm) return "AM/PM";
+  if (bothWords) return "AM/PM";
+  if (am) return "AM";
+  if (pm) return "PM";
+  if (meals) return "Anytime";
+  return null;
 }
 
 function normalizeUnit(u?: string | null) {
@@ -444,12 +462,18 @@ function parseStackFromMarkdown(md: string): StackItem[] {
       const cols = row.split("|").map((c) => c.trim());
       const name = cleanName(cols[2] || `Item ${i + 1}`);
       if (!name) return;
-      base[name.toLowerCase()] = {
+      const key = name.toLowerCase();
+      base[key] = {
+        ...(base[key] ?? {}),
         name,
-        rationale: cols[3] || undefined,
-        dose: null,
-        dose_parsed: null,
-        timing: null,
+        rationale: cols[3] || (base[key]?.rationale ?? undefined),
+        dose: base[key]?.dose ?? null,
+        dose_parsed: base[key]?.dose_parsed ?? null,
+        timing: base[key]?.timing ?? null,
+        // normalize fields
+        timing_bucket: base[key]?.timing_bucket ?? null,
+        timing_text: base[key]?.timing_text ?? null,
+        is_current: base[key]?.is_current ?? false,
       };
     });
   }
@@ -464,20 +488,27 @@ function parseStackFromMarkdown(md: string): StackItem[] {
       if (!name) return;
       const rationale = cols[2] || undefined;
       const dose = cols[3] || null;
-      const timing = normalizeTiming(cols[4] || null);
+      const timingRaw = cols[4] || null;
+      const timingNorm = normalizeTiming(timingRaw);
       const parsed = parseDose(dose);
       const key = name.toLowerCase();
-      if (!base[key]) {
-        base[key] = {
-          name,
-          rationale,
-          dose,
-          dose_parsed: parsed,
-          timing,
-        };
-      }
+  
+      const tb = classifyTimingBucket(timingRaw);
+  
+      base[key] = {
+        ...(base[key] ?? {}),
+        name,
+        rationale: base[key]?.rationale ?? rationale,
+        dose: dose ?? base[key]?.dose ?? null,
+        dose_parsed: parsed ?? base[key]?.dose_parsed ?? null,
+        timing: timingNorm ?? base[key]?.timing ?? null,
+        timing_text: timingRaw,                            // keep original
+        timing_bucket: tb ?? base[key]?.timing_bucket ?? null,
+        is_current: true,                                  // ← mark as current
+      };
     });
   }
+
 
   // 3) Dosing & Notes (bulleted list)
   const dosing = md.match(/## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i);
@@ -489,25 +520,27 @@ function parseStackFromMarkdown(md: string): StackItem[] {
         const name = cleanName(m[1].trim());
         if (!name) continue;
         const dose = m[2]?.trim() || null;
-        const timing = normalizeTiming(m[3]);
+        const timingRaw = m[3] || null;
+        const timingNorm = normalizeTiming(timingRaw);
         const parsed = parseDose(dose);
         const key = name.toLowerCase();
-        if (base[key]) {
-          base[key].dose = dose;
-          base[key].dose_parsed = parsed;
-          base[key].timing = timing;
-        } else {
-          base[key] = {
-            name,
-            rationale: undefined,
-            dose,
-            dose_parsed: parsed,
-            timing,
-          };
-        }
+        const tb = classifyTimingBucket(timingRaw);
+  
+        base[key] = {
+          ...(base[key] ?? {}),
+          name,
+          dose,
+          dose_parsed: parsed,
+          timing: timingNorm ?? base[key]?.timing ?? null,
+          timing_text: timingRaw ?? base[key]?.timing_text ?? null,
+          timing_bucket: tb ?? base[key]?.timing_bucket ?? null,
+          rationale: base[key]?.rationale ?? undefined,
+          is_current: base[key]?.is_current ?? false,
+        };
       }
     }
   }
+
 
   const seen = new Set<string>();
   return Object.values(base).filter((it: any) => {
@@ -999,6 +1032,12 @@ console.log("validation.debug", {
         link_other: it.link_other ?? null,
   
         cost_estimate: it.cost_estimate ?? null,
+        // NEW COLUMNS (add these in your Row type too or extend it)
+        is_current: Boolean(it.is_current ?? false) as any,
+        timing_bucket: it.timing_bucket ?? (classifyTimingBucket(it.timing_text ?? it.timing) || null) as any,
+        timing_text: it.timing_text ?? it.timing ?? null,
+      } as any; // keep TS happy if your StackItemRow type isn't updated yet
+      
       };
       return row;
     })
