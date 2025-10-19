@@ -31,7 +31,7 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
           setItems(Array.isArray(j?.items) ? j.items : []);
           setLoading(false);
         }
-      } catch (e) {
+      } catch {
         if (!cancelled) {
           setError("Couldn’t load stack items.");
           setLoading(false);
@@ -42,7 +42,7 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
     return () => { cancelled = true; ac.abort(); };
   }, [stackId]);
 
-  // Split by timing (handles AM, PM, AM/PM)
+  // Split by timing (handles AM, PM, AM/PM, and unknown -> AM)
   const { am, pm } = useMemo(() => {
     const AM: Item[] = [];
     const PM: Item[] = [];
@@ -50,37 +50,49 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
       const t = (i.timing ?? "").toUpperCase();
       if (t.includes("AM")) AM.push(i);
       if (t.includes("PM")) PM.push(i);
-      if (!t) AM.push(i); // if unknown, show in AM to avoid hiding entirely
+      if (!t) AM.push(i);
     }
     return { am: AM, pm: PM };
   }, [items]);
 
-  // Don’t render the sidebar at all until we have real items (prevents stray AM/PM)
+  // Hide the sidebar until we actually have items (prevents stray AM/PM labels)
   if (loading || items.length === 0) return null;
 
   // Optional: click tracking via /api/r
   const track = (url: string, src: "amazon" | "fullscript", itemName: string) =>
-    `/api/r?u=${encodeURIComponent(url)}&src=${src}&stack_id=${encodeURIComponent(stackId)}&item=${encodeURIComponent(itemName)}`;
+    `/api/r?u=${encodeURIComponent(url)}&src=${src}&stack_id=${encodeURIComponent(
+      stackId
+    )}&item=${encodeURIComponent(itemName)}`;
 
   return (
     <aside className="sticky top-4 space-y-6">
-      {error && <div className="text-sm text-red-600">{error}</div)}
+      {error && <div className="text-sm text-red-600">{error}</div>}
 
       {am.length > 0 && (
         <section>
           <h3 className="font-semibold mb-2">AM</h3>
           <ul className="space-y-1">
-            {am.map(i => (
+            {am.map((i) => (
               <li key={i.id} className="flex items-center justify-between">
                 <span className="text-sm">{i.name}</span>
                 <div className="flex gap-2">
                   {i.link_fullscript && (
-                    <a href={track(i.link_fullscript, "fullscript", i.name)} className="text-xs underline">
+                    <a
+                      href={track(i.link_fullscript, "fullscript", i.name)}
+                      className="text-xs underline"
+                      target="_blank"
+                      rel="noopener noreferrer nofollow"
+                    >
                       Fullscript
                     </a>
                   )}
                   {i.link_amazon && (
-                    <a href={track(i.link_amazon, "amazon", i.name)} className="text-xs underline">
+                    <a
+                      href={track(i.link_amazon, "amazon", i.name)}
+                      className="text-xs underline"
+                      target="_blank"
+                      rel="noopener noreferrer nofollow"
+                    >
                       Amazon
                     </a>
                   )}
@@ -95,17 +107,27 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
         <section>
           <h3 className="font-semibold mb-2">PM</h3>
           <ul className="space-y-1">
-            {pm.map(i => (
+            {pm.map((i) => (
               <li key={i.id} className="flex items-center justify-between">
                 <span className="text-sm">{i.name}</span>
                 <div className="flex gap-2">
                   {i.link_fullscript && (
-                    <a href={track(i.link_fullscript, "fullscript", i.name)} className="text-xs underline">
+                    <a
+                      href={track(i.link_fullscript, "fullscript", i.name)}
+                      className="text-xs underline"
+                      target="_blank"
+                      rel="noopener noreferrer nofollow"
+                    >
                       Fullscript
                     </a>
                   )}
                   {i.link_amazon && (
-                    <a href={track(i.link_amazon, "amazon", i.name)} className="text-xs underline">
+                    <a
+                      href={track(i.link_amazon, "amazon", i.name)}
+                      className="text-xs underline"
+                      target="_blank"
+                      rel="noopener noreferrer nofollow"
+                    >
                       Amazon
                     </a>
                   )}
