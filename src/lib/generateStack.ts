@@ -953,46 +953,53 @@ console.log("validation.debug", {
   // Total monthly cost estimate (best-effort)
   const totalMonthlyCost = asArray(withEvidence).reduce((acc, it) => acc + (it?.cost_estimate ?? 0), 0);
 
-  // Persist parent stack
-  let parentRows: any[] = [];
-  let stackId: string | null = null;
+// ---------------------------------------------------------------------------
+// Persist parent stack (single source of truth for stackId)
+// ---------------------------------------------------------------------------
+let parentRows: any[] = [];
+let stackId: string | null = null;
+let stackRow: any = null;
 
-  try {
-    const { data, error } = await supabaseAdmin
-      .from("stacks")
-      .upsert(
-        {
-          submission_id: id,
-          user_id,
-          user_email: userEmail,
-          tally_submission_id: (sub as any)?.tally_submission_id ?? null,
-          version: modelUsed,
-          tokens_used: tokensUsed,
-          prompt_tokens: promptTokens,
-          completion_tokens: completionTokens,
-          safety_status: safetyStatus,
-          summary: md,
-          sections: {
-            markdown: md,
-            generated_at: new Date().toISOString(),
-            mode,           // <- store mode for analytics
-            item_cap: cap,  // <- store cap for analytics
-          },
-          notes: null,
-          total_monthly_cost: totalMonthlyCost,
+try {
+  const { data, error } = await supabaseAdmin
+    .from("stacks")
+    .upsert(
+      {
+        submission_id: id,
+        user_id,
+        user_email: userEmail,
+        tally_submission_id: (sub as any)?.tally_submission_id ?? null,
+        version: modelUsed,
+        tokens_used: tokensUsed,
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        safety_status: safetyStatus, // keep your existing variable
+        summary: md,
+        sections: {
+          markdown: md,
+          generated_at: new Date().toISOString(),
+          mode,                 // analytics
+          item_cap: cap ?? null // analytics
         },
-        { onConflict: "submission_id" }
-      )
-      .select();
+        notes: null,
+        total_monthly_cost: totalMonthlyCost,
+      },
+      { onConflict: "submission_id" }
+    )
+    .select();
 
-    if (error) console.error("Supabase upsert error:", error);
-    if (data && data.length > 0) {
-      parentRows = data;
-      stackId = data[0]?.id ?? null;
-    }
-  } catch (err) {
-    console.error("Stacks upsert exception:", err);
+  if (error) {
+    console.error("Supabase upsert error:", error);
   }
+  if (data && data.length > 0 && data[0]?.id) {
+    parentRows = data;
+    stackRow = data[0];
+    stackId = String(data[0].id);
+  }
+} catch (err) {
+  console.error("Stacks upsert exception:", err);
+}
+
   let stackRow: any = null;
   let stackId: string | null = null;
   
