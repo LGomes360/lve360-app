@@ -862,16 +862,20 @@ console.log("validation.debug", {
 
   md = ensureEnd(md);
 
-  // --- Parse items from Markdown --------------------------------------------
-  const parsedItems = parseMarkdownToItems(md);
+// --- Parse items from Markdown --------------------------------------------
+const parsedItems = parseMarkdownToItems(md);
 
+// --- Tier cap (Free vs Premium) BEFORE safety/enrichment -------------------
+// Only cap if maxItems was provided. Otherwise, keep ALL items.
+const rawCapped = typeof cap === "number"
+  ? asArray(parsedItems).slice(0, cap)
+  : asArray(parsedItems);
 
-  // --- Tier cap (Free vs Premium) BEFORE safety/enrichment -------------------
-  // Only cap if maxItems was provided. Otherwise, keep ALL items.
-  // This removes the 3-item limit for Free users.
-  const cappedItems = typeof cap === "number"
-    ? asArray(parsedItems).slice(0, cap)
-    : asArray(parsedItems);
+// Coerce shapes to StackItem (no null in is_current)
+const cappedItems: StackItem[] = rawCapped.map((i: any) => ({
+  ...i,
+  is_current: i?.is_current === true, // null/undefined -> false
+}));
   
   type SafetyStatus = "safe" | "warning" | "error";
   interface SafetyOutput {
