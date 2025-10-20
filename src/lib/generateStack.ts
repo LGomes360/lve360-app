@@ -14,6 +14,7 @@ import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getTopCitationsFor } from "@/lib/evidence";
+import parseMarkdownToItems from "@/lib/parseMarkdownToItems";
 
 // --- Curated evidence index (JSON) ------------------------------------------
 import evidenceIndex from "@/evidence/evidence_index_top3.json";
@@ -860,7 +861,8 @@ console.log("validation.debug", {
   md = ensureEnd(md);
 
   // --- Parse items from Markdown --------------------------------------------
-  const parsedItems: StackItem[] = parseStackFromMarkdown(md);
+  const parsedItems = parseMarkdownToItems(md);
+
 
   // --- Tier cap (Free vs Premium) BEFORE safety/enrichment -------------------
   // Only cap if maxItems was provided. Otherwise, keep ALL items.
