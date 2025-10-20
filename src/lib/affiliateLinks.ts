@@ -1,13 +1,17 @@
 // -----------------------------------------------------------------------------
 // File: src/lib/affiliateLinks.ts
 // Purpose: Attach affiliate links to stack items using multiple link columns.
-// Strategy: Select budget/trusted/clean/default for free users; prefer
-// Fullscript for premium users if available. Auto-normalize supplement names.
+// Strategy: Prefer Fullscript for premium users (if available). For everyone,
+//           choose budget/trusted/clean/default. If no curated link exists,
+//           fall back to a **search URL** on Amazon with the Associates tag.
 // -----------------------------------------------------------------------------
 
 import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
 
-// Shared normalization (same as generateStack.ts)
+// ---------- Config ----------------------------------------------------------------
+const AMAZON_TAG = process.env.NEXT_PUBLIC_AMAZON_TAG || "lve360-20";
+
+// ---------- Normalization (mirrors generateStack.ts) -------------------------------
 function normalizeSupplementName(name: string): string {
   const n = (name || "").toLowerCase().replace(/[.*_`#]/g, "").trim();
   const collapsed = n.replace(/\s+/g, " ");
@@ -37,6 +41,7 @@ function normalizeSupplementName(name: string): string {
   return name.trim();
 }
 
+// ---------- Public types ------------------------------------------------------------
 export type StackItem = {
   supplement_id?: string;
   name: string;
@@ -46,20 +51,44 @@ export type StackItem = {
   rationale?: string | null;
   caution?: string | null;
   citations?: string[] | null;
-  // link fields
+  // link fields (curated/category)
   link_budget?: string | null;
   link_trusted?: string | null;
   link_clean?: string | null;
   link_default?: string | null;
+  // partner link
   link_fullscript?: string | null;
-  // resolved link
+  // resolved link the UI can choose to use (optional)
   link?: string | null;
 };
 
-// -----------------------------------------------------------------------------
-// Internal helper: choose correct link from row based on prefs + membership
-// -----------------------------------------------------------------------------
-function chooseLink(
+// ---------- Helpers ----------------------------------------------------------------
+
+// Build an Amazon search URL as a universal fallback.
+// Keeps search within Health & Household (i=hpc) and appends Associates tag.
+export function buildAmazonSearchLink(name: string, dose?: string | null): string {
+  const parts: string[] = [];
+  const base = (name || "").toString().trim();
+  if (base) parts.push(base);
+
+  // Add a compact dose token if present (improves search quality)
+  const doseToken = (dose || "")
+    .toString()
+    .toLowerCase()
+    .match(/(\d+(?:\.\d+)?\s?(?:mg|mcg|iu|g))/)?.[1];
+
+  if (doseToken) parts.push(doseToken);
+
+  // Helpful generic keyword
+  parts.push("supplement");
+
+  const q = encodeURIComponent(parts.join(" ").replace(/\s+/g, " ").trim());
+  return `https://www.amazon.com/s?k=${q}&i=hpc&tag=${encodeURIComponent(AMAZON_TAG)}`;
+}
+
+// Choose a curated link based on brand preference + membership.
+// NOTE: This works on a "row" from the DB (supplements table), not on the item itself.
+function chooseLinkFromRow(
   row: any,
   brandPref: string | null,
   isPremium: boolean
@@ -78,12 +107,9 @@ function chooseLink(
   }
 }
 
-// -----------------------------------------------------------------------------
-// Find all link columns for a given supplement name
-// -----------------------------------------------------------------------------
+// ---------- DB lookups --------------------------------------------------------------
 async function findLinksFor(name: string) {
   const normName = normalizeSupplementName(name);
-
   const cols =
     "link_budget, link_trusted, link_clean, link_default, link_fullscript, ingredient, product_name";
 
@@ -114,9 +140,7 @@ async function findLinksFor(name: string) {
   return null;
 }
 
-// -----------------------------------------------------------------------------
-// Main export
-// -----------------------------------------------------------------------------
+// ---------- Main enrichment ---------------------------------------------------------
 export async function enrichAffiliateLinks<T extends StackItem>(
   items: T[],
   opts?: { brandPref?: string | null; isPremium?: boolean }
@@ -126,17 +150,48 @@ export async function enrichAffiliateLinks<T extends StackItem>(
   const isPremium = opts?.isPremium ?? false;
 
   for (const it of items) {
-    const row = await findLinksFor(it.name);
-    const resolvedLink = row ? chooseLink(row, brandPref, isPremium) : null;
+    const normName = normalizeSupplementName(it.name);
+    const row = await findLinksFor(normName);
+
+    // Start with whatever the DB has
+    let link_budget = row?.link_budget ?? null;
+    let link_trusted = row?.link_trusted ?? null;
+    let link_clean = row?.link_clean ?? null;
+    let link_default = row?.link_default ?? null;
+    const link_fullscript = row?.link_fullscript ?? null;
+
+    // If no curated/category link exists at all, create a **search fallback**
+    if (!link_default && !link_trusted && !link_budget && !link_clean) {
+      link_default = buildAmazonSearchLink(normName, it.dose);
+    }
+
+    // Pick a resolved link for convenience (UI may still show both Amazon + Fullscript)
+    let resolved = chooseLinkFromRow(
+      {
+        link_budget,
+        link_trusted,
+        link_clean,
+        link_default,
+        link_fullscript,
+      },
+      brandPref,
+      isPremium
+    );
+
+    // Final safety net: if still nothing, force-search
+    if (!resolved) {
+      resolved = buildAmazonSearchLink(normName, it.dose);
+    }
+
     out.push({
       ...it,
-      name: normalizeSupplementName(it.name), // ensure persisted name normalized too
-      link_budget: row?.link_budget ?? null,
-      link_trusted: row?.link_trusted ?? null,
-      link_clean: row?.link_clean ?? null,
-      link_default: row?.link_default ?? null,
-      link_fullscript: row?.link_fullscript ?? null,
-      link: resolvedLink,
+      name: normName, // ensure persisted name normalized too
+      link_budget,
+      link_trusted,
+      link_clean,
+      link_default,
+      link_fullscript,
+      link: resolved,
     });
   }
 
