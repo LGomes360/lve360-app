@@ -1,82 +1,93 @@
 // app/api/r/route.ts
-// Force dynamic execution (no prerender) and disable caching.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const fetchCache = "no-store";
+export const fetchCache = "force-no-store";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
-type Src = "amazon" | "fullscript" | "thorne" | "other";
+// Build an Amazon search URL with affiliate tag
+function buildAmazonSearch(item: string): string {
+  const q = encodeURIComponent(item.trim());
+  const tag = "lve360-20";
+  return `https://www.amazon.com/s?k=${q}&tag=${tag}`;
+}
+
+// Basic URL safety: allow http/https and reject data:, javascript:, etc.
+function isSafeHttpUrl(u: string): boolean {
+  try {
+    const url = new URL(u);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 export async function GET(req: NextRequest) {
   try {
-    // Use nextUrl so this route isn't analyzed as static
     const u = req.nextUrl;
 
-    const raw = u.searchParams.get("u"); // REQUIRED (encoded)
-    const src = (u.searchParams.get("src") as Src) || "amazon";
+    // Inputs
+    const rawU = u.searchParams.get("u"); // encoded target (optional if we can fallback)
+    const src = (u.searchParams.get("src") || "amazon").toLowerCase();
     const submissionId = u.searchParams.get("submission_id");
     const stackId = u.searchParams.get("stack_id");
     const item = u.searchParams.get("item");
 
-    if (!raw) {
-      return NextResponse.json(
-        { ok: false, error: "Missing u (destination)" },
-        { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } }
-      );
+    // Determine destination:
+    // 1) Use provided `u` if it decodes to a safe http(s) URL.
+    // 2) Else, if src=amazon and we have an item name, send to Amazon search with affiliate tag.
+    // 3) Else, 400.
+    let dest: string | null = null;
+
+    if (rawU) {
+      const decoded = decodeURIComponent(rawU);
+      if (isSafeHttpUrl(decoded)) {
+        dest = decoded;
+      }
     }
 
-    // Decode & validate destination
-    const destDecoded = decodeURIComponent(raw);
-    if (!/^https?:\/\//i.test(destDecoded)) {
-      return NextResponse.json(
-        { ok: false, error: "Invalid destination" },
-        { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } }
-      );
+    if (!dest && src === "amazon" && item && item.trim().length > 0) {
+      dest = buildAmazonSearch(item);
     }
 
-    // Construct a proper URL instance (NextResponse.redirect accepts string or URL)
-    let dest: URL;
-    try {
-      dest = new URL(destDecoded);
-    } catch {
-      return NextResponse.json(
-        { ok: false, error: "Malformed URL" },
-        { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } }
+    if (!dest) {
+      const res = NextResponse.json(
+        { ok: false, error: "Missing or invalid destination, and no valid fallback." },
+        { status: 400 }
       );
+      res.headers.set("Cache-Control", "no-store, max-age=0");
+      return res;
     }
 
-    // Best-effort log (non-blocking)
+    // Best-effort logging (non-blocking)
     try {
       await supabaseAdmin.from("link_clicks").insert({
         submission_id: submissionId,
         stack_id: stackId,
         item_name: item,
-        dest: src,
-        url: dest.toString(),
+        dest: src, // source label, e.g., "amazon" or "fullscript"
+        url: dest, // final resolved URL
         user_agent: req.headers.get("user-agent"),
-        ip:
-          req.headers.get("x-forwarded-for") ??
-          req.headers.get("x-real-ip") ??
-          null,
+        ip: req.headers.get("x-forwarded-for") || req.ip || null,
         referrer: req.headers.get("referer"),
       });
     } catch (e) {
       console.warn("[/api/r] log failed:", e);
-      // do not block the redirect
     }
 
-    // 302 → affiliate destination (no-store to avoid CDN caching oddities)
-    const res = NextResponse.redirect(dest, 302);
-    res.headers.set("Cache-Control", "no-store, max-age=0");
-    return res;
+    // Redirect (302) to the resolved destination
+    const redirect = NextResponse.redirect(dest, { status: 302 });
+    redirect.headers.set("Cache-Control", "no-store, max-age=0");
+    return redirect;
   } catch (err: any) {
     console.error("[/api/r] unhandled:", err);
-    return NextResponse.json(
+    const res = NextResponse.json(
       { ok: false, error: String(err?.message ?? err) },
-      { status: 500, headers: { "Cache-Control": "no-store, max-age=0" } }
+      { status: 500 }
     );
+    res.headers.set("Cache-Control", "no-store, max-age=0");
+    return res;
   }
 }
