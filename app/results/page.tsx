@@ -33,7 +33,7 @@ function extractSection(md: string, heads: string[]): string | null {
   const tail = md.slice(start + 1);
   const next = /\n##\s+/m.exec(tail);
   const end = next ? start + 1 + next.index : md.length;
-  let slice = md.slice(start, end);
+  const slice = md.slice(start, end);
   return slice.replace(/^##\s*[^\n]+\n?/, "").trim();
 }
 
@@ -160,6 +160,45 @@ function SectionCard({ title, children }: { title: string; children: React.React
   );
 }
 
+/* --- Tiny stepper: Warm-up → Generating → Done (or Error) --- */
+function Stepper({
+  state,
+}: {
+  state: "idle" | "warmup" | "generating" | "done" | "error";
+}) {
+  const steps = ["Warm-up", "Generating", "Done"] as const;
+  const activeIndex =
+    state === "warmup" ? 0 : state === "generating" ? 1 : state === "done" ? 2 : -1;
+  const isError = state === "error";
+
+  return (
+    <div className="flex items-center justify-center gap-3 text-sm mt-3">
+      {steps.map((s, i) => {
+        const active = i === activeIndex;
+        const completed = activeIndex > i;
+        const base =
+          "px-2.5 py-1 rounded-full border transition";
+        const cls =
+          isError && i <= 1
+            ? `${base} border-red-300 bg-red-50 text-red-700`
+            : active
+            ? `${base} border-teal-300 bg-teal-50 text-teal-700`
+            : completed
+            ? `${base} border-teal-400 bg-teal-100 text-teal-800`
+            : `${base} border-gray-200 bg-gray-50 text-gray-600`;
+        return (
+          <div key={s} className="flex items-center gap-2">
+            <span className={cls}>{s}</span>
+            {i < steps.length - 1 && (
+              <span className="text-gray-300">→</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* --- 2-minute countdown --- */
 function TwoMinuteCountdown({
   running,
@@ -200,10 +239,16 @@ function TwoMinuteCountdown({
   return (
     <div className="text-center mt-3">
       <p className="text-gray-600">
-        ⏱ Estimated time remaining: <span className="font-semibold text-teal-600">{m}:{s}</span>
+        ⏱ Estimated time remaining:{" "}
+        <span className="font-semibold text-teal-600">
+          {m}:{s}
+        </span>
       </p>
       <div className="w-64 h-2 bg-gray-200 rounded-full mt-2 mx-auto">
-        <div className="h-2 bg-teal-500 rounded-full transition-all duration-1000" style={{ width: `${pct}%` }} />
+        <div
+          className="h-2 bg-teal-500 rounded-full transition-all duration-1000"
+          style={{ width: `${pct}%` }}
+        />
       </div>
     </div>
   );
@@ -217,6 +262,7 @@ function ResultsContent() {
   const [generating, setGenerating] = useState(false);
   const [ready, setReady] = useState(true);
   const [stackId, setStackId] = useState<string | null>(null);
+  const [flow, setFlow] = useState<"idle" | "warmup" | "generating" | "done" | "error">("idle");
 
   const searchParams = useSearchParams();
   const tallyId = searchParams?.get("tally_submission_id") ?? null;
@@ -246,6 +292,7 @@ function ResultsContent() {
         setMarkdown(sanitizeMarkdown(raw));
         setStackId(data?.stack?.id ?? null);
       } catch (e: any) {
+        // non-blocking
         console.warn(e);
       }
     })();
@@ -255,9 +302,11 @@ function ResultsContent() {
     if (!tallyId) return setError("Missing submission ID.");
     try {
       setError(null);
+      setFlow("warmup");
       setWarmingUp(true);
       await new Promise((r) => setTimeout(r, 800));
       setWarmingUp(false);
+      setFlow("generating");
       setGenerating(true);
 
       const data = await api("/api/generate-stack", { tally_submission_id: tallyId });
@@ -278,8 +327,11 @@ function ResultsContent() {
         first;
       setMarkdown(sanitizeMarkdown(finalMd));
       setStackId(refreshed?.stack?.id ?? data?.stack?.id ?? null);
+
+      setFlow("done");
     } catch (e: any) {
       setError(e?.message ?? "Unknown error");
+      setFlow("error");
     } finally {
       setGenerating(false);
       setWarmingUp(false);
@@ -365,15 +417,26 @@ function ResultsContent() {
                 </CTAButton>
               </div>
 
-              {(warmingUp || generating) && (
-                <p className="text-center text-gray-500 mt-3 text-sm animate-pulse">
-                  {warmingUp
-                    ? "⚡ Warming up the AI engines..."
-                    : "💪 Crunching the numbers… this usually takes about 2 minutes."}
-                </p>
+              {/* tiny stepper + status text */}
+              {(warmingUp || generating || flow === "done" || flow === "error") && (
+                <>
+                  <Stepper state={flow} />
+                  <p className="text-center text-gray-500 mt-2 text-sm">
+                    {flow === "warmup"
+                      ? "⚡ Warming up the AI engines..."
+                      : flow === "generating"
+                      ? "💪 Crunching the numbers… this usually takes about 2 minutes."
+                      : flow === "done"
+                      ? "✅ Done! Your personalized plan is ready."
+                      : flow === "error"
+                      ? "❌ Something went wrong. Please try again."
+                      : null}
+                  </p>
+                </>
               )}
 
-              {/* Removed the old “Trace:” debug line on purpose */}
+              {/* 2-minute countdown while generating */}
+              <TwoMinuteCountdown running={generating} />
             </SectionCard>
 
             {error && <div className="text-center text-red-600 mb-6">{error}</div>}
