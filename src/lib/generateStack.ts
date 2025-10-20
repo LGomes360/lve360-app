@@ -15,6 +15,7 @@ import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getTopCitationsFor } from "@/lib/evidence";
 import parseMarkdownToItems from "@/lib/parseMarkdownToItems";
+import { buildAmazonSearchLink } from "@/lib/affiliateLinks";
 
 // --- Curated evidence index (JSON) ------------------------------------------
 import evidenceIndex from "@/evidence/evidence_index_top3.json";
@@ -705,6 +706,7 @@ function chooseAmazonLinkFor(item: StackItem, pref: "budget" | "trusted" | "clea
     item.link_trusted ||
     item.link_budget ||
     item.link_clean ||
+    buildAmazonSearchLink(item.name, item.dose) ||
     null
   );
 }
