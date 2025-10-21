@@ -1,17 +1,19 @@
 "use client";
 
-import DashboardHeader from "@/components/DashboardHeader";
+// at top
 import { getUserAndTier } from "@/src/lib/getUserAndTier";
+import DashboardHeader from "@/components/DashboardHeader"; // adjust import path if different
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const { tier } = await getUserAndTier();
+  const { tier } = await getUserAndTier(); // server-side: free|trial|premium
   return (
     <>
-      <Header tier={tier} /> {/* pass it down */}
+      <DashboardHeader tier={tier} />
       {children}
     </>
   );
 }
+
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
