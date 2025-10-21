@@ -7,7 +7,12 @@ import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { Menu, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-export default function DashboardHeader() {
+// NEW: accept tier so the layout can pass it down (no behavior change here)
+type Props = {
+  tier?: "free" | "trial" | "premium";
+};
+
+export default function DashboardHeader({ tier = "free" }: Props) {
   const router = useRouter();
   const supabase = createClientComponentClient();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -18,19 +23,19 @@ export default function DashboardHeader() {
   };
 
   return (
-<header
-  className="
-    sticky top-0 z-50
-    bg-white/40 backdrop-blur-xl
-    border-b border-white/30
-    shadow-[0_2px_12px_rgba(0,0,0,0.05)]
-  "
->
+    <header
+      className="
+        sticky top-0 z-50
+        bg-white/40 backdrop-blur-xl
+        border-b border-white/30
+        shadow-[0_2px_12px_rgba(0,0,0,0.05)]
+      "
+    >
       <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-3">
         {/* Logo only — no brand text */}
         <Link href="/dashboard" className="flex items-center" aria-label="LVE360 Dashboard">
           <img
-            src="/icons/lve360-logo.png"  /* keep .png (matches what you deployed) */
+            src="/icons/lve360-logo.png" /* keep .png (matches what you deployed) */
             alt="LVE360"
             className="h-8 w-auto select-none"
             draggable={false}
@@ -41,7 +46,7 @@ export default function DashboardHeader() {
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-[#041B2D]">
           <Link href="/dashboard" className="hover:text-[#06C1A0] transition-colors">Dashboard</Link>
           <Link href="/quiz" className="hover:text-[#06C1A0] transition-colors">My Quiz</Link>
-          <Link href="/export" className="hover:text-[#06C1A0] transition-colors">Exports</Link>
+          {/* REMOVED: Exports button per your request */}
           <Link href="/account" className="hover:text-[#06C1A0] transition-colors">Account</Link>
           <button
             onClick={handleSignOut}
@@ -76,7 +81,7 @@ export default function DashboardHeader() {
             <nav className="flex flex-col text-sm font-medium text-[#041B2D] p-4 space-y-3">
               <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="hover:text-[#06C1A0] transition">Dashboard</Link>
               <Link href="/quiz" onClick={() => setMenuOpen(false)} className="hover:text-[#06C1A0] transition">My Quiz</Link>
-              <Link href="/export" onClick={() => setMenuOpen(false)} className="hover:text-[#06C1A0] transition">Exports</Link>
+              {/* REMOVED: Exports */}
               <Link href="/account" onClick={() => setMenuOpen(false)} className="hover:text-[#06C1A0] transition">Account</Link>
               <button
                 onClick={() => { setMenuOpen(false); handleSignOut(); }}
