@@ -1,21 +1,13 @@
-"use client";
-
-// at top
+import React from "react";
 import { getUserAndTier } from "@/src/lib/getUserAndTier";
-import DashboardHeader from "@/components/DashboardHeader"; // adjust import path if different
+import DashboardHeader from "@/components/DashboardHeader"; // adjust path if your header lives elsewhere
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const { tier } = await getUserAndTier(); // server-side: free|trial|premium
-  return (
-    <>
-      <DashboardHeader tier={tier} />
-      {children}
-    </>
-  );
-}
+  const { tier } = await getUserAndTier(); // "free" | "trial" | "premium"
 
-
-export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body
@@ -27,7 +19,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         "
       >
         {/* Shared dashboard header for all authenticated pages */}
-        <DashboardHeader />
+        <DashboardHeader tier={tier} />
 
         {/* Page content */}
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
