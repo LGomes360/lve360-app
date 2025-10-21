@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, Suspense } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 
-export default function LoginPage() {
+// --- moved your existing logic into an inner component that can be wrapped in <Suspense> ---
+function LoginInner() {
   const supabase = createClientComponentClient();
   const searchParams = useSearchParams();
 
@@ -144,3 +145,15 @@ export default function LoginPage() {
     </motion.main>
   );
 }
+
+export default function LoginPage() {
+  // Minimal change: wrap the hook-using component so Next is happy during prerender/hydration
+  return (
+    <Suspense fallback={<div className="p-6 text-gray-600">Loading…</div>}>
+      <LoginInner />
+    </Suspense>
+  );
+}
+
+// Prevent static export/prerender from evaluating client hooks too early
+export const dynamic = "force-dynamic";
