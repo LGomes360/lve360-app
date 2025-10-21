@@ -4,6 +4,9 @@ import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { createClient } from "@supabase/supabase-js";
 
+// NEW: import timing helpers (you added src/lib/timing.ts earlier)
+import { bucketsForItem, collapseBucketsToString } from "@/src/lib/timing";
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
@@ -36,7 +39,7 @@ export async function POST(req: Request) {
     }
 
     // admin client to upsert (safer for creating stack if none exists)
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false }});
+    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
     // 1) ensure latest stack for user
     const { data: stacksRows, error: stacksErr } = await admin
@@ -55,7 +58,7 @@ export async function POST(req: Request) {
         .insert({
           user_id: userId,
           user_email: userWrap.user.email ?? "unknown@lve360.com",
-          submission_id: crypto.randomUUID(), // placeholder if you require this non-null
+          submission_id: crypto.randomUUID(), // keep your existing behavior
           version: "manual-add",
           items: [],
           summary: null,
@@ -68,7 +71,11 @@ export async function POST(req: Request) {
       stackId = newStack.id;
     }
 
-    // 2) insert stacks_items row
+    // --- NEW: normalize timing into a canonical bucket string
+    const bucketArr = bucketsForItem(timing);
+    const timing_bucket = collapseBucketsToString(bucketArr);
+
+    // 2) insert stacks_items row (add timing_bucket; keep everything else)
     const { error: itemErr } = await admin.from("stacks_items").insert({
       stack_id: stackId,
       user_id: userId,
@@ -77,14 +84,17 @@ export async function POST(req: Request) {
       brand,
       dose,
       timing,
+      timing_bucket,                 // <-- NEW: write normalized bucket
       notes,
       link_fullscript,
       link_amazon,
       link_other: null,
       link_type: link_fullscript ? "fullscript" : link_amazon ? "amazon" : null,
-      source,
-      sku,
+      source,                        // (leave as-is if your DB has this column)
+      sku,                           // (leave as-is if your DB has this column)
       is_custom: source === "custom",
+      // Optional (recommended): make it appear in "Today’s Plan" immediately
+      // is_current: true,
     });
 
     if (itemErr) throw itemErr;
