@@ -2,9 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import {
-  CheckCircle2, Circle, TriangleAlert, PackageOpen, Pill, Search,
-} from "lucide-react";
+import { CheckCircle2, Circle, TriangleAlert, PackageOpen, Pill, Search,} from "lucide-react";
+import { bucketsFromRecord } from "@/src/lib/timing"; // <- path to the file you created
 
 /* =========================
    Types
@@ -17,12 +16,15 @@ type StackItem = {
   brand: string | null;
   dose: string | null;
   timing: "AM" | "PM" | "AM/PM" | (string & {}) | null;
+  /** ADD THIS: enables the normalizer to use either field */
+  timing_bucket?: string | null;
   notes: string | null;
   link_amazon: string | null;
   link_fullscript: string | null;
   refill_days_left: number | null;
   last_refilled_at: string | null;
 };
+
 type SearchItem = {
   vendor: "fullscript" | "fallback";
   sku: string | null;
@@ -214,20 +216,24 @@ export default function TodaysPlan() {
   }
 
   /* -------------------------
-     Derived
+     Derived (AM/PM bucketing via normalizer)
   ------------------------- */
-  const itemsAM = useMemo(
-    () => items.filter((i) => (i.timing ?? "").includes("AM")),
-    [items]
-  );
-  const itemsPM = useMemo(
-    () => items.filter((i) => (i.timing ?? "").includes("PM")),
-    [items]
-  );
-  const itemsOther = useMemo(
-    () => items.filter((i) => !i.timing || (i.timing !== "AM" && i.timing !== "PM" && i.timing !== "AM/PM")),
-    [items]
-  );
+  const { itemsAM, itemsPM, itemsOther } = useMemo(() => {
+    const groups: { AM: StackItem[]; PM: StackItem[]; OTHER: StackItem[] } = {
+      AM: [], PM: [], OTHER: []
+    };
+    for (const it of items) {
+      // bucketsFromRecord looks at it.timing_bucket ?? it.timing
+      for (const b of bucketsFromRecord({ timing: it.timing, timing_bucket: it.timing_bucket })) {
+        groups[b].push(it);
+      }
+    }
+    return {
+      itemsAM: groups.AM,
+      itemsPM: groups.PM,
+      itemsOther: groups.OTHER,
+    };
+  }, [items]);
 
   // Items visible under current tab
   const visibleItems = useMemo<StackItem[]>(() => {
