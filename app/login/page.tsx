@@ -1,40 +1,69 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 
 export default function LoginPage() {
   const supabase = createClientComponentClient();
+  const searchParams = useSearchParams();
+
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
+
+  // Determine where to send users after /auth/callback
+  const nextPath = useMemo(() => {
+    const n = searchParams?.get("next");
+    // only allow same-site, safe paths
+    if (n && n.startsWith("/")) return n;
+    return "/dashboard";
+  }, [searchParams]);
+
+  // Build a robust base URL: env first, then runtime origin
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (typeof window !== "undefined" ? window.location.origin : "");
+
+  const callbackUrl = useMemo(() => {
+    const u = new URL("/auth/callback", appUrl || "http://localhost:3000");
+    u.searchParams.set("next", nextPath);
+    return u.toString();
+  }, [appUrl, nextPath]);
 
   // --- Email Magic Link ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage("");
 
-    const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/dashboard`;
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: callbackUrl },
+      });
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: redirectTo },
-    });
-
-    if (error) setMessage("❌ " + error.message);
-    else setMessage("✅ Check your email for a secure login link!");
+      if (error) setMessage("❌ " + error.message);
+      else setMessage("✅ Check your email for a secure login link!");
+    } catch (err: any) {
+      setMessage("❌ " + (err?.message ?? "Unexpected error"));
+    }
   };
 
   // --- Google Sign-In ---
   const handleGoogleLogin = async () => {
-    const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/dashboard`;
-
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo },
-    });
-
-    if (error) setMessage("❌ " + error.message);
+    setMessage("");
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: callbackUrl,
+          // If you ever add state / scopes, put them here
+        },
+      });
+      if (error) setMessage("❌ " + error.message);
+    } catch (err: any) {
+      setMessage("❌ " + (err?.message ?? "Unexpected error"));
+    }
   };
 
   return (
@@ -75,11 +104,7 @@ export default function LoginPage() {
           onClick={handleGoogleLogin}
           className="w-full bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] text-white font-semibold py-2.5 rounded-lg shadow-md hover:shadow-lg transition mb-5 flex items-center justify-center gap-2"
         >
-          <img
-            src="/icons/google.svg"
-            alt="Google"
-            className="h-5 w-5"
-          />
+          <img src="/icons/google.svg" alt="Google" className="h-5 w-5" />
           Continue with Google
         </button>
 
@@ -114,9 +139,7 @@ export default function LoginPage() {
           <p className="mt-4 text-sm text-gray-700 animate-fade-in">{message}</p>
         )}
 
-        <p className="mt-6 text-xs text-gray-400">
-          🔒 We never store your password.
-        </p>
+        <p className="mt-6 text-xs text-gray-400">🔒 We never store your password.</p>
       </motion.div>
     </motion.main>
   );
