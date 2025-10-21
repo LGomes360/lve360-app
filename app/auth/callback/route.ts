@@ -44,15 +44,6 @@ export async function GET(req: Request) {
     .select("tier")
     .eq("id", user.id)
     .maybeSingle();
-
-  const tier = me?.tier ?? "free";
-  const dest = ALLOW_NEXT.has(next) ? next : "/dashboard";
-
-  if (!["premium", "trial"].includes(tier)) {
-    // Not premium → upgrade page
-    return NextResponse.redirect(new URL("/upgrade", url.origin));
-  }
-
-  // Premium/trial → allow through
-  return NextResponse.redirect(new URL(dest, url.origin));
+  // NOTE: do not gate tier in callback; just return to 'next' and let pages enforce their own gating
+return NextResponse.redirect(new URL(dest, url.origin));
 }
