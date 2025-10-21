@@ -15,3 +15,12 @@ export function bucketsForItem(input?: string | null): Bucket[] {
 export function bucketsFromRecord(r: { timing?: string|null; timing_bucket?: string|null }): Bucket[] {
   return bucketsForItem(r.timing_bucket ?? r.timing);
 }
+
+// --- Add this helper at the bottom of src/lib/timing.ts ---
+export function collapseBucketsToString(buckets: Bucket[]): "AM" | "PM" | "AM/PM" | "OTHER" {
+  const set = new Set(buckets);
+  if (set.has("AM") && set.has("PM")) return "AM/PM";
+  if (set.has("AM")) return "AM";
+  if (set.has("PM")) return "PM";
+  return "OTHER";
+}
