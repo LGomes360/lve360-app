@@ -1,6 +1,17 @@
 "use client";
 
 import DashboardHeader from "@/components/DashboardHeader";
+import { getUserAndTier } from "@/src/lib/getUserAndTier";
+
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const { tier } = await getUserAndTier();
+  return (
+    <>
+      <Header tier={tier} /> {/* pass it down */}
+      {children}
+    </>
+  );
+}
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
