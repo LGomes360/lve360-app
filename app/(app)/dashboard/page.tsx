@@ -1,8 +1,8 @@
 // app/(app)/dashboard/page.tsx  (SERVER COMPONENT)
-import { requireTier } from '@/app/_auth/requireTier';
+import { requireAuth } from '@/app/_auth/requireAuth';
 import DashboardClient from './DashboardClient';
 
 export default async function Page() {
-  await requireTier(['premium', 'trial']); // server-side gate, no UI flash
+  await requireAuth(); // server-side gate, no UI flash
   return <DashboardClient />;
 }
