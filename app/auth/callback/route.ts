@@ -5,7 +5,7 @@ import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 
 export const dynamic = "force-dynamic"; // ensure server executes per request
 
-// Optional: only allow these "next" values to avoid open redirects
+// Only allow safe "next" values to avoid open redirects
 const ALLOW_NEXT = new Set<string>([
   "/dashboard",
   "/results",
@@ -19,31 +19,18 @@ export async function GET(req: Request) {
 
   const supabase = createRouteHandlerClient({ cookies });
 
-  // 1) Exchange the auth code for a session
+  // 1) Exchange the code for a session and set cookies
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
-      // If auth failed, go back to login
-      return NextResponse.redirect(new URL("/login", url.origin));
+      return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(error.message)}`, url.origin));
     }
+  } else {
+    // no code → send to login
+    return NextResponse.redirect(new URL("/login", url.origin));
   }
 
-  // 2) Read the now-current user
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.redirect(new URL("/login", url.origin));
-
-  // 3) Ensure the user has a row in public.users (defaults to free)
-  //    Idempotent: upsert by primary key id
-  await supabase
-    .from("users")
-    .upsert({ id: user.id, email: user.email ?? null }, { onConflict: "id" });
-
-  // 4) Fetch tier and route accordingly
-  const { data: me } = await supabase
-    .from("users")
-    .select("tier")
-    .eq("id", user.id)
-    .maybeSingle();
-  // NOTE: do not gate tier in callback; just return to 'next' and let pages enforce their own gating
-return NextResponse.redirect(new URL(dest, url.origin));
+  // 2) Sanitize next and redirect. Page-level guards will handle premium.
+  const dest = ALLOW_NEXT.has(next) ? next : "/dashboard";
+  return NextResponse.redirect(new URL(dest, url.origin));
 }
