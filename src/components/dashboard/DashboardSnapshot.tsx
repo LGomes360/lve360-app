@@ -279,15 +279,16 @@ export default function DashboardSnapshot() {
             title="Open Today’s Plan"
           >
             Today’s plan
-            </a>
-            <button
+          </a>
+          {/* Edit targets toggle */}
+          <button
             onClick={() => setShowTargets(true)}
             className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
             aria-label="Edit targets"
             title="Edit targets"
-            >
+          >
             Edit targets
-            </button>
+          </button>
         </div>
       </div>
 
@@ -304,6 +305,7 @@ export default function DashboardSnapshot() {
         </div>
       )}
 
+      {/* Main conditional: empty state vs KPI grid */}
       {!hasAnyData ? (
         <div className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4 text-gray-700">
           No data yet — log your first day and set goals to see your snapshot come alive.
@@ -318,7 +320,14 @@ export default function DashboardSnapshot() {
               primary={kpis.weightToday != null ? `${kpis.weightToday} lb` : "—"}
               delta={
                 kpis.weightDeltaAvg != null
-                  ? `${kpis.weightDeltaAvg === 0 ? "No change" : (kpis.weightDeltaAvg > 0 ? "▲" : "▼") + " " + Math.abs(kpis.weightDeltaAvg) + " lb vs 7d avg"}`
+                  ? `${
+                      kpis.weightDeltaAvg === 0
+                        ? "No change"
+                        : (kpis.weightDeltaAvg > 0 ? "▲" : "▼") +
+                          " " +
+                          Math.abs(kpis.weightDeltaAvg) +
+                          " lb vs 7d avg"
+                    }`
                   : "—"
               }
               hint={goals?.target_weight != null ? `Target: ${goals.target_weight} lb` : undefined}
@@ -330,7 +339,6 @@ export default function DashboardSnapshot() {
               primary={kpis.sleepToday != null ? `${kpis.sleepToday} / 5` : "—"}
               delta={kpis.sleepAvg != null ? `7-day avg: ${round1(kpis.sleepAvg)}` : "—"}
               hint={sleepTargetHint(goals?.target_sleep)}
-
             />
 
             {/* Energy */}
@@ -343,9 +351,8 @@ export default function DashboardSnapshot() {
           </div>
         </>
       )}
-            )}  // end of the !hasAnyData conditional
 
-      {/* INSERT MODAL ↓↓↓ */}
+      {/* Modal: Edit targets */}
       {showTargets && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-2xl shadow-xl max-w-xl w-full p-5">
@@ -368,7 +375,7 @@ export default function DashboardSnapshot() {
                 setGoals((g) => ({
                   ...(g ?? { goals: [] as string[] | null }),
                   target_weight: v.weight,
-                  target_sleep:  v.sleep,
+                  target_sleep: v.sleep,
                   target_energy: v.energy,
                 }));
                 setShowTargets(false);
@@ -377,12 +384,8 @@ export default function DashboardSnapshot() {
           </div>
         </div>
       )}
-      {/* INSERT MODAL ↑↑↑ */}
-    </div>  // final close of the outer container
-
     </div>
   );
-}
 
 /* helpers */
 function sleepTargetHint(n: number | null | undefined) {
