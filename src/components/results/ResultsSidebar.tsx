@@ -22,61 +22,81 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
 
-  // --- fetch items for this stack ------------------------------------------------
-useEffect(() => {
-  let cancelled = false;
-  const ac = new AbortController();
+  // --- fetch merged current + blueprint (de-duped) ------------------------------
+  useEffect(() => {
+    let cancelled = false;
+    const ac = new AbortController();
 
-  (async () => {
-    try {
-      setLoading(true);
-      setError(null);
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
 
-      // NEW: merged current + latest blueprint, de-duped
-      const r = await fetch("/api/stacks/combined", { cache: "no-store", signal: ac.signal });
-      const j = await r.json();
-      if (!cancelled) {
-        setItems(Array.isArray(j?.items) ? j.items : []);
-        setLoading(false);
+        const r = await fetch("/api/stacks/combined", {
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        const j = await r.json();
+
+        if (!cancelled) {
+          setItems(Array.isArray(j?.items) ? j.items : []);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setError("Couldn’t load items.");
+          setLoading(false);
+        }
       }
-    } catch {
-      if (!cancelled) {
-        setError("Couldn’t load items.");
-        setLoading(false);
-      }
+    })();
+
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, []); // merged endpoint; no stackId dependency
+
+  // --- counts for tabs ----------------------------------------------------------
+  const counts = useMemo(() => {
+    const current = items.filter((i) => Boolean(i.is_current)).length;
+    const recommended = items.filter((i) => !i.is_current).length;
+    return { all: items.length, current, recommended };
+  }, [items]);
+
+  // --- filter then bucket -------------------------------------------------------
+  const filtered = useMemo(() => {
+    if (filter === "current") return items.filter((i) => Boolean(i.is_current));
+    if (filter === "recommended") return items.filter((i) => !i.is_current);
+    return items;
+  }, [items, filter]);
+
+  // SINGLE buckets memo (AM / PM / AM/PM / Anytime)
+  const { both, am, pm, any } = useMemo(() => {
+    const BOTH: Item[] = [];
+    const AM: Item[] = [];
+    const PM: Item[] = [];
+    const ANY: Item[] = [];
+
+    for (const i of filtered) {
+      // prefers timing_bucket; falls back to timing/timing_text
+      const buckets = bucketsFromRecord({
+        timing: i.timing ?? i.timing_text ?? null,
+        timing_bucket: i.timing_bucket ?? null,
+      });
+
+      if (buckets.includes("AM") && buckets.includes("PM")) BOTH.push(i);
+      else if (buckets.includes("AM")) AM.push(i);
+      else if (buckets.includes("PM")) PM.push(i);
+      else ANY.push(i);
     }
-  })();
 
-  return () => {
-    cancelled = true;
-    ac.abort();
-  };
-}, []); // ← no stackId dependency; we’re using merged endpoint
+    return { both: BOTH, am: AM, pm: PM, any: ANY };
+  }, [filtered]);
 
+  // --- UI guards ----------------------------------------------------------------
+  if (loading || items.length === 0) return null;
 
-  // --- helpers ------------------------------------------------------------------
-const { both, am, pm, any } = useMemo(() => {
-  const BOTH: Item[] = [];
-  const AM: Item[] = [];
-  const PM: Item[] = [];
-  const ANY: Item[] = [];
-
-  for (const i of filtered) {
-    // bucketsFromRecord will look at timing_bucket first, then timing/timing_text
-    const buckets = bucketsFromRecord({
-      timing: i.timing ?? i.timing_text ?? null,
-      timing_bucket: i.timing_bucket ?? null,
-    });
-
-    if (buckets.includes("AM") && buckets.includes("PM")) BOTH.push(i);
-    else if (buckets.includes("AM")) AM.push(i);
-    else if (buckets.includes("PM")) PM.push(i);
-    else ANY.push(i);
-  }
-  return { both: BOTH, am: AM, pm: PM, any: ANY };
-}, [filtered]);
-
-
+  // affiliate helpers (unchanged)
   const amazonTag = process.env.NEXT_PUBLIC_AMAZON_TAG || "";
   const fallbackAmazon = (name: string) =>
     `https://www.amazon.com/s?k=${encodeURIComponent(
@@ -91,41 +111,6 @@ const { both, am, pm, any } = useMemo(() => {
     `/api/r?u=${encodeURIComponent(url)}&src=${src}` +
     `&stack_id=${encodeURIComponent(stackId)}` +
     `&item=${encodeURIComponent(itemName)}`;
-
-  // counts for tabs
-  const counts = useMemo(() => {
-    const current = items.filter((i) => Boolean(i.is_current)).length;
-    const recommended = items.filter((i) => !i.is_current).length;
-    return { all: items.length, current, recommended };
-  }, [items]);
-
-  // filter then bucket
-  const filtered = useMemo(() => {
-    if (filter === "current") return items.filter((i) => Boolean(i.is_current));
-    if (filter === "recommended") return items.filter((i) => !i.is_current);
-    return items;
-  }, [items, filter]);
-
-  const { both, am, pm, any } = useMemo(() => {
-    const BOTH: Item[] = [];
-    const AM: Item[] = [];
-    const PM: Item[] = [];
-    const ANY: Item[] = [];
-    for (const i of filtered) {
-      const bucket =
-        (i.timing_bucket as Item["timing_bucket"]) ??
-        classify(i.timing_text ?? i.timing ?? null);
-
-      if (bucket === "AM/PM") BOTH.push(i);
-      else if (bucket === "AM") AM.push(i);
-      else if (bucket === "PM") PM.push(i);
-      else ANY.push(i);
-    }
-    return { both: BOTH, am: AM, pm: PM, any: ANY };
-  }, [filtered]);
-
-  // --- UI guards ----------------------------------------------------------------
-  if (loading || items.length === 0) return null;
 
   // Row renderer (dose + “Current” badge + links)
   const ItemRow = (i: Item) => {
