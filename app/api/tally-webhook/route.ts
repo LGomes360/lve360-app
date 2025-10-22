@@ -304,9 +304,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "DB insert failed" }, { status: 500 });
     }
 
-    // Upsert readable goals for dashboard (optional)
-    if (userId && Array.isArray(data.goals)) {
+    // Upsert readable goals for dashboard (extended: targets + custom)
+    if (userId) {
       try {
+        // 1) Map goal IDs to readable labels (keep your map)
         const GOAL_MAP: Record<string, string> = {
           "1b2b86fe-b99c-42f0-b4fd-8ff229c4c2f2": "Weight Loss",
           "adc1b868-1c49-4f11-925d-be2d93b67e11": "Improve Sleep",
@@ -318,30 +319,70 @@ export async function POST(req: NextRequest) {
           "d1ae4ecf-eb17-4308-93ff-b78bed426f0b": "Better Skin/Nails/Hair",
           "7894b6c9-c199-4108-bb2f-c998c7265164": "Other",
         };
-        const readableGoals = data.goals.map((g: string) => GOAL_MAP[g] ?? g);
-        await supa
-          .from("goals")
-          .upsert(
-            {
-              user_id: userId,
-              goals: readableGoals,
-              custom_goal: null,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: "user_id" }
-          );
-      } catch (goalErr: any) {
-        console.error("Goals upsert failed:", goalErr.message);
-        await supa.from("webhook_failures").insert({
-          source: "tally",
-          event_type: body?.eventType ?? null,
-          event_id: body?.eventId ?? null,
-          error_message: `goals_upsert_error: ${goalErr.message}`,
-          severity: "warning",
-          payload_json: safeJson(body),
-        });
-      }
-    }
+    
+        const readableGoals = Array.isArray(data.goals)
+          ? data.goals.map((g: string) => GOAL_MAP[g] ?? g)
+          : [];
+    
+        // 2) Coerce target numbers (weight/sleep/energy) from parsed data
+        const toNum = (v: any): number | null => {
+          if (v === null || v === undefined || v === "") return null;
+          const n = Number(v);
+          return Number.isFinite(n) ? n : null;
+        };
+    
+        const target_weight  = toNum(data.weight);         // e.g., "180" -> 180
+        const target_sleep   = toNum(data.sleep_rating);   // e.g., "7.5" -> 7.5
+        const target_energy  = toNum(data.energy_rating);  // e.g., "8" -> 8
+    
+        // 3) Try to read a custom goal (free-text) from payload by label
+        const findCustomByLabel = (labelRegex: RegExp): string | null => {
+          const fields = body?.data?.fields ?? body?.form_response?.answers ?? [];
+          // normalize the structure (value may be nested)
+          const getVal = (x: any): any =>
+            x?.value ?? x?.text ?? x?.string_value ?? x?.email ?? x?.choice?.label ?? x?.choices?.labels ?? x;
+          for (const f of fields) {
+            const label = (f?.label ?? f?.field?.label ?? "").toString().toLowerCase();
+            if (labelRegex.test(label)) {
+              const raw = getVal(f);
+              if (Array.isArray(raw)) return String(raw[0] ?? "").slice(0, 500) || null;
+              return raw != null ? String(raw).slice(0, 500) : null;
+            }
+          }
+          return null;
+        };
+
+    const custom_goal =
+      findCustomByLabel(/custom goal|other goal|notes|describe|anything else/i) ?? null;
+
+    // 4) UPSERT into goals (ON CONFLICT user_id)
+    await supa
+      .from("goals")
+      .upsert(
+        {
+          user_id: userId,
+          target_weight,
+          target_sleep,
+          target_energy,
+          goals: readableGoals,
+          custom_goal,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" }
+      );
+  } catch (goalErr: any) {
+    console.error("Goals upsert failed:", goalErr.message);
+    await supa.from("webhook_failures").insert({
+      source: "tally",
+      event_type: body?.eventType ?? null,
+      event_id: body?.eventId ?? null,
+      error_message: `goals_upsert_error: ${goalErr.message}`,
+      severity: "warning",
+      payload_json: safeJson(body),
+    });
+  }
+}
+
 
     const submissionId = subRow.id;
     const resultsUrl = `https://app.lve360.com/results?submissionId=${submissionId}&email=${encodeURIComponent(
