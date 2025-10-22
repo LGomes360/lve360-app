@@ -265,7 +265,12 @@ function ResultsContent() {
   const [flow, setFlow] = useState<"idle" | "warmup" | "generating" | "done" | "error">("idle");
 
   const searchParams = useSearchParams();
-  const tallyId = searchParams?.get("tally_submission_id") ?? null;
+  // accept either ?tally_submission_id=... OR ?submissionId=/submission_id=
+  const tallyId       = searchParams?.get("tally_submission_id");
+  const submissionId1 = searchParams?.get("submission_id");
+  const submissionId2 = searchParams?.get("submissionId");
+  const submissionId  = submissionId1 ?? submissionId2;
+  const anyId         = tallyId ?? submissionId; // <- use this going forward
 
   async function api(path: string, body?: any) {
     const res = await fetch(
@@ -282,24 +287,28 @@ function ResultsContent() {
     return json;
   }
 
-  // Load any existing stack
-  useEffect(() => {
-    if (!tallyId) return;
-    (async () => {
-      try {
-        const data = await api(`/api/get-stack?tally_submission_id=${encodeURIComponent(tallyId)}`);
-        const raw = data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
-        setMarkdown(sanitizeMarkdown(raw));
-        setStackId(data?.stack?.id ?? null);
-      } catch (e: any) {
-        // non-blocking
-        console.warn(e);
-      }
-    })();
-  }, [tallyId]);
+    // Load any existing stack
+    useEffect(() => {
+      if (!anyId) return;
+      (async () => {
+        try {
+          // choose the right query param name for your API
+          const qp = tallyId
+            ? `tally_submission_id=${encodeURIComponent(tallyId)}`
+            : `submission_id=${encodeURIComponent(anyId)}`;
+    
+          const data = await api(`/api/get-stack?${qp}`);
+          const raw = data?.stack?.sections?.markdown ?? data?.stack?.summary ?? "";
+          setMarkdown(sanitizeMarkdown(raw));
+          setStackId(data?.stack?.id ?? null);
+        } catch (e: any) {
+          console.warn(e);
+        }
+      })();
+    }, [anyId, tallyId]);
 
   async function generateStack() {
-    if (!tallyId) return setError("Missing submission ID.");
+   if (!anyId) return setError("Missing submission ID.");
     try {
       setError(null);
       setFlow("warmup");
@@ -308,8 +317,9 @@ function ResultsContent() {
       setWarmingUp(false);
       setFlow("generating");
       setGenerating(true);
-
-      const data = await api("/api/generate-stack", { tally_submission_id: tallyId });
+      
+      const payload = tallyId ? { tally_submission_id: tallyId } : { submission_id: anyId };
+      const data = await api("/api/generate-stack", payload);
 
       // Prefer AI markdown immediately
       const first =
