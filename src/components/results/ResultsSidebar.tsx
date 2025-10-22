@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { bucketsFromRecord } from "@/src/lib/timing";
 
 type Item = {
   id: string;
@@ -22,50 +23,59 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
   const [filter, setFilter] = useState<Filter>("all");
 
   // --- fetch items for this stack ------------------------------------------------
-  useEffect(() => {
-    let cancelled = false;
-    const ac = new AbortController();
+useEffect(() => {
+  let cancelled = false;
+  const ac = new AbortController();
 
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const r = await fetch(
-          `/api/stack-items?stack_id=${encodeURIComponent(stackId)}`,
-          { cache: "no-store", signal: ac.signal }
-        );
-        const j = await r.json();
-        if (!cancelled) {
-          setItems(Array.isArray(j?.items) ? j.items : []);
-          setLoading(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setError("Couldn’t load stack items.");
-          setLoading(false);
-        }
+  (async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // NEW: merged current + latest blueprint, de-duped
+      const r = await fetch("/api/stacks/combined", { cache: "no-store", signal: ac.signal });
+      const j = await r.json();
+      if (!cancelled) {
+        setItems(Array.isArray(j?.items) ? j.items : []);
+        setLoading(false);
       }
-    })();
+    } catch {
+      if (!cancelled) {
+        setError("Couldn’t load items.");
+        setLoading(false);
+      }
+    }
+  })();
 
-    return () => {
-      cancelled = true;
-      ac.abort();
-    };
-  }, [stackId]);
+  return () => {
+    cancelled = true;
+    ac.abort();
+  };
+}, []); // ← no stackId dependency; we’re using merged endpoint
+
 
   // --- helpers ------------------------------------------------------------------
-  function classify(text?: string | null): "AM" | "PM" | "AM/PM" | "Anytime" {
-    if (!text) return "Anytime";
-    const s = text.toLowerCase();
-    const am = /\b(am|morning|breakfast)\b/.test(s);
-    const pm = /\b(pm|evening|night|bedtime)\b/.test(s);
-    if (am && pm) return "AM/PM";
-    if (/\b(bid|twice|2x|am\/pm|split)\b/.test(s)) return "AM/PM";
-    if (am) return "AM";
-    if (pm) return "PM";
-    if (/\bwith (meal|meals|food)\b/.test(s)) return "Anytime";
-    return "Anytime";
+const { both, am, pm, any } = useMemo(() => {
+  const BOTH: Item[] = [];
+  const AM: Item[] = [];
+  const PM: Item[] = [];
+  const ANY: Item[] = [];
+
+  for (const i of filtered) {
+    // bucketsFromRecord will look at timing_bucket first, then timing/timing_text
+    const buckets = bucketsFromRecord({
+      timing: i.timing ?? i.timing_text ?? null,
+      timing_bucket: i.timing_bucket ?? null,
+    });
+
+    if (buckets.includes("AM") && buckets.includes("PM")) BOTH.push(i);
+    else if (buckets.includes("AM")) AM.push(i);
+    else if (buckets.includes("PM")) PM.push(i);
+    else ANY.push(i);
   }
+  return { both: BOTH, am: AM, pm: PM, any: ANY };
+}, [filtered]);
+
 
   const amazonTag = process.env.NEXT_PUBLIC_AMAZON_TAG || "";
   const fallbackAmazon = (name: string) =>
