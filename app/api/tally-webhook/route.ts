@@ -331,9 +331,9 @@ export async function POST(req: NextRequest) {
           return Number.isFinite(n) ? n : null;
         };
     
-        const target_weight  = toNum(data.weight);         // e.g., "180" -> 180
-        const target_sleep   = toNum(data.sleep_rating);   // e.g., "7.5" -> 7.5
-        const target_energy  = toNum(data.energy_rating);  // e.g., "8" -> 8
+        const target_weight  = null;
+        const target_sleep   = null;
+        const target_energy  = null;
     
         // 3) Try to read a custom goal (free-text) from payload by label
         const findCustomByLabel = (labelRegex: RegExp): string | null => {
