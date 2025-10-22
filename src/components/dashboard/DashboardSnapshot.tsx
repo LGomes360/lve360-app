@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { Loader2, Sparkles } from "lucide-react";
+import GoalsTargetsEditor from "./GoalsTargetsEditor";
 
 /**
  * DashboardSnapshot — Greeting & Daily Snapshot
@@ -39,6 +40,7 @@ export default function DashboardSnapshot() {
   const [adherence7, setAdherence7] = useState<number | null>(null);
   const [latestAi, setLatestAi] = useState<AiSummaryRow | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showTargets, setShowTargets] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -277,7 +279,15 @@ export default function DashboardSnapshot() {
             title="Open Today’s Plan"
           >
             Today’s plan
-          </a>
+            </a>
+            <button
+            onClick={() => setShowTargets(true)}
+            className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
+            aria-label="Edit targets"
+            title="Edit targets"
+            >
+            Edit targets
+            </button>
         </div>
       </div>
 
@@ -333,6 +343,43 @@ export default function DashboardSnapshot() {
           </div>
         </>
       )}
+            )}  // end of the !hasAnyData conditional
+
+      {/* INSERT MODAL ↓↓↓ */}
+      {showTargets && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl max-w-xl w-full p-5">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm font-semibold text-[#041B2D]">Edit your targets</div>
+              <button
+                onClick={() => setShowTargets(false)}
+                className="text-gray-500 hover:text-gray-700"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            <GoalsTargetsEditor
+              targetWeight={goals?.target_weight ?? null}
+              targetSleep={goals?.target_sleep ?? null}
+              targetEnergy={goals?.target_energy ?? null}
+              onSaved={(v) => {
+                setGoals((g) => ({
+                  ...(g ?? { goals: [] as string[] | null }),
+                  target_weight: v.weight,
+                  target_sleep:  v.sleep,
+                  target_energy: v.energy,
+                }));
+                setShowTargets(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
+      {/* INSERT MODAL ↑↑↑ */}
+    </div>  // final close of the outer container
+
     </div>
   );
 }
