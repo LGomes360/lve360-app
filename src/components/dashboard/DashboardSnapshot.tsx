@@ -386,7 +386,7 @@ export default function DashboardSnapshot() {
       )}
     </div>
   );
-
+}
 /* helpers */
 function sleepTargetHint(n: number | null | undefined) {
   if (n == null) return undefined;
