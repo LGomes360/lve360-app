@@ -307,20 +307,27 @@ function ResultsContent() {
       })();
     }, [anyId, tallyId]);
 
-  async function generateStack() {
-   if (!anyId) return setError("Missing submission ID.");
-    try {
-      setError(null);
-      setFlow("warmup");
-      setWarmingUp(true);
-      await new Promise((r) => setTimeout(r, 800));
-      setWarmingUp(false);
-      setFlow("generating");
-      setGenerating(true);
-      
-      const payload = tallyId ? { tally_submission_id: tallyId } : { submission_id: anyId };
-      const data = await api("/api/generate-stack", payload);
-
+    async function generateStack() {
+      if (!anyId) {
+        setError("Missing submission ID.");
+        return;
+      }
+    
+      try {
+        setError(null);
+        setFlow("warmup");
+        setWarmingUp(true);
+        await new Promise((r) => setTimeout(r, 800));
+        setWarmingUp(false);
+        setFlow("generating");
+        setGenerating(true);
+    
+        // Kick off generation with whichever id we have
+        const payload: { tally_submission_id?: string; submission_id?: string } = tallyId
+          ? { tally_submission_id: tallyId as string }
+          : { submission_id: anyId as string };
+    
+        const data = await api("/api/generate-stack", payload);
       // Prefer AI markdown immediately
       const first =
         data?.ai?.markdown ??
