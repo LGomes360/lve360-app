@@ -319,7 +319,8 @@ export default function DashboardSnapshot() {
               title="Sleep"
               primary={kpis.sleepToday != null ? `${kpis.sleepToday} / 5` : "—"}
               delta={kpis.sleepAvg != null ? `7-day avg: ${round1(kpis.sleepAvg)}` : "—"}
-              hint={goals?.target_sleep != null ? `Target: ${goals.target_sleep} / 5` : undefined}
+              hint={sleepTargetHint(goals?.target_sleep)}
+
             />
 
             {/* Energy */}
@@ -337,6 +338,13 @@ export default function DashboardSnapshot() {
 }
 
 /* helpers */
+function sleepTargetHint(n: number | null | undefined) {
+  if (n == null) return undefined;
+  const v = Number(n);
+  if (!Number.isFinite(v)) return undefined;
+  // If user saved hours (typical: 6–10), show "hrs". If they saved a 0–5 score, keep "/ 5".
+  return v > 5 ? `Target: ${v} hrs` : `Target: ${v} / 5`;
+}
 function round1(n: number) { return Math.round(n * 10) / 10; }
 function getPartOfDay() {
   const h = new Date().getHours();
