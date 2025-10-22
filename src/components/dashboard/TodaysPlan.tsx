@@ -74,66 +74,56 @@ export default function TodaysPlan() {
   /* -------------------------
      Load: user → latest stack → items → today statuses
   ------------------------- */
-  useEffect(() => {
-    (async () => {
-      const { data: userWrap } = await supabase.auth.getUser();
-      const uid = userWrap?.user?.id ?? null;
-      setUserId(uid);
-      if (!uid) {
-        setLoading(false);
-        return;
-      }
+useEffect(() => {
+  (async () => {
+    setLoading(true);
 
-      // Latest stack
-      const { data: stacksRows } = await supabase
-        .from("stacks")
-        .select("id, created_at")
-        .eq("user_id", uid)
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      const latest = (stacksRows?.[0] ?? null) as StackRow | null;
-      setStack(latest);
-
-      if (latest?.id) {
-        // Items
-        const { data: itemRows } = await supabase
-          .from("stacks_items")
-          .select(
-            "id, stack_id, name, brand, dose, timing, notes, link_amazon, link_fullscript, refill_days_left, last_refilled_at"
-          )
-          .eq("stack_id", latest.id)
-          .order("created_at", { ascending: true });
-
-        const arr = (itemRows ?? []) as StackItem[];
-        setItems(arr);
-
-        // Today's statuses from API (fallback to local)
-        try {
-          const res = await fetch(`/api/intake/status?stack_id=${latest.id}`, {
-            cache: "no-store",
-          });
-          const json = await res.json();
-          if (json?.ok) {
-            setTakenMap(json.statuses || {});
-            if (localKey) localStorage.setItem(localKey, JSON.stringify(json.statuses || {}));
-          } else {
-            if (localKey) {
-              const raw = localStorage.getItem(localKey);
-              setTakenMap(raw ? JSON.parse(raw) : {});
-            }
-          }
-        } catch {
-          if (localKey) {
-            const raw = localStorage.getItem(localKey);
-            setTakenMap(raw ? JSON.parse(raw) : {});
-          }
-        }
-      }
-
+    // who am I?
+    const { data: userWrap } = await supabase.auth.getUser();
+    const uid = userWrap?.user?.id ?? null;
+    setUserId(uid);
+    if (!uid) {
       setLoading(false);
-    })();
-  }, [supabase, localKey]);
+      return;
+    }
+
+    // NEW: one call to get merged list + latest stack meta
+    try {
+      const res = await fetch("/api/stacks/combined", { cache: "no-store" });
+      const json = await res.json();
+
+      if (!json?.ok) throw new Error(json?.error || "combined_failed");
+
+      setStack(json.latestStack);        // { id, created_at } or null
+      setItems(json.items || []);        // merged + de-duped items
+
+      // today statuses (unchanged logic)
+      if (json.latestStack?.id) {
+        const res2 = await fetch(`/api/intake/status?stack_id=${json.latestStack.id}`, { cache: "no-store" });
+        const sjson = await res2.json();
+        if (sjson?.ok) {
+          setTakenMap(sjson.statuses || {});
+          if (localKey) localStorage.setItem(localKey, JSON.stringify(sjson.statuses || {}));
+        } else if (localKey) {
+          const raw = localStorage.getItem(localKey);
+          setTakenMap(raw ? JSON.parse(raw) : {});
+        }
+      } else if (localKey) {
+        const raw = localStorage.getItem(localKey);
+        setTakenMap(raw ? JSON.parse(raw) : {});
+      }
+    } catch {
+      // fallback to any locally-cached taken states
+      if (localKey) {
+        const raw = localStorage.getItem(localKey);
+        setTakenMap(raw ? JSON.parse(raw) : {});
+      }
+    } finally {
+      setLoading(false);
+    }
+  })();
+}, [supabase, localKey]);
+
 
   /* -------------------------
      Actions
