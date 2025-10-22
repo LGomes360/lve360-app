@@ -328,32 +328,39 @@ function ResultsContent() {
           : { submission_id: anyId as string };
     
         const data = await api("/api/generate-stack", payload);
-      // Prefer AI markdown immediately
-      const first =
-        data?.ai?.markdown ??
-        data?.stack?.sections?.markdown ??
-        data?.stack?.summary ??
-        "";
-      if (first) setMarkdown(sanitizeMarkdown(first));
-
-      // Clean re-fetch to ensure DB state is synced
-      const refreshed = await api(`/api/get-stack?tally_submission_id=${encodeURIComponent(tallyId)}`);
-      const finalMd =
-        refreshed?.stack?.sections?.markdown ??
-        refreshed?.stack?.summary ??
-        first;
-      setMarkdown(sanitizeMarkdown(finalMd));
-      setStackId(refreshed?.stack?.id ?? data?.stack?.id ?? null);
-
-      setFlow("done");
-    } catch (e: any) {
-      setError(e?.message ?? "Unknown error");
-      setFlow("error");
-    } finally {
-      setGenerating(false);
-      setWarmingUp(false);
+    
+        // Show something immediately if we have it
+        const first =
+          data?.ai?.markdown ??
+          data?.stack?.sections?.markdown ??
+          data?.stack?.summary ??
+          "";
+        if (first) setMarkdown(sanitizeMarkdown(first));
+    
+        // Clean re-fetch to ensure DB state is synced
+        const qp2 = tallyId
+          ? `tally_submission_id=${encodeURIComponent(tallyId as string)}`
+          : `submission_id=${encodeURIComponent(anyId as string)}`;
+    
+        const refreshed = await api(`/api/get-stack?${qp2}`);
+        const finalMd =
+          refreshed?.stack?.sections?.markdown ??
+          refreshed?.stack?.summary ??
+          first;
+    
+        setMarkdown(sanitizeMarkdown(finalMd));
+        setStackId(refreshed?.stack?.id ?? data?.stack?.id ?? null);
+    
+        setFlow("done");
+      } catch (e: any) {
+        setError(e?.message ?? "Unknown error");
+        setFlow("error");
+      } finally {
+        setGenerating(false);
+        setWarmingUp(false);
+      }
     }
-  }
+
 
   async function exportPDF() {
     if (!tallyId) return;
