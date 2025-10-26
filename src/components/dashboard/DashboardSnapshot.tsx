@@ -24,7 +24,10 @@ type GoalsRow = {
   target_sleep: number | null;
   target_energy: number | null;
   goals: string[] | null;
+  xp?: number | null;
+  streak_days?: number | null;
 };
+
 
 type AiSummaryRow = {
   summary: string;
@@ -77,7 +80,7 @@ export default function DashboardSnapshot() {
             .limit(7),
           supabase
             .from("goals")
-            .select("target_weight, target_sleep, target_energy, goals")
+            .select("target_weight, target_sleep, target_energy, goals, xp, streak_days")
             .eq("user_id", userId)
             .maybeSingle(),
           supabase
@@ -251,7 +254,16 @@ export default function DashboardSnapshot() {
             </div>
           )}
         </div>
-
+{(goals?.xp ?? 0) > 0 && (
+  <div className="flex gap-2 flex-wrap">
+    <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700">
+      🔥 Streak: {goals?.streak_days ?? 0} days
+    </span>
+    <span className="inline-flex items-center rounded-full bg-indigo-50 px-3 py-1 text-sm font-medium text-indigo-700">
+      ⭐ XP: {goals?.xp ?? 0}
+    </span>
+  </div>
+)}
         <div className="flex flex-wrap items-center gap-2 text-sm">
           {kpis.wellnessScore != null && (
             <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 text-teal-800 border border-teal-200 px-3 py-1">
