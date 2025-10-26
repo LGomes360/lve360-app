@@ -26,15 +26,13 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "stack_id_required" }, { status: 400 });
     }
 
-    // UTC "today" (YYYY-MM-DD). If you prefer local days, pass a tz param and adjust here.
     const today = new Date().toISOString().slice(0, 10);
-
     console.log("[intake/status] start", { userId, stackId, today });
 
-    // 3) Fetch item_ids in this stack for this user
+    // 3) Get the *item ids* that belong to this stack (PK is 'id' on stacks_items)
     const { data: stackItems, error: itemsErr } = await supabase
       .from("stacks_items")
-      .select("item_id")
+      .select("id") // <-- correct column (item_id does not exist here)
       .eq("user_id", userId)
       .eq("stack_id", stackId);
 
@@ -43,21 +41,43 @@ export async function GET(req: Request) {
       throw itemsErr;
     }
 
-    const itemIds = (stackItems ?? []).map((r) => r.item_id).filter(Boolean);
-    console.log("[intake/status] stack items", { count: itemIds.length, itemIds });
+    const itemIds = (stackItems ?? []).map((r) => r.id).filter(Boolean);
+    console.log("[intake/status] stack items", { count: itemIds.length });
 
-    // If the stack has no items yet, return empty statuses (nothing to check off)
     if (itemIds.length === 0) {
       return NextResponse.json({ ok: true, date: today, statuses: {} });
     }
 
-    // 4) Fetch intake events for *today* for those items
-    const { data: events, error: evErr } = await supabase
-      .from("intake_events")
-      .select("item_id, taken")
-      .eq("user_id", userId)
-      .eq("intake_date", today)
-      .in("item_id", itemIds);
+    // 4) Try fetching today's intake events by 'item_id' first.
+    let events:
+      | Array<{ item_id?: string | null; stack_item_id?: string | null; taken: boolean | null }>
+      | null = null;
+
+    let evErr = null;
+
+    {
+      const res = await supabase
+        .from("intake_events")
+        .select("item_id, taken") // preferred schema
+        .eq("user_id", userId)
+        .eq("intake_date", today)
+        .in("item_id", itemIds as string[]);
+      events = res.data as any;
+      evErr = res.error;
+    }
+
+    // 5) Fallback for alternate column name: 'stack_item_id'
+    if (evErr?.code === "42703") {
+      console.warn("[intake/status] retrying with 'stack_item_id' column");
+      const res2 = await supabase
+        .from("intake_events")
+        .select("stack_item_id, taken")
+        .eq("user_id", userId)
+        .eq("intake_date", today)
+        .in("stack_item_id", itemIds as string[]);
+      events = res2.data as any;
+      evErr = res2.error;
+    }
 
     if (evErr) {
       console.error("[intake/status] intake_events error:", evErr);
@@ -66,13 +86,19 @@ export async function GET(req: Request) {
 
     console.log("[intake/status] events", { count: events?.length ?? 0 });
 
-    // 5) Build map: default to false for every item in the stack, then apply today's events
+    // 6) Build a stable boolean map for *every* item in the stack
     const map: Record<string, boolean> = {};
     for (const id of itemIds) map[id as string] = false;
-    for (const row of events ?? []) map[row.item_id as string] = !!row.taken;
+
+    for (const row of events ?? []) {
+      const key =
+        (row.item_id as string | null | undefined) ??
+        (row.stack_item_id as string | null | undefined) ??
+        null;
+      if (key) map[key] = !!row.taken;
+    }
 
     console.log("[intake/status] done", { keys: Object.keys(map).length });
-
     return NextResponse.json({ ok: true, date: today, statuses: map });
   } catch (e: any) {
     console.error("[intake/status] unhandled error:", e);
