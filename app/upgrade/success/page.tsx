@@ -12,7 +12,7 @@ export default function UpgradeSuccess() {
   useEffect(() => {
     (async () => {
       if (!sessionId) {
-        setMsg("Missing session, taking you back…");
+        setMsg("Missing session. Returning…");
         router.replace("/upgrade");
         return;
       }
@@ -20,7 +20,7 @@ export default function UpgradeSuccess() {
         const res = await fetch(`/api/stripe/confirm?session_id=${sessionId}`, { method: "GET" });
         const json = await res.json();
         if (json?.ok && json?.premium) {
-          setMsg("Welcome to Premium! Redirecting to your dashboard…");
+          setMsg("Welcome to Premium! Redirecting…");
           setTimeout(() => router.replace("/dashboard"), 800);
         } else {
           setMsg("Still verifying your subscription…");
