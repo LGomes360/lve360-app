@@ -1,53 +1,67 @@
-// app/api/stripe/checkout/route.ts
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import Stripe from "stripe";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-06-20" });
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+export const revalidate = false;
 
 export async function POST(req: NextRequest) {
   try {
-    // --- ENVIRONMENT VALIDATION ---
-    const { STRIPE_PRICE_PREMIUM, STRIPE_PRICE_ANNUAL, NEXT_PUBLIC_APP_URL, STRIPE_SECRET_KEY } = process.env;
-    if (!STRIPE_SECRET_KEY || !STRIPE_PRICE_PREMIUM || !STRIPE_PRICE_ANNUAL || !NEXT_PUBLIC_APP_URL) {
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    const priceMonthly = process.env.STRIPE_PRICE_PREMIUM;
+    const priceAnnual = process.env.STRIPE_PRICE_ANNUAL;
+    const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+
+    if (!stripeKey || !priceMonthly || !priceAnnual) {
       return NextResponse.json(
-        { error: "Missing envs (STRIPE_SECRET_KEY, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_ANNUAL, NEXT_PUBLIC_APP_URL)" },
+        { error: "Missing Stripe envs (STRIPE_SECRET_KEY, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_ANNUAL)" },
         { status: 500 }
       );
     }
 
-    // --- AUTH (use signed-in user, not body email) ---
-    const supabase = createRouteHandlerClient({ cookies });
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
 
-    // --- REQUEST BODY ---
     const { plan } = await req.json().catch(() => ({}));
     if (!plan || !["monthly", "annual"].includes(plan)) {
-      return NextResponse.json({ error: "Invalid or missing plan ('monthly'|'annual')" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
     }
 
-    // --- PRICE ---
-    const priceId = plan === "monthly" ? STRIPE_PRICE_PREMIUM : STRIPE_PRICE_ANNUAL;
+    // Get current user (preferred source of truth for id/email)
+    const supabase = createRouteHandlerClient({ cookies });
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.id || !user.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    // --- URLS ---
-    const successUrl = `${NEXT_PUBLIC_APP_URL}/upgrade/success?session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl  = `${NEXT_PUBLIC_APP_URL}/upgrade?canceled=1`;
+    const priceId = plan === "monthly" ? priceMonthly : priceAnnual;
 
-    // --- CHECKOUT SESSION ---
-    const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      line_items: [{ price: priceId!, quantity: 1 }],
-      customer_email: user.email.toLowerCase(),
-      metadata: { plan, user_id: user.id },
-      success_url: successUrl,
-      cancel_url: cancelUrl,
+    // Instrumentation
+    console.log("[checkout] creating session", {
+      user_id: user.id,
+      email: user.email,
+      plan,
+      priceId,
     });
 
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      payment_method_types: ["card"],
+      line_items: [{ price: priceId, quantity: 1 }],
+      customer_email: user.email.toLowerCase(),
+      client_reference_id: user.id,                 // ← helps correlate
+      metadata: { plan, user_id: user.id },         // ← used by /confirm
+      success_url: `${APP_URL}/upgrade/success?session_id={CHECKOUT_SESSION_ID}&just=1`,
+      cancel_url: `${APP_URL}/upgrade?canceled=1`,
+      allow_promotion_codes: true,
+    });
+
+    console.log("[checkout] session created", { id: session.id, url: session.url });
     return NextResponse.json({ ok: true, url: session.url });
   } catch (err: any) {
-    console.error("❌ Stripe checkout error:", err);
+    console.error("❌ [checkout] error:", err);
     return NextResponse.json({ error: err?.message ?? "Unexpected error" }, { status: 500 });
   }
 }
