@@ -9,15 +9,15 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-06
 export async function POST(req: NextRequest) {
   try {
     // --- ENVIRONMENT VALIDATION ---
-    const { STRIPE_PRICE_PREMIUM, STRIPE_PRICE_ANNUAL, NEXT_PUBLIC_APP_URL } = process.env;
-    if (!process.env.STRIPE_SECRET_KEY || !STRIPE_PRICE_PREMIUM || !STRIPE_PRICE_ANNUAL || !NEXT_PUBLIC_APP_URL) {
+    const { STRIPE_PRICE_PREMIUM, STRIPE_PRICE_ANNUAL, NEXT_PUBLIC_APP_URL, STRIPE_SECRET_KEY } = process.env;
+    if (!STRIPE_SECRET_KEY || !STRIPE_PRICE_PREMIUM || !STRIPE_PRICE_ANNUAL || !NEXT_PUBLIC_APP_URL) {
       return NextResponse.json(
         { error: "Missing envs (STRIPE_SECRET_KEY, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_ANNUAL, NEXT_PUBLIC_APP_URL)" },
         { status: 500 }
       );
     }
 
-    // --- AUTH (prefer the signed-in user rather than trusting body email) ---
+    // --- AUTH (use signed-in user, not body email) ---
     const supabase = createRouteHandlerClient({ cookies });
     const { data: { user } } = await supabase.auth.getUser();
     if (!user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
