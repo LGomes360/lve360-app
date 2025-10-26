@@ -1,85 +1,112 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import CTAButton from "@/components/CTAButton";
+
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 type Plan = "monthly" | "annual";
 type Tier = "free" | "trial" | "premium";
 
 export default function UpgradePage() {
   const router = useRouter();
+  const sp = useSearchParams();
+  const justUpgraded = sp?.get("just") === "1"; // optional hint
+
   const [loadingPlan, setLoadingPlan] = useState<Plan | null>(null);
   const [tier, setTier] = useState<Tier>("free");
-  const [checking, setChecking] = useState(true); // page boot state
-  const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [banner, setBanner] = useState<string | null>(null);
 
-  // Fetch current user tier (uses your /api/users/tier route; works w/ or w/o userId)
   useEffect(() => {
+    let cancelled = false;
+
     (async () => {
       try {
+        // 1) Check current session tier
         const res = await fetch("/api/users/tier", { cache: "no-store" });
         if (res.status === 401) {
-          // Not signed in → send to login and come back here after
+          // Not signed in → go login and come back here
           router.replace("/login?next=/upgrade");
           return;
         }
-        const data = await res.json();
-        const t = (data?.tier ?? "free") as Tier;
+        const data = await res.json().catch(() => null);
+        const t = (data?.tier as Tier) ?? "free";
+        if (cancelled) return;
+
         setTier(t);
+
+        // 2) If already premium → go home
         if (t === "premium") {
-          // Already premium → go home
-          router.replace("/dashboard");
+          setBanner("Welcome back! Redirecting to your dashboard…");
+          setTimeout(() => router.replace("/dashboard"), 400);
           return;
         }
-      } catch (e) {
-        setError("Could not check your status. Please refresh.");
+
+        // 3) If we were bounced here right after payment, poll briefly
+        //    to avoid the whiplash blank screen.
+        if (justUpgraded || document.referrer.includes("/upgrade/success")) {
+          setBanner("Finalizing your Premium access…");
+          const deadline = Date.now() + 7000; // up to 7s
+          while (Date.now() < deadline) {
+            const r = await fetch("/api/users/tier", { cache: "no-store" });
+            if (r.status === 401) break;
+            const j = await r.json().catch(() => null);
+            if (j?.tier === "premium") {
+              setBanner("All set! Taking you to your dashboard…");
+              setTimeout(() => router.replace("/dashboard"), 400);
+              return;
+            }
+            await new Promise((s) => setTimeout(s, 500));
+          }
+          // If still not premium, just show plans below (no blank state)
+          setBanner(null);
+        }
+      } catch {
+        setBanner("We’re having trouble checking your status. You can still upgrade below.");
       } finally {
-        setChecking(false);
+        if (!cancelled) setChecking(false);
       }
     })();
-  }, [router]);
 
-  // Start checkout (server binds to current session; no email prompts)
+    return () => {
+      cancelled = true;
+    };
+  }, [router, justUpgraded]);
+
   async function handleUpgrade(plan: Plan) {
     setLoadingPlan(plan);
-    setError(null);
+    setBanner(null);
     try {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }), // only plan; server reads session user
+        body: JSON.stringify({ plan }),
       });
-
       if (res.status === 401) {
         router.push("/login?next=/upgrade");
         return;
       }
-
       const json = await res.json();
       if (json?.url) {
-        window.location.href = json.url; // Go to Stripe Checkout
+        window.location.href = json.url;
       } else {
-        setError(json?.error || "Something went wrong starting checkout.");
+        setBanner(json?.error || "Something went wrong starting checkout.");
       }
     } catch {
-      setError("Network issue starting checkout. Try again.");
+      setBanner("Network issue starting checkout. Try again.");
     } finally {
       setLoadingPlan(null);
     }
   }
 
-  const isPremium = tier === "premium";
-  const isTrial = tier === "trial";
-
-  // UI helpers
-  const monthlyDisabled = useMemo(() => checking || isPremium || loadingPlan !== null, [checking, isPremium, loadingPlan]);
-  const annualDisabled  = monthlyDisabled;
+  const disabled = useMemo(() => checking || tier === "premium" || loadingPlan !== null, [checking, tier, loadingPlan]);
 
   return (
     <main className="relative isolate overflow-hidden min-h-screen flex items-center justify-center bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB] px-6 py-20">
-      {/* soft blobs */}
       <div className="pointer-events-none absolute -top-32 -left-32 h-96 w-96 rounded-full bg-[#A8F0E4] opacity-40 blur-3xl" />
       <div className="pointer-events-none absolute top-[18rem] -right-24 h-[28rem] w-[28rem] rounded-full bg-[#D9C2F0] opacity-40 blur-3xl" />
 
@@ -94,38 +121,28 @@ export default function UpgradePage() {
           Go beyond your free report with weekly personalized tweaks, AI guidance, and your private dashboard.
         </p>
 
-        {/* Status strip */}
-        {checking && (
-          <p className="mb-6 text-sm text-gray-500">Checking your account…</p>
-        )}
-        {!checking && isTrial && (
-          <p className="mb-6 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-            You’re on a trial. Upgrade any time to keep your streaks and unlock everything.
-          </p>
-        )}
-        {error && (
-          <p className="mb-6 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-            {error}
+        {/* Status banner (prevents blank page) */}
+        {(checking || banner) && (
+          <p className="mb-6 text-sm text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-md px-3 py-2">
+            {banner || "Checking your account…"}
           </p>
         )}
 
         {/* Pricing grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
-          {/* Monthly */}
           <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-2xl p-6 shadow-lg border border-purple-200">
             <p className="text-5xl font-bold text-purple-700 mb-2">$15</p>
             <p className="text-gray-600 mb-4">per month</p>
             <CTAButton
               onClick={() => handleUpgrade("monthly")}
               variant="premium"
-              disabled={monthlyDisabled}
+              disabled={disabled}
               className="text-lg px-6 py-3 w-full"
             >
-              {isPremium ? "You're Premium" : loadingPlan === "monthly" ? "Redirecting…" : "Choose Monthly"}
+              {tier === "premium" ? "You're Premium" : loadingPlan === "monthly" ? "Redirecting…" : "Choose Monthly"}
             </CTAButton>
           </div>
 
-          {/* Annual */}
           <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-2xl p-6 shadow-lg border border-yellow-200">
             <p className="text-5xl font-bold text-yellow-600 mb-2">$100</p>
             <p className="text-gray-600 mb-1">per year</p>
@@ -133,29 +150,24 @@ export default function UpgradePage() {
             <CTAButton
               onClick={() => handleUpgrade("annual")}
               variant="secondary"
-              disabled={annualDisabled}
+              disabled={disabled}
               className="text-lg px-6 py-3 w-full bg-yellow-400 hover:bg-yellow-500 text-purple-900 font-semibold"
             >
-              {isPremium ? "You're Premium" : loadingPlan === "annual" ? "Redirecting…" : "Choose Annual"}
+              {tier === "premium" ? "You're Premium" : loadingPlan === "annual" ? "Redirecting…" : "Choose Annual"}
             </CTAButton>
           </div>
         </div>
 
-        <p className="mt-4 text-sm text-gray-500">
-          100% secure checkout via Stripe • Cancel anytime
-        </p>
+        <p className="mt-4 text-sm text-gray-500">100% secure checkout via Stripe • Cancel anytime</p>
 
-        {/* Feature highlights */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-10 text-left">
           {[
             "✓ Full access to AI-generated reports",
             "✓ Weekly personalized tweaks",
             "✓ Advanced stack tracking dashboard",
             "✓ Lifetime discount on affiliate partners",
-          ].map((feature, i) => (
-            <p key={i} className="text-gray-700 text-sm">
-              {feature}
-            </p>
+          ].map((f, i) => (
+            <p key={i} className="text-gray-700 text-sm">{f}</p>
           ))}
         </div>
       </motion.div>
