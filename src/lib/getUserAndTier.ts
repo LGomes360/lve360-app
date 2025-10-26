@@ -7,11 +7,11 @@ export async function getUserAndTier() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { user: null, tier: "free" as const };
 
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("users")
     .select("tier")
-    .eq("email", user.email!)
+    .eq("id", user.id)   // IMPORTANT: look up by id
     .maybeSingle();
 
-  return { user, tier: (data?.tier ?? "free") as "free"|"trial"|"premium" };
+  return { user, tier: (data?.tier ?? "free") as "free" | "trial" | "premium" };
 }
