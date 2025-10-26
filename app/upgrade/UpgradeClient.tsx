@@ -1,45 +1,42 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import CTAButton from "@/components/CTAButton";
 
-// --- Simple client-side error boundary to avoid blank screen ---
-function ErrorBoundary({ children }: { children: React.ReactNode }) {
-  const [err, setErr] = useState<Error | null>(null);
-  if (err) {
-    return (
-      <main className="mx-auto max-w-xl p-8 text-center">
-        <h1 className="text-xl font-semibold mb-2">We’re almost there</h1>
-        <p className="text-gray-600 mb-4">
-          Something went wrong loading this page. Try reloading, or log in again.
-        </p>
-        <a href="/login?next=/upgrade" className="underline text-indigo-700">Log in</a>
-      </main>
-    );
+/** REAL error boundary: catches render-time errors and shows fallback UI */
+class PageErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error?: Error }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
   }
-  return (
-    <ErrorCatcher onError={setErr}>
-      {children}
-    </ErrorCatcher>
-  );
-}
-function ErrorCatcher({
-  children,
-  onError,
-}: {
-  children: React.ReactNode;
-  onError: (e: Error) => void;
-}) {
-  // Wrap children in a try/catch-like effect for render-time errors
-  // (React 18 client workaround)
-  try {
-    // eslint-disable-next-line react/jsx-no-useless-fragment
-    return <>{children}</>;
-  } catch (e: any) {
-    onError(e);
-    return null;
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: any) {
+    console.error("[/upgrade ErrorBoundary] render error:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <main className="mx-auto max-w-xl p-8 text-center">
+          <h1 className="text-xl font-semibold mb-2">We’re almost there</h1>
+          <p className="text-gray-600 mb-4">
+            Something went wrong loading this page. You can retry or log in again.
+          </p>
+          <div className="flex items-center justify-center gap-3">
+            <a href="/upgrade" className="underline text-indigo-700">Try Again</a>
+            <span className="text-gray-400">•</span>
+            <a href="/login?next=/upgrade" className="underline text-indigo-700">Log In</a>
+          </div>
+        </main>
+      );
+    }
+    return this.props.children as any;
   }
 }
 
@@ -61,64 +58,80 @@ function Inner() {
 
     (async () => {
       try {
-        // 1) Try cookie-based tier (works if session present)
+        console.log("[/upgrade] start check");
         let res = await fetch("/api/users/tier", { cache: "no-store" });
+        console.log("[/upgrade] tier status:", res.status);
 
         if (res.status === 401) {
-          // Not signed in → send to login gracefully
+          console.log("[/upgrade] 401 → to login");
           router.replace("/login?next=/upgrade");
           return;
         }
 
-        // If your /api/users/tier sometimes returns 400 when userId missing,
-        // we fall back to reading the current userId from /api/user.
+        // If your /api/users/tier sometimes insists on userId, try to get it
         if (res.status === 400) {
-          const who = await fetch("/api/user", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null);
+          console.log("[/upgrade] 400 (tier) → fetch /api/user for id fallback");
+          const who = await fetch("/api/user", { cache: "no-store" })
+            .then(r => (r.ok ? r.json() : null))
+            .catch(() => null);
           if (who?.id) {
             res = await fetch(`/api/users/tier?userId=${encodeURIComponent(who.id)}`, { cache: "no-store" });
+            console.log("[/upgrade] retried tier with userId, status:", res.status);
           }
         }
 
-        const data = await res.json().catch(() => null);
-        const t = (data?.tier as Tier) ?? "free";
+        let data: any = null;
+        try { data = await res.json(); } catch { /* ignore */ }
+        const t: Tier = (data?.tier as Tier) ?? "free";
         if (cancelled) return;
 
+        console.log("[/upgrade] current tier:", t);
         setTier(t);
 
-        // 2) If already premium → go home
         if (t === "premium") {
           setBanner("Welcome back! Redirecting to your dashboard…");
+          console.log("[/upgrade] is premium → /dashboard");
           setTimeout(() => router.replace("/dashboard"), 400);
           return;
         }
 
-        // 3) If bounced here right after payment, poll briefly for flip
-        if (justUpgraded || document.referrer.includes("/upgrade/success")) {
+        // If bounced here immediately after Stripe success, poll for flip
+        const cameFromSuccess = typeof document !== "undefined" && document.referrer.includes("/upgrade/success");
+        if (justUpgraded || cameFromSuccess) {
           setBanner("Finalizing your Premium access…");
-          const deadline = Date.now() + 8000; // up to 8s
+          const deadline = Date.now() + 9000; // up to 9s
+          console.log("[/upgrade] polling for premium flip…");
           while (Date.now() < deadline) {
             let rr = await fetch("/api/users/tier", { cache: "no-store" });
             if (rr.status === 400) {
-              const who = await fetch("/api/user", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null);
-              if (who?.id) {
-                rr = await fetch(`/api/users/tier?userId=${encodeURIComponent(who.id)}`, { cache: "no-store" });
-              }
+              const who = await fetch("/api/user", { cache: "no-store" }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+              if (who?.id) rr = await fetch(`/api/users/tier?userId=${encodeURIComponent(who.id)}`, { cache: "no-store" });
             }
-            if (rr.status === 401) break;
+            if (rr.status === 401) {
+              console.log("[/upgrade] lost session during poll → to login");
+              router.replace("/login?next=/dashboard");
+              return;
+            }
             const j = await rr.json().catch(() => null);
             if (j?.tier === "premium") {
+              console.log("[/upgrade] flip detected → /dashboard");
               setBanner("All set! Taking you to your dashboard…");
               setTimeout(() => router.replace("/dashboard"), 400);
               return;
             }
             await new Promise((s) => setTimeout(s, 500));
           }
+          console.log("[/upgrade] no flip; show plans");
           setBanner(null); // show plans if still not premium
         }
-      } catch {
+      } catch (e) {
+        console.error("[/upgrade] error during check:", e);
         setBanner("We’re having trouble checking your status. You can still upgrade below.");
       } finally {
-        if (!cancelled) setChecking(false);
+        if (!cancelled) {
+          setChecking(false);
+          console.log("[/upgrade] check done");
+        }
       }
     })();
 
@@ -129,19 +142,27 @@ function Inner() {
     setLoadingPlan(plan);
     setBanner(null);
     try {
+      console.log("[/upgrade] starting checkout:", plan);
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plan }),
       });
       if (res.status === 401) {
+        console.log("[/upgrade] 401 on checkout → to login");
         router.push("/login?next=/upgrade");
         return;
       }
       const json = await res.json();
-      if (json?.url) window.location.href = json.url;
-      else setBanner(json?.error || "Something went wrong starting checkout.");
-    } catch {
+      if (json?.url) {
+        console.log("[/upgrade] redirecting to Stripe");
+        window.location.href = json.url;
+      } else {
+        console.error("[/upgrade] checkout error payload:", json);
+        setBanner(json?.error || "Something went wrong starting checkout.");
+      }
+    } catch (e) {
+      console.error("[/upgrade] checkout network error:", e);
       setBanner("Network issue starting checkout. Try again.");
     } finally {
       setLoadingPlan(null);
@@ -216,6 +237,20 @@ function Inner() {
             <p key={i} className="text-gray-700 text-sm">{f}</p>
           ))}
         </div>
+
+        {/* last-resort manual actions so you NEVER look stuck */}
+        <div className="mt-8 flex items-center justify-center gap-4 text-sm">
+          <button
+            onClick={() => router.replace("/dashboard")}
+            className="underline text-indigo-700"
+          >
+            Go to Dashboard
+          </button>
+          <span className="text-gray-400">•</span>
+          <a href="/login?next=/dashboard" className="underline text-indigo-700">
+            Log in again
+          </a>
+        </div>
       </motion.div>
     </main>
   );
@@ -232,9 +267,9 @@ export default function UpgradeClient() {
         </main>
       }
     >
-      <ErrorBoundary>
+      <PageErrorBoundary>
         <Inner />
-      </ErrorBoundary>
+      </PageErrorBoundary>
     </Suspense>
   );
 }
