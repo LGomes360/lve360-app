@@ -9,9 +9,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-06
 export async function GET(req: Request) {
   try {
     const supabase = createRouteHandlerClient({ cookies });
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
       console.warn("[stripe/confirm] no-user (401)");
@@ -20,7 +18,6 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const sessionId = url.searchParams.get("session_id");
-
     if (!sessionId) {
       console.warn("[stripe/confirm] no-session-id (400)");
       return NextResponse.json({ ok: false, error: "no-session-id" }, { status: 400 });
@@ -37,21 +34,27 @@ export async function GET(req: Request) {
     const custId =
       typeof session.customer === "string" ? session.customer : session.customer?.id ?? null;
 
-    const status = sub?.status ?? session.payment_status; // "active" | "trialing" | "paid" | ...
-    const interval = sub?.items?.data?.[0]?.plan?.interval ?? null; // "month" | "year" | null
+    const rawStatus = sub?.status ?? session.payment_status; // "active" | "trialing" | "paid" | ...
+    const rawInterval = sub?.items?.data?.[0]?.plan?.interval ?? null; // "month" | "year" | null
+
+    // ✅ Map Stripe -> DB allowed values
+    const billingInterval: "monthly" | "annual" | null =
+      rawInterval === "month" ? "monthly" : rawInterval === "year" ? "annual" : null;
+
     const endIso = sub?.current_period_end
       ? new Date(sub.current_period_end * 1000).toISOString()
       : null;
 
     const isPremium =
-      status === "active" || status === "trialing" || session.payment_status === "paid";
+      rawStatus === "active" || rawStatus === "trialing" || session.payment_status === "paid";
 
     console.log("[stripe/confirm] stripe session:", {
       id: session.id,
       payment_status: session.payment_status,
       customer: custId,
       subscription_status: sub?.status ?? null,
-      interval,
+      rawInterval,
+      mappedInterval: billingInterval,
       current_period_end: sub?.current_period_end ?? null,
       isPremium,
       metadata: session.metadata,
@@ -61,8 +64,8 @@ export async function GET(req: Request) {
       .from("users")
       .update({
         stripe_customer_id: custId,
-        stripe_subscription_status: status ?? null,
-        billing_interval: interval,
+        stripe_subscription_status: rawStatus ?? null,
+        billing_interval: billingInterval,             // ← mapped value
         subscription_end_date: endIso,
         tier: isPremium ? "premium" : "free",
         updated_at: new Date().toISOString(),
@@ -78,20 +81,17 @@ export async function GET(req: Request) {
       id: user.id,
       tier: isPremium ? "premium" : "free",
       stripe_customer_id: custId,
-      stripe_subscription_status: status ?? null,
-      billing_interval: interval,
+      stripe_subscription_status: rawStatus ?? null,
+      billing_interval: billingInterval,
       subscription_end_date: endIso,
     });
 
     return NextResponse.json(
-      { ok: true, premium: isPremium, status, interval, customer: custId },
+      { ok: true, premium: isPremium, status: rawStatus, interval: billingInterval, customer: custId },
       { status: 200 }
     );
   } catch (err: any) {
     console.error("[stripe/confirm] unhandled error:", err);
-    return NextResponse.json(
-      { ok: false, error: err?.message ?? String(err) },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err?.message ?? String(err) }, { status: 500 });
   }
 }
