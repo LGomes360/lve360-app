@@ -5,12 +5,18 @@ export const revalidate = false;
 
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { supabaseAdmin } from "@/lib/supabase"; // your admin client
+import { supabaseAdmin } from "@/lib/supabase"; // keep your existing admin client
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-06-20" });
 
 function mapInterval(raw?: string | null): "monthly" | "annual" | null {
   return raw === "month" ? "monthly" : raw === "year" ? "annual" : null;
+}
+
+function isStripeCustomer(
+  c: Stripe.Customer | Stripe.DeletedCustomer | null | undefined
+): c is Stripe.Customer {
+  return !!c && typeof c === "object" && "deleted" in c === false;
 }
 
 async function findUserIdByEmail(email: string | null | undefined) {
@@ -20,6 +26,7 @@ async function findUserIdByEmail(email: string | null | undefined) {
     .select("id")
     .eq("email", email.toLowerCase())
     .maybeSingle();
+
   if (error) {
     console.error("[stripe/confirm] lookup by email error:", error);
     return null;
@@ -42,10 +49,21 @@ export async function GET(req: Request) {
     });
 
     const sub = session.subscription as Stripe.Subscription | null;
-    const custId = typeof session.customer === "string" ? session.customer : session.customer?.id ?? null;
+
+    // Safely read customer id and email (customer can be string OR DeletedCustomer)
+    const customerExpanded =
+      typeof session.customer === "string" ? null : (session.customer as Stripe.Customer | Stripe.DeletedCustomer);
+
+    const custId =
+      typeof session.customer === "string"
+        ? session.customer
+        : isStripeCustomer(customerExpanded)
+        ? customerExpanded.id
+        : null;
+
     const customerEmail =
       session.customer_details?.email ??
-      (typeof session.customer !== "string" ? session.customer?.email : null) ??
+      (isStripeCustomer(customerExpanded) ? customerExpanded.email : null) ??
       null;
 
     // Resolve target user id without relying on cookies
@@ -84,7 +102,6 @@ export async function GET(req: Request) {
     const isPremium = rawStatus === "active" || rawStatus === "trialing" || session.payment_status === "paid";
 
     // Upsert user row by id (create if missing, then update premium fields)
-    // 1) Ensure row exists
     const ensure = await supabaseAdmin
       .from("users")
       .upsert(
@@ -108,7 +125,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "db-upsert-failed" }, { status: 500 });
     }
 
-    // 2) If row existed and email is empty there, patch email if we have it
+    // If row existed and email is empty, patch email if we have it
     if (customerEmail) {
       await supabaseAdmin
         .from("users")
