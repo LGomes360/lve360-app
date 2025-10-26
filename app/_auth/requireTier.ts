@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 
-type Tier = "free" | "trial" | "premium";
+export type Tier = "free" | "trial" | "premium";
 
 /**
  * Usage:
@@ -11,28 +11,36 @@ type Tier = "free" | "trial" | "premium";
  *   await requireTier(["premium"]);
  *   // trial or premium:
  *   await requireTier(["trial", "premium"]);
+ *
+ *   // optional: preserve where to go after login
+ *   await requireTier(["premium"], { next: "/dashboard" });
  */
-export async function requireTier(allowed: Tier[]) {
+export async function requireTier(allowed: Tier[], opts?: { next?: string }) {
   const supabase = createServerComponentClient({ cookies });
 
   // 1) Must be signed in
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  if (!user) {
+    const next = opts?.next ? `?next=${encodeURIComponent(opts.next)}` : "";
+    redirect(`/login${next}`);
+  }
 
   // 2) Fetch profile by *id* (never by email)
-  let { data: me, error } = await supabase
+  let { data: me } = await supabase
     .from("users")
     .select("tier")
     .eq("id", user.id)
     .maybeSingle();
 
-  // 3) If missing, self-provision (avoids race-to-/upgrade)
+  // 3) If missing, self-provision (avoids race to /upgrade on first login)
   if (!me) {
     await supabase
       .from("users")
-      .upsert({ id: user.id, email: user.email ?? "", tier: "free" }, { onConflict: "id" });
+      .upsert(
+        { id: user.id, email: user.email ?? "", tier: "free" },
+        { onConflict: "id" }
+      );
 
-    // re-fetch after upsert
     const refetch = await supabase
       .from("users")
       .select("tier")
@@ -41,12 +49,25 @@ export async function requireTier(allowed: Tier[]) {
     me = refetch.data ?? null;
   }
 
-  const tier: Tier = (me?.tier as Tier) ?? "free";
+  // 4) Current tier
+  let tier: Tier = (me?.tier as Tier) ?? "free";
 
-  // 4) Gate
+  // 5) Gate with a brief re-check to absorb write/read lag after Stripe
   if (!allowed.includes(tier)) {
-    // If you want trial to count as premium in some places, pass both in `allowed`.
-    redirect("/upgrade");
+    // tiny debounce and re-read once
+    await new Promise((s) => setTimeout(s, 300));
+    const again = await supabase
+      .from("users")
+      .select("tier")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    tier = ((again.data?.tier as Tier) ?? tier) as Tier;
+
+    if (!allowed.includes(tier)) {
+      // Not yet allowed → send to upgrade
+      redirect("/upgrade");
+    }
   }
 
   return { user, tier };
