@@ -1,8 +1,7 @@
-// app/api/stripe/confirm/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { supabaseAdmin } from "@/lib/supabase"; // ✅ your style
 import Stripe from "stripe";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-06-20" });
@@ -25,14 +24,17 @@ export async function GET(req: Request) {
 
   const isPremium = status === "active" || status === "trialing" || session.payment_status === "paid";
 
-  await supabaseAdmin.from("users").update({
-    stripe_customer_id: custId,
-    stripe_subscription_status: status ?? null,
-    billing_interval: interval,
-    subscription_end_date: endIso,
-    tier: isPremium ? "premium" : "free",
-    updated_at: new Date().toISOString(),
-  }).eq("id", user.id);
+  await supabaseAdmin
+    .from("users")
+    .update({
+      stripe_customer_id: custId,
+      stripe_subscription_status: status ?? null,
+      billing_interval: interval,
+      subscription_end_date: endIso,
+      tier: isPremium ? "premium" : "free",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", user.id);
 
   return NextResponse.json({ ok: true, premium: isPremium });
 }
