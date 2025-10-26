@@ -16,10 +16,11 @@ export async function POST() {
   const email = user.email?.toLowerCase() ?? null;
 
   // Single atomic repair + attach step in the DB
-  await supabaseAdmin.rpc("reconcile_user_and_attach", {
-    p_email: email,
-    p_new_id: user.id,
-  });
+await supabaseAdmin.rpc("reconcile_user_and_attach_v2", {
+  p_email: user.email?.toLowerCase() ?? null,
+  p_new_id: user.id,
+});
+
 
   // Optionally return the user's tier so client can decide immediately
   const { data: profile } = await supabaseAdmin
