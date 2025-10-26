@@ -4,9 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import CTAButton from "@/components/CTAButton";
+import UpgradeClient from "./UpgradeClient";
 
+// app/upgrade/page.tsx
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
+export const revalidate = false;
+
+export default function UpgradePage() {
+  return <UpgradeClient />;
+}
+
 
 type Plan = "monthly" | "annual";
 type Tier = "free" | "trial" | "premium";
