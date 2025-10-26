@@ -1,3 +1,8 @@
+// app/api/stripe/confirm/route.ts
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+export const revalidate = false; // avoid static analysis trying to prerender
+
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
