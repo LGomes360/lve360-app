@@ -1,9 +1,11 @@
 // app/api/users/tier/route.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase"; // ✅ keep your import style
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
 
-// Make sure this is never statically optimized or cached.
+// Never statically optimized or cached
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
@@ -17,14 +19,19 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Supabase envs missing." }, { status: 500 });
     }
 
-    const userIdParam = req.nextUrl.searchParams.get("userId");
-    if (!userIdParam) {
-      return NextResponse.json({ error: "userId required" }, { status: 400 });
+    // Allow calling with or without ?userId=
+    const userIdParam = req.nextUrl.searchParams.get("userId")?.trim() || null;
+
+    let userId = userIdParam;
+    if (!userId) {
+      // derive current session user id if none provided
+      const supabase = createRouteHandlerClient({ cookies });
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+      userId = user.id;
     }
 
-    const userId = userIdParam.trim();
-    // Optional hardening: only allow UUIDs
-    if (!isUUID(userId)) {
+    if (!isUUID(userId!)) {
       return NextResponse.json({ error: "invalid userId" }, { status: 400 });
     }
 
@@ -34,15 +41,10 @@ export async function GET(req: NextRequest) {
       .eq("id", userId)
       .single();
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!data) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-    if (!data) {
-      return NextResponse.json({ error: "not found" }, { status: 404 });
-    }
-
-    return NextResponse.json({ ok: true, tier: data.tier ?? null }, { status: 200 });
+    return NextResponse.json({ ok: true, tier: data.tier ?? "free" }, { status: 200 });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message ?? String(err) }, { status: 500 });
   }
