@@ -10,7 +10,7 @@ type Tier = "free" | "trial" | "premium";
 
 function Inner() {
   const router = useRouter();
-  const sp = useSearchParams(); // ✅ safe inside Suspense
+  const sp = useSearchParams(); // safe inside Suspense
   const justUpgraded = sp?.get("just") === "1";
 
   const [loadingPlan, setLoadingPlan] = useState<Plan | null>(null);
@@ -23,6 +23,7 @@ function Inner() {
 
     (async () => {
       try {
+        // 1) Check current session tier
         const res = await fetch("/api/users/tier", { cache: "no-store" });
         if (res.status === 401) {
           router.replace("/login?next=/upgrade");
@@ -34,15 +35,17 @@ function Inner() {
 
         setTier(t);
 
+        // 2) If already premium → go home
         if (t === "premium") {
           setBanner("Welcome back! Redirecting to your dashboard…");
           setTimeout(() => router.replace("/dashboard"), 400);
           return;
         }
 
+        // 3) If bounced here right after payment, poll briefly
         if (justUpgraded || document.referrer.includes("/upgrade/success")) {
           setBanner("Finalizing your Premium access…");
-          const deadline = Date.now() + 7000;
+          const deadline = Date.now() + 7000; // up to 7s
           while (Date.now() < deadline) {
             const r = await fetch("/api/users/tier", { cache: "no-store" });
             if (r.status === 401) break;
