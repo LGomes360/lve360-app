@@ -5,20 +5,24 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 export default function UpgradeSuccess() {
   const router = useRouter();
-  const qp = useSearchParams();
-  const sessionId = qp.get("session_id");
+  const sp = useSearchParams();
+  const sessionId = sp?.get("session_id") ?? null; // ← handle possibly-null
+
   const [msg, setMsg] = useState("Activating Premium…");
 
   useEffect(() => {
+    // If we truly can't read the session id, bounce back cleanly
+    if (!sessionId) {
+      setMsg("Missing session. Returning…");
+      router.replace("/upgrade");
+      return;
+    }
+
     (async () => {
-      if (!sessionId) {
-        setMsg("Missing session. Returning…");
-        router.replace("/upgrade");
-        return;
-      }
       try {
         const res = await fetch(`/api/stripe/confirm?session_id=${sessionId}`, { method: "GET" });
         const json = await res.json();
+
         if (json?.ok && json?.premium) {
           setMsg("Welcome to Premium! Redirecting…");
           setTimeout(() => router.replace("/dashboard"), 800);
