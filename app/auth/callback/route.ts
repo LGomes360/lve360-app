@@ -39,6 +39,12 @@ export async function GET(req: Request) {
       new URL(`/login?error=${encodeURIComponent(error.message)}`, url.origin)
     );
   }
+const { data: { user } } = await supabase.auth.getUser();
+if (user) {
+  try {
+    await fetch(new URL("/api/provision-user", req.url), { method: "POST", headers: { cookie: (await cookies()).toString() } });
+  } catch {}
+}
 
   // All good → redirect to a safe next page
   const dest = ALLOW_NEXT.has(next) ? next : "/dashboard";
