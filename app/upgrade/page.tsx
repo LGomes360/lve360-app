@@ -1,88 +1,115 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import CTAButton from "@/components/CTAButton";
 
-export default function UpgradePage() {
-  const [loading, setLoading] = useState<"monthly" | "annual" | null>(null);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+type Plan = "monthly" | "annual";
+type Tier = "free" | "trial" | "premium";
 
-  // --- Try to auto-fetch Supabase user email if logged in ---
+export default function UpgradePage() {
+  const router = useRouter();
+  const [loadingPlan, setLoadingPlan] = useState<Plan | null>(null);
+  const [tier, setTier] = useState<Tier>("free");
+  const [checking, setChecking] = useState(true); // page boot state
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch current user tier (uses your /api/users/tier route; works w/ or w/o userId)
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/user");
-        if (res.ok) {
-          const data = await res.json();
-          setUserEmail(data.email ?? null);
+        const res = await fetch("/api/users/tier", { cache: "no-store" });
+        if (res.status === 401) {
+          // Not signed in → send to login and come back here after
+          router.replace("/login?next=/upgrade");
+          return;
         }
-      } catch {
-        // ignore if unauthenticated
+        const data = await res.json();
+        const t = (data?.tier ?? "free") as Tier;
+        setTier(t);
+        if (t === "premium") {
+          // Already premium → go home
+          router.replace("/dashboard");
+          return;
+        }
+      } catch (e) {
+        setError("Could not check your status. Please refresh.");
+      } finally {
+        setChecking(false);
       }
     })();
-  }, []);
+  }, [router]);
 
-  // --- Handle checkout ---
-  async function handleUpgrade(plan: "monthly" | "annual") {
-    setLoading(plan);
+  // Start checkout (server binds to current session; no email prompts)
+  async function handleUpgrade(plan: Plan) {
+    setLoadingPlan(plan);
+    setError(null);
     try {
-      // ✅ Use existing user email or prompt for one
-      const email =
-        userEmail || prompt("Enter your email to continue:")?.trim();
-      if (!email) {
-        alert("Email is required to upgrade.");
-        setLoading(null);
-        return;
-      }
-
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan, email }),
+        body: JSON.stringify({ plan }), // only plan; server reads session user
       });
 
-      const data = await res.json();
-      if (data?.url) {
-        window.location.href = data.url;
-      } else {
-        alert(data?.error || "Something went wrong creating your checkout session.");
+      if (res.status === 401) {
+        router.push("/login?next=/upgrade");
+        return;
       }
-    } catch (err) {
-      console.error("Checkout error:", err);
-      alert("Checkout failed. Try again.");
+
+      const json = await res.json();
+      if (json?.url) {
+        window.location.href = json.url; // Go to Stripe Checkout
+      } else {
+        setError(json?.error || "Something went wrong starting checkout.");
+      }
+    } catch {
+      setError("Network issue starting checkout. Try again.");
     } finally {
-      setLoading(null);
+      setLoadingPlan(null);
     }
   }
 
+  const isPremium = tier === "premium";
+  const isTrial = tier === "trial";
+
+  // UI helpers
+  const monthlyDisabled = useMemo(() => checking || isPremium || loadingPlan !== null, [checking, isPremium, loadingPlan]);
+  const annualDisabled  = monthlyDisabled;
+
   return (
     <main className="relative isolate overflow-hidden min-h-screen flex items-center justify-center bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB] px-6 py-20">
-      {/* Floating soft blobs */}
-      <div
-        className="pointer-events-none absolute -top-32 -left-32 h-96 w-96 rounded-full bg-[#A8F0E4] opacity-40 blur-3xl"
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none absolute top-[18rem] -right-24 h-[28rem] w-[28rem] rounded-full bg-[#D9C2F0] opacity-40 blur-3xl"
-        aria-hidden
-      />
+      {/* soft blobs */}
+      <div className="pointer-events-none absolute -top-32 -left-32 h-96 w-96 rounded-full bg-[#A8F0E4] opacity-40 blur-3xl" />
+      <div className="pointer-events-none absolute top-[18rem] -right-24 h-[28rem] w-[28rem] rounded-full bg-[#D9C2F0] opacity-40 blur-3xl" />
 
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 18 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
+        transition={{ duration: 0.45 }}
         className="relative z-10 max-w-xl w-full bg-white/90 backdrop-blur-lg rounded-2xl shadow-2xl ring-1 ring-purple-100 p-10 text-center"
       >
-        <h1 className="text-4xl font-extrabold text-[#041B2D] mb-3">
-          Unlock LVE360 Premium
-        </h1>
-        <p className="text-gray-600 mb-8 text-lg">
-          Go beyond your free report with personalized weekly tweaks, AI-guided
-          recommendations, and your private dashboard.
+        <h1 className="text-4xl font-extrabold text-[#041B2D] mb-3">Unlock LVE360 Premium</h1>
+        <p className="text-gray-600 mb-6 text-lg">
+          Go beyond your free report with weekly personalized tweaks, AI guidance, and your private dashboard.
         </p>
 
-        {/* Pricing Display */}
+        {/* Status strip */}
+        {checking && (
+          <p className="mb-6 text-sm text-gray-500">Checking your account…</p>
+        )}
+        {!checking && isTrial && (
+          <p className="mb-6 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+            You’re on a trial. Upgrade any time to keep your streaks and unlock everything.
+          </p>
+        )}
+        {error && (
+          <p className="mb-6 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+            {error}
+          </p>
+        )}
+
+        {/* Pricing grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
           {/* Monthly */}
           <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-2xl p-6 shadow-lg border border-purple-200">
@@ -91,10 +118,10 @@ export default function UpgradePage() {
             <CTAButton
               onClick={() => handleUpgrade("monthly")}
               variant="premium"
-              disabled={loading !== null}
+              disabled={monthlyDisabled}
               className="text-lg px-6 py-3 w-full"
             >
-              {loading === "monthly" ? "Redirecting..." : "Choose Monthly"}
+              {isPremium ? "You're Premium" : loadingPlan === "monthly" ? "Redirecting…" : "Choose Monthly"}
             </CTAButton>
           </div>
 
@@ -106,10 +133,10 @@ export default function UpgradePage() {
             <CTAButton
               onClick={() => handleUpgrade("annual")}
               variant="secondary"
-              disabled={loading !== null}
+              disabled={annualDisabled}
               className="text-lg px-6 py-3 w-full bg-yellow-400 hover:bg-yellow-500 text-purple-900 font-semibold"
             >
-              {loading === "annual" ? "Redirecting..." : "Choose Annual"}
+              {isPremium ? "You're Premium" : loadingPlan === "annual" ? "Redirecting…" : "Choose Annual"}
             </CTAButton>
           </div>
         </div>
@@ -118,7 +145,7 @@ export default function UpgradePage() {
           100% secure checkout via Stripe • Cancel anytime
         </p>
 
-        {/* Feature Highlights */}
+        {/* Feature highlights */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-10 text-left">
           {[
             "✓ Full access to AI-generated reports",
