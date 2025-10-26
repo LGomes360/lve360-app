@@ -5,6 +5,44 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import CTAButton from "@/components/CTAButton";
 
+// --- Simple client-side error boundary to avoid blank screen ---
+function ErrorBoundary({ children }: { children: React.ReactNode }) {
+  const [err, setErr] = useState<Error | null>(null);
+  if (err) {
+    return (
+      <main className="mx-auto max-w-xl p-8 text-center">
+        <h1 className="text-xl font-semibold mb-2">We’re almost there</h1>
+        <p className="text-gray-600 mb-4">
+          Something went wrong loading this page. Try reloading, or log in again.
+        </p>
+        <a href="/login?next=/upgrade" className="underline text-indigo-700">Log in</a>
+      </main>
+    );
+  }
+  return (
+    <ErrorCatcher onError={setErr}>
+      {children}
+    </ErrorCatcher>
+  );
+}
+function ErrorCatcher({
+  children,
+  onError,
+}: {
+  children: React.ReactNode;
+  onError: (e: Error) => void;
+}) {
+  // Wrap children in a try/catch-like effect for render-time errors
+  // (React 18 client workaround)
+  try {
+    // eslint-disable-next-line react/jsx-no-useless-fragment
+    return <>{children}</>;
+  } catch (e: any) {
+    onError(e);
+    return null;
+  }
+}
+
 type Plan = "monthly" | "annual";
 type Tier = "free" | "trial" | "premium";
 
@@ -23,12 +61,24 @@ function Inner() {
 
     (async () => {
       try {
-        // 1) Check current session tier
-        const res = await fetch("/api/users/tier", { cache: "no-store" });
+        // 1) Try cookie-based tier (works if session present)
+        let res = await fetch("/api/users/tier", { cache: "no-store" });
+
         if (res.status === 401) {
+          // Not signed in → send to login gracefully
           router.replace("/login?next=/upgrade");
           return;
         }
+
+        // If your /api/users/tier sometimes returns 400 when userId missing,
+        // we fall back to reading the current userId from /api/user.
+        if (res.status === 400) {
+          const who = await fetch("/api/user", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null);
+          if (who?.id) {
+            res = await fetch(`/api/users/tier?userId=${encodeURIComponent(who.id)}`, { cache: "no-store" });
+          }
+        }
+
         const data = await res.json().catch(() => null);
         const t = (data?.tier as Tier) ?? "free";
         if (cancelled) return;
@@ -42,14 +92,20 @@ function Inner() {
           return;
         }
 
-        // 3) If bounced here right after payment, poll briefly
+        // 3) If bounced here right after payment, poll briefly for flip
         if (justUpgraded || document.referrer.includes("/upgrade/success")) {
           setBanner("Finalizing your Premium access…");
-          const deadline = Date.now() + 7000; // up to 7s
+          const deadline = Date.now() + 8000; // up to 8s
           while (Date.now() < deadline) {
-            const r = await fetch("/api/users/tier", { cache: "no-store" });
-            if (r.status === 401) break;
-            const j = await r.json().catch(() => null);
+            let rr = await fetch("/api/users/tier", { cache: "no-store" });
+            if (rr.status === 400) {
+              const who = await fetch("/api/user", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null);
+              if (who?.id) {
+                rr = await fetch(`/api/users/tier?userId=${encodeURIComponent(who.id)}`, { cache: "no-store" });
+              }
+            }
+            if (rr.status === 401) break;
+            const j = await rr.json().catch(() => null);
             if (j?.tier === "premium") {
               setBanner("All set! Taking you to your dashboard…");
               setTimeout(() => router.replace("/dashboard"), 400);
@@ -57,7 +113,7 @@ function Inner() {
             }
             await new Promise((s) => setTimeout(s, 500));
           }
-          setBanner(null);
+          setBanner(null); // show plans if still not premium
         }
       } catch {
         setBanner("We’re having trouble checking your status. You can still upgrade below.");
@@ -176,7 +232,9 @@ export default function UpgradeClient() {
         </main>
       }
     >
-      <Inner />
+      <ErrorBoundary>
+        <Inner />
+      </ErrorBoundary>
     </Suspense>
   );
 }
