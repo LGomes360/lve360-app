@@ -1,67 +1,53 @@
 // app/api/stripe/checkout/route.ts
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import Stripe from "stripe";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-06-20" });
 
 export async function POST(req: NextRequest) {
   try {
     // --- ENVIRONMENT VALIDATION ---
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    const priceMonthly = process.env.STRIPE_PRICE_PREMIUM;
-    const priceAnnual = process.env.STRIPE_PRICE_ANNUAL;
-
-    if (!stripeKey || !priceMonthly || !priceAnnual) {
+    const { STRIPE_PRICE_PREMIUM, STRIPE_PRICE_ANNUAL, NEXT_PUBLIC_APP_URL } = process.env;
+    if (!process.env.STRIPE_SECRET_KEY || !STRIPE_PRICE_PREMIUM || !STRIPE_PRICE_ANNUAL || !NEXT_PUBLIC_APP_URL) {
       return NextResponse.json(
-        {
-          error:
-            "Missing Stripe envs (STRIPE_SECRET_KEY, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_ANNUAL)",
-        },
+        { error: "Missing envs (STRIPE_SECRET_KEY, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_ANNUAL, NEXT_PUBLIC_APP_URL)" },
         { status: 500 }
       );
     }
 
-    const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
+    // --- AUTH (prefer the signed-in user rather than trusting body email) ---
+    const supabase = createRouteHandlerClient({ cookies });
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     // --- REQUEST BODY ---
-    const { plan, email } = await req.json().catch(() => ({}));
-
-    if (!plan || !email) {
-      return NextResponse.json(
-        { error: "Missing required fields (plan, email)" },
-        { status: 400 }
-      );
+    const { plan } = await req.json().catch(() => ({}));
+    if (!plan || !["monthly", "annual"].includes(plan)) {
+      return NextResponse.json({ error: "Invalid or missing plan ('monthly'|'annual')" }, { status: 400 });
     }
 
-    // --- DETERMINE PRICE ---
-    let priceId: string;
-    if (plan === "monthly") priceId = priceMonthly;
-    else if (plan === "annual") priceId = priceAnnual;
-    else {
-      return NextResponse.json(
-        { error: "Invalid plan. Must be 'monthly' or 'annual'." },
-        { status: 400 }
-      );
-    }
+    // --- PRICE ---
+    const priceId = plan === "monthly" ? STRIPE_PRICE_PREMIUM : STRIPE_PRICE_ANNUAL;
 
-    const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    // --- URLS ---
+    const successUrl = `${NEXT_PUBLIC_APP_URL}/upgrade/success?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl  = `${NEXT_PUBLIC_APP_URL}/upgrade?canceled=1`;
 
-    // --- STRIPE CHECKOUT SESSION ---
+    // --- CHECKOUT SESSION ---
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
-      payment_method_types: ["card"],
-      line_items: [{ price: priceId, quantity: 1 }],
-      customer_email: email, // ✅ from prompt
-      metadata: { plan },
-      success_url: `${APP_URL}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${APP_URL}/upgrade?canceled=1`,
+      line_items: [{ price: priceId!, quantity: 1 }],
+      customer_email: user.email.toLowerCase(),
+      metadata: { plan, user_id: user.id },
+      success_url: successUrl,
+      cancel_url: cancelUrl,
     });
 
     return NextResponse.json({ ok: true, url: session.url });
   } catch (err: any) {
     console.error("❌ Stripe checkout error:", err);
-    return NextResponse.json(
-      { error: err?.message ?? "Unexpected error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err?.message ?? "Unexpected error" }, { status: 500 });
   }
 }
