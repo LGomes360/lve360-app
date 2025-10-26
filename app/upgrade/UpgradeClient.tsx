@@ -63,9 +63,7 @@ function Inner() {
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [router, justUpgraded]);
 
   async function handleUpgrade(plan: Plan) {
