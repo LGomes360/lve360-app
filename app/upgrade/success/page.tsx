@@ -3,14 +3,14 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-// Disable prerendering/static export for this page
+// Make this page fully dynamic and skip prerender/export
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
-export const revalidate = 0;
+export const revalidate = false; // ✅ avoid the "[object Object]" error
 
 function SuccessInner() {
   const router = useRouter();
-  const sp = useSearchParams();              // ✅ safe inside Suspense
+  const sp = useSearchParams();            // must be inside Suspense
   const sessionId = sp?.get("session_id") ?? null;
   const [msg, setMsg] = useState("Activating Premium…");
 
@@ -22,7 +22,10 @@ function SuccessInner() {
     }
     (async () => {
       try {
-        const res = await fetch(`/api/stripe/confirm?session_id=${sessionId}`, { method: "GET", cache: "no-store" });
+        const res = await fetch(`/api/stripe/confirm?session_id=${sessionId}`, {
+          method: "GET",
+          cache: "no-store",
+        });
         const json = await res.json();
         if (json?.ok && json?.premium) {
           setMsg("Welcome to Premium! Redirecting…");
@@ -48,15 +51,16 @@ function SuccessInner() {
 }
 
 export default function UpgradeSuccess() {
-  // Wrap the child in Suspense to satisfy Next.js CSR bailout rules
   return (
-    <Suspense fallback={
-      <main className="mx-auto max-w-xl p-8 text-center">
-        <div className="text-3xl mb-4">🎉</div>
-        <h1 className="text-xl font-semibold mb-2">Thanks for upgrading!</h1>
-        <p className="text-gray-600">Preparing your upgrade…</p>
-      </main>
-    }>
+    <Suspense
+      fallback={
+        <main className="mx-auto max-w-xl p-8 text-center">
+          <div className="text-3xl mb-4">🎉</div>
+          <h1 className="text-xl font-semibold mb-2">Thanks for upgrading!</h1>
+          <p className="text-gray-600">Preparing your upgrade…</p>
+        </main>
+      }
+    >
       <SuccessInner />
     </Suspense>
   );
