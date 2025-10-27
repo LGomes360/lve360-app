@@ -619,9 +619,12 @@ Generate the full report per the rules above.`;
 // ----------------------------------------------------------------------------
 // LLM wrapper
 // ----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+// LLM wrapper
+// ----------------------------------------------------------------------------
 type LLMOpts = {
   max?: number;          // desired max completion tokens for output
-  temperature?: number;  // default 0.7
+  temperature?: number;  // only used on non-gpt-5 models
 };
 
 async function callLLM(
@@ -632,21 +635,28 @@ async function callLLM(
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
-  const temperature = typeof opts.temperature === "number" ? opts.temperature : 0.7;
   const max = typeof opts.max === "number" ? opts.max : undefined;
-
-  // gpt-5 / gpt-5-mini expect *max_completion_tokens* (NOT max_tokens)
   const isGpt5 = /^gpt-5(?:-|$)/i.test(model);
 
+  // Build a minimal payload; add fields conditionally
+  const base: any = { model, messages };
+
   if (isGpt5) {
-    // Do NOT include max_tokens here — it will 400.
-    return openai.chat.completions.create({
-      model,
-      messages,
-      temperature,
-      ...(typeof max === "number" ? { max_completion_tokens: max } : {}),
-    } as any);
+    // gpt-5 family:
+    // - uses max_completion_tokens
+    // - does NOT accept temperature (must use default)
+    if (typeof max === "number") base.max_completion_tokens = max;
+    return openai.chat.completions.create(base);
+  } else {
+    // 4o / 4.1 / legacy:
+    // - uses max_tokens
+    // - accepts temperature
+    if (typeof max === "number") base.max_tokens = max;
+    if (typeof opts.temperature === "number") base.temperature = opts.temperature;
+    return openai.chat.completions.create(base);
   }
+}
+
 
   // Older / 4o family still expect max_tokens
   return openai.chat.completions.create({
