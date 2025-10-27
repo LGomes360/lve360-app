@@ -661,38 +661,60 @@ async function callLLM(
 // ----------------------------------------------------------------------------
 // Validation helpers
 // ----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+// Validation helpers  (REPLACE THIS WHOLE BLOCK)
+// ----------------------------------------------------------------------------
 function headingsOK(md: string) {
   return HEADINGS.slice(0, -1).every((h) => (md || "").includes(h));
 }
 
-function blueprintOK(md: string, minRows: number) {
-  const sec = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n\|)/i);
-  if (!sec) return false;
-  const rows = sec[0].split("\n").filter((l) => l.startsWith("|")).slice(1);
-  return rows.length >= minRows;
+function sectionChunk(md: string, header: string) {
+  const re = new RegExp(`${header}([\\s\\S]*?)(?=\\n## |\\n## END|$)`, "i");
+  const m = (md || "").match(re);
+  return m ? m[1] : "";
 }
 
-function citationsOK(md: string) { /* unchanged */ }
+function blueprintOK(md: string, minRows: number) {
+  const body = sectionChunk(md, "## Your Blueprint Recommendations");
+  if (!body) return false;
+
+  // table lines only
+  const tableLines = body.split("\n").filter((l) => l.trim().startsWith("|"));
+  if (tableLines.length < 3) return false; // need header + separator + >=1 row
+
+  // drop header + separator lines
+  const dataLines = tableLines.slice(2).filter((l) => /\S/.test(l));
+  return dataLines.length >= minRows;
+}
+
+function citationsOK(md: string) {
+  const body = sectionChunk(md, "## Evidence & References");
+  if (!body) return false;
+
+  // collect URLs inside (...) Markdown links
+  const urls = Array.from(body.matchAll(/\((https?:\/\/[^\s)]+)\)/g)).map((m) => m[1]);
+  const valid = urls.filter((u) => CURATED_CITE_RE.test(u) || MODEL_CITE_RE.test(u));
+  return valid.length >= 8;
+}
 
 function narrativesOK(md: string, minSent: number) {
   const sections = (md || "").split("\n## ").slice(1);
   return sections.every((sec) => {
+    const name = sec.split("\n", 1)[0] || "";
     const lines = sec.split("\n");
     const textBlock = lines
       .filter((l) => !l.startsWith("|") && !l.trim().startsWith("-"))
       .join(" ");
-    const sentences = textBlock
-      .split(/[.!?]/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
 
-    if (sec.startsWith("Intro Summary") && sentences.length < 2) return false;
-    if (!sec.startsWith("Intro Summary") && sentences.length < minSent) return false;
-    return true;
+    const sentences = textBlock
+      .split(/[.!?](?:\s|$)/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (/^Intro Summary/i.test(name)) return sentences.length >= 2;
+    return sentences.length >= minSent;
   });
 }
-
-
 function ensureEnd(md: string) {
   return hasEnd(md) ? md : (md || "") + "\n\n## END";
 }
@@ -842,6 +864,7 @@ console.log("validation.debug", {
   endValid,
   actualWordCount: wc(md),
 });
+console.info("validation.targets", targets);
 
 
     if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
@@ -890,7 +913,20 @@ console.log("validation.debug", {
   }
 
   md = ensureEnd(md);
+  
+  // --- Remove non-supplement "timing" artifacts that slipped out of Dosing & Notes
+const TIMING_ARTIFACT_RE = /^(on\s+waking|am\b.*breakfast|evening\b.*dinner|before\s+bed|pre[- ]?exercise(?:.*)?|hold\/adjust|simplify\s+sleep\s+aids)$/i;
 
+function looksLikeTimingArtifact(name?: string | null) {
+  const s = (name || "").trim();
+  if (!s) return false;
+  // reject generic time-of-day phrases; keep real products like “R-ALA 300 mg” and “Niacin 500 mg”
+  return TIMING_ARTIFACT_RE.test(s);
+}
+
+const filteredItems: StackItem[] = cappedItems.filter(
+  (it) => it?.name && !looksLikeTimingArtifact(it.name)
+);
 // --- Parse items from Markdown --------------------------------------------
 const parsedItems = parseMarkdownToItems(md);
 
@@ -901,7 +937,7 @@ const rawCapped = typeof cap === "number"
   : asArray(parsedItems);
 
 // Coerce shapes to StackItem (no null in is_current)
-const cappedItems: StackItem[] = rawCapped.map((i: any) => ({
+const filteredItems: StackItem[] = rawCapped.map((i: any) => ({
   ...i,
   is_current: i?.is_current === true, // null/undefined -> false
 }));
@@ -916,7 +952,6 @@ const cappedItems: StackItem[] = rawCapped.map((i: any) => ({
     return s === "safe" ? "safe" : s === "error" ? "error" : "warning";
   }
 
-  
   // --- Safety checks (deep) --------------------------------------------------
   const safetyInput = { /* keep your existing fields exactly */ 
     medications: Array.isArray((sub as any).medications)
@@ -939,11 +974,11 @@ const cappedItems: StackItem[] = rawCapped.map((i: any) => ({
   };
   
   let safetyStatus: SafetyStatus = "warning";
-  let cleanedItems: StackItem[] = cappedItems;
+  let cleanedItems: StackItem[] = filteredItems;
   
   try {
-    const res = (await applySafetyChecks(safetyInput, cappedItems)) as Partial<SafetyOutput> | null;
-    cleanedItems = asArray<StackItem>((res?.cleaned as StackItem[]) ?? cappedItems);
+    const res = (await applySafetyChecks(safetyInput, filteredItems)) as Partial<SafetyOutput> | null;
+    cleanedItems = asArray<StackItem>((res?.cleaned as StackItem[]) ?? filteredItems);
     safetyStatus = coerceSafetyStatus(res?.status);
   } catch (e) {
     console.warn("applySafetyChecks failed; continuing with uncautioned items.", e);
@@ -973,6 +1008,13 @@ const cappedItems: StackItem[] = rawCapped.map((i: any) => ({
 
   // Evidence attach
   const withEvidence: StackItem[] = asArray(finalStack).map(attachEvidence);
+function attachEvidence(item: StackItem): StackItem {
+  if (!item?.name || looksLikeTimingArtifact(item.name)) return { ...item, citations: null };
+
+  const normName = normalizeSupplementName(item.name);
+  const candidates = buildEvidenceCandidates(normName);
+  ...
+}
 
   // Override evidence section in markdown
   const { section: evidenceSection } = buildEvidenceSection(withEvidence, 8);
