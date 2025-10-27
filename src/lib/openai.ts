@@ -1,5 +1,6 @@
 // src/lib/openai.ts
-// Lazy OpenAI initializer + Responses API wrapper that is back-compat with your code.
+// Lazy OpenAI initializer + hardened Responses API wrapper.
+// Back-compat: accepts legacy opts like max_tokens / maxTokens but never forwards them.
 
 type OpenAIClient = any;
 
@@ -9,11 +10,9 @@ export function getOpenAI(): OpenAIClient {
   if (_client) return _client;
 
   const key = process.env.OPENAI_API_KEY || process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-  if (!key) {
-    throw new Error("Missing OPENAI_API_KEY — set it in your env.");
-  }
+  if (!key) throw new Error("Missing OPENAI_API_KEY — set it in your env.");
 
-  // dynamic require to avoid build-time import issues
+  // dynamic require to avoid build-time issues
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const pkg = require("openai");
   const OpenAI = (pkg && pkg.default) ? pkg.default : pkg;
@@ -21,50 +20,55 @@ export function getOpenAI(): OpenAIClient {
   return _client;
 }
 
-// Legacy alias to satisfy older imports in the repo.
 export const getOpenAiClient = getOpenAI;
 export default getOpenAI;
 
 // ---------------- LLM wrapper (Responses API) ----------------
 
-export type LLMMessage = {
-  role: "system" | "user" | "assistant";
-  content: string;
-};
+export type LLMMessage = { role: "system" | "user" | "assistant"; content: string };
 
 type LLMOpts = {
-  max?: number;               // completion tokens cap
+  max?: number;                 // preferred
+  maxTokens?: number;           // legacy alias
+  max_tokens?: number;          // legacy alias
   temperature?: number;
   response_format?: { type: "text" | "json_object" } | undefined;
 };
 
-/**
- * callLLM(messages, model, opts?)
- * Uses the Responses API (required by gpt-5 / gpt-5-mini).
- * Returns a shape compatible with Chat Completions so existing code works:
- *   resp.choices[0].message.content
- *   resp.usage.prompt_tokens / completion_tokens / total_tokens
- */
 export async function callLLM(
   messages: LLMMessage[],
   model: string,
   opts: LLMOpts = {}
 ) {
   const client = getOpenAI();
-  const max = opts.max ?? 1800;
-  const temperature = opts.temperature ?? 0.2;
 
-  // Prefer Responses API for all models; it also works for 4o these days.
-  const resp = await client.responses.create({
+  // Accept any of the names, prefer opts.max
+  const resolvedMax =
+    (typeof opts.max === "number" ? opts.max : undefined) ??
+    (typeof (opts as any).maxTokens === "number" ? (opts as any).maxTokens : undefined) ??
+    (typeof (opts as any).max_tokens === "number" ? (opts as any).max_tokens : undefined) ??
+    1800;
+
+  const temperature =
+    typeof opts.temperature === "number" ? opts.temperature : 0.2;
+
+  // Guard rails: warn if someone is still passing max_tokens
+  if (typeof (opts as any).max_tokens !== "undefined") {
+    console.warn("[callLLM] Ignoring legacy 'max_tokens'; using max_completion_tokens instead.");
+  }
+
+  // Build Responses API payload WITHOUT spreading opts (to avoid leaking unsupported fields)
+  const payload: any = {
     model,
     messages,
-    max_completion_tokens: max,           // <-- critical for gpt-5 family
+    max_completion_tokens: resolvedMax,    // <- required for gpt-5 family
     temperature,
-    response_format: opts.response_format, // keep undefined for markdown
-  });
+  };
+  if (opts.response_format) payload.response_format = opts.response_format;
 
-  // Normalize into your existing shape
-  const text: string = (resp.output_text ?? "").trim();
+  const resp = await client.responses.create(payload);
+
+  const text = (resp.output_text ?? "").trim();
 
   const usage = resp.usage
     ? {
@@ -77,15 +81,11 @@ export async function callLLM(
   return {
     model: resp.model,
     usage,
-    // mimic Chat Completions choice structure
-    choices: [{ message: { content: text } }],
+    choices: [{ message: { content: text } }], // back-compat with Chat Completions
     llmRaw: resp,
   };
 }
 
-/**
- * Helper to read the primary text safely.
- */
 export function getText(resp: any): string {
   return resp?.choices?.[0]?.message?.content ?? "";
 }
