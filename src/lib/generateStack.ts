@@ -619,12 +619,10 @@ Generate the full report per the rules above.`;
 // ----------------------------------------------------------------------------
 // LLM wrapper
 // ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
-// LLM wrapper
-// ----------------------------------------------------------------------------
+
 type LLMOpts = {
-  max?: number;          // desired max completion tokens for output
-  temperature?: number;  // only used on non-gpt-5 models
+  max?: number;          // desired completion tokens
+  temperature?: number;  // only for non-gpt-5 models
 };
 
 async function callLLM(
@@ -633,38 +631,30 @@ async function callLLM(
   opts: LLMOpts = {}
 ) {
   const { default: OpenAI } = await import("openai");
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
-  const max = typeof opts.max === "number" ? opts.max : undefined;
   const isGpt5 = /^gpt-5(?:-|$)/i.test(model);
 
-  // Build a minimal payload; add fields conditionally
-  const base: any = { model, messages };
+  // Build payload minimally and add fields conditionally
+  const payload: any = {
+    model,
+    messages,
+  };
 
   if (isGpt5) {
     // gpt-5 family:
-    // - uses max_completion_tokens
-    // - does NOT accept temperature (must use default)
-    if (typeof max === "number") base.max_completion_tokens = max;
-    return openai.chat.completions.create(base);
+    //  - uses max_completion_tokens
+    //  - does NOT accept temperature (default 1 only)
+    if (typeof opts.max === "number") payload.max_completion_tokens = opts.max;
   } else {
     // 4o / 4.1 / legacy:
-    // - uses max_tokens
-    // - accepts temperature
-    if (typeof max === "number") base.max_tokens = max;
-    if (typeof opts.temperature === "number") base.temperature = opts.temperature;
-    return openai.chat.completions.create(base);
+    //  - uses max_tokens
+    //  - accepts temperature
+    if (typeof opts.max === "number") payload.max_tokens = opts.max;
+    if (typeof opts.temperature === "number") payload.temperature = opts.temperature;
   }
-}
 
-
-  // Older / 4o family still expect max_tokens
-  return openai.chat.completions.create({
-    model,
-    messages,
-    temperature,
-    ...(typeof max === "number" ? { max_tokens: max } : {}),
-  });
+  return client.chat.completions.create(payload);
 }
 
 
