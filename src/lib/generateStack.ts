@@ -619,16 +619,44 @@ Generate the full report per the rules above.`;
 // ----------------------------------------------------------------------------
 // LLM wrapper
 // ----------------------------------------------------------------------------
-async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
+type LLMOpts = {
+  max?: number;          // desired max completion tokens for output
+  temperature?: number;  // default 0.7
+};
+
+async function callLLM(
+  messages: ChatCompletionMessageParam[],
+  model: string,
+  opts: LLMOpts = {}
+) {
   const { default: OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+
+  const temperature = typeof opts.temperature === "number" ? opts.temperature : 0.7;
+  const max = typeof opts.max === "number" ? opts.max : undefined;
+
+  // gpt-5 / gpt-5-mini expect *max_completion_tokens* (NOT max_tokens)
+  const isGpt5 = /^gpt-5(?:-|$)/i.test(model);
+
+  if (isGpt5) {
+    // Do NOT include max_tokens here — it will 400.
+    return openai.chat.completions.create({
+      model,
+      messages,
+      temperature,
+      ...(typeof max === "number" ? { max_completion_tokens: max } : {}),
+    } as any);
+  }
+
+  // Older / 4o family still expect max_tokens
   return openai.chat.completions.create({
     model,
-    temperature: 0.7,
-    max_tokens: 4096,
     messages,
+    temperature,
+    ...(typeof max === "number" ? { max_tokens: max } : {}),
   });
 }
+
 
 // ----------------------------------------------------------------------------
 // Validation helpers
