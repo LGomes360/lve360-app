@@ -787,13 +787,14 @@ export async function generateStackForSubmission(
 
   // ----- First attempt (faster model) ---------------------------------------
   try {
-    const resp = await callLLM(msgs, "gpt-4o-mini");
+    const resp = await callLLM(msgs, "gpt-5-mini");
     llmRaw = resp;
-    modelUsed = resp.model ?? "gpt-4o-mini";
+    modelUsed = resp.model ?? "gpt-5-mini";
     tokensUsed = resp.usage?.total_tokens ?? null;
     promptTokens = resp.usage?.prompt_tokens ?? null;
     completionTokens = resp.usage?.completion_tokens ?? null;
     md = resp.choices?.[0]?.message?.content ?? "";
+    console.log("[generateStack] modelUsed =", resp.model ?? "<unknown>");
 
     // Validation
 const targets = computeValidationTargets(mode, cap);
@@ -825,9 +826,9 @@ console.log("validation.debug", {
   // ----- Fallback attempt (stronger model) ----------------------------------
   if (!passes) {
     try {
-      const resp = await callLLM(msgs, "gpt-4o");
+      const resp = await callLLM(msgs, "gpt-5");
       llmRaw = resp;
-      modelUsed = resp.model ?? "gpt-4o";
+      modelUsed = resp.model ?? "gpt-5";
       tokensUsed = resp.usage?.total_tokens ?? null;
       promptTokens = resp.usage?.prompt_tokens ?? null;
       completionTokens = resp.usage?.completion_tokens ?? null;
