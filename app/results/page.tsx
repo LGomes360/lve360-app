@@ -36,6 +36,37 @@ function extractSection(md: string, heads: string[]): string | null {
   const slice = md.slice(start, end);
   return slice.replace(/^##\s*[^\n]+\n?/, "").trim();
 }
+// --- fetch with retry + timeout (client-side) ---
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  tries = 3,
+  baseDelayMs = 500,
+  timeoutMs = 15000
+) {
+  let delay = baseDelayMs;
+
+  for (let i = 0; i < tries; i++) {
+    try {
+      const signal = AbortSignal.timeout(timeoutMs);
+      const res = await fetch(url, { ...init, signal, cache: "no-store" });
+      // Retry only on transient errors
+      if ((res.status >= 500 || res.status === 429) && i < tries - 1) {
+        await new Promise(r => setTimeout(r, delay));
+        delay = Math.min(delay * 2, 4000);
+        continue;
+      }
+      return res;
+    } catch (err) {
+      if (i === tries - 1) throw err;
+      await new Promise(r => setTimeout(r, delay));
+      delay = Math.min(delay * 2, 4000);
+    }
+  }
+  // unreachable
+  throw new Error("Exhausted retries");
+}
+
 
 /* Markdown renderer */
 function Prose({ children }: { children: string }) {
@@ -272,20 +303,26 @@ function ResultsContent() {
   const submissionId  = submissionId1 ?? submissionId2;
   const anyId         = tallyId ?? submissionId; // <- use this going forward
 
-  async function api(path: string, body?: any) {
-    const res = await fetch(
-      path,
-      body
-        ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-        : {}
-    );
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok || json?.ok === false) {
-      const msg = json?.error ? `${json.error}` : `HTTP ${res.status}`;
-      throw new Error(msg);
-    }
-    return json;
+async function api(path: string, body?: any) {
+  const init: RequestInit =
+    body
+      ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      : { method: "GET" };
+
+  // 3 tries, 0.5s → 1s → 2s backoff, 15s per-attempt timeout
+  const res = await fetchWithRetry(path, init, 3, 500, 15000);
+
+  // Try to read JSON; if it fails, surface status
+  let json: any = {};
+  try { json = await res.json(); } catch {}
+
+  if (!res.ok || json?.ok === false) {
+    const msg = json?.error ? String(json.error) : `HTTP ${res.status}`;
+    throw new Error(msg);
   }
+  return json;
+}
+
 
     // Load any existing stack
     useEffect(() => {
