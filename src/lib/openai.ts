@@ -1,33 +1,33 @@
 // src/lib/openai.ts
 // Lazy OpenAI initializer + hardened Responses API wrapper.
-// Back-compat: accepts legacy opts like max_tokens / maxTokens but never forwards them.
+// Back-compat: accepts legacy opts like max_tokens / maxTokens but never forwards them to the API.
 
 type OpenAIClient = any;
 
 let _client: OpenAIClient | null = null;
 
-export function getOpenAI(): OpenAIClient {
-  if (_client) return _client;
-
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error("Missing OPENAI_API_KEY — set it in your env.");
-// --- Model caps (5-series vs 4o) ---
+/** Model capability hints so we never send unsupported params */
 const MODEL_CAPS = {
-  "gpt-5-mini":  { acceptsTemperature: false, maxKey: "max_completion_tokens" },
-  "gpt-5":       { acceptsTemperature: true,  maxKey: "max_completion_tokens" },
-  "gpt-4o":      { acceptsTemperature: true,  maxKey: "max_tokens" },
-  "gpt-4o-mini": { acceptsTemperature: true,  maxKey: "max_tokens" },
+  "gpt-5-mini":  { acceptsTemperature: false, maxKey: "max_output_tokens" },     // Responses API
+  "gpt-5":       { acceptsTemperature: true,  maxKey: "max_output_tokens" },     // Responses API
+  "gpt-4o":      { acceptsTemperature: true,  maxKey: "max_tokens" },            // Chat-style compat
+  "gpt-4o-mini": { acceptsTemperature: true,  maxKey: "max_tokens" },            // Chat-style compat
 } as const;
 
 function capsFor(model: string) {
   const key = (Object.keys(MODEL_CAPS) as string[]).find(k => model.startsWith(k));
-  return key ? (MODEL_CAPS as any)[key] : { acceptsTemperature: false, maxKey: "max_tokens" };
+  return key ? (MODEL_CAPS as any)[key] : { acceptsTemperature: false, maxKey: "max_output_tokens" };
 }
 
-  // dynamic require to avoid build-time issues
+export function getOpenAI(): OpenAIClient {
+  if (_client) return _client;
+  const key = process.env.OPENAI_API_KEY as string;
+  if (!key) throw new Error("Missing OPENAI_API_KEY — set it in your env.");
+
+  // dynamic require to avoid build-time bundling issues
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const pkg = require("openai");
-  const OpenAI = (pkg && pkg.default) ? pkg.default : pkg;
+  const mod = require("openai");
+  const OpenAI = (mod && mod.default) ? mod.default : mod;
   _client = new OpenAI({ apiKey: key });
   return _client;
 }
@@ -41,11 +41,82 @@ export type LLMMessage = { role: "system" | "user" | "assistant"; content: strin
 
 type LLMOpts = {
   max?: number;                 // preferred
-  maxTokens?: number;           // legacy alias
-  max_tokens?: number;          // legacy alias
+  maxTokens?: number;           // legacy alias (int)
+  max_tokens?: number;          // legacy alias (snake)
   temperature?: number;
   response_format?: { type: "text" | "json_object" } | undefined;
 };
+
+function buildPayload(
+  model: string,
+  messages: LLMMessage[],
+  opts: LLMOpts
+) {
+  const caps = capsFor(model);
+
+  // Normalize max tokens from any legacy shape; default sane budget for 5-series
+  const resolvedMax =
+    (typeof opts.max === "number" && opts.max) ||
+    (typeof opts.maxTokens === "number" && opts.maxTokens) ||
+    (typeof opts.max_tokens === "number" && opts.max_tokens) ||
+    1800;
+
+  // Guard rails: warn on legacy field
+  if (typeof opts.max_tokens !== "undefined") {
+    console.warn("[callLLM] Ignoring legacy 'max_tokens'; using", caps.maxKey);
+  }
+
+  const payload: any = {
+    model,
+    // The Responses API accepts a string or array; we pass messages to keep your existing calling code.
+    // The SDK will coerce appropriately. If you later switch to `input`, wire it here.
+    messages,
+  };
+
+  // Apply the correct max token key for the model family
+  if (caps.maxKey === "max_output_tokens") {
+    payload.max_output_tokens = resolvedMax;
+  } else if (caps.maxKey === "max_completion_tokens") {
+    payload.max_completion_tokens = resolvedMax;
+  } else {
+    payload.max_tokens = resolvedMax;
+  }
+
+  // Temperature only where supported
+  if (caps.acceptsTemperature && typeof opts.temperature === "number") {
+    payload.temperature = opts.temperature;
+  }
+
+  if (opts.response_format) {
+    payload.response_format = opts.response_format;
+  }
+
+  return payload;
+}
+
+function extractText(resp: any) {
+  // 1) Responses API convenience field
+  if (typeof resp?.output_text === "string" && resp.output_text.trim()) {
+    return resp.output_text.trim();
+  }
+  // 2) Responses API: content array
+  if (Array.isArray(resp?.content)) {
+    const text = resp.content.map((seg: any) => seg?.text ?? seg?.content ?? "").join("");
+    if (text && text.trim()) return text.trim();
+  }
+  // 3) Responses API: output array (older)
+  if (Array.isArray(resp?.output)) {
+    const text = resp.output.map((seg: any) => seg?.text ?? seg?.content ?? "").join("");
+    if (text && text.trim()) return text.trim();
+  }
+  // 4) Chat-style fallback (just in case upstream uses choices[])
+  const c = resp?.choices?.[0]?.message?.content;
+  if (c) {
+    const text = Array.isArray(c) ? c.map((p: any) => p?.text ?? "").join("") : String(c);
+    if (text && text.trim()) return text.trim();
+  }
+  return "";
+}
 
 export async function callLLM(
   messages: LLMMessage[],
@@ -54,35 +125,12 @@ export async function callLLM(
 ) {
   const client = getOpenAI();
 
-  // Accept any of the names, prefer opts.max
-  const resolvedMax =
-    (typeof opts.max === "number" ? opts.max : undefined) ??
-    (typeof (opts as any).maxTokens === "number" ? (opts as any).maxTokens : undefined) ??
-    (typeof (opts as any).max_tokens === "number" ? (opts as any).max_tokens : undefined) ??
-    1800;
-
-  const temperature =
-    typeof opts.temperature === "number" ? opts.temperature : 0.2;
-
-  // Guard rails: warn if someone is still passing max_tokens
-  if (typeof (opts as any).max_tokens !== "undefined") {
-    console.warn("[callLLM] Ignoring legacy 'max_tokens'; using max_completion_tokens instead.");
-  }
-
-  // Build Responses API payload WITHOUT spreading opts (to avoid leaking unsupported fields)
-  const payload: any = {
-    model,
-    messages,
-    max_completion_tokens: resolvedMax,    // <- required for gpt-5 family
-    temperature,
-  };
-  if (opts.response_format) payload.response_format = opts.response_format;
-
+  const payload = buildPayload(model, messages, opts);
   const resp = await client.responses.create(payload);
 
-  const text = (resp.output_text ?? "").trim();
+  const text = extractText(resp);
 
-  const usage = resp.usage
+  const usage = resp?.usage
     ? {
         total_tokens: resp.usage.total_tokens,
         prompt_tokens: resp.usage.input_tokens,
@@ -90,14 +138,16 @@ export async function callLLM(
       }
     : undefined;
 
+  // Return in a Chat-compatible shape so existing callers keep working
   return {
-    model: resp.model,
+    model: resp?.model ?? model,
     usage,
-    choices: [{ message: { content: text } }], // back-compat with Chat Completions
+    choices: [{ message: { content: text } }],
     llmRaw: resp,
   };
 }
 
+/** Back-compat helper for callers expecting Chat-like object */
 export function getText(resp: any): string {
-  return resp?.choices?.[0]?.message?.content ?? "";
+  return (resp?.choices?.[0]?.message?.content ?? "").trim();
 }
