@@ -842,8 +842,9 @@ tokensUsed = ((resp.promptTokens ?? 0) + (resp.completionTokens ?? 0)) || null;
 promptTokens = resp.promptTokens ?? null;
 completionTokens = resp.completionTokens ?? null;
 
-    md = resp.choices?.[0]?.message?.content ?? "";
-    console.log("[generateStack] modelUsed =", resp.model ?? "<unknown>");
+md = resp.text ?? "";
+console.log("[generateStack] modelUsed =", resp.modelUsed ?? "<unknown>");
+
 
     // Validation
 const targets = computeValidationTargets(mode, cap);
