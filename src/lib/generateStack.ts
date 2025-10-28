@@ -687,7 +687,11 @@ Generate the full report per the rules above.`;
 // ----------------------------------------------------------------------------
 // LLM wrapper (delegates to src/lib/openai.ts)
 // ----------------------------------------------------------------------------
-type LLMOptions = { temperature?: number; maxTokens?: number; mode?: "free" | "premium" };
+type LLMOptions = {
+  maxTokens?: number;
+  mode?: "free" | "premium";
+  timeoutMs?: number;          // <-- add this
+};
 type LLMReturn = { text: string; modelUsed?: string; promptTokens?: number; completionTokens?: number };
 
 async function callLLM(
