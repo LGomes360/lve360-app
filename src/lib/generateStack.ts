@@ -703,8 +703,7 @@ async function callLLM(
   const resp = await callOpenAI(messages, model, {
     max: opts.maxTokens,
     maxTokens: opts.maxTokens,
-    temperature: opts.temperature,
-  });
+     });
 
   const r: any = resp; // allow either old chat shape or new normalized shape
   return {
