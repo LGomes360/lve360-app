@@ -856,15 +856,22 @@ export async function generateStackForSubmission(
 
   // ----- First attempt (faster model) ---------------------------------------
   try {
-    const resp = await callWithRetry(() => callLLM("gpt-5-mini", msgs), 2);
-    llmRaw = resp;
+const resp = await callLLM("gpt-5-mini", msgs, { maxTokens: 2800, temperature: 0.4 });
+md = resp.text ?? "";
+
+// hard guard so we fail quickly if the draft is empty/too short
+if (!md || wc(md) < 120) {
+  throw new Error("Empty or too-short draft from mini model");
+}
+
+llmRaw = resp;
 modelUsed = resp.modelUsed ?? "gpt-5-mini";
 tokensUsed = ((resp.promptTokens ?? 0) + (resp.completionTokens ?? 0)) || null;
 promptTokens = resp.promptTokens ?? null;
 completionTokens = resp.completionTokens ?? null;
 
-md = resp.text ?? "";
-console.log("[generateStack] modelUsed =", resp.modelUsed ?? "<unknown>");
+console.log("[generateStack] modelUsed =", modelUsed);
+
 
 
     // Validation
@@ -898,12 +905,22 @@ console.info("validation.targets", targets);
   // ----- Fallback attempt (stronger model) ----------------------------------
   if (!passes) {
     try {
-      const resp = await callWithRetry(() => callLLM("gpt-5", msgs), 2);
-      llmRaw = resp;
-      modelUsed = resp.modelUsed ?? "gpt-5";
-      tokensUsed = ((resp.promptTokens ?? 0) + (resp.completionTokens ?? 0)) || null;
-      promptTokens = resp.promptTokens ?? null;
-      completionTokens = resp.completionTokens ?? null;
+  const resp = await callLLM("gpt-5-mini", msgs, { maxTokens: 2800, temperature: 0.4 });
+md = resp.text ?? "";
+
+// hard guard so we fail quickly if the draft is empty/too short
+if (!md || wc(md) < 120) {
+  throw new Error("Empty or too-short draft from mini model");
+}
+
+llmRaw = resp;
+modelUsed = resp.modelUsed ?? "gpt-5-mini";
+tokensUsed = ((resp.promptTokens ?? 0) + (resp.completionTokens ?? 0)) || null;
+promptTokens = resp.promptTokens ?? null;
+completionTokens = resp.completionTokens ?? null;
+
+console.log("[generateStack] modelUsed =", modelUsed);
+
       md = resp.text ?? "";
     } catch (err) {
       console.warn("Fallback model failed:", err);
