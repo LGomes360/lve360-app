@@ -1,156 +1,128 @@
-/* eslint-disable @typescript-eslint/consistent-type-imports */
+// src/lib/openai.ts
 /* eslint-disable no-console */
 
-import OpenAI from "openai";
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+/**
+ * Minimal wrapper around OpenAI Responses API that:
+ *  - accepts classic chat-style messages [{role, content:string}]
+ *  - converts them to Responses API "input" with type: "input_text"
+ *  - DOES NOT send deprecated params (no `messages`, no `response_format`, no `text.format`)
+ *  - normalizes the response so callers can read: choices[0].message.content, model, usage.*
+ */
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+export type LVEMessage = { role: "system" | "user" | "assistant"; content: string };
 
 type CallOpts = {
-  max?: number;          // preferred alias
-  maxTokens?: number;    // legacy alias
   temperature?: number;
+  max?: number;          // preferred
+  maxTokens?: number;    // legacy alias
+  timeoutMs?: number;
 };
 
-/**
- * Convert Chat-style messages into Responses API "input" array with typed content parts.
- * We only emit input_text parts here (images/files not needed for LVE360).
- */
-function toResponsesInput(messages: ChatCompletionMessageParam[]) {
-  return messages.map((m) => {
-    const role = (m.role as "system" | "user" | "assistant") ?? "user";
-
-    // Flatten possible array content into one string
-    let text = "";
-    if (typeof m.content === "string") {
-      text = m.content;
-    } else if (Array.isArray(m.content)) {
-      text = m.content
-        .map((p: any) => {
-          if (typeof p === "string") return p;
-          if (p && typeof p.text === "string") return p.text;
-          if (p && typeof p.content === "string") return p.content;
-          return "";
-        })
-        .join("");
-    } else if (m && (m as any).content) {
-      text = String((m as any).content);
-    }
-
-    return {
-      role,
-      content: [
-        {
-          type: "input_text" as const,
-          text,
-        },
-      ],
-    };
-  });
-}
-
-/**
- * callLLM(messages, model, opts?) → returns an object that always has:
- * { model, usage, choices: [{ message: { content } }] }
- * so existing callers can read .choices[0].message.content safely.
- *
- * For gpt-5* we use Responses API.
- * For older models we use Chat Completions.
- */
 export async function callLLM(
-  messages: ChatCompletionMessageParam[],
+  messages: LVEMessage[],
   model: string,
   opts: CallOpts = {}
 ): Promise<{
   model: string;
-  usage?: {
-    total_tokens?: number;
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    input_tokens?: number;
-    output_tokens?: number;
-  };
+  usage?: { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number };
   choices: Array<{ message: { content: string } }>;
+  llmRaw: any;
 }> {
-  const useResponses = /^gpt-5/i.test(model);
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY missing");
 
-  const max =
-    typeof opts.max === "number"
-      ? opts.max
-      : typeof opts.maxTokens === "number"
-      ? opts.maxTokens
-      : undefined;
+  // Convert classic messages → Responses API "input"
+  const input = (messages || []).map((m) => ({
+    role: m.role,
+    content: [
+      {
+        // IMPORTANT: the new content type
+        type: "input_text",
+        text: typeof m.content === "string" ? m.content : String(m.content),
+      },
+    ],
+  }));
 
-  if (useResponses) {
-    // ----- Responses API path -----
-    const body: any = {
-      model,
-      input: toResponsesInput(messages),
-    };
-    if (typeof max === "number") body.max_output_tokens = max;
-    if (typeof opts.temperature === "number") body.temperature = opts.temperature;
+  // Build request body — do NOT include response_format or text.format
+  const body: any = {
+    model,
+    input,
+  };
+  if (opts.temperature !== undefined) body.temperature = opts.temperature;
+  const max = opts.max ?? opts.maxTokens;
+  if (typeof max === "number") body.max_output_tokens = max;
 
-    // IMPORTANT: do NOT send response_format or text.format unless you
-    // intentionally need structured outputs. Defaults to plain text.
-    const r = await client.responses.create(body);
+  // Basic fetch with timeout
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? 120_000);
 
-    // Prefer the convenience string if present; otherwise stitch output parts.
-    const textFromParts =
-      (Array.isArray((r as any).output)
-        ? (r as any).output
-            .filter((p: any) => p?.type === "output_text")
-            .map((p: any) => p?.text ?? p?.content ?? "")
-            .join("")
-        : "") || "";
+  const res = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  }).catch((e) => {
+    clearTimeout(timeout);
+    throw e;
+  });
 
-    const content = (r as any).output_text
-      ? String((r as any).output_text)
-      : textFromParts;
+  clearTimeout(timeout);
 
-    // Normalize usage fields
-    const usage = r.usage
-      ? {
-          total_tokens: (r.usage as any).total_tokens,
-          prompt_tokens: (r.usage as any).prompt_tokens ?? (r.usage as any).input_tokens,
-          completion_tokens:
-            (r.usage as any).completion_tokens ?? (r.usage as any).output_tokens,
-          input_tokens: (r.usage as any).input_tokens,
-          output_tokens: (r.usage as any).output_tokens,
-        }
-      : undefined;
+  const json = await res.json().catch(() => ({}));
 
-    return {
-      model: (r as any).model ?? model,
-      usage,
-      choices: [
-        {
-          message: { content: String(content ?? "").trim() },
-        },
-      ],
-    };
+  if (!res.ok) {
+    // Surface the server’s exact complaint to logs
+    const detail = json?.error?.message || JSON.stringify(json);
+    const code = json?.error?.code || res.status;
+    const err: any = new Error(detail);
+    err.status = res.status;
+    err.code = code;
+    throw err;
   }
 
-  // ----- Chat Completions path (older models) -----
-  const chatBody: any = {
-    model,
-    messages,
-  };
-  if (typeof max === "number") chatBody.max_tokens = max;
-  if (typeof opts.temperature === "number") chatBody.temperature = opts.temperature;
+  // -------- Normalize output to a chat-like shape ---------------------------
+  // Prefer `output_text`, then stitch from `output[].content[].text`, then old choices[] (if present).
+  let text = "";
+  if (typeof json.output_text === "string" && json.output_text.trim()) {
+    text = json.output_text.trim();
+  } else if (Array.isArray(json.output)) {
+    text = json.output
+      .map((blk: any) =>
+        Array.isArray(blk?.content)
+          ? blk.content.map((c: any) => (typeof c?.text === "string" ? c.text : "")).join("")
+          : ""
+      )
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  } else if (Array.isArray(json.choices) && json.choices[0]?.message?.content) {
+    text = String(json.choices[0].message.content).trim();
+  }
 
-  const r = await client.chat.completions.create(chatBody);
-  return r as unknown as {
-    model: string;
-    usage?: {
-      total_tokens?: number;
-      prompt_tokens?: number;
-      completion_tokens?: number;
-    };
-    choices: Array<{ message: { content: string } }>;
+  // Map usage to familiar fields
+  const prompt_tokens =
+    json?.usage?.input_tokens ?? json?.usage?.prompt_tokens ?? undefined;
+  const completion_tokens =
+    json?.usage?.output_tokens ?? json?.usage?.completion_tokens ?? undefined;
+  const total_tokens =
+    json?.usage?.total_tokens ??
+    (prompt_tokens !== undefined && completion_tokens !== undefined
+      ? prompt_tokens + completion_tokens
+      : undefined);
+
+  return {
+    model: json?.model ?? model,
+    usage: {
+      total_tokens,
+      prompt_tokens,
+      completion_tokens,
+    },
+    choices: [{ message: { content: text } }],
+    llmRaw: json,
   };
 }
 
-export { ChatCompletionMessageParam };
-export default { callLLM };
+export default callLLM;
