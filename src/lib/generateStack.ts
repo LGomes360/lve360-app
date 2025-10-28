@@ -932,11 +932,6 @@ const baseItems: StackItem[] = rawCapped.map((i: any) => ({
   is_current: i?.is_current === true, // null/undefined -> false
 }));
 
-// Remove timing-artifact pseudo-rows that sometimes leak from tables
-const TIMING_ARTIFACT_RE =
-  /^(on waking|am with breakfast|evening with dinner|60–?90 min before bed|hold\/adjust)$/i;
-const looksLikeTimingArtifact = (s: string) => TIMING_ARTIFACT_RE.test((s || "").trim());
-
 const filteredItems: StackItem[] = baseItems.filter(
   (it) => it?.name && !looksLikeTimingArtifact(it.name)
 );
