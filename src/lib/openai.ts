@@ -1,15 +1,10 @@
 /* eslint-disable no-console */
 // ----------------------------------------------------------------------------
-// OpenAI wrapper
-// - gpt-5* → Responses API (no temperature unless supported)
-// - everything else → Chat Completions
-// - Back-compat call signatures:
-//     callLLM(messages, model, opts)
-//     callLLM(model, messages, opts)
-// - Normalized return: { model, usage, choices: [{ message: { content } }], __raw }
+// OpenAI wrapper (gpt-5* => Responses API; others => Chat Completions)
+// - Single entry: callLLM(messages, model, opts)
+// - Soft types to avoid SDK overload/type pitfalls
+// - No mid-file imports; exports are top-level only
 // ----------------------------------------------------------------------------
-// Use the OpenAI namespace for types to avoid mid-file imports
-type ChatCompletionMessageParam = OpenAI.ChatCompletionMessageParam;
 
 import OpenAI from "openai";
 
@@ -19,18 +14,18 @@ export type ChatMessage = {
 };
 
 export type CallOpts = {
-  max?: number;
-  maxTokens?: number;   // alias
-  temperature?: number; // ignored when not supported
-  timeoutMs?: number;   // default 60_000
+  max?: number;            // alias
+  maxTokens?: number;      // alias
+  temperature?: number;    // ignored for models that don't support it
+  timeoutMs?: number;      // default 60s
 };
 
 export type NormalizedLLMResponse = {
   model: string;
   usage?: {
-    total_tokens?: number;
-    prompt_tokens?: number;
-    completion_tokens?: number;
+    total_tokens?: number | null;
+    prompt_tokens?: number | null;
+    completion_tokens?: number | null;
   };
   choices: Array<{ message: { content: string } }>;
   __raw?: unknown;
@@ -39,20 +34,20 @@ export type NormalizedLLMResponse = {
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ----------------------------------------------------------------------------
-// Capability map
+// Capabilities
 // ----------------------------------------------------------------------------
 type Caps = {
   family: "responses" | "chat";
   acceptsTemperature: boolean;
-  maxKey: "max_output_tokens" | "max_completion_tokens" | "max_tokens";
+  maxKey: "max_output_tokens" | "max_tokens" | "max_completion_tokens";
 };
 
-export function modelCaps(model: string): Caps {
-  const m = (model || "").toLowerCase();
+function modelCaps(model: string): Caps {
+  const m = model.toLowerCase();
   if (m.startsWith("gpt-5")) {
     return {
       family: "responses",
-      acceptsTemperature: false, // per your API errors
+      acceptsTemperature: false, // your logs showed 400 on temperature for gpt-5*
       maxKey: "max_output_tokens",
     };
   }
@@ -63,27 +58,28 @@ export function modelCaps(model: string): Caps {
   };
 }
 
-// ----------------------------------------------------------------------------
-// Helpers
-// ----------------------------------------------------------------------------
+function toMaxKey(caps: Caps, opts?: CallOpts) {
+  const v = typeof opts?.max === "number" ? opts!.max : opts?.maxTokens;
+  if (typeof v !== "number") return undefined;
+  return { key: caps.maxKey, value: v };
+}
+
 function withTimeout<T>(ms: number | undefined, p: Promise<T>): Promise<T> {
   if (!ms || ms <= 0) return p;
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`OpenAI call timed out after ${ms} ms`)), ms);
-    p.then(v => { clearTimeout(t); resolve(v); })
-     .catch(e => { clearTimeout(t); reject(e); });
+    p.then((v) => { clearTimeout(t); resolve(v); })
+     .catch((e) => { clearTimeout(t); reject(e); });
   });
 }
 
-function toMaxValue(opts?: CallOpts): number | undefined {
-  const v = (opts?.max ?? opts?.maxTokens);
-  return typeof v === "number" ? v : undefined;
-}
-
+// ----------------------------------------------------------------------------
+// Responses API helpers (gpt-5*)
+// ----------------------------------------------------------------------------
 function toResponsesInput(messages: ChatMessage[]) {
-  // Responses API uses structured blocks — use input_text (NOT "text")
+  // Use "input_text" (per your 400s for "text")
   return messages.map((m) => ({
-    role: m.role,
+    role: m.role === "tool" ? "assistant" : m.role, // map 'tool' to assistant for safety
     content: [{ type: "input_text", text: m.content }],
   }));
 }
@@ -91,99 +87,92 @@ function toResponsesInput(messages: ChatMessage[]) {
 function pickTextFromResponses(raw: any): string {
   if (typeof raw?.output_text === "string") return raw.output_text.trim();
 
-  const collect = (arr: any[]): string =>
+  const gather = (arr: any[]) =>
     (arr || [])
       .map((seg: any) => {
-        if (seg?.type === "output_text" && typeof seg?.text === "string") return seg.text;
-        if (typeof seg?.content === "string") return seg.content;
         if (typeof seg?.text === "string") return seg.text;
+        if (typeof seg?.content === "string") return seg.content;
         return "";
       })
       .filter(Boolean)
       .join("");
 
-  if (Array.isArray(raw?.output)) {
-    const t = collect(raw.output);
-    if (t) return t.trim();
-  }
-  if (Array.isArray(raw?.content)) {
-    const t = collect(raw.content);
-    if (t) return t.trim();
-  }
+  const a = gather(raw?.output);
+  if (a) return a.trim();
+  const b = gather(raw?.content);
+  if (b) return b.trim();
   return "";
 }
 
 function normalizeUsageFromResponses(raw: any) {
-  const input = raw?.usage?.input_tokens ?? raw?.usage?.prompt_tokens;
-  const output = raw?.usage?.output_tokens ?? raw?.usage?.completion_tokens;
+  const input = raw?.usage?.input_tokens ?? raw?.usage?.prompt_tokens ?? null;
+  const output = raw?.usage?.output_tokens ?? raw?.usage?.completion_tokens ?? null;
   const total =
     raw?.usage?.total_tokens ??
-    (typeof input === "number" && typeof output === "number" ? input + output : undefined);
+    (typeof input === "number" && typeof output === "number" ? input + output : null);
   return input || output || total
     ? { total_tokens: total, prompt_tokens: input, completion_tokens: output }
     : undefined;
+}
+
+// ----------------------------------------------------------------------------
+// Chat Completions helpers (non-gpt-5*)
+// ----------------------------------------------------------------------------
+function toChatMessages(messages: ChatMessage[]) {
+  // Avoid strict SDK union by normalizing and casting to any:
+  // - Map 'tool' -> assistant (without tool_call_id) to satisfy type
+  return messages.map((m) =>
+    m.role === "tool"
+      ? ({ role: "assistant", content: m.content } as any)
+      : ({ role: m.role, content: m.content } as any)
+  );
 }
 
 function normalizeUsageFromChat(raw: any) {
   const u = raw?.usage;
   if (!u) return undefined;
   return {
-    total_tokens: u.total_tokens,
-    prompt_tokens: u.prompt_tokens,
-    completion_tokens: u.completion_tokens,
+    total_tokens: u.total_tokens ?? null,
+    prompt_tokens: u.prompt_tokens ?? null,
+    completion_tokens: u.completion_tokens ?? null,
   };
 }
 
 // ----------------------------------------------------------------------------
-// Overloads (back-compat)
+// Public API
 // ----------------------------------------------------------------------------
 export async function callLLM(
-  messages: ChatMessage[],
+  messages: ChatMessage[] | string,
   model: string,
-  opts?: CallOpts
-): Promise<NormalizedLLMResponse>;
-export async function callLLM(
-  model: string,
-  messages: ChatMessage[],
-  opts?: CallOpts
-): Promise<NormalizedLLMResponse>;
-export async function callLLM(
-  a: string | ChatMessage[],
-  b: string | ChatMessage[],
-  c: CallOpts = {}
+  opts: CallOpts = {}
 ): Promise<NormalizedLLMResponse> {
-  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
-
-  // Normalize arg order
-  let messages: ChatMessage[];
-  let model: string;
-  let opts: CallOpts = c;
-
-  if (typeof a === "string" && Array.isArray(b)) {
-    model = a;
-    messages = b as ChatMessage[];
-  } else if (Array.isArray(a) && typeof b === "string") {
-    messages = a as ChatMessage[];
-    model = b;
-  } else {
-    throw new Error("callLLM: use (messages, model, opts) or (model, messages, opts).");
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY missing");
   }
 
+  // Allow callLLM("prompt", "model") for convenience
+  const msgs: ChatMessage[] = Array.isArray(messages)
+    ? messages
+    : [{ role: "user", content: String(messages) }];
+
   const caps = modelCaps(model);
-  const max = toMaxValue(opts);
+  const maxCfg = toMaxKey(caps, opts);
 
   if (caps.family === "responses") {
-    // -------------------- Responses API (gpt-5*) ----------------------------
-    const body: Record<string, unknown> = {
+    const body: any = {
       model,
-      input: toResponsesInput(messages),
+      input: toResponsesInput(msgs),
     };
-    if (typeof max === "number") (body as any).max_output_tokens = max;
+    if (maxCfg) {
+      if (maxCfg.key === "max_output_tokens") body.max_output_tokens = maxCfg.value;
+      else if (maxCfg.key === "max_completion_tokens") body.max_completion_tokens = maxCfg.value;
+      else body.max_tokens = maxCfg.value;
+    }
     if (caps.acceptsTemperature && typeof opts.temperature === "number") {
-      (body as any).temperature = opts.temperature;
+      body.temperature = opts.temperature;
     }
 
-    const resp = await withTimeout(opts.timeoutMs ?? 60_000, client.responses.create(body as any));
+    const resp = await withTimeout(opts.timeoutMs ?? 60_000, client.responses.create(body));
     const text = pickTextFromResponses(resp) || "";
     const usage = normalizeUsageFromResponses(resp);
 
@@ -195,56 +184,32 @@ export async function callLLM(
     };
   }
 
-
-// -------------------- Chat Completions (non-gpt-5*) -----------------------
-
-
-function toChatParams(messages: ChatMessage[]): ChatCompletionMessageParam[] {
-  const out: ChatCompletionMessageParam[] = [];
-  for (const m of messages) {
-    if (m.role === "system" || m.role === "user" || m.role === "assistant") {
-      out.push({ role: m.role, content: m.content });
-    } else {
-      // We’re not using real tool-calls here; coerce anything else to assistant text.
-      out.push({ role: "assistant", content: m.content });
-    }
+  // Chat Completions path
+  const chatBody: any = {
+    model,
+    messages: toChatMessages(msgs),
+  };
+  if (maxCfg) {
+    if (maxCfg.key === "max_tokens") chatBody.max_tokens = maxCfg.value;
+    else if (maxCfg.key === "max_completion_tokens") chatBody.max_completion_tokens = maxCfg.value;
+    else chatBody.max_output_tokens = maxCfg.value;
   }
-  return out;
+  if (caps.acceptsTemperature && typeof opts.temperature === "number") {
+    chatBody.temperature = opts.temperature;
+  }
+
+  const resp = await withTimeout(opts.timeoutMs ?? 60_000, client.chat.completions.create(chatBody));
+  const content = (resp?.choices?.[0]?.message?.content ?? "").trim();
+  const usage = normalizeUsageFromChat(resp);
+
+  return {
+    model: (resp as any)?.model ?? model,
+    usage,
+    choices: [{ message: { content } }],
+  };
 }
-
-const chatMsgs = toChatParams(messages);
-
-const chatBody: OpenAI.ChatCompletionCreateParams = {
-  model,
-  messages: chatMsgs,
-  ...(typeof max === "number" ? { max_tokens: max } : {}),
-  ...(typeof opts.temperature === "number" ? { temperature: opts.temperature } : {}),
-};
-
-const resp = await withTimeout(
-  opts.timeoutMs ?? 60_000,
-  client.chat.completions.create(chatBody)
-);
-
-const content = (resp.choices?.[0]?.message?.content ?? "").trim();
-const usage = normalizeUsageFromChat(resp);
-
-return {
-  model: (resp as any)?.model ?? model,
-  usage,
-  choices: [{ message: { content } }],
-  __raw: resp,
-};
-
 
 // ----------------------------------------------------------------------------
 // Back-compat alias
 // ----------------------------------------------------------------------------
-export async function callLLMOpenAI(
-  messages: ChatMessage[] | string,
-  model: string | ChatMessage[],
-  opts?: CallOpts
-) {
-  // @ts-ignore – overload covers both signatures
-  return callLLM(messages as any, model as any, opts);
-}
+export const callLLMOpenAI = callLLM;
