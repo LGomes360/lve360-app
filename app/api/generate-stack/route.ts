@@ -17,6 +17,11 @@ import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generateStackForSubmission } from "@/lib/generateStack";
 
+// Ensure long-running LLM work won’t time out on Vercel
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";       // use Node functions, not edge
+export const maxDuration = 120;        // seconds (pick 60–120 for safety)
+
 // ---- local types ------------------------------------------------------------
 type Tier = "free" | "premium" | "unknown";
 type Mode = "free" | "premium";
