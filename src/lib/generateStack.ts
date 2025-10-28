@@ -616,45 +616,38 @@ ${JSON.stringify(
 Generate the full report per the rules above.`;
 }
 
-// ----------------------------------------------------------------------------
-// LLM wrapper
-// ----------------------------------------------------------------------------
 
-type LLMOpts = {
-  max?: number;          // desired completion tokens
-  temperature?: number;  // only for non-gpt-5 models
-};
-
-async function callLLM(
-  messages: ChatCompletionMessageParam[],
-  model: string,
-  opts: LLMOpts = {}
-) {
+// ----------------------------------------------------------------------------
+// LLM wrapper (model-aware params)
+// ----------------------------------------------------------------------------
+async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
   const { default: OpenAI } = await import("openai");
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
-  const isGpt5 = /^gpt-5(?:-|$)/i.test(model);
-
-  // Build payload minimally and add fields conditionally
-  const payload: any = {
-    model,
-    messages,
-  };
+  const m = (model || "").toLowerCase();
+  const isGpt5 = m.startsWith("gpt-5");      // e.g., gpt-5, gpt-5-mini
+  const is4o   = m.includes("gpt-4o");       // e.g., gpt-4o, gpt-4o-mini
 
   if (isGpt5) {
-    // gpt-5 family:
-    //  - uses max_completion_tokens
-    //  - does NOT accept temperature (default 1 only)
-    if (typeof opts.max === "number") payload.max_completion_tokens = opts.max;
-  } else {
-    // 4o / 4.1 / legacy:
-    //  - uses max_tokens
-    //  - accepts temperature
-    if (typeof opts.max === "number") payload.max_tokens = opts.max;
-    if (typeof opts.temperature === "number") payload.temperature = opts.temperature;
+    // gpt-5 family: NO temperature override, use max_completion_tokens
+    const maxc = Number(process.env.LVE_MAX_COMPLETION_TOKENS ?? 4096);
+    return openai.chat.completions.create({
+      model,
+      messages,
+      max_completion_tokens: maxc,
+      // omit temperature entirely (defaults to 1); sending a value causes 400
+    });
   }
 
-  return client.chat.completions.create(payload);
+  // gpt-4o family (legacy): use max_tokens + temperature
+  const max = Number(process.env.LVE_MAX_TOKENS ?? 4096);
+  const temp = Number(process.env.LVE_TEMPERATURE ?? 0.7);
+  return openai.chat.completions.create({
+    model,
+    messages,
+    max_tokens: max,
+    temperature: temp,
+  });
 }
 
 
