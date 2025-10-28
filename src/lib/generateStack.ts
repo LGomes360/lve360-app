@@ -837,10 +837,11 @@ export async function generateStackForSubmission(
   try {
     const resp = await callLLM("gpt-5-mini", msgs);
     llmRaw = resp;
-    modelUsed = resp.model ?? "gpt-5-mini";
-    tokensUsed = resp.usage?.total_tokens ?? null;
-    promptTokens = resp.usage?.prompt_tokens ?? null;
-    completionTokens = resp.usage?.completion_tokens ?? null;
+modelUsed = resp.modelUsed ?? "gpt-5-mini";
+tokensUsed = ((resp.promptTokens ?? 0) + (resp.completionTokens ?? 0)) || null;
+promptTokens = resp.promptTokens ?? null;
+completionTokens = resp.completionTokens ?? null;
+
     md = resp.choices?.[0]?.message?.content ?? "";
     console.log("[generateStack] modelUsed =", resp.model ?? "<unknown>");
 
