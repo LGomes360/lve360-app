@@ -881,9 +881,9 @@ console.info("validation.targets", targets);
       llmRaw = resp;
       modelUsed = resp.modelUsed ?? "gpt-5";
       tokensUsed = ((resp.promptTokens ?? 0) + (resp.completionTokens ?? 0)) || null;
-      promptTokens = resp.usage?.prompt_tokens ?? null;
-      completionTokens = resp.usage?.completion_tokens ?? null;
-      md = resp.choices?.[0]?.message?.content ?? "";
+      promptTokens = resp.promptTokens ?? null;
+      completionTokens = resp.completionTokens ?? null;
+      md = resp.text ?? "";
     } catch (err) {
       console.warn("Fallback model failed:", err);
     }
