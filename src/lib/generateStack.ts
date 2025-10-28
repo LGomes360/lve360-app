@@ -917,9 +917,6 @@ function looksLikeTimingArtifact(name?: string | null) {
   return TIMING_ARTIFACT_RE.test(s);
 }
 
-const filteredItems: StackItem[] = cappedItems.filter(
-  (it) => it?.name && !looksLikeTimingArtifact(it.name)
-);
 // --- Parse items from Markdown --------------------------------------------
 const parsedItems = parseMarkdownToItems(md);
 
@@ -930,10 +927,19 @@ const rawCapped = typeof cap === "number"
   : asArray(parsedItems);
 
 // Coerce shapes to StackItem (no null in is_current)
-const filteredItems: StackItem[] = rawCapped.map((i: any) => ({
+const baseItems: StackItem[] = rawCapped.map((i: any) => ({
   ...i,
   is_current: i?.is_current === true, // null/undefined -> false
 }));
+
+// Remove timing-artifact pseudo-rows that sometimes leak from tables
+const TIMING_ARTIFACT_RE =
+  /^(on waking|am with breakfast|evening with dinner|60–?90 min before bed|hold\/adjust)$/i;
+const looksLikeTimingArtifact = (s: string) => TIMING_ARTIFACT_RE.test((s || "").trim());
+
+const filteredItems: StackItem[] = baseItems.filter(
+  (it) => it?.name && !looksLikeTimingArtifact(it.name)
+);
   
   type SafetyStatus = "safe" | "warning" | "error";
   interface SafetyOutput {
