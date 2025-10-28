@@ -66,12 +66,13 @@ function buildPayload(
     console.warn("[callLLM] Ignoring legacy 'max_tokens'; using", caps.maxKey);
   }
 
-  const payload: any = {
-    model,
-    // The Responses API accepts a string or array; we pass messages to keep your existing calling code.
-    // The SDK will coerce appropriately. If you later switch to `input`, wire it here.
-    messages,
-  };
+const payload: any = {
+  model,
+  // Responses API requires `input` (not `messages`).
+  // We pass your chat-like array through; the SDK accepts arrays of role/content.
+  input: messages,
+};
+
 
   // Apply the correct max token key for the model family
   if (caps.maxKey === "max_output_tokens") {
