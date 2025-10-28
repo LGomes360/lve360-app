@@ -8,6 +8,8 @@
 //     callLLM(model, messages, opts)
 // - Normalized return: { model, usage, choices: [{ message: { content } }], __raw }
 // ----------------------------------------------------------------------------
+// Use the OpenAI namespace for types to avoid mid-file imports
+type ChatCompletionMessageParam = OpenAI.ChatCompletionMessageParam;
 
 import OpenAI from "openai";
 
@@ -195,7 +197,7 @@ export async function callLLM(
 
 
 // -------------------- Chat Completions (non-gpt-5*) -----------------------
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+
 
 function toChatParams(messages: ChatMessage[]): ChatCompletionMessageParam[] {
   const out: ChatCompletionMessageParam[] = [];
