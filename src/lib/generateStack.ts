@@ -717,17 +717,15 @@ function ensureEnd(md: string) {
   return hasEnd(md) ? md : (md || "") + "\n\n## END";
 }
 // --- Mode-aware validation targets ------------------------------------------
-function computeValidationTargets(mode: "free" | "premium", cap?: number) {
-  // Free can be shorter and have fewer rows; Premium keeps strict targets.
-  // If cap is undefined (no cap), use Free defaults that don’t depend on cap.
-  const minWords = mode === "premium" ? 1800 : 900;
-  const minRows  = mode === "premium" ? 10   : 3;                 // Free requires at least 3 rows
-  const minSent  = mode === "premium" ? 3    : 2;                 // Free allows 2-sentence analyses
-  // If you *do* pass a cap, keep "at most the cap" for Free (never >3 min).
-  return cap != null
-    ? { minWords, minRows: Math.min(3, cap || 3), minSent }
-    : { minWords, minRows, minSent };
+// Unified targets for all users — this is our hook, so quality must be high.
+function computeValidationTargets(_mode: "free" | "premium", _cap?: number) {
+  return {
+    minWords: 700,  // high enough to feel substantial, not bloated
+    minRows:  8,    // “Your Blueprint Recommendations” table data rows (excl. header)
+    minSent:  3,    // minimum sentences in each narrative section
+  };
 }
+
 
 // ----------------------------------------------------------------------------
 // Preference → Amazon category chooser, plus Premium Fullscript preference
