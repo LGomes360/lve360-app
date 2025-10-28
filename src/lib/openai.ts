@@ -9,8 +9,20 @@ let _client: OpenAIClient | null = null;
 export function getOpenAI(): OpenAIClient {
   if (_client) return _client;
 
-  const key = process.env.OPENAI_API_KEY || process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+  const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error("Missing OPENAI_API_KEY — set it in your env.");
+// --- Model caps (5-series vs 4o) ---
+const MODEL_CAPS = {
+  "gpt-5-mini":  { acceptsTemperature: false, maxKey: "max_completion_tokens" },
+  "gpt-5":       { acceptsTemperature: true,  maxKey: "max_completion_tokens" },
+  "gpt-4o":      { acceptsTemperature: true,  maxKey: "max_tokens" },
+  "gpt-4o-mini": { acceptsTemperature: true,  maxKey: "max_tokens" },
+} as const;
+
+function capsFor(model: string) {
+  const key = (Object.keys(MODEL_CAPS) as string[]).find(k => model.startsWith(k));
+  return key ? (MODEL_CAPS as any)[key] : { acceptsTemperature: false, maxKey: "max_tokens" };
+}
 
   // dynamic require to avoid build-time issues
   // eslint-disable-next-line @typescript-eslint/no-var-requires
