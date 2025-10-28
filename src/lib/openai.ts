@@ -193,19 +193,24 @@ export async function callLLM(
     };
   }
 
-  
+
 // -------------------- Chat Completions (non-gpt-5*) -----------------------
-const chatMsgs: OpenAI.ChatCompletionMessageParam[] = messages.map((m) => {
-  switch (m.role) {
-    case "system":
-    case "user":
-    case "assistant":
-      return { role: m.role, content: m.content };
-    // If we’re not actually doing tool-calls, coerce anything else to assistant text
-    default:
-      return { role: "assistant", content: m.content };
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+
+function toChatParams(messages: ChatMessage[]): ChatCompletionMessageParam[] {
+  const out: ChatCompletionMessageParam[] = [];
+  for (const m of messages) {
+    if (m.role === "system" || m.role === "user" || m.role === "assistant") {
+      out.push({ role: m.role, content: m.content });
+    } else {
+      // We’re not using real tool-calls here; coerce anything else to assistant text.
+      out.push({ role: "assistant", content: m.content });
+    }
   }
-});
+  return out;
+}
+
+const chatMsgs = toChatParams(messages);
 
 const chatBody: OpenAI.ChatCompletionCreateParams = {
   model,
@@ -218,6 +223,17 @@ const resp = await withTimeout(
   opts.timeoutMs ?? 60_000,
   client.chat.completions.create(chatBody)
 );
+
+const content = (resp.choices?.[0]?.message?.content ?? "").trim();
+const usage = normalizeUsageFromChat(resp);
+
+return {
+  model: (resp as any)?.model ?? model,
+  usage,
+  choices: [{ message: { content } }],
+  __raw: resp,
+};
+
 
 // ----------------------------------------------------------------------------
 // Back-compat alias
