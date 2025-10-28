@@ -1,19 +1,15 @@
 // src/lib/openai.ts
 // Model-aware OpenAI wrapper
-// - gpt-5 family -> Responses API (input + max_output_tokens)
+// - gpt-5 family -> Responses API (input + max_output_tokens + text.format)
 // - gpt-4o family -> Chat Completions (messages + max_tokens)
-// Returns a normalized shape: { text, model, usage, choices?, llmRaw? }
 
 type OpenAIClient = any;
 
 let _client: OpenAIClient | null = null;
-
 function getClient(): OpenAIClient {
   if (_client) return _client;
   const key = process.env.OPENAI_API_KEY as string;
   if (!key) throw new Error("Missing OPENAI_API_KEY — set it in your env.");
-
-  // dynamic require avoids ESM/CJS headaches during build
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const pkg = require("openai");
   const OpenAI = (pkg && pkg.default) ? pkg.default : pkg;
@@ -24,11 +20,7 @@ function getClient(): OpenAIClient {
 // ---------------------------------------------------------------------------
 // Model capability map
 // ---------------------------------------------------------------------------
-type Caps = {
-  family: "gpt5" | "gpt4o";
-  acceptsTemperature: boolean;
-  maxKey: "max_output_tokens" | "max_tokens";
-};
+type Caps = { family: "gpt5" | "gpt4o"; acceptsTemperature: boolean; maxKey: "max_output_tokens" | "max_tokens" };
 const MODEL_CAPS: Record<string, Caps> = {
   "gpt-5":       { family: "gpt5",  acceptsTemperature: true,  maxKey: "max_output_tokens" },
   "gpt-5-mini":  { family: "gpt5",  acceptsTemperature: false, maxKey: "max_output_tokens" },
@@ -37,7 +29,6 @@ const MODEL_CAPS: Record<string, Caps> = {
 };
 function capsFor(model: string): Caps {
   const key = Object.keys(MODEL_CAPS).find(k => model.startsWith(k));
-  // default to safe gpt-5 settings if unknown
   return key ? MODEL_CAPS[key] : { family: "gpt5", acceptsTemperature: false, maxKey: "max_output_tokens" };
 }
 
@@ -46,27 +37,15 @@ function capsFor(model: string): Caps {
 // ---------------------------------------------------------------------------
 export type LLMMessage = { role: "system" | "user" | "assistant"; content: string | any[] };
 export type LLMOpts = {
-  max?: number;           // preferred alias
-  maxTokens?: number;     // legacy alias
-  temperature?: number;   // ignored when model doesn't accept it
-  response_format?: { type: "text" | "json_object" } | undefined; // optional
+  max?: number;         // preferred
+  maxTokens?: number;   // legacy alias
+  temperature?: number; // ignored when model disallows it
+  response_format?: { type: "text" | "json_object" } | undefined; // mapped to text.format
 };
 
-// ---------------------------------------------------------------------------
-// Normalized return: compatible with your generateStack.ts
-// ---------------------------------------------------------------------------
-type NormalizedUsage = {
-  total_tokens?: number;
-  prompt_tokens?: number;
-  completion_tokens?: number;
-};
-type NormalizedReturn = {
-  text: string;
-  model?: string;
-  usage?: NormalizedUsage;
-  choices?: any;
-  llmRaw?: any;
-};
+// Normalized return (compatible with generateStack.ts)
+type NormalizedUsage = { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number };
+type NormalizedReturn = { text: string; model?: string; usage?: NormalizedUsage; choices?: any; llmRaw?: any };
 
 // ---------------------------------------------------------------------------
 // Core call
@@ -89,11 +68,14 @@ export async function callLLM(
       ? opts.temperature
       : undefined;
 
+  // Map legacy response_format -> Responses API text.format
+  const textFormat =
+    opts.response_format?.type === "json_object" ? "json" : "text";
+
   let raw: any;
 
   if (caps.family === "gpt5") {
-    // ---------------- Responses API (gpt-5 family) ----------------
-    // Use structured content for highest reliability
+    // ---------------- Responses API ----------------
     const input = messages.map((m) => ({
       role: m.role,
       content: Array.isArray((m as any).content)
@@ -103,15 +85,15 @@ export async function callLLM(
 
     const payload: any = {
       model,
-      input, // <-- Responses API uses `input`
+      input, // <- Responses API uses `input`
       [caps.maxKey]: max, // max_output_tokens
-      response_format: opts.response_format ?? { type: "text" },
+      text: { format: textFormat }, // <- NEW: replaces response_format
     };
     if (temp !== undefined) payload.temperature = temp;
 
     raw = await client.responses.create(payload);
 
-    // If text is suspiciously empty, retry once with flattened string input
+    // If too short/empty, retry once with flattened input
     const primaryText =
       (raw?.output_text as string) ??
       (Array.isArray(raw?.content) ? raw.content.map((c: any) => c?.text ?? c?.content ?? "").join("") : "");
@@ -120,23 +102,23 @@ export async function callLLM(
       const flat = messages
         .map((m) => `${m.role.toUpperCase()}: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`)
         .join("\n\n");
+
       raw = await client.responses.create({
         model,
         input: flat,
         [caps.maxKey]: max,
-        response_format: { type: "text" },
+        text: { format: textFormat },
         ...(temp !== undefined ? { temperature: temp } : {}),
       });
     }
   } else {
-    // ---------------- Chat Completions (gpt-4o family) ------------
+    // ---------------- Chat Completions (4o) ----------------
     const payload: any = {
       model,
-      messages,           // chat-style messages
+      messages,
       [caps.maxKey]: max, // max_tokens
     };
     if (temp !== undefined) payload.temperature = temp;
-
     raw = await client.chat.completions.create(payload);
   }
 
@@ -155,8 +137,7 @@ export async function callLLM(
       ? {
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
-          total_tokens:
-            (promptTokens ?? 0) + (completionTokens ?? 0),
+          total_tokens: (promptTokens ?? 0) + (completionTokens ?? 0),
         }
       : undefined;
 
@@ -169,9 +150,7 @@ export async function callLLM(
   };
 }
 
-// ---------------------------------------------------------------------------
 // Optional retry helper
-// ---------------------------------------------------------------------------
 export async function withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
   let attempt = 0;
   // eslint-disable-next-line no-constant-condition
@@ -187,6 +166,5 @@ export async function withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T
   }
 }
 
-// Back-compat export names used elsewhere
 export const getOpenAI = getClient;
 export default getClient;
