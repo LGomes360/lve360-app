@@ -1,169 +1,156 @@
-// src/lib/openai.ts
-// Model-aware OpenAI wrapper
-// - gpt-5 family -> Responses API (input + max_output_tokens + text.format)
-// - gpt-4o family -> Chat Completions (messages + max_tokens)
+/* eslint-disable @typescript-eslint/consistent-type-imports */
+/* eslint-disable no-console */
 
-type OpenAIClient = any;
+import OpenAI from "openai";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
-let _client: OpenAIClient | null = null;
-function getClient(): OpenAIClient {
-  if (_client) return _client;
-  const key = process.env.OPENAI_API_KEY as string;
-  if (!key) throw new Error("Missing OPENAI_API_KEY — set it in your env.");
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const pkg = require("openai");
-  const OpenAI = (pkg && pkg.default) ? pkg.default : pkg;
-  _client = new OpenAI({ apiKey: key });
-  return _client;
-}
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
+});
 
-// ---------------------------------------------------------------------------
-// Capabilities
-// ---------------------------------------------------------------------------
-type Caps = { family: "gpt5" | "gpt4o"; acceptsTemperature: boolean; maxKey: "max_output_tokens" | "max_tokens" };
-const MODEL_CAPS: Record<string, Caps> = {
-  "gpt-5":       { family: "gpt5",  acceptsTemperature: true,  maxKey: "max_output_tokens" },
-  "gpt-5-mini":  { family: "gpt5",  acceptsTemperature: false, maxKey: "max_output_tokens" },
-  "gpt-4o":      { family: "gpt4o", acceptsTemperature: true,  maxKey: "max_tokens" },
-  "gpt-4o-mini": { family: "gpt4o", acceptsTemperature: true,  maxKey: "max_tokens" },
-};
-function capsFor(model: string): Caps {
-  const key = Object.keys(MODEL_CAPS).find(k => model.startsWith(k));
-  return key ? MODEL_CAPS[key] : { family: "gpt5", acceptsTemperature: false, maxKey: "max_output_tokens" };
-}
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-export type LLMMessage = { role: "system" | "user" | "assistant"; content: string | any[] };
-export type LLMOpts = {
-  max?: number;
-  maxTokens?: number;   // legacy alias
+type CallOpts = {
+  max?: number;          // preferred alias
+  maxTokens?: number;    // legacy alias
   temperature?: number;
-  response_format?: { type: "text" | "json_object" } | undefined; // mapped to text.format
 };
-type NormalizedUsage = { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number };
-type NormalizedReturn = { text: string; model?: string; usage?: NormalizedUsage; choices?: any; llmRaw?: any };
 
-// ---------------------------------------------------------------------------
-// Core
-// ---------------------------------------------------------------------------
+/**
+ * Convert Chat-style messages into Responses API "input" array with typed content parts.
+ * We only emit input_text parts here (images/files not needed for LVE360).
+ */
+function toResponsesInput(messages: ChatCompletionMessageParam[]) {
+  return messages.map((m) => {
+    const role = (m.role as "system" | "user" | "assistant") ?? "user";
+
+    // Flatten possible array content into one string
+    let text = "";
+    if (typeof m.content === "string") {
+      text = m.content;
+    } else if (Array.isArray(m.content)) {
+      text = m.content
+        .map((p: any) => {
+          if (typeof p === "string") return p;
+          if (p && typeof p.text === "string") return p.text;
+          if (p && typeof p.content === "string") return p.content;
+          return "";
+        })
+        .join("");
+    } else if (m && (m as any).content) {
+      text = String((m as any).content);
+    }
+
+    return {
+      role,
+      content: [
+        {
+          type: "input_text" as const,
+          text,
+        },
+      ],
+    };
+  });
+}
+
+/**
+ * callLLM(messages, model, opts?) → returns an object that always has:
+ * { model, usage, choices: [{ message: { content } }] }
+ * so existing callers can read .choices[0].message.content safely.
+ *
+ * For gpt-5* we use Responses API.
+ * For older models we use Chat Completions.
+ */
 export async function callLLM(
-  messages: LLMMessage[],
+  messages: ChatCompletionMessageParam[],
   model: string,
-  opts: LLMOpts = {}
-): Promise<NormalizedReturn> {
-  const client = getClient();
-  const caps = capsFor(model);
+  opts: CallOpts = {}
+): Promise<{
+  model: string;
+  usage?: {
+    total_tokens?: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+  };
+  choices: Array<{ message: { content: string } }>;
+}> {
+  const useResponses = /^gpt-5/i.test(model);
 
   const max =
-    (typeof opts.max === "number" ? opts.max : undefined) ??
-    (typeof opts.maxTokens === "number" ? opts.maxTokens : undefined) ??
-    1800;
-
-  const temp =
-    caps.acceptsTemperature && typeof opts.temperature === "number"
-      ? opts.temperature
+    typeof opts.max === "number"
+      ? opts.max
+      : typeof opts.maxTokens === "number"
+      ? opts.maxTokens
       : undefined;
 
-  // Map legacy response_format -> Responses API text.format
-  const textFormat =
-    opts.response_format?.type === "json_object" ? "json" : "text";
-
-  let raw: any;
-
-  if (caps.family === "gpt5") {
-    // ---------------- Responses API ----------------
-    // IMPORTANT: content[].type must be "input_text"
-    const input = messages.map((m) => ({
-      role: m.role,
-      content: Array.isArray((m as any).content)
-        ? (m as any).content
-        : [{ type: "input_text", text: String((m as any).content ?? "") }],
-    }));
-
-    const payload: any = {
+  if (useResponses) {
+    // ----- Responses API path -----
+    const body: any = {
       model,
-      input, // <- Responses API
-      [caps.maxKey]: max, // max_output_tokens
-      text: { format: textFormat }, // "text" | "json"
+      input: toResponsesInput(messages),
     };
-    if (temp !== undefined) payload.temperature = temp;
+    if (typeof max === "number") body.max_output_tokens = max;
+    if (typeof opts.temperature === "number") body.temperature = opts.temperature;
 
-    raw = await client.responses.create(payload);
+    // IMPORTANT: do NOT send response_format or text.format unless you
+    // intentionally need structured outputs. Defaults to plain text.
+    const r = await client.responses.create(body);
 
-    // If too short/empty, retry once with flattened text input
-    const primaryText =
-      (raw?.output_text as string) ??
-      (Array.isArray(raw?.content) ? raw.content.map((c: any) => c?.text ?? c?.content ?? "").join("") : "");
+    // Prefer the convenience string if present; otherwise stitch output parts.
+    const textFromParts =
+      (Array.isArray((r as any).output)
+        ? (r as any).output
+            .filter((p: any) => p?.type === "output_text")
+            .map((p: any) => p?.text ?? p?.content ?? "")
+            .join("")
+        : "") || "";
 
-    if (!primaryText || primaryText.trim().length < 50) {
-      const flat = messages
-        .map((m) => `${m.role.toUpperCase()}: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`)
-        .join("\n\n");
+    const content = (r as any).output_text
+      ? String((r as any).output_text)
+      : textFromParts;
 
-      raw = await client.responses.create({
-        model,
-        input: [{ role: "user", content: [{ type: "input_text", text: flat }] }],
-        [caps.maxKey]: max,
-        text: { format: textFormat },
-        ...(temp !== undefined ? { temperature: temp } : {}),
-      });
-    }
-  } else {
-    // ---------------- Chat Completions (4o) ----------------
-    const payload: any = {
-      model,
-      messages,
-      [caps.maxKey]: max, // max_tokens
-    };
-    if (temp !== undefined) payload.temperature = temp;
-    raw = await client.chat.completions.create(payload);
-  }
-
-  // ---------------- Normalize output ----------------
-  const text =
-    (raw?.output_text as string) ??
-    (Array.isArray(raw?.content) ? raw.content.map((c: any) => c?.text ?? c?.content ?? "").join("") : undefined) ??
-    (raw?.choices?.[0]?.message?.content as string) ??
-    "";
-
-  const promptTokens = raw?.usage?.prompt_tokens ?? raw?.usage?.input_tokens;
-  const completionTokens = raw?.usage?.completion_tokens ?? raw?.usage?.output_tokens;
-
-  const usage: NormalizedUsage | undefined =
-    promptTokens != null || completionTokens != null
+    // Normalize usage fields
+    const usage = r.usage
       ? {
-          prompt_tokens: promptTokens,
-          completion_tokens: completionTokens,
-          total_tokens: (promptTokens ?? 0) + (completionTokens ?? 0),
+          total_tokens: (r.usage as any).total_tokens,
+          prompt_tokens: (r.usage as any).prompt_tokens ?? (r.usage as any).input_tokens,
+          completion_tokens:
+            (r.usage as any).completion_tokens ?? (r.usage as any).output_tokens,
+          input_tokens: (r.usage as any).input_tokens,
+          output_tokens: (r.usage as any).output_tokens,
         }
       : undefined;
 
-  return {
-    text: String(text ?? "").trim(),
-    model: raw?.model ?? model,
-    usage,
-    choices: raw?.choices ?? undefined,
-    llmRaw: raw,
+    return {
+      model: (r as any).model ?? model,
+      usage,
+      choices: [
+        {
+          message: { content: String(content ?? "").trim() },
+        },
+      ],
+    };
+  }
+
+  // ----- Chat Completions path (older models) -----
+  const chatBody: any = {
+    model,
+    messages,
+  };
+  if (typeof max === "number") chatBody.max_tokens = max;
+  if (typeof opts.temperature === "number") chatBody.temperature = opts.temperature;
+
+  const r = await client.chat.completions.create(chatBody);
+  return r as unknown as {
+    model: string;
+    usage?: {
+      total_tokens?: number;
+      prompt_tokens?: number;
+      completion_tokens?: number;
+    };
+    choices: Array<{ message: { content: string } }>;
   };
 }
 
-// Optional retry helper
-export async function withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
-  let attempt = 0;
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    try {
-      return await fn();
-    } catch (err: any) {
-      const code = Number(err?.status || err?.code || 0);
-      if (attempt >= retries || ![408, 429, 500, 502, 503, 504].includes(code)) throw err;
-      await new Promise((r) => setTimeout(r, (250 + Math.random() * 500) * (attempt + 1)));
-      attempt++;
-    }
-  }
-}
-
-export const getOpenAI = getClient;
-export default getClient;
+export { ChatCompletionMessageParam };
+export default { callLLM };
