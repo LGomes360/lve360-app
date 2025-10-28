@@ -856,7 +856,12 @@ export async function generateStackForSubmission(
 
   // ----- First attempt (faster model) ---------------------------------------
   try {
-const resp = await callLLM("gpt-5-mini", msgs, { maxTokens: 2800, temperature: 0.4 });
+
+const resp = await callLLM("gpt-5-mini", msgs, {
+  maxTokens: 1800,       // lets it write ~1–1.3k words
+  timeoutMs: 55_000,     // keep under Vercel’s 120s total
+});
+
 md = resp.text ?? "";
 
 // hard guard so we fail quickly if the draft is empty/too short
@@ -905,7 +910,10 @@ console.info("validation.targets", targets);
   // ----- Fallback attempt (stronger model) ----------------------------------
   if (!passes) {
     try {
-const resp = await callLLM("gpt-5", msgs, { maxTokens: 3200, temperature: 0.4 });
+const resp = await callLLM("gpt-5", msgs, {
+  maxTokens: 2400,       // fuller pass for citations/table
+  timeoutMs: 55_000,
+});
 md = resp.text ?? "";
 
 if (!md || wc(md) < 120) {
