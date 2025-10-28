@@ -1,13 +1,11 @@
 /* eslint-disable no-console */
 /* eslint-disable @typescript-eslint/consistent-type-imports */
 // ---------------------------------------------------------------------------
-// LVE360 — src/lib/openai.ts
-// Minimal wrapper around OpenAI Responses API that:
-//  • Accepts "messages" (system/user/assistant)
-//  • Uses Responses API "input" with { type: "input_text" }
-//  • Supports temperature + max tokens (as max_output_tokens)
-//  • Enforces a 55s timeout so Vercel functions don’t hit 120s hard cap
-//  • Normalizes return shape to look like Chat Completions:
+// LVE360 — src/lib/openai.ts  (Responses API wrapper, no temperature)
+//  • Accepts ChatGPT-style messages [{role, content}]
+//  • Calls Responses API with input[{type:"input_text"}]
+//  • Uses max_output_tokens (optional) and a 55s timeout
+//  • Normalizes output to Chat Completions-like shape your code expects:
 //      { model, usage:{prompt_tokens, completion_tokens, total_tokens},
 //        choices:[{ message:{ content } }] }
 // ---------------------------------------------------------------------------
@@ -20,39 +18,30 @@ export type ChatMessage = {
 };
 
 type CallOpts = {
-  max?: number;          // preferred (we normalize to max_output_tokens)
-  maxTokens?: number;    // legacy alias
-  temperature?: number;
-  timeoutMs?: number;    // per-call override, defaults to 55_000
+  max?: number;          // preferred (normalized to max_output_tokens)
+  maxTokens?: number;    // alias
+  timeoutMs?: number;    // default 55_000
 };
 
-type RawResponsesUsage = {
-  // Responses API fields
+type RawUsage = {
   input_tokens?: number;
   output_tokens?: number;
   total_tokens?: number;
-
-  // Old-style fields (we populate these for compatibility)
+  // Back-compat fields we’ll fill:
   prompt_tokens?: number;
   completion_tokens?: number;
 };
 
-type RawResponsesResult = {
+type RawResult = {
   id?: string;
   model?: string;
   output_text?: string;
   output?: Array<{
-    id?: string;
-    type?: string;
     role?: string;
-    content?: Array<{
-      type: string; // "output_text" etc.
-      text?: string;
-      annotations?: any[];
-    }>;
+    type?: string;
+    content?: Array<{ type: string; text?: string }>;
   }>;
-  usage?: RawResponsesUsage;
-  // …other fields we don't rely on
+  usage?: RawUsage;
 };
 
 function env(key: string): string {
@@ -62,47 +51,37 @@ function env(key: string): string {
 }
 
 function buildInput(messages: ChatMessage[]) {
-  // Responses API expects: [{ role, content: [{ type: "input_text", text }] }]
+  // Responses API input format
   return messages.map((m) => ({
     role: m.role,
     content: [
       {
         type: "input_text",
-        text:
-          typeof m.content === "string"
-            ? m.content
-            : JSON.stringify(m.content, null, 2),
+        text: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
       },
     ],
   }));
 }
 
-function extractText(res: RawResponsesResult): string {
-  if (typeof res.output_text === "string" && res.output_text.trim().length) {
-    return res.output_text;
-  }
-  // Fallback: walk the output chunks
-  const chunkText =
-    res.output?.flatMap((c) =>
-      (c.content ?? [])
-        .filter((p) => p && p.type && "text" in p && typeof p.text === "string")
-        .map((p: any) => p.text as string)
+function extractText(json: RawResult): string {
+  if (json.output_text && json.output_text.trim()) return json.output_text.trim();
+  const pieces =
+    json.output?.flatMap(({ content = [] }) =>
+      content
+        .filter((c) => c?.type === "output_text" && typeof c.text === "string")
+        .map((c) => c.text as string)
     ) ?? [];
-  return chunkText.join("\n").trim();
+  return pieces.join("\n").trim();
 }
 
-function normalizeUsage(u?: RawResponsesUsage): Required<RawResponsesUsage> {
+function normalizeUsage(u?: RawUsage) {
   const input = u?.input_tokens ?? u?.prompt_tokens ?? 0;
   const output = u?.output_tokens ?? u?.completion_tokens ?? 0;
-  const total = u?.total_tokens ?? (input + output);
-
+  const total = u?.total_tokens ?? input + output;
   return {
-    input_tokens: u?.input_tokens ?? input,
-    output_tokens: u?.output_tokens ?? output,
     total_tokens: total,
-    // Compat fields expected by generateStack.ts:
-    prompt_tokens: u?.prompt_tokens ?? input,
-    completion_tokens: u?.completion_tokens ?? output,
+    prompt_tokens: input,
+    completion_tokens: output,
   };
 }
 
@@ -112,25 +91,16 @@ async function fetchWithTimeout(
 ) {
   const { timeoutMs = 55_000, ...rest } = init;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
+  const t = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const resp = await fetch(url, { ...rest, signal: controller.signal });
-    return resp;
+    return await fetch(url, { ...rest, signal: controller.signal });
   } finally {
-    clearTimeout(timer);
+    clearTimeout(t);
   }
 }
 
 /**
- * callLLM(messages, model, { max?, maxTokens?, temperature?, timeoutMs? })
- * Returns a Chat-Completions-like object:
- * {
- *   model,
- *   usage: { prompt_tokens, completion_tokens, total_tokens },
- *   choices: [{ message: { content } }],
- *   llmRaw: <raw responses payload>
- * }
+ * callLLM(messages, model, { max?, maxTokens?, timeoutMs? })
  */
 export async function callLLM(
   messages: ChatMessage[],
@@ -138,55 +108,46 @@ export async function callLLM(
   opts: CallOpts = {}
 ) {
   const apiKey = env("OPENAI_API_KEY");
-  const body = {
+
+  // IMPORTANT: Do NOT send temperature (these models reject it).
+  const body: Record<string, any> = {
     model,
     input: buildInput(messages),
-    // Responses API uses `max_output_tokens`
-    max_output_tokens: opts.max ?? opts.maxTokens ?? undefined,
-    temperature: typeof opts.temperature === "number" ? opts.temperature : 0.4,
-    // DO NOT set `response_format` or `text.format` — causes 400s on some SDKs.
   };
+  const max = opts.max ?? opts.maxTokens;
+  if (typeof max === "number") body.max_output_tokens = max;
 
-  const resp = await fetchWithTimeout("https://api.openai.com/v1/responses", {
+  const res = await fetchWithTimeout("https://api.openai.com/v1/responses", {
     method: "POST",
     timeoutMs: opts.timeoutMs ?? 55_000,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
-      // Keep the default org/project via headers env if configured in account;
-      // no need to set here.
     },
     body: JSON.stringify(body),
   });
 
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => "");
-    const info = `${resp.status} ${resp.statusText} :: ${errText}`;
-    throw Object.assign(new Error(info), { status: resp.status });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    const msg = `${res.status} ${res.statusText} :: ${errText}`;
+    const err: any = new Error(msg);
+    err.status = res.status;
+    throw err;
   }
 
-  const json = (await resp.json()) as RawResponsesResult;
-
+  const json = (await res.json()) as RawResult;
   const text = extractText(json);
   const usage = normalizeUsage(json.usage);
-  const normalized = {
+
+  // Return a Chat Completions-like envelope for compatibility
+  return {
     model: json.model ?? model,
-    usage: {
-      total_tokens: usage.total_tokens,
-      prompt_tokens: usage.prompt_tokens,
-      completion_tokens: usage.completion_tokens,
-    },
-    choices: [
-      {
-        message: { content: text },
-      },
-    ],
+    usage,
+    choices: [{ message: { content: text } }],
     llmRaw: json,
   };
-
-  return normalized;
 }
 
-// For legacy imports in your codebase
+// Legacy named export compatibility
 export { callLLM as callOpenAI };
 export default callLLM;
