@@ -25,9 +25,6 @@ import evidenceIndex from "@/evidence/evidence_index_top3.json";
 // Config
 // ----------------------------------------------------------------------------
 const TODAY = "2025-09-21"; // deterministic for tests
-const MIN_WORDS = 1800;
-const MIN_BP_ROWS = 10;
-const MIN_ANALYSIS_SENTENCES = 3;
 
 // Model-generated refs allowed (strict)
 const MODEL_CITE_RE =
@@ -599,6 +596,28 @@ Every table/list MUST be followed by **Analysis** ≥${MIN_ANALYSIS_SENTENCES} s
 • If Dose/Timing unknown → use “${seeDN}”.  
 • Finish with line \`## END\`.  
 
+### Hard Guardrails (Do not violate)
+• You MUST output these H2 headings in this exact order:
+  ## Intro Summary
+  ## Goals
+  ## Contraindications & Med Interactions
+  ## Current Stack
+  ## Your Blueprint Recommendations
+  ## Dosing & Notes
+  ## Evidence & References
+  ## Shopping Links
+  ## Follow-up Plan
+  ## Lifestyle Prescriptions
+  ## Longevity Levers
+  ## This Week Try
+• The section "Your Blueprint Recommendations" MUST be a Markdown table with this exact header row:
+  | Rank | Supplement | Why it Matters |
+  The table MUST contain at least 8 data rows (not counting header).
+• If you cannot meet the table spec above on the first try, output ONLY that table (no other text) and STOP. Then regenerate the full report meeting all sections.
+• Each narrative section (other than Intro) MUST have ≥3 complete sentences and reference items by Supplement name.
+• "Evidence & References" MUST contain ≥8 Markdown links ("- [Title](https://...)").
+• Always end with a line "## END".
+
 If internal check fails, regenerate before responding.`;
 }
 
@@ -624,23 +643,26 @@ Generate the full report per the rules above.`;
 type LLMOptions = { temperature?: number; maxTokens?: number; mode?: "free" | "premium" };
 type LLMReturn = { text: string; modelUsed?: string; promptTokens?: number; completionTokens?: number };
 
-async function callLLM(model: string, messages: any[], opts: LLMOptions = {}): Promise<LLMReturn> {
+async function callLLM(
+  model: string,
+  messages: any[],
+  opts: LLMOptions = {}
+): Promise<LLMReturn> {
   // openai.ts signature: callLLM(messages, model, { max?, maxTokens?, temperature? })
   const resp = await callOpenAI(messages, model, {
-    max: opts.maxTokens,          // prefer `max` (openai.ts normalizes)
-    maxTokens: opts.maxTokens,    // legacy alias (harmless)
+    max: opts.maxTokens,
+    maxTokens: opts.maxTokens,
     temperature: opts.temperature,
   });
 
-  const text = (resp?.choices?.[0]?.message?.content ?? "").trim();
   return {
-    text,
-    modelUsed: resp?.model,
-promptTokens: resp?.usage?.prompt_tokens,
-completionTokens: resp?.usage?.completion_tokens,
-
+    text: resp?.text ?? (resp?.choices?.[0]?.message?.content ?? "").trim(),
+    modelUsed: resp?.model ?? resp?.modelUsed,
+    promptTokens: resp?.usage?.prompt_tokens ?? resp?.promptTokens,
+    completionTokens: resp?.usage?.completion_tokens ?? resp?.completionTokens,
   };
 }
+
 
 async function callWithRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
   let attempt = 0;
@@ -833,7 +855,7 @@ export async function generateStackForSubmission(
 
   // ----- First attempt (faster model) ---------------------------------------
   try {
-    const resp = await callLLM("gpt-5-mini", msgs);
+    const resp = await callWithRetry(() => callLLM("gpt-5-mini", msgs), 2);
     llmRaw = resp;
 modelUsed = resp.modelUsed ?? "gpt-5-mini";
 tokensUsed = ((resp.promptTokens ?? 0) + (resp.completionTokens ?? 0)) || null;
@@ -875,7 +897,7 @@ console.info("validation.targets", targets);
   // ----- Fallback attempt (stronger model) ----------------------------------
   if (!passes) {
     try {
-      const resp = await callLLM("gpt-5", msgs);
+      const resp = await callWithRetry(() => callLLM("gpt-5", msgs), 2);
       llmRaw = resp;
       modelUsed = resp.modelUsed ?? "gpt-5";
       tokensUsed = ((resp.promptTokens ?? 0) + (resp.completionTokens ?? 0)) || null;
