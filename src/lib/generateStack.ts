@@ -620,43 +620,68 @@ Generate the full report per the rules above.`;
 // ----------------------------------------------------------------------------
 // LLM wrapper (model-aware params)
 // ----------------------------------------------------------------------------
-async function callLLM(messages: ChatCompletionMessageParam[], model: string) {
-  const { default: OpenAI } = await import("openai");
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+type LLMOptions = { temperature?: number; maxTokens?: number; mode?: "free"|"premium" };
+type LLMReturn = { text: string; modelUsed?: string; promptTokens?: number; completionTokens?: number };
 
-  const m = (model || "").toLowerCase();
-  const isGpt5 = m.startsWith("gpt-5");      // e.g., gpt-5, gpt-5-mini
-  const is4o   = m.includes("gpt-4o");       // e.g., gpt-4o, gpt-4o-mini
-
-  if (isGpt5) {
-    // gpt-5 family: NO temperature override, use max_completion_tokens
-    const maxc = Number(process.env.LVE_MAX_COMPLETION_TOKENS ?? 4096);
-    return openai.chat.completions.create({
-      model,
-      messages,
-      max_completion_tokens: maxc,
-      // omit temperature entirely (defaults to 1); sending a value causes 400
-    });
+async function callLLM(model: string, messages: any[], opts: LLMOptions = {}): Promise<LLMReturn> {
+  const caps = modelCaps(model); // from aiModels.ts (see below)
+  const body: any = { model, messages };
+  if (typeof opts.maxTokens === "number") {
+    if (caps.maxKey === "max_completion_tokens") body.max_completion_tokens = opts.maxTokens;
+    else if (caps.maxKey === "max_output_tokens") body.max_output_tokens = opts.maxTokens;
+    else body.max_tokens = opts.maxTokens;
+  }
+  if (caps.acceptsTemperature && typeof opts.temperature === "number") {
+    body.temperature = opts.temperature;
   }
 
-  // gpt-4o family (legacy): use max_tokens + temperature
-  const max = Number(process.env.LVE_MAX_TOKENS ?? 4096);
-  const temp = Number(process.env.LVE_TEMPERATURE ?? 0.7);
-  return openai.chat.completions.create({
-    model,
-    messages,
-    max_tokens: max,
-    temperature: temp,
-  });
+  const raw = await doAiRequest(body); // your existing fetch/SDK call
+
+  // ---- Unified extraction (Responses + Chat Completions) ----
+  let text = "";
+
+  // 1) OpenAI Chat Completions
+  if (raw?.choices?.[0]?.message?.content) {
+    const c = raw.choices[0].message.content;
+    text = Array.isArray(c) ? c.map((p: any) => p?.text ?? "").join("") : String(c);
+  }
+
+  // 2) Responses API (output_text or content segments)
+  if (!text) {
+    if (typeof raw?.output_text === "string") text = raw.output_text;
+    else if (Array.isArray(raw?.content)) {
+      text = raw.content.map((seg: any) => seg?.text ?? seg?.content ?? "").join("");
+    } else if (Array.isArray(raw?.output)) {
+      text = raw.output.map((seg: any) => seg?.content ?? seg?.text ?? "").join("");
+    }
+  }
+
+  text = (text || "").trim();
+  const modelUsed = raw?.model ?? model;
+  const promptTokens = raw?.usage?.prompt_tokens ?? raw?.usage?.input_tokens ?? undefined;
+  const completionTokens = raw?.usage?.completion_tokens ?? raw?.usage?.output_tokens ?? undefined;
+
+  return { text, modelUsed, promptTokens, completionTokens };
+}
+
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try { return await fn(); }
+    catch (err: any) {
+      const code = Number(err?.status || err?.code || 0);
+      if (attempt >= retries || ![408,429,500,502,503,504].includes(code)) throw err;
+      await new Promise(r => setTimeout(r, (250 + Math.random()*500) * (attempt+1)));
+      attempt++;
+    }
+  }
 }
 
 
 // ----------------------------------------------------------------------------
 // Validation helpers
 // ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
-// Validation helpers  (REPLACE THIS WHOLE BLOCK)
-// ----------------------------------------------------------------------------
+
 function headingsOK(md: string) {
   return HEADINGS.slice(0, -1).every((h) => (md || "").includes(h));
 }
