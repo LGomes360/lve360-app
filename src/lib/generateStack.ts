@@ -16,6 +16,8 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { getTopCitationsFor } from "@/lib/evidence";
 import parseMarkdownToItems from "@/lib/parseMarkdownToItems";
 import { buildAmazonSearchLink } from "@/lib/affiliateLinks";
+import { callLLM as callLLMOpenAI } from "@/lib/openai";
+
 
 // --- Curated evidence index (JSON) ------------------------------------------
 import evidenceIndex from "@/evidence/evidence_index_top3.json";
@@ -618,65 +620,43 @@ Generate the full report per the rules above.`;
 
 
 // ----------------------------------------------------------------------------
-// LLM wrapper (model-aware params)
+// LLM wrapper (delegates to src/lib/openai.ts)
 // ----------------------------------------------------------------------------
-type LLMOptions = { temperature?: number; maxTokens?: number; mode?: "free"|"premium" };
+type LLMOptions = { temperature?: number; maxTokens?: number; mode?: "free" | "premium" };
 type LLMReturn = { text: string; modelUsed?: string; promptTokens?: number; completionTokens?: number };
 
 async function callLLM(model: string, messages: any[], opts: LLMOptions = {}): Promise<LLMReturn> {
-  const caps = modelCaps(model); // from aiModels.ts (see below)
-  const body: any = { model, messages };
-  if (typeof opts.maxTokens === "number") {
-    if (caps.maxKey === "max_completion_tokens") body.max_completion_tokens = opts.maxTokens;
-    else if (caps.maxKey === "max_output_tokens") body.max_output_tokens = opts.maxTokens;
-    else body.max_tokens = opts.maxTokens;
-  }
-  if (caps.acceptsTemperature && typeof opts.temperature === "number") {
-    body.temperature = opts.temperature;
-  }
+  // openai.ts signature: callLLM(messages, model, { max?, maxTokens?, temperature? })
+  const resp = await callOpenAI(messages, model, {
+    max: opts.maxTokens,          // prefer `max` (openai.ts normalizes)
+    maxTokens: opts.maxTokens,    // legacy alias (harmless)
+    temperature: opts.temperature,
+  });
 
-  const raw = await doAiRequest(body); // your existing fetch/SDK call
-
-  // ---- Unified extraction (Responses + Chat Completions) ----
-  let text = "";
-
-  // 1) OpenAI Chat Completions
-  if (raw?.choices?.[0]?.message?.content) {
-    const c = raw.choices[0].message.content;
-    text = Array.isArray(c) ? c.map((p: any) => p?.text ?? "").join("") : String(c);
-  }
-
-  // 2) Responses API (output_text or content segments)
-  if (!text) {
-    if (typeof raw?.output_text === "string") text = raw.output_text;
-    else if (Array.isArray(raw?.content)) {
-      text = raw.content.map((seg: any) => seg?.text ?? seg?.content ?? "").join("");
-    } else if (Array.isArray(raw?.output)) {
-      text = raw.output.map((seg: any) => seg?.content ?? seg?.text ?? "").join("");
-    }
-  }
-
-  text = (text || "").trim();
-  const modelUsed = raw?.model ?? model;
-  const promptTokens = raw?.usage?.prompt_tokens ?? raw?.usage?.input_tokens ?? undefined;
-  const completionTokens = raw?.usage?.completion_tokens ?? raw?.usage?.output_tokens ?? undefined;
-
-  return { text, modelUsed, promptTokens, completionTokens };
+  const text = (resp?.choices?.[0]?.message?.content ?? "").trim();
+  return {
+    text,
+    modelUsed: resp?.model,
+    promptTokens: resp?.usage?.prompt_tokens ?? resp?.usage?.input_tokens,
+    completionTokens: resp?.usage?.completion_tokens ?? resp?.usage?.output_tokens,
+  };
 }
 
 async function callWithRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
   let attempt = 0;
   while (true) {
-    try { return await fn(); }
-    catch (err: any) {
+    try {
+      return await fn();
+    } catch (err: any) {
       const code = Number(err?.status || err?.code || 0);
-      if (attempt >= retries || ![408,429,500,502,503,504].includes(code)) throw err;
-      await new Promise(r => setTimeout(r, (250 + Math.random()*500) * (attempt+1)));
+      const retriable = [408, 429, 500, 502, 503, 504];
+      if (attempt >= retries || !retriable.includes(code)) throw err;
+      const delay = (250 + Math.random() * 500) * (attempt + 1);
+      await new Promise((r) => setTimeout(r, delay));
       attempt++;
     }
   }
 }
-
 
 // ----------------------------------------------------------------------------
 // Validation helpers
