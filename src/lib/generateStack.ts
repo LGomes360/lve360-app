@@ -1000,6 +1000,9 @@ const filteredItems: StackItem[] = baseItems.filter(
   // Apply link policy: pick Amazon category from quiz, prefer Fullscript for premium
   const finalStack: StackItem[] = applyLinkPolicy(enriched, sub, mode);
 
+  // Evidence attach (curate + sanitize) — make sure this sits BEFORE buildEvidenceSection(...)
+const withEvidence: StackItem[] = asArray(finalStack).map(attachEvidence);
+
   // Override evidence section in markdown
   const { section: evidenceSection } = buildEvidenceSection(withEvidence, 8);
   md = overrideEvidenceInMarkdown(md, evidenceSection);
