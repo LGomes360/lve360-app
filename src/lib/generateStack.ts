@@ -636,8 +636,9 @@ async function callLLM(model: string, messages: any[], opts: LLMOptions = {}): P
   return {
     text,
     modelUsed: resp?.model,
-    promptTokens: resp?.usage?.prompt_tokens ?? resp?.usage?.input_tokens,
-    completionTokens: resp?.usage?.completion_tokens ?? resp?.usage?.output_tokens,
+promptTokens: resp?.usage?.prompt_tokens,
+completionTokens: resp?.usage?.completion_tokens,
+
   };
 }
 
