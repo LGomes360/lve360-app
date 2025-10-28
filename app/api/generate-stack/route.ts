@@ -233,6 +233,23 @@ async function ensureFallbackStack(
     raw: { stack_id: stackId, items: [], safety_status: "warning", safety_warnings: warnings },
   };
 }
+// Hard wall to avoid Vercel 110s function timeout
+const HARD_TIMEOUT_MS = 95_000; // keep this < maxDuration*1000
+
+class TimeoutError extends Error {
+  constructor(message = "generator timed out") {
+    super(message);
+    this.name = "TimeoutError";
+  }
+}
+
+function withTimeout<T>(p: Promise<T>, ms = HARD_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new TimeoutError()), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); })
+     .catch((e) => { clearTimeout(t); reject(e); });
+  });
+}
 
 // ---- handler ----------------------------------------------------------------
 
@@ -285,33 +302,46 @@ export async function POST(req: NextRequest) {
 
     // Generate & persist (single source of truth in the generator)
     // Hint: cap Free stacks; Premium uncapped (or higher cap).
-    let result: any;
-    try {
-      result = await callGenerator(submissionId, {
-        mode,
-        maxItems: mode === "free" ? 12 : undefined,
-      });
-    } catch (genErr: unknown) {
-      const msg = (genErr as any)?.message ?? genErr;
-      console.error("[generate-stack] generator threw:", msg);
-      await logFailure("generate-stack", String(msg), { submissionId, mode });
+// Generate & persist (soft, timed)
+let result: any;
+try {
+  result = await withTimeout(
+    callGenerator(submissionId, {
+      mode,
+      maxItems: mode === "free" ? 12 : undefined,
+    }),
+    HARD_TIMEOUT_MS
+  );
 
-      // Fallback: ensure a safe stacks row with zero items and clear warning
-      const fb = await ensureFallbackStack(submission, [
-        "Generation temporarily failed (map on undefined). Please retry.",
-      ]);
-      return NextResponse.json(
-        {
-          ok: true,
-          mode,
-          user_tier: tier,
-          stack: fb,
-          itemsInserted: 0,
-          ai: { markdown: fb.markdown, raw: fb.raw },
-        },
-        { status: 200 }
-      );
-    }
+} catch (genErr: unknown) {
+  const isTimeout = genErr instanceof TimeoutError;
+  const msg = isTimeout
+    ? "Generation timed out. Returning safe fallback."
+    : (genErr as any)?.message ?? String(genErr);
+
+  console.error("[generate-stack] generator soft-fail:", msg);
+  await logFailure("generate-stack", msg, { submissionId, mode });
+
+  // Soft fallback: create/refresh an empty warning stack so UI can render
+  const fb = await ensureFallbackStack(submission, [
+    isTimeout
+      ? "Generation took too long. Please retry."
+      : "Generation temporarily failed. Please retry.",
+  ]);
+
+  return NextResponse.json(
+    {
+      ok: true,
+      mode,
+      user_tier: tier,
+      stack: fb,
+      itemsInserted: 0,
+      ai: { markdown: fb.markdown, raw: fb.raw },
+    },
+    { status: 200 }
+  );
+}
+
 
     // Count items actually written (best-effort)
     const stackId: string | undefined = result?.raw?.stack_id;
