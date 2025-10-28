@@ -16,8 +16,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { getTopCitationsFor } from "@/lib/evidence";
 import parseMarkdownToItems from "@/lib/parseMarkdownToItems";
 import { buildAmazonSearchLink } from "@/lib/affiliateLinks";
-import { callLLM as callLLMOpenAI } from "@/lib/openai";
-
+import { callLLM as callOpenAI } from "@/lib/openai";
 
 // --- Curated evidence index (JSON) ------------------------------------------
 import evidenceIndex from "@/evidence/evidence_index_top3.json";
