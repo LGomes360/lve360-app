@@ -582,8 +582,8 @@ Every table/list MUST be followed by **Analysis** ≥3 sentences that:
 • **Goals** → Table: Goal | Description, followed by Analysis.  
 • **Current Stack** → Table: Medication/Supplement | Purpose | Dosage | Timing, followed by Analysis.  
 • **Your Blueprint Recommendations** → 3-column table: Rank | Supplement | Why it Matters.  
-  Must include ≥${MIN_BP_ROWS} unique rows.  
-  If fewer than ${MIN_BP_ROWS}, regenerate until quota met.  
+  Must include ≥8 unique rows.  
+  If fewer than 8, regenerate until quota met.  
   Add: *“See Dosing & Notes for amounts and timing.”*  
   Follow with 3–5 sentence Analysis.  
 • **Dosing & Notes** → List + Analysis explaining amounts, timing, and safety notes.  
