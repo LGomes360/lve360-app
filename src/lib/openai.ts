@@ -195,28 +195,27 @@ export async function callLLM(
 
   // -------------------- Chat Completions (non-gpt-5*) -----------------------
   // Explicitly type the request so the SDK overload matches
-  const chatBody: OpenAI.ChatCompletionCreateParams = {
-    model,
-    messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    ...(typeof max === "number" ? { max_tokens: max } : {}),
-    ...(typeof opts.temperature === "number" ? { temperature: opts.temperature } : {}),
-  };
+// -------------------- Chat Completions (non-gpt-5*) -----------------------
+const chatMsgs: OpenAI.ChatCompletionMessageParam[] = messages.map((m) => {
+  if (m.role === "system" || m.role === "user" || m.role === "assistant") {
+    return { role: m.role, content: m.content };
+  }
+  // Fallback: treat unknown/tool roles as assistant text (no tool_call_id context here)
+  return { role: "assistant", content: m.content };
+});
 
-  const resp = await withTimeout(
-    opts.timeoutMs ?? 60_000,
-    client.chat.completions.create(chatBody as OpenAI.ChatCompletionCreateParams)
-  );
+const chatBody: OpenAI.ChatCompletionCreateParams = {
+  model,
+  messages: chatMsgs,
+  ...(typeof max === "number" ? { max_tokens: max } : {}),
+  ...(typeof opts.temperature === "number" ? { temperature: opts.temperature } : {}),
+};
 
-  const content = (resp?.choices?.[0]?.message?.content ?? "").trim();
-  const usage = normalizeUsageFromChat(resp);
+const resp = await withTimeout(
+  opts.timeoutMs ?? 60_000,
+  client.chat.completions.create(chatBody)
+);
 
-  return {
-    model: (resp as any)?.model ?? model,
-    usage,
-    choices: [{ message: { content } }],
-    __raw: resp,
-  };
-}
 
 // ----------------------------------------------------------------------------
 // Back-compat alias
