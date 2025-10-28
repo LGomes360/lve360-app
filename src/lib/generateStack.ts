@@ -905,22 +905,18 @@ console.info("validation.targets", targets);
   // ----- Fallback attempt (stronger model) ----------------------------------
   if (!passes) {
     try {
-  const resp = await callLLM("gpt-5-mini", msgs, { maxTokens: 2800, temperature: 0.4 });
+const resp = await callLLM("gpt-5", msgs, { maxTokens: 3200, temperature: 0.4 });
 md = resp.text ?? "";
 
-// hard guard so we fail quickly if the draft is empty/too short
 if (!md || wc(md) < 120) {
-  throw new Error("Empty or too-short draft from mini model");
+  throw new Error("Empty or too-short draft from main model");
 }
 
 llmRaw = resp;
-modelUsed = resp.modelUsed ?? "gpt-5-mini";
+modelUsed = resp.modelUsed ?? "gpt-5";
 tokensUsed = ((resp.promptTokens ?? 0) + (resp.completionTokens ?? 0)) || null;
 promptTokens = resp.promptTokens ?? null;
 completionTokens = resp.completionTokens ?? null;
-
-console.log("[generateStack] modelUsed =", modelUsed);
-
       md = resp.text ?? "";
     } catch (err) {
       console.warn("Fallback model failed:", err);
