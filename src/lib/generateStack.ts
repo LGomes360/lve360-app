@@ -655,11 +655,12 @@ async function callLLM(
     temperature: opts.temperature,
   });
 
+  const r: any = resp; // allow either old chat shape or new normalized shape
   return {
-    text: resp?.text ?? (resp?.choices?.[0]?.message?.content ?? "").trim(),
-    modelUsed: resp?.model ?? resp?.modelUsed,
-    promptTokens: resp?.usage?.prompt_tokens ?? resp?.promptTokens,
-    completionTokens: resp?.usage?.completion_tokens ?? resp?.completionTokens,
+    text: (r?.text ?? r?.output_text ?? r?.choices?.[0]?.message?.content ?? "").trim(),
+    modelUsed: r?.modelUsed ?? r?.model ?? undefined,
+    promptTokens: r?.promptTokens ?? r?.usage?.prompt_tokens ?? r?.usage?.input_tokens ?? undefined,
+    completionTokens: r?.completionTokens ?? r?.usage?.completion_tokens ?? r?.usage?.output_tokens ?? undefined,
   };
 }
 
