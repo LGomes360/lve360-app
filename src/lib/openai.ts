@@ -193,15 +193,18 @@ export async function callLLM(
     };
   }
 
-  // -------------------- Chat Completions (non-gpt-5*) -----------------------
-  // Explicitly type the request so the SDK overload matches
+  
 // -------------------- Chat Completions (non-gpt-5*) -----------------------
 const chatMsgs: OpenAI.ChatCompletionMessageParam[] = messages.map((m) => {
-  if (m.role === "system" || m.role === "user" || m.role === "assistant") {
-    return { role: m.role, content: m.content };
+  switch (m.role) {
+    case "system":
+    case "user":
+    case "assistant":
+      return { role: m.role, content: m.content };
+    // If we’re not actually doing tool-calls, coerce anything else to assistant text
+    default:
+      return { role: "assistant", content: m.content };
   }
-  // Fallback: treat unknown/tool roles as assistant text (no tool_call_id context here)
-  return { role: "assistant", content: m.content };
 });
 
 const chatBody: OpenAI.ChatCompletionCreateParams = {
@@ -215,7 +218,6 @@ const resp = await withTimeout(
   opts.timeoutMs ?? 60_000,
   client.chat.completions.create(chatBody)
 );
-
 
 // ----------------------------------------------------------------------------
 // Back-compat alias
