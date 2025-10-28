@@ -18,7 +18,7 @@ function getClient(): OpenAIClient {
 }
 
 // ---------------------------------------------------------------------------
-// Model capability map
+// Capabilities
 // ---------------------------------------------------------------------------
 type Caps = { family: "gpt5" | "gpt4o"; acceptsTemperature: boolean; maxKey: "max_output_tokens" | "max_tokens" };
 const MODEL_CAPS: Record<string, Caps> = {
@@ -33,22 +33,20 @@ function capsFor(model: string): Caps {
 }
 
 // ---------------------------------------------------------------------------
-// Public types
+// Types
 // ---------------------------------------------------------------------------
 export type LLMMessage = { role: "system" | "user" | "assistant"; content: string | any[] };
 export type LLMOpts = {
-  max?: number;         // preferred
+  max?: number;
   maxTokens?: number;   // legacy alias
-  temperature?: number; // ignored when model disallows it
+  temperature?: number;
   response_format?: { type: "text" | "json_object" } | undefined; // mapped to text.format
 };
-
-// Normalized return (compatible with generateStack.ts)
 type NormalizedUsage = { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number };
 type NormalizedReturn = { text: string; model?: string; usage?: NormalizedUsage; choices?: any; llmRaw?: any };
 
 // ---------------------------------------------------------------------------
-// Core call
+// Core
 // ---------------------------------------------------------------------------
 export async function callLLM(
   messages: LLMMessage[],
@@ -76,24 +74,25 @@ export async function callLLM(
 
   if (caps.family === "gpt5") {
     // ---------------- Responses API ----------------
+    // IMPORTANT: content[].type must be "input_text"
     const input = messages.map((m) => ({
       role: m.role,
       content: Array.isArray((m as any).content)
         ? (m as any).content
-        : [{ type: "text", text: String((m as any).content ?? "") }],
+        : [{ type: "input_text", text: String((m as any).content ?? "") }],
     }));
 
     const payload: any = {
       model,
-      input, // <- Responses API uses `input`
+      input, // <- Responses API
       [caps.maxKey]: max, // max_output_tokens
-      text: { format: textFormat }, // <- NEW: replaces response_format
+      text: { format: textFormat }, // "text" | "json"
     };
     if (temp !== undefined) payload.temperature = temp;
 
     raw = await client.responses.create(payload);
 
-    // If too short/empty, retry once with flattened input
+    // If too short/empty, retry once with flattened text input
     const primaryText =
       (raw?.output_text as string) ??
       (Array.isArray(raw?.content) ? raw.content.map((c: any) => c?.text ?? c?.content ?? "").join("") : "");
@@ -105,7 +104,7 @@ export async function callLLM(
 
       raw = await client.responses.create({
         model,
-        input: flat,
+        input: [{ role: "user", content: [{ type: "input_text", text: flat }] }],
         [caps.maxKey]: max,
         text: { format: textFormat },
         ...(temp !== undefined ? { temperature: temp } : {}),
