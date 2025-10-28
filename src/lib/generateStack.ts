@@ -901,12 +901,21 @@ export async function generateStackForSubmission(
   let completionTokens: number | null = null;
   let passes = false;
 
-// ----- First attempt (fast) -------------------------------------------------
+// ----- First attempt (faster model) ---------------------------------------
 try {
   const fast = await callLLM("gpt-5-mini", msgs, { maxTokens: 1800, timeoutMs: 40_000 });
 
-  // take text + basic telemetry
+  // Take content from the fast response
   md = (fast.text ?? "").trim();
+
+  // Early guard — allow fallback without throwing yet
+  if (wc(md) < 200) {
+    console.warn("[mini] short draft; trying fallback");
+    md = ""; // signal for fallback path
+    throw new Error("mini short draft");
+  }
+
+  // Telemetry from the fast call
   llmRaw = fast;
   modelUsed = fast.modelUsed ?? "gpt-5-mini";
   promptTokens = fast.promptTokens ?? null;
@@ -915,96 +924,71 @@ try {
 
   console.log("[generateStack] modelUsed =", modelUsed);
 
-  // Early soft guard — DO NOT throw; allow fallback
-  if (wc(md) < 200) {
-    console.warn("Mini returned short draft; will try fallback.");
-    md = ""; // signal to use fallback
+  // Validate
+  const targets = computeValidationTargets(mode, cap);
+  const wordCountOK    = wc(md) >= targets.minWords;
+  const headingsValid  = headingsOK(md);
+  const blueprintValid = blueprintOK(md, targets.minRows);
+  const citationsValid = citationsOK(md);
+  const narrativesValid= narrativesOK(md, targets.minSent);
+  const endValid       = hasEnd(md);
+
+  console.log("validation.debug", {
+    wordCountOK, headingsValid, blueprintValid, citationsValid, narrativesValid, endValid,
+    actualWordCount: wc(md),
+  });
+  console.info("validation.targets", targets);
+
+  if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
+    passes = true;
   }
 } catch (err) {
   console.warn("Mini model failed:", err);
-  md = ""; // force fallback path
 }
 
-    // Validation
-const targets = computeValidationTargets(mode, cap);
-const wordCountOK    = wc(md) >= targets.minWords;
-const headingsValid  = headingsOK(md);
-const blueprintValid = blueprintOK(md, targets.minRows);
-const citationsValid = citationsOK(md);
-const narrativesValid= narrativesOK(md, targets.minSent);
-const endValid       = hasEnd(md);
-
-console.log("validation.debug", {
-  wordCountOK,
-  headingsValid,
-  blueprintValid,
-  citationsValid,
-  narrativesValid,
-  endValid,
-  actualWordCount: wc(md),
-});
-console.info("validation.targets", targets);
-
-
-    if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
-      passes = true;
-    }
-  } catch (err) {
-    console.warn("Mini model failed:", err);
-  }
-
-// ----- Fallback attempt (stronger) ------------------------------------------
-if (!md) {
+// ----- Fallback attempt (stronger model) ----------------------------------
+if (!passes) {
   try {
     const slow = await callLLM("gpt-5", msgs, { maxTokens: 2400, timeoutMs: 45_000 });
 
     md = (slow.text ?? "").trim();
+    if (!md || wc(md) < 120) {
+      throw new Error("Empty or too-short draft from main model");
+    }
+
+    // Telemetry from the slow call
     llmRaw = slow;
     modelUsed = slow.modelUsed ?? "gpt-5";
     promptTokens = slow.promptTokens ?? null;
     completionTokens = slow.completionTokens ?? null;
     tokensUsed = ((promptTokens ?? 0) + (completionTokens ?? 0)) || null;
 
-    console.log("[generateStack] modelUsed =", modelUsed);
+    // Validate
+    const targets = computeValidationTargets(mode, cap);
+    const wordCountOK    = wc(md) >= targets.minWords;
+    const headingsValid  = headingsOK(md);
+    const blueprintValid = blueprintOK(md, targets.minRows);
+    const citationsValid = citationsOK(md);
+    const narrativesValid= narrativesOK(md, targets.minSent);
+    const endValid       = hasEnd(md);
+
+    console.log("validation.debug", {
+      wordCountOK, headingsValid, blueprintValid, citationsValid, narrativesValid, endValid,
+      actualWordCount: wc(md),
+    });
+
+    if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
+      passes = true;
+    }
   } catch (err) {
     console.warn("Fallback model failed:", err);
   }
 }
 
-// ----- Repair BEFORE any parsing/validation ---------------------------------
 md = ensureEnd(md || "");
 md = forceHeadings(md);
 md = padBlueprint(md, computeValidationTargets(mode, cap).minRows);
 
-// NOTE: From here, continue with parse → safety → enrichment → evidence override → shopping override,
-// then do ONE final validation pass with runValidation(md, mode, cap).
-
-const targets = computeValidationTargets(mode, cap);
-const wordCountOK    = wc(md) >= targets.minWords;
-const headingsValid  = headingsOK(md);
-const blueprintValid = blueprintOK(md, targets.minRows);
-const citationsValid = citationsOK(md);
-const narrativesValid= narrativesOK(md, targets.minSent);
-const endValid       = hasEnd(md);
-
-console.log("validation.debug", {
-  wordCountOK,
-  headingsValid,
-  blueprintValid,
-  citationsValid,
-  narrativesValid,
-  endValid,
-  actualWordCount: wc(md),
-});
-
-
-    if (wordCountOK && headingsValid && blueprintValid && citationsValid && narrativesValid && endValid) {
-      passes = true;
-    }
-  }
-
-  md = ensureEnd(md);
-  
   // --- Remove non-supplement "timing" artifacts that slipped out of Dosing & Notes
 const TIMING_ARTIFACT_RE = /^(on\s+waking|am\b.*breakfast|evening\b.*dinner|before\s+bed|pre[- ]?exercise(?:.*)?|hold\/adjust|simplify\s+sleep\s+aids)$/i;
 
