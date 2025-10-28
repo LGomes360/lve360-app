@@ -877,10 +877,10 @@ console.info("validation.targets", targets);
   // ----- Fallback attempt (stronger model) ----------------------------------
   if (!passes) {
     try {
-      const resp = await callLLM(msgs, "gpt-5");
+      const resp = await callLLM("gpt-5", msgs);
       llmRaw = resp;
-      modelUsed = resp.model ?? "gpt-5";
-      tokensUsed = resp.usage?.total_tokens ?? null;
+      modelUsed = resp.modelUsed ?? "gpt-5";
+      tokensUsed = ((resp.promptTokens ?? 0) + (resp.completionTokens ?? 0)) || null;
       promptTokens = resp.usage?.prompt_tokens ?? null;
       completionTokens = resp.usage?.completion_tokens ?? null;
       md = resp.choices?.[0]?.message?.content ?? "";
