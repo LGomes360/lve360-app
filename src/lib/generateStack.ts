@@ -999,16 +999,6 @@ const filteredItems: StackItem[] = rawCapped.map((i: any) => ({
   // Apply link policy: pick Amazon category from quiz, prefer Fullscript for premium
   const finalStack: StackItem[] = applyLinkPolicy(enriched, sub, mode);
 
-  // Evidence attach
-  const withEvidence: StackItem[] = asArray(finalStack).map(attachEvidence);
-function attachEvidence(item: StackItem): StackItem {
-  if (!item?.name || looksLikeTimingArtifact(item.name)) return { ...item, citations: null };
-
-  const normName = normalizeSupplementName(item.name);
-  const candidates = buildEvidenceCandidates(normName);
-  ...
-}
-
   // Override evidence section in markdown
   const { section: evidenceSection } = buildEvidenceSection(withEvidence, 8);
   md = overrideEvidenceInMarkdown(md, evidenceSection);
