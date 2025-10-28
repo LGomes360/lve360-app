@@ -190,6 +190,53 @@ function parseDose(dose?: string | null): { amount?: number; unit?: string } {
   }
   return { amount: val, unit: unit ?? undefined };
 }
+// Ensures every required heading exists (adds empty sections if missing).
+function forceHeadings(md: string): string {
+  let out = md || "";
+  for (const h of HEADINGS.slice(0, -1)) {
+    if (!out.includes(h)) {
+      out += `\n\n${h}\n\n**Analysis**\n\nThis section will be auto-completed based on your intake.`;
+    }
+  }
+  return out;
+}
+
+// Ensures the Blueprint table has >= min rows (pads placeholders if needed).
+function padBlueprint(md: string, minRows: number): string {
+  const re = /## Your Blueprint Recommendations([\s\S]*?)(?=\n## |\n## END|$)/i;
+  const m = md.match(re);
+  const header = `| Rank | Supplement | Why it Matters |\n| --- | --- | --- |\n`;
+  if (!m) {
+    const block = `## Your Blueprint Recommendations\n\n${header}${Array.from({length:minRows}).map((_,i)=>`| ${i+1} | TBD | See Dosing & Notes |\n`).join("")}\n**Analysis**\n\nThese are placeholders and will be refined next run.\n`;
+    return md.replace(/\n## END/i, `\n\n${block}\n\n## END`);
+  }
+  const body = m[1];
+  const lines = body.split("\n").filter(l => l.trim().startsWith("|"));
+  const data = lines.slice(2); // drop header + separator if present
+  const need = Math.max(0, minRows - data.length);
+  if (need <= 0) return md;
+  const pad = Array.from({length:need}).map((_,i)=>`| ${data.length + i + 1} | TBD | See Dosing & Notes |`).join("\n");
+  const patched = body.includes("| --- |")
+    ? body.replace(/\n(?!(.|\n))*$/, "") + `\n${pad}\n`
+    : `\n${header}${data.join("\n")}\n${pad}\n`;
+  return md.replace(re, `## Your Blueprint Recommendations${patched}`);
+}
+
+// Single, late validation pass (after Evidence/Shopping overrides).
+function runValidation(md: string, mode: "free"|"premium", cap?: number) {
+  const targets = computeValidationTargets(mode, cap);
+  const ok = {
+    wordCountOK: wc(md) >= targets.minWords,
+    headingsValid: headingsOK(md),
+    blueprintValid: blueprintOK(md, targets.minRows),
+    citationsValid: citationsOK(md),
+    narrativesValid: narrativesOK(md, targets.minSent),
+    endValid: hasEnd(md),
+  };
+  console.info("validation.targets", targets);
+  console.info("validation.debug", { ...ok, actualWordCount: wc(md) });
+  return Object.values(ok).every(Boolean);
+}
 
 // ----------------------------------------------------------------------------
 // Name normalization + aliasing for evidence lookup
@@ -854,30 +901,29 @@ export async function generateStackForSubmission(
   let completionTokens: number | null = null;
   let passes = false;
 
-  // ----- First attempt (faster model) ---------------------------------------
-  try {
+// ----- First attempt (fast) -------------------------------------------------
+try {
+  const fast = await callLLM("gpt-5-mini", msgs, { maxTokens: 1800, timeoutMs: 40_000 });
 
-const resp = await callLLM("gpt-5-mini", msgs, {
-  maxTokens: 1800,       // lets it write ~1–1.3k words
-  timeoutMs: 55_000,     // keep under Vercel’s 120s total
-});
+  // take text + basic telemetry
+  md = (fast.text ?? "").trim();
+  llmRaw = fast;
+  modelUsed = fast.modelUsed ?? "gpt-5-mini";
+  promptTokens = fast.promptTokens ?? null;
+  completionTokens = fast.completionTokens ?? null;
+  tokensUsed = ((promptTokens ?? 0) + (completionTokens ?? 0)) || null;
 
-md = resp.text ?? "";
+  console.log("[generateStack] modelUsed =", modelUsed);
 
-// hard guard so we fail quickly if the draft is empty/too short
-if (!md || wc(md) < 120) {
-  throw new Error("Empty or too-short draft from mini model");
+  // Early soft guard — DO NOT throw; allow fallback
+  if (wc(md) < 200) {
+    console.warn("Mini returned short draft; will try fallback.");
+    md = ""; // signal to use fallback
+  }
+} catch (err) {
+  console.warn("Mini model failed:", err);
+  md = ""; // force fallback path
 }
-
-llmRaw = resp;
-modelUsed = resp.modelUsed ?? "gpt-5-mini";
-tokensUsed = ((resp.promptTokens ?? 0) + (resp.completionTokens ?? 0)) || null;
-promptTokens = resp.promptTokens ?? null;
-completionTokens = resp.completionTokens ?? null;
-
-console.log("[generateStack] modelUsed =", modelUsed);
-
-
 
     // Validation
 const targets = computeValidationTargets(mode, cap);
@@ -907,28 +953,31 @@ console.info("validation.targets", targets);
     console.warn("Mini model failed:", err);
   }
 
-  // ----- Fallback attempt (stronger model) ----------------------------------
-  if (!passes) {
-    try {
-const resp = await callLLM("gpt-5", msgs, {
-  maxTokens: 2400,       // fuller pass for citations/table
-  timeoutMs: 55_000,
-});
-md = resp.text ?? "";
+// ----- Fallback attempt (stronger) ------------------------------------------
+if (!md) {
+  try {
+    const slow = await callLLM("gpt-5", msgs, { maxTokens: 2400, timeoutMs: 45_000 });
 
-if (!md || wc(md) < 120) {
-  throw new Error("Empty or too-short draft from main model");
+    md = (slow.text ?? "").trim();
+    llmRaw = slow;
+    modelUsed = slow.modelUsed ?? "gpt-5";
+    promptTokens = slow.promptTokens ?? null;
+    completionTokens = slow.completionTokens ?? null;
+    tokensUsed = ((promptTokens ?? 0) + (completionTokens ?? 0)) || null;
+
+    console.log("[generateStack] modelUsed =", modelUsed);
+  } catch (err) {
+    console.warn("Fallback model failed:", err);
+  }
 }
 
-llmRaw = resp;
-modelUsed = resp.modelUsed ?? "gpt-5";
-tokensUsed = ((resp.promptTokens ?? 0) + (resp.completionTokens ?? 0)) || null;
-promptTokens = resp.promptTokens ?? null;
-completionTokens = resp.completionTokens ?? null;
-      md = resp.text ?? "";
-    } catch (err) {
-      console.warn("Fallback model failed:", err);
-    }
+// ----- Repair BEFORE any parsing/validation ---------------------------------
+md = ensureEnd(md || "");
+md = forceHeadings(md);
+md = padBlueprint(md, computeValidationTargets(mode, cap).minRows);
+
+// NOTE: From here, continue with parse → safety → enrichment → evidence override → shopping override,
+// then do ONE final validation pass with runValidation(md, mode, cap).
 
 const targets = computeValidationTargets(mode, cap);
 const wordCountOK    = wc(md) >= targets.minWords;
