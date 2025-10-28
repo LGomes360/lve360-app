@@ -835,7 +835,7 @@ export async function generateStackForSubmission(
 
   // ----- First attempt (faster model) ---------------------------------------
   try {
-    const resp = await callLLM(msgs, "gpt-5-mini");
+    const resp = await callLLM("gpt-5-mini", msgs);
     llmRaw = resp;
     modelUsed = resp.model ?? "gpt-5-mini";
     tokensUsed = resp.usage?.total_tokens ?? null;
