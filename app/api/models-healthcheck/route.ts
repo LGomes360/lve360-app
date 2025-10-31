@@ -1,77 +1,62 @@
 /* eslint-disable no-console */
 import { NextResponse } from "next/server";
-import { callLLM } from "@/lib/openai";
+import { callLLM, type ChatMessage } from "@/lib/openai";
 
-type Probe = {
-  model: string;
-  ok: boolean;
-  used: string | null;
-  prompt_tokens: number | null;
-  completion_tokens: number | null;
-  error: string | null;
-  raw_sample?: string | null;
+export const dynamic = "force-dynamic";
+
+const MODELS = {
+  MINI: process.env.OPENAI_MODEL_MINI || process.env.OPENAI_MODEL || "gpt-5-mini",
+  MAIN: process.env.OPENAI_MODEL_MAIN || "gpt-5",
 };
 
-function env(name: string, fallback?: string) {
-  const v = process.env[name];
-  return (v && v.trim()) || fallback || null;
-}
-
-function norm(s: unknown) {
-  return String(s ?? "").trim().toLowerCase().replace(/^["'`]+|["'`]+$/g, "");
-}
-
-async function probe(model: string): Promise<Probe> {
+async function probe(model: string) {
   try {
-    // Use explicit instructions (system) + minimal input so Responses API outputs text
-    const res = await callLLM(
-      [
-        { role: "system", content: "You are a health checker. Reply exactly with: ok" },
-        { role: "user", content: "ok" },
-      ],
-      model,
-      { maxTokens: 8, timeoutMs: 10_000 }
-    );
+    const msgs: ChatMessage[] = [
+      { role: "system", content: "Reply exactly with: ok" },
+      { role: "user", content: "ok" },
+    ];
 
-    const content = res?.choices?.[0]?.message?.content ?? "";
-    const text = norm(content);
-    const ok = text === "ok" || text.startsWith("ok");
+    // GPT-5 requires max_output_tokens >= 16; the wrapper auto-clamps,
+    // but we’ll request 32 here to be explicit.
+    const res = await callLLM(model, msgs, { maxTokens: 32, timeoutMs: 10_000 });
+
+    const text = (res.text || "").trim().toLowerCase();
+    const ok = text.includes("ok");
 
     return {
       model,
       ok,
-      used: (res as any)?.model ?? model,
-      prompt_tokens: res?.usage?.prompt_tokens ?? null,
-      completion_tokens: res?.usage?.completion_tokens ?? null,
+      used: res.modelUsed ?? null,
+      prompt_tokens: res.promptTokens ?? null,
+      completion_tokens: res.completionTokens ?? null,
       error: null,
-      raw_sample: String(content ?? "").slice(0, 80),
+      raw_sample: text.slice(0, 120),
     };
-  } catch (e: any) {
+  } catch (err: any) {
     return {
       model,
       ok: false,
       used: null,
       prompt_tokens: null,
       completion_tokens: null,
-      error: String(e?.message || e),
+      error: String(err?.message ?? err),
     };
   }
 }
 
 export async function GET() {
-  const keyPresent = !!process.env.OPENAI_API_KEY;
-  const MINI = env("OPENAI_MINI_MODEL", "gpt-5-mini")!;
-  const MAIN = env("OPENAI_MAIN_MODEL", "gpt-5")!;
+  const key_present = Boolean(process.env.OPENAI_API_KEY);
+  const mini = await probe(MODELS.MINI);
+  const main = await probe(MODELS.MAIN);
 
-  const [mini, main] = await Promise.all([probe(MINI), probe(MAIN)]);
-  const ok = keyPresent && mini.ok && main.ok;
-
-  return NextResponse.json({
-    ok,
+  const out = {
+    ok: Boolean(mini.ok || main.ok),
     mini,
     main,
-    resolved: { MINI, MAIN },
-    key_present: keyPresent,
-    project: env("OPENAI_PROJECT"),
-  });
+    resolved: MODELS,
+    key_present,
+    project: process.env.OPENAI_PROJECT || null,
+  };
+
+  return NextResponse.json(out, { status: out.ok ? 200 : 502 });
 }
