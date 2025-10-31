@@ -796,9 +796,16 @@ function narrativesOK(md: string, minSent: number) {
     return sentences.length >= minSent;
   });
 }
-function ensureEnd(md: string) {
-  return hasEnd(md) ? md : (md || "") + "\n\n## END";
+// Accept either plain END or heading ## END
+const END_RE = /(^|\n)(?:##\s*)?END\s*$/m;
+function hasEnd(md: string) {
+  return END_RE.test(md || "");
 }
+function ensureEnd(md: string) {
+  const s = (md || "").trimEnd();
+  return hasEnd(s) ? s : s + "\n\nEND\n";
+}
+
 // --- Mode-aware validation targets ------------------------------------------
 // Unified targets for all users — this is our hook, so quality must be high.
 function computeValidationTargets(_mode: "free" | "premium", _cap?: number) {
@@ -917,17 +924,43 @@ export async function generateStackForSubmission(
 
 // ----- First attempt (faster model) ---------------------------------------
 try {
-  const fast = await callLLM("gpt-5-mini", msgs, { maxTokens: 1800, timeoutMs: 40_000 });
+  const fast = await callLLM("gpt-5-mini", msgs, { maxTokens: 2200, timeoutMs: 40_000 });
 
   // Take content from the fast response
   md = (fast.text ?? "").trim();
 
-  // Early guard — allow fallback without throwing yet
+// Early guard — try a fast expand pass before falling back
+if (wc(md) < 200) {
+  console.warn("[mini] short draft; running expand pass");
+
+  const expandMsgs: ChatMsg[] = [
+    { role: "system", content:
+`You are LVE360 Concierge AI.
+Expand the user draft to fully meet ALL required headings and targets.
+Rules:
+- Keep the exact heading list and order from the system prompt.
+- Fill tables with realistic, non-placeholder items (no "---", no "TBD").
+- Write ≥3 sentences of plain-English analysis after each section.
+- Include ≥8 Evidence links total (PubMed/PMC/DOI allowed).
+- End with a final line: END` },
+    { role: "user", content:
+`Expand this draft to full length, preserving headings and improving specifics:
+
+----- DRAFT START -----
+${md}
+----- DRAFT END -----` }
+  ];
+
+  const fix = await callLLM("gpt-5-mini", expandMsgs, { maxTokens: 1600, timeoutMs: 20_000 });
+  md = (fix.text ?? "").trim();
+
   if (wc(md) < 200) {
-    console.warn("[mini] short draft; trying fallback");
+    console.warn("[mini] expand pass still short; trying fallback");
     md = ""; // signal for fallback path
     throw new Error("mini short draft");
   }
+}
+
 
   // Telemetry from the fast call
   llmRaw = fast;
@@ -963,12 +996,34 @@ try {
 // ----- Fallback attempt (stronger model) ----------------------------------
 if (!passes) {
   try {
-    const slow = await callLLM("gpt-5", msgs, { maxTokens: 2400, timeoutMs: 45_000 });
+    const slow = await callLLM("gpt-5", msgs, { maxTokens: 3000, timeoutMs: 55_000 });
 
     md = (slow.text ?? "").trim();
-    if (!md || wc(md) < 120) {
-      throw new Error("Empty or too-short draft from main model");
-    }
+ if (!md || wc(md) < 120) {
+  console.warn("[main] short draft; running expand pass");
+
+  const expandMsgsMain: ChatMsg[] = [
+    { role: "system", content:
+`You are LVE360 Concierge AI.
+Expand the user draft to meet all required headings and quality gates.
+No placeholders like "---" or "TBD". Provide concrete items and ≥8 evidence links.
+End with: END` },
+    { role: "user", content:
+`Expand this draft to full length, preserving headings:
+
+----- DRAFT START -----
+${md || ""}
+----- DRAFT END -----` }
+  ];
+
+  const fixMain = await callLLM("gpt-5", expandMsgsMain, { maxTokens: 1600, timeoutMs: 25_000 });
+  md = (fixMain.text ?? "").trim();
+
+  if (!md || wc(md) < 120) {
+    throw new Error("Empty or too-short draft from main model");
+  }
+}
+
 
     // Telemetry from the slow call
     llmRaw = slow;
@@ -1028,9 +1083,14 @@ const baseItems: StackItem[] = rawCapped.map((i: any) => ({
   is_current: i?.is_current === true, // null/undefined -> false
 }));
 
-const filteredItems: StackItem[] = baseItems.filter(
-  (it) => it?.name && !looksLikeTimingArtifact(it.name)
-);
+const filteredItems: StackItem[] = baseItems.filter((it) => {
+  const n = (it?.name || "").trim();
+  if (!n) return false;
+  if (n === "---") return false;
+  if (/^TBD$/i.test(n)) return false;
+  return !looksLikeTimingArtifact(n);
+});
+
   
   type SafetyStatus = "safe" | "warning" | "error";
   interface SafetyOutput {
