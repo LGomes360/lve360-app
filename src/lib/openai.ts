@@ -1,7 +1,9 @@
 /* eslint-disable no-console */
 // ----------------------------------------------------------------------------
-// OpenAI wrapper (GPT-5 family uses Responses API; others use Chat Completions)
-// Single entry: callLLM(messagesOrText, model, opts)
+// OpenAI wrapper
+//  - GPT-5 family -> Responses API with role/content "input" blocks
+//  - Others (e.g., gpt-4o) -> Chat Completions
+//  - Single entry: callLLM(messagesOrText, model, opts)
 // ----------------------------------------------------------------------------
 
 import OpenAI from "openai";
@@ -12,9 +14,9 @@ export type ChatMessage = {
 };
 
 export type CallOpts = {
-  max?: number;            // alias
-  maxTokens?: number;      // alias
-  temperature?: number;    // ignored for GPT-5 (Responses)
+  max?: number;            // alias for maxTokens
+  maxTokens?: number;      // alias for max
+  temperature?: number;    // ignored for GPT-5 responses
   timeoutMs?: number;      // default 60s
 };
 
@@ -45,8 +47,8 @@ function modelCaps(model: string): Caps {
   if (m.startsWith("gpt-5")) {
     return {
       family: "responses",
-      acceptsTemperature: false,        // Responses: many 400s if you pass unknown keys
-      maxKey: "max_output_tokens",      // canonical for Responses API
+      acceptsTemperature: false,
+      maxKey: "max_output_tokens",
     };
   }
   return {
@@ -59,11 +61,9 @@ function modelCaps(model: string): Caps {
 function resolvedMax(caps: Caps, opts?: CallOpts): { key: string; value: number } | undefined {
   const v = typeof opts?.max === "number" ? opts.max : opts?.maxTokens;
   if (typeof v === "number" && v > 0) {
-    // Responses API rejects too-small values. Clamp to >=16 just to be safe.
-    const val = Math.max(16, v);
-    return { key: caps.maxKey, value: val };
+    return { key: caps.maxKey, value: Math.max(16, v) };
   }
-  // Provide a conservative default so GPT-5 actually emits output
+  // Default to a safe value so GPT-5 actually emits text
   if (caps.family === "responses") return { key: "max_output_tokens", value: 128 };
   return undefined;
 }
@@ -71,38 +71,33 @@ function resolvedMax(caps: Caps, opts?: CallOpts): { key: string; value: number 
 // ----------------------------------------------------------------------------
 // Responses API helpers (GPT-5 family)
 // ----------------------------------------------------------------------------
-function extractSystemAndTranscript(messages: ChatMessage[]) {
-  const systems = messages.filter(m => m.role === "system").map(m => m.content.trim());
-  const instructions = systems.join("\n\n").trim() || undefined;
-
-  // Build a simple text transcript for `input` (most reliable for Responses API)
-  // We purposely exclude "tool" messages (map those to assistant text if needed).
-  const lines: string[] = [];
-  for (const m of messages) {
-    if (m.role === "system") continue;
-    const role = m.role === "tool" ? "assistant" : m.role;
+function toResponsesInput(messages: ChatMessage[]) {
+  // Build strict role/content "input" blocks. This is the format GPT-5 expects.
+  return messages.map((m) => {
+    const role = m.role === "tool" ? "assistant" : m.role; // map tool -> assistant
     const text = (m.content || "").trim();
-    if (!text) continue;
-    lines.push(`${role.toUpperCase()}: ${text}`);
-  }
-  const transcript = lines.join("\n\n");
-  return { instructions, transcript };
+    return {
+      role,
+      content: [{ type: "input_text", text }],
+    };
+  });
 }
 
 function pickTextFromResponses(raw: any): string {
-  // 1) Fast path used by SDK: output_text (SDK synthesizes this for text-only)
-  if (typeof raw?.output_text === "string") {
-    return raw.output_text.trim();
-  }
+  // SDK often synthesizes output_text for pure-text responses
+  if (typeof raw?.output_text === "string") return raw.output_text.trim();
 
-  // 2) Walk outputs
-  const take = (arr: any[]): string =>
+  // Walk output/message content arrays
+  const collect = (arr: any[]): string =>
     (arr || [])
-      .map(seg => {
+      .map((seg: any) => {
+        // seg.content may be an array of {type:"output_text", text:"..."}
         if (typeof seg?.text === "string") return seg.text;
         if (Array.isArray(seg?.content)) {
-          // seg.content could be an array of {type:"output_text", text:"..."} or similar
-          return seg.content.map((c: any) => c?.text || c?.content || "").filter(Boolean).join("");
+          return seg.content
+            .map((c: any) => (typeof c?.text === "string" ? c.text : (typeof c?.content === "string" ? c.content : "")))
+            .filter(Boolean)
+            .join("");
         }
         if (typeof seg?.content === "string") return seg.content;
         return "";
@@ -110,13 +105,10 @@ function pickTextFromResponses(raw: any): string {
       .filter(Boolean)
       .join("");
 
-  const a = take(raw?.output);
+  const a = collect(raw?.output);
   if (a) return a.trim();
-
-  const b = take(raw?.content);
+  const b = collect(raw?.content);
   if (b) return b.trim();
-
-  // 3) Nothing found
   return "";
 }
 
@@ -135,10 +127,10 @@ function normalizeUsageFromResponses(raw: any) {
 // Chat Completions helpers (non-GPT-5)
 // ----------------------------------------------------------------------------
 function toChatMessages(messages: ChatMessage[]) {
-  // Map 'tool' to 'assistant' to avoid type/tool_call quirks
   return messages.map((m) =>
-    m.role === "tool" ? ({ role: "assistant", content: m.content } as any)
-                      : ({ role: m.role, content: m.content } as any)
+    m.role === "tool"
+      ? ({ role: "assistant", content: m.content } as any)
+      : ({ role: m.role, content: m.content } as any)
   );
 }
 
@@ -182,19 +174,13 @@ export async function callLLM(
   const maxCfg = resolvedMax(caps, opts);
 
   if (caps.family === "responses") {
-    // Build instructions + single-string transcript for maximum compatibility
-    const { instructions, transcript } = extractSystemAndTranscript(messages);
-
+    // Build role/content input blocks ONLY (no 'messages', no 'modalities')
     const body: any = {
       model,
-      input: transcript || "Respond with 'ok'.",
-      // response_format helps ensure text content
-      response_format: { type: "text" },
+      input: toResponsesInput(messages),
+      response_format: { type: "text" }, // keep text-only output
     };
-    if (instructions) body.instructions = instructions;
     if (maxCfg) body[maxCfg.key] = maxCfg.value;
-    // Temperature often ignored / can 400 on some versions; only pass if accepted
-    // (caps.acceptsTemperature is false for Responses/GPT-5 family)
 
     const resp = await withTimeout(opts.timeoutMs ?? 60_000, client.responses.create(body));
     const text = pickTextFromResponses(resp) || "";
@@ -208,7 +194,7 @@ export async function callLLM(
     };
   }
 
-  // Chat Completions (gpt-4o, etc.)
+  // Chat Completions path (gpt-4o, etc.)
   const chatBody: any = {
     model,
     messages: toChatMessages(messages),
@@ -229,6 +215,5 @@ export async function callLLM(
   };
 }
 
-// Back-compat alias
 export const callLLMOpenAI = callLLM;
 export default callLLM;
