@@ -40,6 +40,13 @@ const client = new OpenAI({
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function clampMinTokensForResponses(model: string, v: number | undefined) {
+  if (v == null) return undefined;
+  // Responses API requires >= 16
+  return isResponsesFamily(model) ? Math.max(16, v) : v;
+}
+
 function isResponsesFamily(model: string) {
   const m = model.toLowerCase();
   // Treat these as Responses API families (non-realtime variants)
@@ -155,7 +162,9 @@ export async function callLLM(
 
   const useResponses = isResponsesFamily(model);
   const maxKey = pickMaxKey(model);
-  const maxVal = toMaxValue(opts);
+  const rawMax = toMaxValue(opts);
+  const maxVal = clampMinTokensForResponses(model, rawMax);
+
 
   if (useResponses) {
     const body: any = {
