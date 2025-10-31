@@ -1,9 +1,9 @@
 /* eslint-disable no-console */
 // ---------------------------------------------------------------------------
-// OpenAI wrapper that supports BOTH:
-//   • GPT-5 family via Responses API (input: …)
-//   • GPT-4/4o/4.1/etc via Chat Completions API (messages: …)
-// Single call signature:
+// OpenAI wrapper supporting BOTH:
+//   • GPT-5 family via Responses API (instructions + input w/ type:"text")
+//   • GPT-4/4o/4.1/etc via Chat Completions API
+// One call signature for everything:
 //   callLLM(model, messagesOrString, { maxTokens?, temperature?, timeoutMs? })
 // Returns a uniform shape with .text and .modelUsed.
 // ---------------------------------------------------------------------------
@@ -17,7 +17,7 @@ export type ChatMessage = {
 
 export type CallOpts = {
   maxTokens?: number;
-  max?: number; // alias of maxTokens
+  max?: number; // alias
   temperature?: number;
   timeoutMs?: number; // default 60s
 };
@@ -28,20 +28,16 @@ export type LLMResult = {
   promptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
-  // Compatibility: mirrors the classic shape some callers expect
   choices: Array<{ message: { content: string } }>;
   raw?: unknown;
 };
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  // Optional: if your key is scoped to a Project, this helps avoid 404s
   project: process.env.OPENAI_PROJECT || undefined,
 });
 
-// ---------------------------------------------------------------------------
-// Capability detection
-// ---------------------------------------------------------------------------
+// ------------------------------- helpers -----------------------------------
 type Caps = {
   family: "responses" | "chat";
   acceptsTemperature: boolean;
@@ -56,7 +52,7 @@ function modelCaps(model: string): Caps {
   if (isGpt5(model)) {
     return {
       family: "responses",
-      acceptsTemperature: false, // temp often ignored for 5-family
+      acceptsTemperature: false, // GPT-5 often ignores/doesn't accept temp
       maxKey: "max_output_tokens",
     };
   }
@@ -67,12 +63,10 @@ function modelCaps(model: string): Caps {
   };
 }
 
-function clampMaxForModel(caps: Caps, v?: number) {
+function clampMaxFor(caps: Caps, v?: number) {
   if (typeof v !== "number") return undefined;
   let val = v;
-  // GPT-5 Responses API requires >= 16
-  if (caps.family === "responses" && val < 16) val = 16;
-  // Reasonable hard cap safety
+  if (caps.family === "responses" && val < 16) val = 16; // GPT-5 min
   if (val > 8192) val = 8192;
   return { key: caps.maxKey, value: val };
 }
@@ -86,36 +80,40 @@ function withTimeout<T>(ms: number | undefined, p: Promise<T>): Promise<T> {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Responses API helpers (GPT-5 family)
-// ---------------------------------------------------------------------------
-function toResponsesInput(msgs: ChatMessage[]) {
-  // Map chat-style messages to Responses "input" format (text-only)
-  return msgs.map((m) => ({
+// --------- Responses API (GPT-5) content & extraction (text-only) ----------
+function splitSystemAndRest(msgs: ChatMessage[]) {
+  const systems = msgs.filter((m) => m.role === "system").map((m) => m.content);
+  const nonSystem = msgs.filter((m) => m.role !== "system");
+  const instructions = systems.join("\n\n");
+  const input = nonSystem.map((m) => ({
     role: m.role,
-    content: [{ type: "input_text", text: m.content }],
+    content: [{ type: "text", text: m.content }],
   }));
+  return { instructions, input };
 }
 
 function pickTextFromResponses(raw: any): string {
-  // Prefer the SDK's flattening if present
   if (typeof raw?.output_text === "string") return raw.output_text.trim();
 
-  // Fallback: stitch together any text segments we can find
-  const gather = (arr: any[]) =>
-    (arr || [])
-      .map((seg: any) => {
-        if (typeof seg?.text === "string") return seg.text;
-        if (typeof seg?.content === "string") return seg.content;
-        return "";
-      })
-      .filter(Boolean)
-      .join("\n");
+  // Walk output -> content -> items and stitch any text we find
+  const takeText = (node: any): string[] => {
+    if (!node) return [];
+    if (typeof node === "string") return [node];
+    if (Array.isArray(node)) return node.flatMap(takeText);
+    const out: string[] = [];
+    if (typeof node.text === "string") out.push(node.text);
+    if (typeof node.content === "string") out.push(node.content);
+    if (Array.isArray(node.content)) out.push(...node.content.flatMap(takeText));
+    if (Array.isArray(node.output)) out.push(...node.output.flatMap(takeText));
+    return out;
+  };
 
-  const a = gather(raw?.output);
-  if (a) return a.trim();
-  const b = gather(raw?.content);
-  return (b || "").trim();
+  const chunks = [
+    ...takeText(raw?.output),
+    ...takeText(raw?.content),
+  ].filter(Boolean);
+
+  return chunks.join("\n").trim();
 }
 
 function usageFromResponses(raw: any) {
@@ -127,9 +125,7 @@ function usageFromResponses(raw: any) {
   return { total, input, output };
 }
 
-// ---------------------------------------------------------------------------
-// Chat Completions helpers (non-GPT-5)
-// ---------------------------------------------------------------------------
+// -------------------------- Chat Completions path --------------------------
 function toChatMessages(msgs: ChatMessage[]) {
   return msgs.map((m) => ({ role: m.role, content: m.content } as const));
 }
@@ -143,9 +139,7 @@ function usageFromChat(raw: any) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+// --------------------------------- API -------------------------------------
 export async function callLLM(
   model: string,
   messagesOrString: ChatMessage[] | string,
@@ -161,23 +155,17 @@ export async function callLLM(
 
   const caps = modelCaps(model);
   const maxWanted = typeof opts.maxTokens === "number" ? opts.maxTokens : opts.max;
-  const maxCfg = clampMaxForModel(caps, maxWanted);
+  const maxCfg = clampMaxFor(caps, maxWanted);
 
   if (caps.family === "responses") {
-    // GPT-5 via Responses API
-    const body: any = {
-      model,
-      input: toResponsesInput(msgs),
-    };
+    // GPT-5 via Responses API (canonical fields)
+    const { instructions, input } = splitSystemAndRest(msgs);
+    const body: any = { model, input: input.length ? input : [{ role: "user", content: [{ type: "text", text: "ping" }] }] };
+    if (instructions) body.instructions = instructions;
     if (maxCfg) body[maxCfg.key] = maxCfg.value;
-    // DO NOT send 'response_format', 'modalities', or 'text.format' — they caused 400s
-    // Also avoid 'temperature' here (often ignored/unsupported for 5-family)
+    // Do NOT send 'response_format', 'modalities', or 'text.format'
 
-    const resp = await withTimeout(
-      opts.timeoutMs ?? 60_000,
-      client.responses.create(body)
-    );
-
+    const resp = await withTimeout(opts.timeoutMs ?? 60_000, client.responses.create(body));
     const text = pickTextFromResponses(resp);
     const usage = usageFromResponses(resp);
 
@@ -193,20 +181,13 @@ export async function callLLM(
   }
 
   // GPT-4/4o/4.1/etc via Chat Completions
-  const chatBody: any = {
-    model,
-    messages: toChatMessages(msgs),
-  };
+  const chatBody: any = { model, messages: toChatMessages(msgs) };
   if (maxCfg) chatBody[maxCfg.key] = maxCfg.value;
   if (caps.acceptsTemperature && typeof opts.temperature === "number") {
     chatBody.temperature = opts.temperature;
   }
 
-  const resp = await withTimeout(
-    opts.timeoutMs ?? 60_000,
-    client.chat.completions.create(chatBody)
-  );
-
+  const resp = await withTimeout(opts.timeoutMs ?? 60_000, client.chat.completions.create(chatBody));
   const text = (resp?.choices?.[0]?.message?.content ?? "").trim();
   const usage = usageFromChat(resp);
 
@@ -221,6 +202,7 @@ export async function callLLM(
   };
 }
 
-// Back-compat alias (some files import this name)
+// Back-compat alias
 export const callOpenAI = callLLM;
+// Compat export for older imports
 export type { LLMResult as NormalizedLLMResponse };
