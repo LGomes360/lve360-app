@@ -1,27 +1,51 @@
+// app/api/models-healthcheck/route.ts
 import { NextResponse } from "next/server";
-import { callLLM } from "@/lib/openai";
+import { callLLM } from "@/lib/openai"; // your existing wrapper (string prompt signature)
 
-async function tryModel(model: string) {
+export const dynamic = "force-dynamic";
+
+const MINI = process.env.OPENAI_MINI_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
+const MAIN = process.env.OPENAI_MAIN_MODEL || process.env.OPENAI_MODEL || "gpt-4o";
+
+type ProbeResult = {
+  model: string;
+  ok: boolean;
+  used: string | null;
+  text?: string | null;
+  error?: string | null;
+};
+
+async function tryModel(model: string): Promise<ProbeResult> {
   try {
-    const res = await callLLM(model, [
-      { role: "user", content: "ping" }
-    ], { maxTokens: 5, timeoutMs: 8000 });
-    return { model, ok: true, used: res?.modelUsed ?? model };
+    // callLLM(model, prompt: string, { maxTokens, timeoutMs })
+    const res = await callLLM(model, "reply exactly with: ok", { maxTokens: 4, timeoutMs: 8000 });
+    const text = (res?.text ?? "").trim().toLowerCase();
+    return {
+      model,
+      ok: text.includes("ok"),
+      used: res?.modelUsed ?? model,
+      text,
+    };
   } catch (e: any) {
-    return { model, ok: false, error: String(e?.message || e) };
+    return {
+      model,
+      ok: false,
+      used: null,
+      error: String(e?.message ?? e),
+    };
   }
 }
 
 export async function GET() {
-  const minis = [process.env.OPENAI_MINI_MODEL || "gpt-5-mini", "gpt-4o-mini"];
-  const mains = [process.env.OPENAI_MAIN_MODEL || "gpt-5", "gpt-4o"];
+  const [mini, main] = await Promise.all([tryModel(MINI), tryModel(MAIN)]);
+  const ok = mini.ok && main.ok;
 
-  const checks = await Promise.all([...minis, ...mains].map(tryModel));
-  return NextResponse.json({
-    env: {
-      OPENAI_MINI_MODEL: process.env.OPENAI_MINI_MODEL,
-      OPENAI_MAIN_MODEL: process.env.OPENAI_MAIN_MODEL,
+  return NextResponse.json(
+    {
+      ok,
+      mini,
+      main,
     },
-    checks,
-  });
+    { status: ok ? 200 : 207 } // 207 = some checks failed but endpoint works
+  );
 }
