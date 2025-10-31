@@ -178,9 +178,9 @@ export async function callLLM(
     const body: any = {
       model,
       input: toResponsesInput(messages),
-      response_format: { type: "text" }, // keep text-only output
-    };
-    if (maxCfg) body[maxCfg.key] = maxCfg.value;
+       text: { format: "text" },
+};
+if (maxCfg) body[maxCfg.key] = maxCfg.value;
 
     const resp = await withTimeout(opts.timeoutMs ?? 60_000, client.responses.create(body));
     const text = pickTextFromResponses(resp) || "";
