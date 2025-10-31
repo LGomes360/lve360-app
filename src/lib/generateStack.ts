@@ -22,6 +22,77 @@ import { callLLM as callOpenAI } from "@/lib/openai";
 // --- Curated evidence index (JSON) ------------------------------------------
 import evidenceIndex from "@/evidence/evidence_index_top3.json";
 
+// ---------------- Model resolution + safe caller ----------------
+type LLMResult = {
+  text?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  modelUsed?: string;
+  [k: string]: any;
+};
+type AnyCaller = (model: string, input: any, options?: any) => Promise<LLMResult>;
+
+const MODEL_ALIASES: Record<string, string> = {
+  // requested → actual
+  "gpt-5-mini": "gpt-4o-mini",
+  "gpt-5": "gpt-4o",
+
+  // some common alternates
+  "o4-mini": "gpt-4o-mini",
+  "o4": "gpt-4o",
+};
+
+const ENV_MINI = process.env.OPENAI_MINI_MODEL?.trim();
+const ENV_MAIN = process.env.OPENAI_MAIN_MODEL?.trim();
+
+function normalizeModel(requested: "mini" | "main" | string): string {
+  // priority: explicit env → alias → passthrough
+  if (requested === "mini") return ENV_MINI || "gpt-4o-mini";
+  if (requested === "main") return ENV_MAIN || "gpt-4o";
+  return MODEL_ALIASES[requested] || requested;
+}
+
+function candidateModels(kind: "mini" | "main", fallbackRequested?: string): string[] {
+  const primary = normalizeModel(kind);
+  const byAlias = fallbackRequested ? MODEL_ALIASES[fallbackRequested] || fallbackRequested : undefined;
+  // always include a hard safe default at the end
+  const tail = kind === "mini" ? ["gpt-4o-mini", "gpt-4o"] : ["gpt-4o", "gpt-4o-mini"];
+  return Array.from(new Set([primary, byAlias, ...tail].filter(Boolean))) as string[];
+}
+
+// Accept messages[] or string, and try multiple model candidates on 400/404/invalid
+async function callChatWithRetry(
+  requestedModelKind: "mini" | "main",
+  msgs: ChatMsg[],
+  options?: any
+): Promise<LLMResult> {
+  const fn = callOpenAI as unknown as AnyCaller;
+  const models = candidateModels(requestedModelKind);
+
+  let lastErr: any = null;
+  for (const model of models) {
+    try {
+      // prefer messages signature; if the lib only accepts string, fall back to joined
+      try {
+        return await fn(model, msgs, options);
+      } catch (sigErr) {
+        const joined = msgs.map(m => `[${m.role.toUpperCase()}]\n${m.content}`.trim()).join("\n\n");
+        return await fn(model, joined, options);
+      }
+    } catch (e: any) {
+      lastErr = e;
+      const msg = String(e?.message || e);
+      const code = (e?.status ?? e?.code ?? "").toString();
+      const isInvalid = /invalid model|model_not_found|400|404/i.test(msg) || code === "400" || code === "404";
+      const isTimeout = /timeout|ETIMEDOUT|Request timed out/i.test(msg);
+
+      console.warn(`[llm.retry] ${model} failed: ${msg}`);
+      if (!isInvalid && !isTimeout) break; // other errors → don't rotate further
+    }
+  }
+  throw lastErr || new Error("All model candidates failed");
+}
+
 type GenerateMode = "free" | "premium";
 export interface GenerateOptions {
   mode?: GenerateMode;       // default inferred from submission; route will pass
@@ -710,104 +781,67 @@ async function callChat(model: string, msgs: ChatMsg[], options?: any): Promise<
   }
 }
 
-// ===== PASS A: Blueprint Table (mini → gpt-5 fallback)
+// ===== PASS A: Blueprint Table (mini → main fallback inside the function if needed)
+console.info("[gen.passA:start]", { model: normalizeModel("mini"), maxTokens: 600, timeoutMs: 40_000 });
+const tA0 = Date.now();
 let tableMd = "";
-{
-  const msgsA: ChatMsg[] = [
+try {
+  const resA = await callChatWithRetry("mini", [
     { role: "system", content: systemPrompt() },
     { role: "user", content: tableOnlyPrompt(compactClient) },
-  ];
+  ], { maxTokens: 600, timeoutMs: 40_000 });
 
-  console.info("[gen.passA:start]", { model: "gpt-5-mini", maxTokens: 600, timeoutMs: 40_000 });
-  const t0 = Date.now();
-  try {
-    const resA = await callChat("gpt-5-mini", msgsA, { maxTokens: 600, timeoutMs: 40_000 });
-    console.info("[gen.passA:ok]", { elapsedMs: Date.now() - t0, prompt: resA?.promptTokens, comp: resA?.completionTokens });
-
-    tableMd = (resA.text || "").trim();
-    if (!/\| *Rank *\| *Supplement *\| *Why it Matters *\|/i.test(tableMd)) {
-      throw new Error("Pass A did not return the Blueprint table");
-    }
-    modelUsed = resA.modelUsed ?? modelUsed;
-    promptTokens = (promptTokens ?? 0) + (resA.promptTokens ?? 0);
-    completionTokens = (completionTokens ?? 0) + (resA.completionTokens ?? 0);
-  } catch (e) {
-    console.warn("[gen.passA:fallback-gpt5]", String(e));
-    const resAFallback = await callChat("gpt-5", msgsA, { maxTokens: 700, timeoutMs: 45_000 });
-    tableMd = (resAFallback.text || "").trim();
-    if (!/\| *Rank *\| *Supplement *\| *Why it Matters *\|/i.test(tableMd)) {
-      throw new Error("Pass A fallback missing table");
-    }
-    modelUsed = resAFallback.modelUsed ?? modelUsed;
-    promptTokens = (promptTokens ?? 0) + (resAFallback.promptTokens ?? 0);
-    completionTokens = (completionTokens ?? 0) + (resAFallback.completionTokens ?? 0);
+  console.info("[gen.passA:ok]", { elapsedMs: Date.now() - tA0, prompt: resA?.promptTokens, comp: resA?.completionTokens });
+  tableMd = (resA.text || "").trim();
+  if (!/\| *Rank *\| *Supplement *\| *Why it Matters *\|/i.test(tableMd)) {
+    throw new Error("Pass A did not return the Blueprint table");
   }
+  modelUsed = resA.modelUsed ?? modelUsed;
+  promptTokens = (promptTokens ?? 0) + (resA.promptTokens ?? 0);
+  completionTokens = (completionTokens ?? 0) + (resA.completionTokens ?? 0);
+} catch (e) {
+  console.error("[gen.passA:fail-hard]", String(e));
+  throw e; // hard stop here because the rest depend on the table
 }
 
-// ===== PASS B: Contraindications + Dosing (mini → gpt-5 fallback)
+// ===== PASS B: Contraindications + Dosing (mini → main handled internally)
+console.info("[gen.passB:start]", { model: normalizeModel("mini"), maxTokens: 1400, timeoutMs: 45_000 });
+const tB0 = Date.now();
 let dosingMd = "";
 {
-  const msgsB: ChatMsg[] = [
+  const resB = await callChatWithRetry("mini", [
     { role: "system", content: systemPrompt() },
     { role: "user", content: safetyAndDosingPrompt(fullClient, tableMd) },
-  ];
+  ], { maxTokens: 1400, timeoutMs: 45_000 });
 
-  console.info("[gen.passB:start]", { model: "gpt-5-mini", maxTokens: 1400, timeoutMs: 45_000 });
-  const t0 = Date.now();
-  try {
-    const resB = await callChat("gpt-5-mini", msgsB, { maxTokens: 1400, timeoutMs: 45_000 });
-    console.info("[gen.passB:ok]", { elapsedMs: Date.now() - t0, prompt: resB?.promptTokens, comp: resB?.completionTokens });
+  console.info("[gen.passB:ok]", { elapsedMs: Date.now() - tB0, prompt: resB?.promptTokens, comp: resB?.completionTokens });
+  dosingMd = (resB.text || "").trim();
+  const hasContra = /## Contraindications & Med Interactions/i.test(dosingMd);
+  const hasDosing = /## Dosing & Notes/i.test(dosingMd);
+  if (!hasContra || !hasDosing) throw new Error("Pass B missing sections");
 
-    dosingMd = (resB.text || "").trim();
-    const hasContra = /## Contraindications & Med Interactions/i.test(dosingMd);
-    const hasDosing = /## Dosing & Notes/i.test(dosingMd);
-    if (!hasContra || !hasDosing) throw new Error("Pass B missing sections");
-
-    modelUsed = resB.modelUsed ?? modelUsed;
-    promptTokens = (promptTokens ?? 0) + (resB.promptTokens ?? 0);
-    completionTokens = (completionTokens ?? 0) + (resB.completionTokens ?? 0);
-  } catch (e) {
-    console.warn("[gen.passB:fallback-gpt5]", String(e));
-    const resBFallback = await callChat("gpt-5", msgsB, { maxTokens: 1800, timeoutMs: 55_000 });
-    dosingMd = (resBFallback.text || "").trim();
-    const hasContra = /## Contraindications & Med Interactions/i.test(dosingMd);
-    const hasDosing = /## Dosing & Notes/i.test(dosingMd);
-    if (!hasContra || !hasDosing) throw new Error("Pass B fallback missing sections");
-
-    modelUsed = resBFallback.modelUsed ?? modelUsed;
-    promptTokens = (promptTokens ?? 0) + (resBFallback.promptTokens ?? 0);
-    completionTokens = (completionTokens ?? 0) + (resBFallback.completionTokens ?? 0);
-  }
+  modelUsed = resB.modelUsed ?? modelUsed;
+  promptTokens = (promptTokens ?? 0) + (resB.promptTokens ?? 0);
+  completionTokens = (completionTokens ?? 0) + (resB.completionTokens ?? 0);
 }
 
-// ===== PASS C: Remaining sections (mini → gpt-5 fallback)
+// ===== PASS C: Remaining sections (mini → main handled internally)
+console.info("[gen.passC:start]", { model: normalizeModel("mini"), maxTokens: 1800, timeoutMs: 35_000 });
+const tC0 = Date.now();
 let restMd = "";
 {
-  const msgsC: ChatMsg[] = [
+  const resC = await callChatWithRetry("mini", [
     { role: "system", content: systemPrompt() },
     { role: "user", content: remainingSectionsPrompt(fullClient, tableMd, dosingMd) },
-  ];
+  ], { maxTokens: 1800, timeoutMs: 35_000 });
 
-  console.info("[gen.passC:start]", { model: "gpt-5-mini", maxTokens: 1800, timeoutMs: 35_000 });
-  const t0 = Date.now();
-  try {
-    const resC = await callChat("gpt-5-mini", msgsC, { maxTokens: 1800, timeoutMs: 35_000 });
-    console.info("[gen.passC:ok]", { elapsedMs: Date.now() - t0, prompt: resC?.promptTokens, comp: resC?.completionTokens });
+  console.info("[gen.passC:ok]", { elapsedMs: Date.now() - tC0, prompt: resC?.promptTokens, comp: resC?.completionTokens });
+  restMd = (resC.text || "").trim();
 
-    restMd = (resC.text || "").trim();
-    modelUsed = resC.modelUsed ?? modelUsed;
-    promptTokens = (promptTokens ?? 0) + (resC.promptTokens ?? 0);
-    completionTokens = (completionTokens ?? 0) + (resC.completionTokens ?? 0);
-  } catch (e) {
-    console.warn("[gen.passC:fallback-gpt5]", String(e));
-    const resCFallback = await callChat("gpt-5", msgsC, { maxTokens: 2200, timeoutMs: 45_000 });
-    restMd = (resCFallback.text || "").trim();
-    modelUsed = resCFallback.modelUsed ?? modelUsed;
-    promptTokens = (promptTokens ?? 0) + (resCFallback.promptTokens ?? 0);
-    completionTokens = (completionTokens ?? 0) + (resCFallback.completionTokens ?? 0);
-  }
+  modelUsed = resC.modelUsed ?? modelUsed;
+  promptTokens = (promptTokens ?? 0) + (resC.promptTokens ?? 0);
+  completionTokens = (completionTokens ?? 0) + (resC.completionTokens ?? 0);
 }
-
 
 // Stitch partials for downstream processing (evidence override, links, etc.)
 md = [
