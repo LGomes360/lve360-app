@@ -1,68 +1,46 @@
-// app/api/models-healthcheck/route.ts
+/* eslint-disable no-console */
 import { NextResponse } from "next/server";
 import { callLLM } from "@/lib/openai";
 
-export const dynamic = "force-dynamic";
+const MINI = process.env.OPENAI_MINI_MODEL || "gpt-4o-mini";
+const MAIN = process.env.OPENAI_MAIN_MODEL || "gpt-4o";
 
-const MINI = process.env.OPENAI_MINI_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
-const MAIN = process.env.OPENAI_MAIN_MODEL || process.env.OPENAI_MODEL || "gpt-4o";
-
-// Be tolerant to whatever shape callLLM returns.
-function extractText(res: any): string {
-  return (
-    res?.text ??
-    res?.content ??
-    res?.message?.content ??
-    res?.choices?.[0]?.message?.content ??
-    res?.choices?.[0]?.text ??
-    ""
-  );
-}
-
-type ProbeResult = {
-  model: string;
-  ok: boolean;
-  used: string | null;
-  text?: string | null;
-  error?: string | null;
-};
-
-async function tryModel(model: string): Promise<ProbeResult> {
+async function tryModel(model: string) {
   try {
-    // callLLM(model, prompt: string, options)
-    const res: any = await callLLM(model, "reply exactly with: ok", {
-      maxTokens: 4,
-      timeoutMs: 8000,
-    });
-
-    const text = extractText(res).trim().toLowerCase();
+    // model-first call: callLLM(model, prompt, opts)
+    const res = await callLLM(model, "reply exactly with: ok", { maxTokens: 8, timeoutMs: 8000 });
+    const text = (res.text || "").trim().toLowerCase();
     return {
       model,
-      ok: text.includes("ok"),
-      used: (res && (res.modelUsed || res.model)) ?? model,
-      text,
+      ok: text === "ok",
+      used: res.modelUsed ?? res.model ?? null,
+      prompt_tokens: res.promptTokens ?? null,
+      completion_tokens: res.completionTokens ?? null,
+      error: null as string | null,
     };
-  } catch (e: any) {
+  } catch (err: any) {
     return {
       model,
       ok: false,
       used: null,
-      error: String(e?.message ?? e),
+      prompt_tokens: null,
+      completion_tokens: null,
+      error: String(err?.message || err),
     };
   }
 }
 
 export async function GET() {
-  const [mini, main] = await Promise.all([tryModel(MINI), tryModel(MAIN)]);
+  const mini = await tryModel(MINI);
+  const main = await tryModel(MAIN);
   const ok = mini.ok && main.ok;
 
-  return NextResponse.json(
-    {
-      ok,
-      mini,
-      main,
-      resolved: { MINI, MAIN },
-    },
-    { status: ok ? 200 : 207 }
-  );
+  return NextResponse.json({
+    ok,
+    mini,
+    main,
+    resolved: { MINI, MAIN },
+    key_present: Boolean(process.env.OPENAI_API_KEY),
+    project: process.env.OPENAI_PROJECT || null,
+  });
 }
