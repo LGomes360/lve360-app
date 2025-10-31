@@ -9,7 +9,8 @@
 
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import type { SubmissionWithChildren } from "@/lib/getSubmissionWithChildren";
-import { ChatCompletionMessageParam } from "openai/resources";
+type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
+
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -25,6 +26,8 @@ import evidenceIndex from "@/evidence/evidence_index_top3.json";
 // Config
 // ----------------------------------------------------------------------------
 const TODAY = "2025-09-21"; // deterministic for tests
+const MIN_ANALYSIS_SENTENCES = 3;
+const MIN_BP_ROWS = 8;
 
 // Model-generated refs allowed (strict)
 const MODEL_CITE_RE =
@@ -690,29 +693,36 @@ Generate the full report per the rules above.`;
 type LLMOptions = {
   maxTokens?: number;
   mode?: "free" | "premium";
-  timeoutMs?: number;          // <-- add this
+  timeoutMs?: number; // enforce per-call budget
 };
-type LLMReturn = { text: string; modelUsed?: string; promptTokens?: number; completionTokens?: number };
+type LLMReturn = {
+  text: string;
+  modelUsed?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+};
 
 async function callLLM(
   model: string,
   messages: any[],
   opts: LLMOptions = {}
 ): Promise<LLMReturn> {
-  // openai.ts signature: callLLM(messages, model, { max?, maxTokens?, temperature? })
+  // openai.ts signature: callLLM(messages, model, { max?, maxTokens?, temperature?, timeoutMs? })
   const resp = await callOpenAI(messages, model, {
     max: opts.maxTokens,
     maxTokens: opts.maxTokens,
-     });
+    timeoutMs: opts.timeoutMs,
+  });
 
-  const r: any = resp; // allow either old chat shape or new normalized shape
+  const r: any = resp; // allow either normalized (Responses) or chat shape
   return {
     text: (r?.text ?? r?.output_text ?? r?.choices?.[0]?.message?.content ?? "").trim(),
     modelUsed: r?.modelUsed ?? r?.model ?? undefined,
-    promptTokens: r?.promptTokens ?? r?.usage?.prompt_tokens ?? r?.usage?.input_tokens ?? undefined,
-    completionTokens: r?.completionTokens ?? r?.usage?.completion_tokens ?? r?.usage?.output_tokens ?? undefined,
+    promptTokens: r?.promptTokens ?? r?.usage?.prompt_tokens ?? null,
+    completionTokens: r?.completionTokens ?? r?.usage?.completion_tokens ?? null,
   };
 }
+
 
 
 async function callWithRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
@@ -891,7 +901,8 @@ export async function generateStackForSubmission(
     (sub as any)?.email ??
     null;
 
-  const msgs: ChatCompletionMessageParam[] = [
+  const msgs: ChatMsg[] = [
+
     { role: "system", content: systemPrompt() },
     { role: "user", content: userPrompt(sub) },
   ];
