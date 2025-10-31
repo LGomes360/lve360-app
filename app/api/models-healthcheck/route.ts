@@ -2,36 +2,57 @@
 import { NextResponse } from "next/server";
 import { callLLM } from "@/lib/openai";
 
-type Probe = {
+type ProbeResult = {
   model: string;
   ok: boolean;
   used: string | null;
   prompt_tokens: number | null;
   completion_tokens: number | null;
-  error?: string | null;
+  error: string | null;
+  raw_sample?: string | null; // tiny peek for debugging
 };
 
-async function tryModel(model: string): Promise<Probe> {
-  try {
-    // Simple prompt that should ALWAYS produce at least a token or two
-    const res = await callLLM(
-      [{ role: "user", content: "Reply exactly with: ok" }],
-      model,
-      { maxTokens: 64, timeoutMs: 8000 }
-    );
+function readEnv(name: string, fallback?: string) {
+  const v = process.env[name];
+  return (v && v.trim()) || fallback || null;
+}
 
-    const content = res?.choices?.[0]?.message?.content?.trim() ?? "";
-    const ok = content.length > 0 && /(^|\b)ok(\b|$)/i.test(content);
-    const used = (res as any)?.model ?? model;
-    const u = res?.usage;
+function normalizeText(v: unknown): string {
+  const s = String(v ?? "").trim().toLowerCase();
+  // strip surrounding quotes/backticks just in case
+  return s.replace(/^["'`]+|["'`]+$/g, "").trim();
+}
+
+async function probe(model: string): Promise<ProbeResult> {
+  try {
+    // Very explicit instruction so the model replies *only* with ok
+    const msgs = [
+      { role: "system", content: "You are a health checker. Reply exactly with: ok" },
+      { role: "user", content: "ok" },
+    ] as const;
+
+    const res = await callLLM(msgs as any, model, { maxTokens: 8, temperature: 0, timeoutMs: 10_000 });
+
+    // Our callLLM normalizes to { choices[0].message.content }
+    const content = res?.choices?.[0]?.message?.content ?? "";
+    const text = normalizeText(content);
+
+    const ok =
+      text === "ok" ||
+      text.startsWith("ok") || // tolerate trailing newline
+      text.includes("ok");     // tolerate quotes or fence
+
+    // try to capture a tiny sample for debugging
+    const rawSample = String(content ?? "").slice(0, 64);
 
     return {
       model,
       ok,
-      used: used || null,
-      prompt_tokens: u?.prompt_tokens ?? null,
-      completion_tokens: u?.completion_tokens ?? null,
+      used: (res as any)?.model ?? model,
+      prompt_tokens: res?.usage?.prompt_tokens ?? null,
+      completion_tokens: res?.usage?.completion_tokens ?? null,
       error: null,
+      raw_sample: rawSample,
     };
   } catch (e: any) {
     return {
@@ -45,20 +66,20 @@ async function tryModel(model: string): Promise<Probe> {
   }
 }
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const MINI = url.searchParams.get("mini") || process.env.OPENAI_MINI_MODEL || "gpt-4o-mini";
-  const MAIN = url.searchParams.get("main") || process.env.OPENAI_MAIN_MODEL || "gpt-4o";
+export async function GET() {
+  const keyPresent = !!process.env.OPENAI_API_KEY;
+  const MINI = readEnv("OPENAI_MINI_MODEL", "gpt-5-mini")!;
+  const MAIN = readEnv("OPENAI_MAIN_MODEL", "gpt-5")!;
 
-  const key_present = Boolean(process.env.OPENAI_API_KEY);
-  const [mini, main] = await Promise.all([tryModel(MINI), tryModel(MAIN)]);
+  const [mini, main] = await Promise.all([probe(MINI), probe(MAIN)]);
+  const ok = keyPresent && mini.ok && main.ok;
 
   return NextResponse.json({
-    ok: key_present && mini.ok && main.ok,
+    ok,
     mini,
     main,
     resolved: { MINI, MAIN },
-    key_present,
-    project: process.env.VERCEL_PROJECT_ID || null,
+    key_present: keyPresent,
+    project: readEnv("OPENAI_PROJECT"), // optional; shows up if you set it
   });
 }
