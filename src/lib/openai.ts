@@ -178,7 +178,7 @@ export async function callLLM(
     const body: any = {
       model,
       input: toResponsesInput(messages),
-       text: { format: "text" },
+  text: { format: { type: "text" } },
 };
 if (maxCfg) body[maxCfg.key] = maxCfg.value;
 
