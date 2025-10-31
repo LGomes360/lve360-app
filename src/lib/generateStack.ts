@@ -782,6 +782,14 @@ async function callChat(model: string, msgs: ChatMsg[], options?: any): Promise<
 }
 
 // ===== PASS A: Blueprint Table (mini → main fallback inside the function if needed)
+console.info("[models.config]", {
+  envMini: process.env.OPENAI_MINI_MODEL || "(default:gpt-4o-mini)",
+  envMain: process.env.OPENAI_MAIN_MODEL || "(default:gpt-4o)",
+});
+
+console.info("[models.candidates.passA]", candidateModels("mini"));
+console.info("[models.candidates.passB]", candidateModels("mini"));
+console.info("[models.candidates.passC]", candidateModels("mini"));
 console.info("[gen.passA:start]", { model: normalizeModel("mini"), maxTokens: 600, timeoutMs: 40_000 });
 const tA0 = Date.now();
 let tableMd = "";
@@ -805,6 +813,14 @@ try {
 }
 
 // ===== PASS B: Contraindications + Dosing (mini → main handled internally)
+console.info("[models.config]", {
+  envMini: process.env.OPENAI_MINI_MODEL || "(default:gpt-4o-mini)",
+  envMain: process.env.OPENAI_MAIN_MODEL || "(default:gpt-4o)",
+});
+
+console.info("[models.candidates.passA]", candidateModels("mini"));
+console.info("[models.candidates.passB]", candidateModels("mini"));
+console.info("[models.candidates.passC]", candidateModels("mini"));
 console.info("[gen.passB:start]", { model: normalizeModel("mini"), maxTokens: 1400, timeoutMs: 45_000 });
 const tB0 = Date.now();
 let dosingMd = "";
@@ -826,6 +842,14 @@ let dosingMd = "";
 }
 
 // ===== PASS C: Remaining sections (mini → main handled internally)
+console.info("[models.config]", {
+  envMini: process.env.OPENAI_MINI_MODEL || "(default:gpt-4o-mini)",
+  envMain: process.env.OPENAI_MAIN_MODEL || "(default:gpt-4o)",
+});
+
+console.info("[models.candidates.passA]", candidateModels("mini"));
+console.info("[models.candidates.passB]", candidateModels("mini"));
+console.info("[models.candidates.passC]", candidateModels("mini"));
 console.info("[gen.passC:start]", { model: normalizeModel("mini"), maxTokens: 1800, timeoutMs: 35_000 });
 const tC0 = Date.now();
 let restMd = "";
