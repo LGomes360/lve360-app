@@ -122,7 +122,6 @@ const EVIDENCE: EvidenceIndex = (evidenceIndex as unknown) as EvidenceIndex;
 // Utilities
 // ----------------------------------------------------------------------------
 const wc = (t: string) => (t || "").trim().split(/\s+/).filter(Boolean).length;
-const hasEnd = (t: string) => (t || "").includes("## END");
 const seeDN = "See Dosing & Notes";
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 const asArray = <T>(v: T[] | null | undefined): T[] => (Array.isArray(v) ? v : []);
