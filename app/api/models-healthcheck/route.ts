@@ -7,8 +7,8 @@ const MAIN = process.env.OPENAI_MAIN_MODEL || "gpt-4o";
 
 async function tryModel(model: string) {
   try {
-    // model-first call: callLLM(model, prompt, opts)
-    const res = await callLLM(model, "reply exactly with: ok", { maxTokens: 8, timeoutMs: 8000 });
+    // NOTE: Responses API needs >= 16 tokens
+    const res = await callLLM(model, "reply exactly with: ok", { maxTokens: 32, timeoutMs: 8000 });
     const text = (res.text || "").trim().toLowerCase();
     return {
       model,
