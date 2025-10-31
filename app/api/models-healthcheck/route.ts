@@ -2,48 +2,40 @@
 import { NextResponse } from "next/server";
 import { callLLM } from "@/lib/openai";
 
-type ProbeResult = {
+type Probe = {
   model: string;
   ok: boolean;
   used: string | null;
   prompt_tokens: number | null;
   completion_tokens: number | null;
   error: string | null;
-  raw_sample?: string | null; // tiny peek for debugging
+  raw_sample?: string | null;
 };
 
-function readEnv(name: string, fallback?: string) {
+function env(name: string, fallback?: string) {
   const v = process.env[name];
   return (v && v.trim()) || fallback || null;
 }
 
-function normalizeText(v: unknown): string {
-  const s = String(v ?? "").trim().toLowerCase();
-  // strip surrounding quotes/backticks just in case
-  return s.replace(/^["'`]+|["'`]+$/g, "").trim();
+function norm(s: unknown) {
+  return String(s ?? "").trim().toLowerCase().replace(/^["'`]+|["'`]+$/g, "");
 }
 
-async function probe(model: string): Promise<ProbeResult> {
+async function probe(model: string): Promise<Probe> {
   try {
-    // Very explicit instruction so the model replies *only* with ok
-    const msgs = [
-      { role: "system", content: "You are a health checker. Reply exactly with: ok" },
-      { role: "user", content: "ok" },
-    ] as const;
+    // Use explicit instructions (system) + minimal input so Responses API outputs text
+    const res = await callLLM(
+      [
+        { role: "system", content: "You are a health checker. Reply exactly with: ok" },
+        { role: "user", content: "ok" },
+      ],
+      model,
+      { maxTokens: 8, timeoutMs: 10_000 }
+    );
 
-    const res = await callLLM(msgs as any, model, { maxTokens: 8, temperature: 0, timeoutMs: 10_000 });
-
-    // Our callLLM normalizes to { choices[0].message.content }
     const content = res?.choices?.[0]?.message?.content ?? "";
-    const text = normalizeText(content);
-
-    const ok =
-      text === "ok" ||
-      text.startsWith("ok") || // tolerate trailing newline
-      text.includes("ok");     // tolerate quotes or fence
-
-    // try to capture a tiny sample for debugging
-    const rawSample = String(content ?? "").slice(0, 64);
+    const text = norm(content);
+    const ok = text === "ok" || text.startsWith("ok");
 
     return {
       model,
@@ -52,7 +44,7 @@ async function probe(model: string): Promise<ProbeResult> {
       prompt_tokens: res?.usage?.prompt_tokens ?? null,
       completion_tokens: res?.usage?.completion_tokens ?? null,
       error: null,
-      raw_sample: rawSample,
+      raw_sample: String(content ?? "").slice(0, 80),
     };
   } catch (e: any) {
     return {
@@ -68,8 +60,8 @@ async function probe(model: string): Promise<ProbeResult> {
 
 export async function GET() {
   const keyPresent = !!process.env.OPENAI_API_KEY;
-  const MINI = readEnv("OPENAI_MINI_MODEL", "gpt-5-mini")!;
-  const MAIN = readEnv("OPENAI_MAIN_MODEL", "gpt-5")!;
+  const MINI = env("OPENAI_MINI_MODEL", "gpt-5-mini")!;
+  const MAIN = env("OPENAI_MAIN_MODEL", "gpt-5")!;
 
   const [mini, main] = await Promise.all([probe(MINI), probe(MAIN)]);
   const ok = keyPresent && mini.ok && main.ok;
@@ -80,6 +72,6 @@ export async function GET() {
     main,
     resolved: { MINI, MAIN },
     key_present: keyPresent,
-    project: readEnv("OPENAI_PROJECT"), // optional; shows up if you set it
+    project: env("OPENAI_PROJECT"),
   });
 }
