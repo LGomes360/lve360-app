@@ -27,7 +27,7 @@ import evidenceIndex from "@/evidence/evidence_index_top3.json";
 // ----------------------------------------------------------------------------
 const TODAY = "2025-09-21"; // deterministic for tests
 const MIN_ANALYSIS_SENTENCES = 3;
-const MIN_BP_ROWS = 8;
+const MIN_BP_ROWS = 10;
 
 // Model-generated refs allowed (strict)
 const MODEL_CITE_RE =
@@ -631,7 +631,7 @@ Every table/list MUST be followed by **Analysis** ≥3 sentences that:
 • **Goals** → Table: Goal | Description, followed by Analysis.  
 • **Current Stack** → Table: Medication/Supplement | Purpose | Dosage | Timing, followed by Analysis.  
 • **Your Blueprint Recommendations** → 3-column table: Rank | Supplement | Why it Matters.  
-  Must include ≥8 unique rows.  
+  Must include ≥10 unique rows.  
   If fewer than 8, regenerate until quota met.  
   Add: *“See Dosing & Notes for amounts and timing.”*  
   Follow with 3–5 sentence Analysis.  
@@ -660,8 +660,8 @@ Every table/list MUST be followed by **Analysis** ≥3 sentences that:
   ## Longevity Levers
   ## This Week Try
 • The section "Your Blueprint Recommendations" MUST be a Markdown table with this exact header row:
-  | Rank | Supplement | Why it Matters |
-  The table MUST contain at least 8 data rows (not counting header).
+    | Rank | Supplement | Why it Matters |
+  The table MUST contain at least 10 data rows (not counting header).
 • If you cannot meet the table spec above on the first try, output ONLY that table (no other text) and STOP. Then regenerate the full report meeting all sections.
 • Each narrative section (other than Intro) MUST have ≥3 complete sentences and reference items by Supplement name.
 • "Evidence & References" MUST contain ≥8 Markdown links ("- [Title](https://...)").
