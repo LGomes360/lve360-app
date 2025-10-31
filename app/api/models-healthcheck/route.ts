@@ -13,13 +13,18 @@ type Probe = {
 
 async function tryModel(model: string): Promise<Probe> {
   try {
-    // Ask for a tiny reply. Wrapper will set safe defaults for GPT-5.
-    const res = await callLLM("Reply exactly with: ok", model, { maxTokens: 64, timeoutMs: 8000 });
+    // Simple prompt that should ALWAYS produce at least a token or two
+    const res = await callLLM(
+      [{ role: "user", content: "Reply exactly with: ok" }],
+      model,
+      { maxTokens: 64, timeoutMs: 8000 }
+    );
 
-    const content = res?.choices?.[0]?.message?.content?.trim().toLowerCase() ?? "";
-    const ok = content.includes("ok");
+    const content = res?.choices?.[0]?.message?.content?.trim() ?? "";
+    const ok = content.length > 0 && /(^|\b)ok(\b|$)/i.test(content);
     const used = (res as any)?.model ?? model;
     const u = res?.usage;
+
     return {
       model,
       ok,
@@ -46,7 +51,6 @@ export async function GET(req: Request) {
   const MAIN = url.searchParams.get("main") || process.env.OPENAI_MAIN_MODEL || "gpt-4o";
 
   const key_present = Boolean(process.env.OPENAI_API_KEY);
-
   const [mini, main] = await Promise.all([tryModel(MINI), tryModel(MAIN)]);
 
   return NextResponse.json({
