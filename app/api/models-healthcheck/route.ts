@@ -1,11 +1,23 @@
 // app/api/models-healthcheck/route.ts
 import { NextResponse } from "next/server";
-import { callLLM } from "@/lib/openai"; // your existing wrapper (string prompt signature)
+import { callLLM } from "@/lib/openai";
 
 export const dynamic = "force-dynamic";
 
 const MINI = process.env.OPENAI_MINI_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
 const MAIN = process.env.OPENAI_MAIN_MODEL || process.env.OPENAI_MODEL || "gpt-4o";
+
+// Be tolerant to whatever shape callLLM returns.
+function extractText(res: any): string {
+  return (
+    res?.text ??
+    res?.content ??
+    res?.message?.content ??
+    res?.choices?.[0]?.message?.content ??
+    res?.choices?.[0]?.text ??
+    ""
+  );
+}
 
 type ProbeResult = {
   model: string;
@@ -17,13 +29,17 @@ type ProbeResult = {
 
 async function tryModel(model: string): Promise<ProbeResult> {
   try {
-    // callLLM(model, prompt: string, { maxTokens, timeoutMs })
-    const res = await callLLM(model, "reply exactly with: ok", { maxTokens: 4, timeoutMs: 8000 });
-    const text = (res?.text ?? "").trim().toLowerCase();
+    // callLLM(model, prompt: string, options)
+    const res: any = await callLLM(model, "reply exactly with: ok", {
+      maxTokens: 4,
+      timeoutMs: 8000,
+    });
+
+    const text = extractText(res).trim().toLowerCase();
     return {
       model,
       ok: text.includes("ok"),
-      used: res?.modelUsed ?? model,
+      used: (res && (res.modelUsed || res.model)) ?? model,
       text,
     };
   } catch (e: any) {
@@ -45,7 +61,8 @@ export async function GET() {
       ok,
       mini,
       main,
+      resolved: { MINI, MAIN },
     },
-    { status: ok ? 200 : 207 } // 207 = some checks failed but endpoint works
+    { status: ok ? 200 : 207 }
   );
 }
