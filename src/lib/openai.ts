@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 // ---------------------------------------------------------------------------
 // OpenAI wrapper (single entrypoint)
-//  - GPT-5 family -> Responses API with `input` (content segments)
+//  - GPT-5 family -> Responses API with `input`
 //  - Everything else -> Chat Completions
 // ---------------------------------------------------------------------------
 
@@ -32,7 +32,6 @@ export type NormalizedLLMResponse = {
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ------------------------------ helpers ------------------------------------
 type Family = "responses" | "chat";
 const familyForModel = (m: string): Family => (m?.toLowerCase().startsWith("gpt-5") ? "responses" : "chat");
 const clampInt = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
@@ -77,7 +76,6 @@ function textFromResponses(raw: any): string {
   return "";
 }
 
-// ----------------------------- public API ----------------------------------
 export async function callLLM(
   messagesOrString: ChatMessage[] | string,
   model: string,
@@ -94,7 +92,7 @@ export async function callLLM(
   const maxOutput = typeof requested === "number" ? clampInt(requested, 16, 8192) : 256;
 
   if (family === "responses") {
-    // GPT-5 / GPT-5-mini use Responses API with `input` (NOT `messages`)
+    // GPT-5 / GPT-5-mini -> Responses API (no `messages`, no `modalities`)
     const input = msgs.map((m) => ({
       role: m.role === "tool" ? "assistant" : m.role,
       content: [{ type: "input_text", text: m.content }],
@@ -103,9 +101,8 @@ export async function callLLM(
     const body: any = {
       model,
       input,
-      modalities: ["text"],
       max_output_tokens: maxOutput, // must be >= 16
-      // omit temperature for GPT-5 to avoid 400s from strict validators
+      // omit temperature for strict GPT-5 validators
     };
 
     const resp = await withTimeout(opts.timeoutMs ?? 60_000, client.responses.create(body));
