@@ -1,25 +1,29 @@
 /* eslint-disable no-console */
 import { NextResponse } from "next/server";
-import { askAny, MINI_MODELS, MAIN_MODELS } from "@/lib/models";
+import { callLLM } from "@/lib/openai";
 
-export const dynamic = "force-dynamic";
+const MINI = process.env.OPENAI_MINI_MODEL?.trim() || "gpt-4o-mini";
+const MAIN = process.env.OPENAI_MAIN_MODEL?.trim() || "gpt-4o";
 
-async function probe(list: string[]) {
-  // Try each model in the list, but report the first item’s status
-  const model = list[0] || "unknown";
+// Tiny prompt that must return "ok"
+const PROMPT = "Reply exactly with: ok";
+
+async function probe(model: string) {
   try {
-    const { res, used } = await askAny(list, "reply exactly with: ok", {
-      maxTokens: 16,
-      timeoutMs: 8000,
-    });
+    const res = await callLLM(
+      model,
+      [{ role: "user", content: PROMPT }],
+      { maxTokens: 32, timeoutMs: 8_000 }
+    );
     const txt = (res.text || "").trim().toLowerCase();
     return {
       model,
       ok: txt === "ok",
-      used,
+      used: res.modelUsed ?? null,
       prompt_tokens: res.promptTokens ?? null,
       completion_tokens: res.completionTokens ?? null,
-      error: null,
+      error: null as string | null,
+      raw_sample: txt || "",
     };
   } catch (e: any) {
     return {
@@ -29,23 +33,21 @@ async function probe(list: string[]) {
       prompt_tokens: null,
       completion_tokens: null,
       error: String(e?.message || e),
+      raw_sample: "",
     };
   }
 }
 
 export async function GET() {
   const key_present = Boolean(process.env.OPENAI_API_KEY);
-  const project = process.env.OPENAI_PROJECT ?? null;
-
-  const mini = await probe(MINI_MODELS);
-  const main = await probe(MAIN_MODELS);
+  const [mini, main] = await Promise.all([probe(MINI), probe(MAIN)]);
 
   return NextResponse.json({
     ok: Boolean(mini.ok || main.ok),
     mini,
     main,
-    resolved: { MINI: MINI_MODELS[0], MAIN: MAIN_MODELS[0] },
+    resolved: { MINI, MAIN },
     key_present,
-    project,
+    project: process.env.OPENAI_PROJECT || null,
   });
 }
