@@ -1,62 +1,51 @@
 /* eslint-disable no-console */
 import { NextResponse } from "next/server";
-import { callLLM, type ChatMessage } from "@/lib/openai";
+import { askAny, MINI_MODELS, MAIN_MODELS } from "@/lib/models";
 
 export const dynamic = "force-dynamic";
 
-const MODELS = {
-  MINI: process.env.OPENAI_MODEL_MINI || process.env.OPENAI_MODEL || "gpt-5-mini",
-  MAIN: process.env.OPENAI_MODEL_MAIN || "gpt-5",
-};
-
-async function probe(model: string) {
+async function probe(list: string[]) {
+  // Try each model in the list, but report the first item’s status
+  const model = list[0] || "unknown";
   try {
-    const msgs: ChatMessage[] = [
-      { role: "system", content: "Reply exactly with: ok" },
-      { role: "user", content: "ok" },
-    ];
-
-    // GPT-5 requires max_output_tokens >= 16; the wrapper auto-clamps,
-    // but we’ll request 32 here to be explicit.
-    const res = await callLLM(model, msgs, { maxTokens: 32, timeoutMs: 10_000 });
-
-    const text = (res.text || "").trim().toLowerCase();
-    const ok = text.includes("ok");
-
+    const { res, used } = await askAny(list, "reply exactly with: ok", {
+      maxTokens: 16,
+      timeoutMs: 8000,
+    });
+    const txt = (res.text || "").trim().toLowerCase();
     return {
       model,
-      ok,
-      used: res.modelUsed ?? null,
+      ok: txt === "ok",
+      used,
       prompt_tokens: res.promptTokens ?? null,
       completion_tokens: res.completionTokens ?? null,
       error: null,
-      raw_sample: text.slice(0, 120),
     };
-  } catch (err: any) {
+  } catch (e: any) {
     return {
       model,
       ok: false,
       used: null,
       prompt_tokens: null,
       completion_tokens: null,
-      error: String(err?.message ?? err),
+      error: String(e?.message || e),
     };
   }
 }
 
 export async function GET() {
   const key_present = Boolean(process.env.OPENAI_API_KEY);
-  const mini = await probe(MODELS.MINI);
-  const main = await probe(MODELS.MAIN);
+  const project = process.env.OPENAI_PROJECT ?? null;
 
-  const out = {
+  const mini = await probe(MINI_MODELS);
+  const main = await probe(MAIN_MODELS);
+
+  return NextResponse.json({
     ok: Boolean(mini.ok || main.ok),
     mini,
     main,
-    resolved: MODELS,
+    resolved: { MINI: MINI_MODELS[0], MAIN: MAIN_MODELS[0] },
     key_present,
-    project: process.env.OPENAI_PROJECT || null,
-  };
-
-  return NextResponse.json(out, { status: out.ok ? 200 : 502 });
+    project,
+  });
 }
