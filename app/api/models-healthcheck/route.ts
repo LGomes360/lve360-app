@@ -1,56 +1,92 @@
 /* eslint-disable no-console */
+// app/api/models-healthcheck/route.ts
+// Minimal model healthcheck that works with both Chat Completions (e.g. gpt-4o)
+// and Responses API models routed via our callLLM wrapper.
+
 import { NextResponse } from "next/server";
-import { callLLM } from "@/lib/openai";
+import { callLLM } from "@/lib/openai"; // ✅ import only; DO NOT re-export
 
-const MINI = process.env.OPENAI_MINI_MODEL?.trim() || "gpt-4o-mini";
-const MAIN = process.env.OPENAI_MAIN_MODEL?.trim() || "gpt-4o";
+export const dynamic = "force-dynamic"; // always run on server
+export const runtime = "nodejs";        // (optional) avoid edge for SDK sockets
 
-// Tiny prompt that must return "ok"
-const PROMPT = "Reply exactly with: ok";
+type PingResult = {
+  model: string;
+  ok: boolean;
+  used: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  error: string | null;
+  raw_sample?: string;
+};
 
-async function probe(model: string) {
+function resolveModels() {
+  // Allow environment overrides; keep sensible defaults
+  const MINI =
+    process.env.OPENAI_MODEL_MINI ||
+    process.env.NEXT_PUBLIC_OPENAI_MODEL_MINI ||
+    process.env.OPENAI_MODEL ||
+    "gpt-4o";
+
+  const MAIN =
+    process.env.OPENAI_MODEL_MAIN ||
+    process.env.NEXT_PUBLIC_OPENAI_MODEL_MAIN ||
+    "gpt-4o";
+
+  return { MINI, MAIN };
+}
+
+async function pingModel(model: string, maxTokens = 16): Promise<PingResult> {
   try {
-    const res = await callLLM(
-      model,
-      [{ role: "user", content: PROMPT }],
-      { maxTokens: 32, timeoutMs: 8_000 }
-    );
-    const txt = (res.text || "").trim().toLowerCase();
+    // callLLM accepts (messages|string, model, opts)
+    const res = await callLLM("reply exactly with: ok", model, {
+      maxTokens: Math.max(16, maxTokens), // gpt-5* requires >=16
+      timeoutMs: 8000,
+    });
+
+    const content = (res?.choices?.[0]?.message?.content ?? "").trim();
+    const ok = content.toLowerCase().includes("ok");
+
     return {
       model,
-      ok: txt === "ok",
-      used: res.modelUsed ?? null,
-      prompt_tokens: res.promptTokens ?? null,
-      completion_tokens: res.completionTokens ?? null,
-      error: null as string | null,
-      raw_sample: txt || "",
+      ok,
+      used: (res as any)?.model ?? model,
+      prompt_tokens: res?.usage?.prompt_tokens ?? null,
+      completion_tokens: res?.usage?.completion_tokens ?? null,
+      error: null,
+      raw_sample: content,
     };
-  } catch (e: any) {
+  } catch (err: any) {
+    const msg =
+      typeof err?.message === "string"
+        ? err.message
+        : String(err ?? "unknown error");
     return {
       model,
       ok: false,
       used: null,
       prompt_tokens: null,
       completion_tokens: null,
-      error: String(e?.message || e),
-      raw_sample: "",
+      error: msg,
     };
   }
 }
 
 export async function GET() {
-  const key_present = Boolean(process.env.OPENAI_API_KEY);
-  const [mini, main] = await Promise.all([probe(MINI), probe(MAIN)]);
+  const keyPresent = Boolean(process.env.OPENAI_API_KEY);
+  const resolved = resolveModels();
+
+  const mini = await pingModel(resolved.MINI);
+  const main = await pingModel(resolved.MAIN);
+
+  const ok = mini.ok || main.ok;
 
   return NextResponse.json({
-    ok: Boolean(mini.ok || main.ok),
+    ok,
     mini,
     main,
-    resolved: { MINI, MAIN },
-    key_present,
-    project: process.env.OPENAI_PROJECT || null,
+    resolved,
+    key_present: keyPresent,
+    // If you are using projects, you can include it for extra context
+    project: process.env.OPENAI_PROJECT ?? null,
   });
 }
-// --- Compatibility aliases for older imports ---
-export type LLMResult = NormalizedLLMResponse;
-export const callOpenAI = callLLM;
