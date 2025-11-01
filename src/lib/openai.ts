@@ -1,76 +1,80 @@
 /* eslint-disable no-console */
-// ---------------------------------------------------------------------------
-// OpenAI wrapper supporting BOTH:
-//   • GPT-5 family via Responses API (instructions + input w/ type:"input_text")
-//   • GPT-4/4o/4.1/etc via Chat Completions API
-// One call signature for everything:
-//   callLLM(model, messagesOrString, { maxTokens?, temperature?, timeoutMs? })
-// Returns a uniform shape with .text and .modelUsed.
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// OpenAI wrapper (GPT-5*: Responses API; others: Chat Completions)
+// Goals:
+// - Backward compatible surface: res.text; res.modelUsed; prompt/completion tokens
+// - Accept BOTH call orders: callLLM(messages, model) and callLLM(model, messages)
+// - Provide callChatWithRetry("mini"|"main", msgs, opts) with 5→4o fallbacks
+// - Avoid fragile params (no modalities/response_format); clamp GPT-5 max tokens
+// -----------------------------------------------------------------------------
 
 import OpenAI from "openai";
 
-export type ChatMessage = {
-  role: "system" | "user" | "assistant";
+// ---------- Types ----------
+export type ChatMsg = {
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
 };
 
 export type CallOpts = {
-  maxTokens?: number;
-  max?: number; // alias
+  max?: number;        // alias of maxTokens
+  maxTokens?: number;  // desired output tokens
   temperature?: number;
-  timeoutMs?: number; // default 60s
+  timeoutMs?: number;  // default 60s
 };
 
-export type LLMResult = {
-  modelUsed: string;
-  text: string;
-  promptTokens: number | null;
-  completionTokens: number | null;
-  totalTokens: number | null;
-  choices: Array<{ message: { content: string } }>;
-  raw?: unknown;
+export type NormalizedLLMResponse = {
+  text: string;              // normalized text content
+  modelUsed: string;         // actual model returned
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  __raw?: unknown;           // raw SDK response (for debugging)
 };
 
+// ---------- Client ----------
 const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  project: process.env.OPENAI_PROJECT || undefined,
+  apiKey: process.env.OPENAI_API_KEY!,
 });
 
-// ------------------------------- helpers -----------------------------------
-type Caps = {
-  family: "responses" | "chat";
-  acceptsTemperature: boolean;
-  maxKey: "max_output_tokens" | "max_tokens" | "max_completion_tokens";
-};
+// ---------- Model helpers ----------
+const DEFAULT_MINI = process.env.OPENAI_MINI_MODEL?.trim() || "gpt-4o-mini";
+const DEFAULT_MAIN = process.env.OPENAI_MAIN_MODEL?.trim() || "gpt-4o";
 
-function isGpt5(model: string) {
+function isResponsesModel(model: string) {
   return model.toLowerCase().startsWith("gpt-5");
 }
 
-function modelCaps(model: string): Caps {
-  if (isGpt5(model)) {
-    return {
-      family: "responses",
-      acceptsTemperature: false, // GPT-5 often ignores/doesn't accept temp
-      maxKey: "max_output_tokens",
-    };
+function candidatesFor(tier: "mini" | "main"): string[] {
+  // Prefer GPT-5* when allowed; then 4o/4.1 fallbacks
+  if (tier === "mini") {
+    return [
+      DEFAULT_MINI,
+      // If user has a GPT-5 mini set, it may be here, else fallbacks:
+      "gpt-5-mini",
+      "gpt-4o-mini",
+      "gpt-4.1-mini",
+    ];
   }
-  return {
-    family: "chat",
-    acceptsTemperature: true,
-    maxKey: "max_tokens",
-  };
+  return [
+    DEFAULT_MAIN,
+    "gpt-5",
+    "gpt-4o",
+    "gpt-4.1",
+  ];
 }
 
-function clampMaxFor(caps: Caps, v?: number) {
-  if (typeof v !== "number") return undefined;
-  let val = v;
-  if (caps.family === "responses" && val < 16) val = 16; // GPT-5 minimum
-  if (val > 8192) val = 8192;
-  return { key: caps.maxKey, value: val };
+function resolvedMaxTokensFor(model: string, requested?: number) {
+  const want = typeof requested === "number" ? requested : undefined;
+  if (!isResponsesModel(model)) {
+    // Chat Completions path (4o, 4.1, etc.)
+    return want;
+  }
+  // GPT-5 Responses API currently requires >=16; cap small tests to 16.
+  const v = Math.max(16, Math.min(want ?? 512, 8192));
+  return v;
 }
 
+// ---------- Common helpers ----------
 function withTimeout<T>(ms: number | undefined, p: Promise<T>): Promise<T> {
   if (!ms || ms <= 0) return p;
   return new Promise<T>((resolve, reject) => {
@@ -80,133 +84,173 @@ function withTimeout<T>(ms: number | undefined, p: Promise<T>): Promise<T> {
   });
 }
 
-// --------- Responses API (GPT-5) content & extraction (text-only) ----------
-function splitSystemAndRest(msgs: ChatMessage[]) {
-  const systems = msgs.filter((m) => m.role === "system").map((m) => m.content);
-  const nonSystem = msgs.filter((m) => m.role !== "system");
-  const instructions = systems.join("\n\n");
-  const input = nonSystem.map((m) => ({
-    role: m.role,
-    // IMPORTANT: GPT-5 expects 'input_text' (not 'text')
+// ---------- Responses API (GPT-5*) ----------
+function toResponsesInput(messages: ChatMsg[]) {
+  // Convert ChatMsg[] → array of role/content blocks with input_text
+  // IMPORTANT: map 'tool' -> 'assistant' to avoid role errors.
+  return messages.map(m => ({
+    role: m.role === "tool" ? "assistant" : m.role,
     content: [{ type: "input_text", text: m.content }],
   }));
-  return { instructions, input };
 }
 
 function pickTextFromResponses(raw: any): string {
+  // The Responses API can return `output_text` or an `output` array with text segments.
   if (typeof raw?.output_text === "string") return raw.output_text.trim();
 
-  // Walk output/content trees and collect any strings
-  const collect = (node: any): string[] => {
-    if (!node) return [];
-    if (typeof node === "string") return [node];
-    if (Array.isArray(node)) return node.flatMap(collect);
-    const out: string[] = [];
-    if (typeof node.text === "string") out.push(node.text);
-    if (typeof node.content === "string") out.push(node.content);
-    if (Array.isArray(node.content)) out.push(...node.content.flatMap(collect));
-    if (Array.isArray(node.output)) out.push(...node.output.flatMap(collect));
-    return out;
-  };
+  const gather = (arr: any[]) =>
+    (arr || [])
+      .map(seg => {
+        if (typeof seg?.text === "string") return seg.text;
+        if (typeof seg?.content === "string") return seg.content;
+        // Some SDKs return { type: 'output_text', text: '...' }
+        if (seg?.type === "output_text" && typeof seg?.text === "string") return seg.text;
+        return "";
+      })
+      .filter(Boolean)
+      .join("");
 
-  const chunks = [
-    ...collect(raw?.output),
-    ...collect(raw?.content),
-  ].filter(Boolean);
+  const a = gather(raw?.output);
+  if (a) return a.trim();
 
-  return chunks.join("\n").trim();
+  const b = gather(raw?.content);
+  if (b) return b.trim();
+
+  return "";
 }
 
 function usageFromResponses(raw: any) {
-  const input = raw?.usage?.input_tokens ?? raw?.usage?.prompt_tokens ?? null;
-  const output = raw?.usage?.output_tokens ?? raw?.usage?.completion_tokens ?? null;
-  const total =
-    raw?.usage?.total_tokens ??
-    (typeof input === "number" && typeof output === "number" ? input + output : null);
-  return { total, input, output };
+  // Normalize various keys the API might return
+  const u = raw?.usage ?? {};
+  const prompt = u.input_tokens ?? u.prompt_tokens ?? null;
+  const completion = u.output_tokens ?? u.completion_tokens ?? null;
+  return { promptTokens: prompt, completionTokens: completion };
 }
 
-// -------------------------- Chat Completions path --------------------------
-function toChatMessages(msgs: ChatMessage[]) {
-  return msgs.map((m) => ({ role: m.role, content: m.content } as const));
+// ---------- Chat Completions API (GPT-4o*, 4.1*) ----------
+function toChatMessages(messages: ChatMsg[]) {
+  // Avoid strict union by mapping "tool" to "assistant"
+  return messages.map(m =>
+    m.role === "tool" ? ({ role: "assistant", content: m.content } as any)
+                      : ({ role: m.role, content: m.content } as any)
+  );
 }
 
 function usageFromChat(raw: any) {
   const u = raw?.usage ?? {};
   return {
-    total: typeof u.total_tokens === "number" ? u.total_tokens : null,
-    input: typeof u.prompt_tokens === "number" ? u.prompt_tokens : null,
-    output: typeof u.completion_tokens === "number" ? u.completion_tokens : null,
+    promptTokens: u.prompt_tokens ?? null,
+    completionTokens: u.completion_tokens ?? null,
   };
 }
 
-// --------------------------------- API -------------------------------------
-export async function callLLM(
-  model: string,
-  messagesOrString: ChatMessage[] | string,
-  opts: CallOpts = {}
-): Promise<LLMResult> {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY missing");
-  }
+// ---------- Core call (single model) ----------
+async function callOneModel(model: string, messages: ChatMsg[], opts: CallOpts = {}): Promise<NormalizedLLMResponse> {
+  const timeoutMs = opts.timeoutMs ?? 60_000;
+  const want = opts.max ?? opts.maxTokens;
+  const max = resolvedMaxTokensFor(model, want);
 
-  const msgs: ChatMessage[] = Array.isArray(messagesOrString)
-    ? messagesOrString
-    : [{ role: "user", content: String(messagesOrString) }];
-
-  const caps = modelCaps(model);
-  const maxWanted = typeof opts.maxTokens === "number" ? opts.maxTokens : opts.max;
-  const maxCfg = clampMaxFor(caps, maxWanted);
-
-  if (caps.family === "responses") {
-    // GPT-5 via Responses API (canonical fields)
-    const { instructions, input } = splitSystemAndRest(msgs);
+  if (isResponsesModel(model)) {
     const body: any = {
       model,
-      input: input.length ? input : [{ role: "user", content: [{ type: "input_text", text: "ping" }] }],
+      input: toResponsesInput(messages),
+      // DO NOT send 'modalities' or 'response_format'
+      // Clamp output tokens for GPT-5*
+      max_output_tokens: max,
     };
-    if (instructions) body.instructions = instructions;
-    if (maxCfg) body[maxCfg.key] = maxCfg.value;
-    // DO NOT send: response_format, modalities, or text.format
+    // Temperature is not always supported on 5*, so only pass if defined and accepted.
+    if (typeof opts.temperature === "number") body.temperature = opts.temperature;
 
-    const resp = await withTimeout(opts.timeoutMs ?? 60_000, client.responses.create(body));
-    const text = pickTextFromResponses(resp);
-    const usage = usageFromResponses(resp);
-
+    const raw = await withTimeout(timeoutMs, client.responses.create(body as any));
+    const text = pickTextFromResponses(raw);
+    const { promptTokens, completionTokens } = usageFromResponses(raw);
     return {
-      modelUsed: (resp as any)?.model ?? model,
       text,
-      promptTokens: usage.input,
-      completionTokens: usage.output,
-      totalTokens: usage.total,
-      choices: [{ message: { content: text } }],
-      raw: resp,
+      modelUsed: (raw as any)?.model ?? model,
+      promptTokens,
+      completionTokens,
+      __raw: raw,
     };
   }
 
-  // GPT-4/4o/4.1/etc via Chat Completions
-  const chatBody: any = { model, messages: toChatMessages(msgs) };
-  if (maxCfg) chatBody[maxCfg.key] = maxCfg.value;
-  if (caps.acceptsTemperature && typeof opts.temperature === "number") {
-    chatBody.temperature = opts.temperature;
-  }
+  // Chat Completions path
+  const body: any = {
+    model,
+    messages: toChatMessages(messages),
+  };
+  if (typeof max === "number") body.max_tokens = max;
+  if (typeof opts.temperature === "number") body.temperature = opts.temperature;
 
-  const resp = await withTimeout(opts.timeoutMs ?? 60_000, client.chat.completions.create(chatBody));
-  const text = (resp?.choices?.[0]?.message?.content ?? "").trim();
-  const usage = usageFromChat(resp);
-
+  const raw = await withTimeout(timeoutMs, client.chat.completions.create(body));
+  const text = (raw?.choices?.[0]?.message?.content ?? "").trim();
+  const { promptTokens, completionTokens } = usageFromChat(raw);
   return {
-    modelUsed: (resp as any)?.model ?? model,
     text,
-    promptTokens: usage.input,
-    completionTokens: usage.output,
-    totalTokens: usage.total,
-    choices: [{ message: { content: text } }],
-    raw: resp,
+    modelUsed: (raw as any)?.model ?? model,
+    promptTokens,
+    completionTokens,
+    __raw: raw,
   };
 }
 
-// Back-compat alias
+// ---------- Public: callLLM (accept BOTH orders) ----------
+/**
+ * callLLM(messages, model, opts)
+ * callLLM(model, messages, opts)
+ * callLLM("just a prompt", model, opts)
+ */
+export async function callLLM(
+  a: string | ChatMsg[],
+  b?: string | ChatMsg[],
+  c?: CallOpts
+): Promise<NormalizedLLMResponse> {
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
+
+  let model: string;
+  let messages: ChatMsg[];
+  let opts: CallOpts | undefined;
+
+  // Determine calling convention at runtime
+  if (Array.isArray(a)) {
+    // (messages, model, opts)
+    messages = a;
+    model = typeof b === "string" ? b : (process.env.OPENAI_MAIN_MODEL || DEFAULT_MAIN);
+    opts = c;
+  } else {
+    // (model, messagesOrString, opts)
+    model = a;
+    const msg = Array.isArray(b)
+      ? b
+      : [{ role: "user", content: String(b ?? "ping") }];
+    messages = msg as ChatMsg[];
+    opts = c;
+  }
+
+  return callOneModel(model, messages, opts);
+}
+
+// ---------- Public: tiered retry with fallbacks ----------
+export async function callChatWithRetry(
+  tier: "mini" | "main",
+  messages: ChatMsg[],
+  opts: CallOpts = {}
+): Promise<NormalizedLLMResponse> {
+  const tried: Array<{ model: string; ok: boolean; msg?: string }> = [];
+  for (const model of candidatesFor(tier)) {
+    try {
+      const res = await callOneModel(model, messages, opts);
+      if (res.text && res.text.length > 0) {
+        return res;
+      }
+      tried.push({ model, ok: false, msg: "empty text" });
+    } catch (e: any) {
+      tried.push({ model, ok: false, msg: String(e?.message || e) });
+      // Continue to next candidate
+    }
+  }
+  console.error("[callChatWithRetry] all candidates failed", { tier, tried });
+  throw new Error(`All ${tier} candidates failed: ${JSON.stringify(tried)}`);
+}
+
+// Convenience (legacy alias)
 export const callOpenAI = callLLM;
-// Compat export for older imports
-export type { LLMResult as NormalizedLLMResponse };
