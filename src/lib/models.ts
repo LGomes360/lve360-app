@@ -1,5 +1,6 @@
 /* eslint-disable no-console */
-import { callOpenAI, type NormalizedLLMResponse } from "@/lib/openai";
+import { callOpenAI, type LLMResult, type ChatMsg } from "@/lib/openai";
+
 
 function parseList(v: string | undefined, def: string[]): string[] {
   return (v || "")
