@@ -1,13 +1,30 @@
 /* eslint-disable no-console */
 // app/api/models-healthcheck/route.ts
-// Minimal model healthcheck that works with both Chat Completions (e.g. gpt-4o)
-// and Responses API models routed via our callLLM wrapper.
+// Minimal model healthcheck using our callLLM wrapper.
+// Avoid strict typings from the wrapper and safely extract text.
 
 import { NextResponse } from "next/server";
-import { callLLM } from "@/lib/openai"; // ✅ import only; DO NOT re-export
+import { callLLM } from "@/lib/openai"; // import only; do NOT re-export
 
-export const dynamic = "force-dynamic"; // always run on server
-export const runtime = "nodejs";        // (optional) avoid edge for SDK sockets
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+// ---- helpers ---------------------------------------------------------------
+
+function extractText(res: any): string {
+  // Try common shapes from both Chat Completions and Responses API normalizers
+  const fromChoices = res?.choices?.[0]?.message?.content;
+  const fromOutputText = res?.output_text; // some Responses API helpers
+  const fromText = res?.text;              // fallback if wrapper sets .text
+
+  const raw =
+    (typeof fromChoices === "string" && fromChoices) ||
+    (typeof fromOutputText === "string" && fromOutputText) ||
+    (typeof fromText === "string" && fromText) ||
+    "";
+
+  return String(raw).trim();
+}
 
 type PingResult = {
   model: string;
@@ -20,7 +37,7 @@ type PingResult = {
 };
 
 function resolveModels() {
-  // Allow environment overrides; keep sensible defaults
+  // Allow env overrides; keep sensible defaults
   const MINI =
     process.env.OPENAI_MODEL_MINI ||
     process.env.NEXT_PUBLIC_OPENAI_MODEL_MINI ||
@@ -37,19 +54,18 @@ function resolveModels() {
 
 async function pingModel(model: string, maxTokens = 16): Promise<PingResult> {
   try {
-    // callLLM accepts (messages|string, model, opts)
-    const res = await callLLM("reply exactly with: ok", model, {
+    const res: any = await callLLM("reply exactly with: ok", model, {
       maxTokens: Math.max(16, maxTokens), // gpt-5* requires >=16
       timeoutMs: 8000,
     });
 
-    const content = (res?.choices?.[0]?.message?.content ?? "").trim();
+    const content = extractText(res);
     const ok = content.toLowerCase().includes("ok");
 
     return {
       model,
       ok,
-      used: (res as any)?.model ?? model,
+      used: (res && (res.model as string)) || model,
       prompt_tokens: res?.usage?.prompt_tokens ?? null,
       completion_tokens: res?.usage?.completion_tokens ?? null,
       error: null,
@@ -57,9 +73,7 @@ async function pingModel(model: string, maxTokens = 16): Promise<PingResult> {
     };
   } catch (err: any) {
     const msg =
-      typeof err?.message === "string"
-        ? err.message
-        : String(err ?? "unknown error");
+      typeof err?.message === "string" ? err.message : String(err ?? "unknown error");
     return {
       model,
       ok: false,
@@ -70,6 +84,8 @@ async function pingModel(model: string, maxTokens = 16): Promise<PingResult> {
     };
   }
 }
+
+// ---- route ----------------------------------------------------------------
 
 export async function GET() {
   const keyPresent = Boolean(process.env.OPENAI_API_KEY);
@@ -86,7 +102,6 @@ export async function GET() {
     main,
     resolved,
     key_present: keyPresent,
-    // If you are using projects, you can include it for extra context
     project: process.env.OPENAI_PROJECT ?? null,
   });
 }
