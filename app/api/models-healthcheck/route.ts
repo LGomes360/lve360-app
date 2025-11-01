@@ -51,3 +51,6 @@ export async function GET() {
     project: process.env.OPENAI_PROJECT || null,
   });
 }
+// --- Compatibility aliases for older imports ---
+export type LLMResult = NormalizedLLMResponse;
+export const callOpenAI = callLLM;
