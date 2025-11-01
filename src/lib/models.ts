@@ -1,5 +1,6 @@
 /* eslint-disable no-console */
 import { callOpenAI, type LLMResult } from "@/lib/openai";
+import { callOpenAI, type NormalizedLLMResponse } from "@/lib/openai";
 
 function parseList(v: string | undefined, def: string[]): string[] {
   return (v || "")
@@ -28,7 +29,7 @@ export async function askAny(
   models: string[],
   messagesOrString: any,
   opts?: { maxTokens?: number; temperature?: number; timeoutMs?: number }
-): Promise<{ res: LLMResult; used: string }> {
+): Promise<{ res: NormalizedLLMResponse; used: string }> {
   let lastErr: any = null;
   for (const m of models) {
     try {
