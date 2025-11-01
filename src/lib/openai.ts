@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 // ---------------------------------------------------------------------------
 // OpenAI wrapper supporting BOTH:
-//   • GPT-5 family via Responses API (instructions + input w/ type:"text")
+//   • GPT-5 family via Responses API (instructions + input w/ type:"input_text")
 //   • GPT-4/4o/4.1/etc via Chat Completions API
 // One call signature for everything:
 //   callLLM(model, messagesOrString, { maxTokens?, temperature?, timeoutMs? })
@@ -66,7 +66,7 @@ function modelCaps(model: string): Caps {
 function clampMaxFor(caps: Caps, v?: number) {
   if (typeof v !== "number") return undefined;
   let val = v;
-  if (caps.family === "responses" && val < 16) val = 16; // GPT-5 min
+  if (caps.family === "responses" && val < 16) val = 16; // GPT-5 minimum
   if (val > 8192) val = 8192;
   return { key: caps.maxKey, value: val };
 }
@@ -87,7 +87,8 @@ function splitSystemAndRest(msgs: ChatMessage[]) {
   const instructions = systems.join("\n\n");
   const input = nonSystem.map((m) => ({
     role: m.role,
-    content: [{ type: "text", text: m.content }],
+    // IMPORTANT: GPT-5 expects 'input_text' (not 'text')
+    content: [{ type: "input_text", text: m.content }],
   }));
   return { instructions, input };
 }
@@ -95,22 +96,22 @@ function splitSystemAndRest(msgs: ChatMessage[]) {
 function pickTextFromResponses(raw: any): string {
   if (typeof raw?.output_text === "string") return raw.output_text.trim();
 
-  // Walk output -> content -> items and stitch any text we find
-  const takeText = (node: any): string[] => {
+  // Walk output/content trees and collect any strings
+  const collect = (node: any): string[] => {
     if (!node) return [];
     if (typeof node === "string") return [node];
-    if (Array.isArray(node)) return node.flatMap(takeText);
+    if (Array.isArray(node)) return node.flatMap(collect);
     const out: string[] = [];
     if (typeof node.text === "string") out.push(node.text);
     if (typeof node.content === "string") out.push(node.content);
-    if (Array.isArray(node.content)) out.push(...node.content.flatMap(takeText));
-    if (Array.isArray(node.output)) out.push(...node.output.flatMap(takeText));
+    if (Array.isArray(node.content)) out.push(...node.content.flatMap(collect));
+    if (Array.isArray(node.output)) out.push(...node.output.flatMap(collect));
     return out;
   };
 
   const chunks = [
-    ...takeText(raw?.output),
-    ...takeText(raw?.content),
+    ...collect(raw?.output),
+    ...collect(raw?.content),
   ].filter(Boolean);
 
   return chunks.join("\n").trim();
@@ -160,10 +161,13 @@ export async function callLLM(
   if (caps.family === "responses") {
     // GPT-5 via Responses API (canonical fields)
     const { instructions, input } = splitSystemAndRest(msgs);
-    const body: any = { model, input: input.length ? input : [{ role: "user", content: [{ type: "text", text: "ping" }] }] };
+    const body: any = {
+      model,
+      input: input.length ? input : [{ role: "user", content: [{ type: "input_text", text: "ping" }] }],
+    };
     if (instructions) body.instructions = instructions;
     if (maxCfg) body[maxCfg.key] = maxCfg.value;
-    // Do NOT send 'response_format', 'modalities', or 'text.format'
+    // DO NOT send: response_format, modalities, or text.format
 
     const resp = await withTimeout(opts.timeoutMs ?? 60_000, client.responses.create(body));
     const text = pickTextFromResponses(resp);
