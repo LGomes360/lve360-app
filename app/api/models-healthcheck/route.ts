@@ -1,52 +1,50 @@
 /* eslint-disable no-console */
 import { NextResponse } from "next/server";
-import { askMini, askMain, getResolvedModels } from "@/lib/models";
-
-// Tiny prompt that returns a literal token; keeps usage minimal
-const PING = "reply exactly with: ok";
+import { askAny, resolvedModels } from "@/lib/models";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const resolved = getResolvedModels();
+  const keyPresent = !!process.env.OPENAI_API_KEY;
+  const { MAIN, MINI, FALLBACK_MAIN, FALLBACK_MINI } = resolvedModels();
 
-  async function tryGroup(kind: "mini" | "main") {
+  async function probe(model: string) {
     try {
-      const { res, used } = kind === "mini"
-        ? await askMini(PING, { maxTokens: 32, timeoutMs: 10_000 })
-        : await askMain(PING, { maxTokens: 32, timeoutMs: 10_000 });
-
-      const ok = (res.text || "").trim().toLowerCase().includes("ok");
-
+      const { res, used } = await askAny(
+        [model], // single model per probe (we want the true signal)
+        // message: keep it dead simple; gpt-5 needs >=16 max_output_tokens
+        [{ role: "user", content: "Reply exactly with: ok" }],
+        { maxTokens: 32, timeoutMs: 12_000 }
+      );
+      const sample = (res.text || "").trim().slice(0, 100);
       return {
-        model: kind === "mini" ? resolved.MINI : resolved.MAIN,
-        ok,
+        model,
+        ok: sample.toLowerCase() === "ok",
         used,
         prompt_tokens: res.usage?.prompt_tokens ?? null,
         completion_tokens: res.usage?.completion_tokens ?? null,
         error: null,
-        sample: res.text?.slice(0, 40) ?? "",
+        sample,
       };
     } catch (e: any) {
-      return {
-        model: kind === "mini" ? resolved.MINI : resolved.MAIN,
-        ok: false,
-        used: null,
-        prompt_tokens: null,
-        completion_tokens: null,
-        error: String(e?.message || e),
-      };
+      return { model, ok: false, used: null, prompt_tokens: null, completion_tokens: null, error: String(e?.message || e) };
     }
   }
 
-  const mini = await tryGroup("mini");
-  const main = await tryGroup("main");
+  const mini = await probe(MINI);
+  const main = await probe(MAIN);
+  const fallbackMini = await probe(FALLBACK_MINI);
+  const fallbackMain = await probe(FALLBACK_MAIN);
+
+  const ok = [mini, main, fallbackMini, fallbackMain].some(x => x.ok);
 
   return NextResponse.json({
-    ok: Boolean(mini.ok && main.ok),
+    ok,
     mini,
     main,
-    resolved,
-    key_present: Boolean(process.env.OPENAI_API_KEY),
+    fallbackMini,
+    fallbackMain,
+    resolved: { MAIN, MINI, FALLBACK_MAIN, FALLBACK_MINI },
+    key_present: keyPresent,
   });
 }
