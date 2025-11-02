@@ -38,17 +38,22 @@ function summarize5Raw(res: any): { output0?: string; output0_types?: string[] }
   const keys = first && typeof first === "object" ? Object.keys(first).slice(0, 6) : [];
 
   let types: string[] = [];
-  // prefer content[] if present
-  if (Array.isArray(first?.content)) {
-    types = first.content.map((c: any) => (typeof c?.type === "string" ? c.type : typeof c));
-  } else if (first?.summary) {
-    const s = first.summary;
+
+  // Prefer content[]
+  if (Array.isArray((first as any)?.content)) {
+    types = (first as any).content.map((c: any) => (typeof c?.type === "string" ? c.type : typeof c));
+  } else if ((first as any)?.summary !== undefined) {
+    const s = (first as any).summary;
     if (Array.isArray(s)) {
       types = s.map((c: any) => (typeof c?.type === "string" ? c.type : typeof c));
-    } else if (typeof s === "object") {
-      types = Object.keys(s);
+    } else if (typeof s === "object" && s) {
+      // show object fields (e.g., { type: "output_text", text: "ok" })
+      const fieldKeys = Object.keys(s);
+      types = fieldKeys.length ? fieldKeys : ["object"];
     } else if (typeof s === "string") {
       types = ["string"];
+    } else if (s == null) {
+      types = ["null"];
     }
   }
 
