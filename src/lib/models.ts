@@ -1,44 +1,54 @@
 /* eslint-disable no-console */
-import { callOpenAI } from "@/lib/openai";
-import type { LLMResult } from "@/lib/openai";
+// Model resolution + simple fallbacks
+// Never use dated version strings here. Let OpenAI route them.
 
-function parseList(v: string | undefined, def: string[]): string[] {
-  return (v || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean).length
-    ? (v as string).split(",").map((s) => s.trim()).filter(Boolean)
-    : def;
+import { callOpenAI, type NormalizedLLMResponse } from "@/lib/openai";
+
+function env(name: string, def?: string) {
+  const v = process.env[name];
+  return (v && v.trim()) || def || "";
 }
 
-// Defaults implement your intent:
-// MINI: 5-mini ➜ 4o-mini ➜ 4o
-// MAIN: 5 ➜ 4o
-export const MINI_MODELS = parseList(
-  process.env.OPENAI_PREFS_MINI,
-  ["gpt-5-mini", "gpt-4o-mini", "gpt-4o"]
-);
+// Primary envs you already have in Vercel:
+const MAIN   = env("OPENAI_MAIN_MODEL", "gpt-5");      // best-effort main
+const MINI   = env("OPENAI_MINI_MODEL", "gpt-5-mini"); // best-effort mini
 
-export const MAIN_MODELS = parseList(
-  process.env.OPENAI_PREFS_MAIN,
-  ["gpt-5", "gpt-4o"]
-);
+// New explicit fallbacks you added:
+const FB_MAIN = env("OPENAI_FALLBACK_MAIN_MODEL", "gpt-4o");
+const FB_MINI = env("OPENAI_FALLBACK_MINI_MODEL", "gpt-4o-mini");
 
-// Try models in order; return first success
+// For healthchecks/askAny etc.
+export function getResolvedModels() {
+  return {
+    MAIN,
+    MINI,
+    FALLBACK_MAIN: FB_MAIN,
+    FALLBACK_MINI: FB_MINI,
+  };
+}
+
 export async function askAny(
   models: string[],
   messagesOrString: any,
   opts?: { maxTokens?: number; temperature?: number; timeoutMs?: number }
-): Promise<{ res: LLMResult; used: string }> {
+): Promise<{ res: NormalizedLLMResponse; used: string }> {
   let lastErr: any = null;
   for (const m of models) {
     try {
       const res = await callOpenAI(m, messagesOrString, opts);
-      return { res, used: res.model || m };
+      return { res, used: res.modelUsed || m };
     } catch (e) {
       lastErr = e;
       console.warn(`[askAny] model ${m} failed`, e);
     }
   }
-  throw lastErr ?? new Error("All model attempts failed");
+  throw lastErr ?? new Error("All models failed");
+}
+
+// Convenience helpers
+export async function askMini(messagesOrString: any, opts?: { maxTokens?: number; timeoutMs?: number }) {
+  return askAny([MINI, FB_MINI], messagesOrString, opts);
+}
+export async function askMain(messagesOrString: any, opts?: { maxTokens?: number; timeoutMs?: number }) {
+  return askAny([MAIN, FB_MAIN], messagesOrString, opts);
 }
