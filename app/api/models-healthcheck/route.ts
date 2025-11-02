@@ -36,9 +36,20 @@ function summarize5Raw(res: any): { output0?: string; output0_types?: string[] }
 
   const first = out[0];
   const keys = first && typeof first === "object" ? Object.keys(first).slice(0, 6) : [];
+
   let types: string[] = [];
+  // prefer content[] if present
   if (Array.isArray(first?.content)) {
     types = first.content.map((c: any) => (typeof c?.type === "string" ? c.type : typeof c));
+  } else if (first?.summary) {
+    const s = first.summary;
+    if (Array.isArray(s)) {
+      types = s.map((c: any) => (typeof c?.type === "string" ? c.type : typeof c));
+    } else if (typeof s === "object") {
+      types = Object.keys(s);
+    } else if (typeof s === "string") {
+      types = ["string"];
+    }
   }
 
   return {
@@ -46,6 +57,7 @@ function summarize5Raw(res: any): { output0?: string; output0_types?: string[] }
     output0_types: types,
   };
 }
+
 
 function toProbe(model: string, pack: { res?: any; used?: string; err?: any }): Probe {
   if (pack.err) {
