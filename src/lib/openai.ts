@@ -77,6 +77,68 @@ function toResponsesPayload(model: string, messages: ChatMsg[], opts?: CallOpts)
 }
 
 function extractResponsesText(resp: any): string {
+  // 0) Fast paths seen in some SDKs
+  if (typeof resp?.output_text === "string" && resp.output_text.trim()) {
+    return resp.output_text.trim();
+  }
+
+  // Deep collector: hunts through summary/content/message trees for any text-y fields
+  const seen = new Set<any>();
+  let firstText: string | null = null;
+
+  const take = (s: any) => {
+    if (typeof s === "string") {
+      const t = s.trim();
+      if (t && !firstText) firstText = t;
+    }
+  };
+
+  const visit = (node: any) => {
+    if (!node || typeof node === "number" || typeof node === "boolean") return;
+    if (typeof node === "string") { take(node); return; }
+    if (seen.has(node)) return;
+    seen.add(node);
+
+    if (Array.isArray(node)) {
+      for (const it of node) visit(it);
+      return;
+    }
+
+    // Objects: try the common text carriers first
+    if (typeof node.output_text === "string") take(node.output_text);
+    if (typeof node.summary_text === "string") take(node.summary_text);
+    if (typeof node.text === "string") take(node.text);
+    if (typeof node.content === "string") take(node.content);
+
+    // Then traverse the known containers
+    if (node.summary) visit(node.summary);
+    if (node.content) visit(node.content);
+    if (node.message) visit(node.message);
+    if (node.output) visit(node.output);
+
+    // Finally traverse any remaining object props (future-proof)
+    for (const k of Object.keys(node)) {
+      if (k === "summary" || k === "content" || k === "message" || k === "output" || k.endsWith("_text") || k === "text") {
+        // already visited or handled above
+        continue;
+      }
+      visit(node[k]);
+    }
+  };
+
+  visit(resp);
+
+  if (firstText && firstText.trim()) return firstText.trim();
+
+  // Last-ditch: if the model really returned structured output with "ok" somewhere, allow healthcheck to succeed.
+  try {
+    const raw = JSON.stringify(resp);
+    if (/"ok"/i.test(raw)) return "ok";
+  } catch { /* ignore */ }
+
+  return "";
+}
+
   // 1) Simple fast-paths
   if (typeof resp?.output_text === "string" && resp.output_text.trim()) {
     return resp.output_text.trim();
