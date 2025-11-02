@@ -190,3 +190,5 @@ export async function callOpenAI(
     __raw: resp,
   };
 }
+// --- Back-compat type shim ---------------------------------------------------
+export type LLMResult = NormalizedLLMResponse;
