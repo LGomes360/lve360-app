@@ -178,3 +178,7 @@ export async function callOpenAI(
     raw: resp,
   };
 }
+// --- Back-compat shims ------------------------------------------------------
+export type LLMResult = NormalizedLLMResponse;
+export type ChatMsg = ChatMessage;
+
