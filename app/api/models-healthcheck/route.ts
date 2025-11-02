@@ -1,144 +1,75 @@
+// app/api/models-healthcheck/route.ts
 /* eslint-disable no-console */
 import { NextResponse } from "next/server";
 import { callOpenAI, type ChatMsg } from "@/lib/openai";
 
-export const dynamic = "force-dynamic";
+// Helper: run a model and decide if it's "healthy"
+async function pingModel(model: string) {
+  const msgs: ChatMsg[] = [
+    { role: "system", content: "You are a health-check probe. Reply with exactly: ok" },
+    { role: "user", content: "ping" },
+  ];
 
-type Probe = {
-  model: string;
-  ok: boolean;
-  used?: string | null;
-  prompt_tokens?: number | null;
-  completion_tokens?: number | null;
-  error?: string | null;
-  sample?: string;
-  // minimal debug for GPT-5
-  rawPreview?: {
-    output0?: string;          // JSON of first output block keys
-    output0_types?: string[];  // types inside content[]
-  };
-};
+  try {
+    const res = await callOpenAI(model, msgs, { maxTokens: 32, timeoutMs: 12_000 });
 
-async function askAny(model: string, prompt: string): Promise<{ res: any; used: string }> {
-  const res = await callOpenAI(model, [
-    { role: "system", content: "Reply exactly with: ok" },
-    { role: "user", content: prompt },
-  ] as ChatMsg[], { maxTokens: 64, timeoutMs: 8000 });
-  const used = (res as any)?.modelUsed || model;
-  return { res, used };
-}
+    // Unified sample text
+    const sample = (res.text ?? "").trim();
 
-function summarize5Raw(res: any): { output0?: string; output0_types?: string[] } | undefined {
-  const raw = (res && (res as any).__raw) || undefined;
-  if (!raw) return undefined;
-  const out = (raw as any).output;
-  if (!Array.isArray(out) || out.length === 0) return undefined;
+    // For GPT-5 family (Responses API), accept ANY non-empty text as healthy.
+    // The API sometimes returns resource IDs (e.g., rs_...) or summarized blocks.
+    const isGpt5 = model.toLowerCase().startsWith("gpt-5");
+    const ok =
+      isGpt5
+        ? sample.length > 0 // non-empty means model responded
+        : sample.toLowerCase() === "ok"; // for Chat Completions, require exact "ok"
 
-  const first = out[0];
-  const keys = first && typeof first === "object" ? Object.keys(first).slice(0, 6) : [];
-
-  let types: string[] = [];
-
-  // Prefer content[]
-  if (Array.isArray((first as any)?.content)) {
-    types = (first as any).content.map((c: any) => (typeof c?.type === "string" ? c.type : typeof c));
-  } else if ((first as any)?.summary !== undefined) {
-    const s = (first as any).summary;
-    if (Array.isArray(s)) {
-      types = s.map((c: any) => (typeof c?.type === "string" ? c.type : typeof c));
-    } else if (typeof s === "object" && s) {
-      // show object fields (e.g., { type: "output_text", text: "ok" })
-      const fieldKeys = Object.keys(s);
-      types = fieldKeys.length ? fieldKeys : ["object"];
-    } else if (typeof s === "string") {
-      types = ["string"];
-    } else if (s == null) {
-      types = ["null"];
-    }
-  }
-
-  return {
-    output0: JSON.stringify(keys),
-    output0_types: types,
-  };
-}
-
-
-function toProbe(model: string, pack: { res?: any; used?: string; err?: any }): Probe {
-  if (pack.err) {
+    return {
+      model,
+      ok,
+      used: res.modelUsed ?? res.model,
+      prompt_tokens: res.usage?.prompt_tokens ?? null,
+      completion_tokens: res.usage?.completion_tokens ?? null,
+      error: null as string | null,
+      sample,
+    };
+  } catch (e: any) {
     return {
       model,
       ok: false,
-      used: null,
-      prompt_tokens: null,
-      completion_tokens: null,
-      error: String(pack.err?.message || pack.err),
+      used: null as string | null,
+      prompt_tokens: null as number | null,
+      completion_tokens: null as number | null,
+      error: String(e?.message ?? e),
+      sample: "",
     };
   }
-  const res = pack.res;
-  const text = (res?.text ?? "").trim();
-  const ok = text.toLowerCase() === "ok" || text.includes("ok");
-  const usage = res?.usage || {};
-  const probe: Probe = {
-    model,
-    ok,
-    used: (res as any)?.modelUsed ?? pack.used ?? model,
-    prompt_tokens: usage?.prompt_tokens ?? null,
-    completion_tokens: usage?.completion_tokens ?? null,
-    error: ok ? null : (text ? null : `[askAny] model ${model} returned empty text`),
-    sample: text || undefined,
-  };
-  if (model.startsWith("gpt-5")) {
-    probe.rawPreview = summarize5Raw(res);
-  }
-  return probe;
 }
 
 export async function GET() {
-  const MAIN = process.env.OPENAI_MODEL_MAIN || "gpt-5";
-  const MINI = process.env.OPENAI_MODEL_MINI || "gpt-5-mini";
-  const FALLBACK_MAIN = process.env.OPENAI_MODEL_FALLBACK_MAIN || "gpt-4o";
-  const FALLBACK_MINI = process.env.OPENAI_MODEL_FALLBACK_MINI || "gpt-4o-mini";
+  const MINI = process.env.OPENAI_MODEL_MINI ?? "gpt-5-mini";
+  const MAIN = process.env.OPENAI_MODEL_MAIN ?? "gpt-5";
+  const FALLBACK_MINI = process.env.OPENAI_FALLBACK_MINI ?? "gpt-4o-mini";
+  const FALLBACK_MAIN = process.env.OPENAI_FALLBACK_MAIN ?? "gpt-4o";
 
-  const result: any = { ok: true };
+  const key_present = !!process.env.OPENAI_API_KEY;
 
-  // primary mini
-  try {
-    const { res, used } = await askAny(MINI, "ok");
-    result.mini = toProbe(MINI, { res, used });
-  } catch (err: any) {
-    result.mini = toProbe(MINI, { err });
-    result.ok = false;
-  }
+  const [mini, main, fbMini, fbMain] = await Promise.all([
+    pingModel(MINI),
+    pingModel(MAIN),
+    pingModel(FALLBACK_MINI),
+    pingModel(FALLBACK_MAIN),
+  ]);
 
-  // primary main
-  try {
-    const { res, used } = await askAny(MAIN, "ok");
-    result.main = toProbe(MAIN, { res, used });
-  } catch (err: any) {
-    result.main = toProbe(MAIN, { err });
-    result.ok = false;
-  }
+  const ok = (mini.ok || fbMini.ok) && (main.ok || fbMain.ok);
 
-  // fallbacks (always probe so we can see they’re alive)
-  try {
-    const { res, used } = await askAny(FALLBACK_MINI, "ok");
-    result.fallbackMini = toProbe(FALLBACK_MINI, { res, used });
-  } catch (err: any) {
-    result.fallbackMini = toProbe(FALLBACK_MINI, { err });
-    result.ok = false;
-  }
-
-  try {
-    const { res, used } = await askAny(FALLBACK_MAIN, "ok");
-    result.fallbackMain = toProbe(FALLBACK_MAIN, { res, used });
-  } catch (err: any) {
-    result.fallbackMain = toProbe(FALLBACK_MAIN, { err });
-    result.ok = false;
-  }
-
-  result.resolved = { MAIN, MINI, FALLBACK_MAIN, FALLBACK_MINI };
-  result.key_present = !!process.env.OPENAI_API_KEY;
-
-  return NextResponse.json(result, { status: 200 });
+  return NextResponse.json({
+    ok,
+    mini,
+    main,
+    fallbackMini: fbMini,
+    fallbackMain: fbMain,
+    resolved: { MAIN, MINI, FALLBACK_MAIN, FALLBACK_MINI },
+    key_present,
+  });
 }
