@@ -17,8 +17,7 @@ import { enrichAffiliateLinks, buildAmazonSearchLink } from "@/lib/affiliateLink
 import { supabaseAdmin } from "@/lib/supabase";
 import { getTopCitationsFor } from "@/lib/evidence";
 import parseMarkdownToItems from "@/lib/parseMarkdownToItems";
-import { callOpenAI, type LLMResult, type ChatMsg } from "@/lib/openai";
-
+import { callOpenAI, type LLMResult as OpenAILLMResult, type ChatMsg } from "@/lib/openai";
 
 // --- Curated evidence index (JSON) ------------------------------------------
 import evidenceIndex from "@/evidence/evidence_index_top3.json";
