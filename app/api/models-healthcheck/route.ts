@@ -1,22 +1,35 @@
 /* eslint-disable no-console */
 import { NextResponse } from "next/server";
-import { callOpenAI, type LLMResult, type ChatMsg } from "@/lib/openai";
+import { callOpenAI, type NormalizedLLMResponse } from "@/lib/openai";
 
-export const dynamic = "force-dynamic";
+const DEFAULTS = {
+  MINI: process.env.OPENAI_MODEL_MINI || "gpt-4o-2024-08-06", // safe mini-ish default
+  MAIN: process.env.OPENAI_MODEL_MAIN || "gpt-5",             // try 5, fallback logic is in UI
+};
 
-async function probe(model: string) {
+type ProbeResult = {
+  model: string;
+  ok: boolean;
+  used: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  error: string | null;
+  sample?: string;
+};
+
+async function probe(model: string, text: string, maxTokens = 32): Promise<ProbeResult> {
   try {
-    const res = await callOpenAI(model, [{ role: "user", content: "reply ONLY with: ok" }], { maxTokens: 32 });
-    const text = (res.text || "").toLowerCase();
-    const ok = text.includes("ok");
+    const res: NormalizedLLMResponse = await callOpenAI(model, text, { maxTokens, timeoutMs: 10_000 });
+    const out = (res.text || "").trim();
+    const ok = out.toLowerCase().includes("ok");
     return {
       model,
       ok,
-      used: res.modelUsed,
-      prompt_tokens: res.promptTokens ?? null,
-      completion_tokens: res.completionTokens ?? null,
+      used: res.model || model,
+      prompt_tokens: res.usage?.prompt_tokens ?? null,
+      completion_tokens: res.usage?.completion_tokens ?? null,
       error: null,
-      sample: res.text.slice(0, 80),
+      sample: out.slice(0, 200),
     };
   } catch (e: any) {
     return {
@@ -25,26 +38,32 @@ async function probe(model: string) {
       used: null,
       prompt_tokens: null,
       completion_tokens: null,
-      error: String(e?.error?.message ?? e?.message ?? e),
-      sample: "",
+      error: String(e?.message || e),
     };
   }
 }
 
 export async function GET() {
-  const MINI = process.env.OPENAI_MINI_MODEL || "gpt-4o";
-  const MAIN = process.env.OPENAI_MAIN_MODEL || "gpt-5";
-  const mini = await probe(MINI);
-  const main = await probe(MAIN);
+  const MINI = DEFAULTS.MINI;
+  const MAIN = DEFAULTS.MAIN;
 
-  const payload = {
-    ok: mini.ok || main.ok,
-    mini,
-    main,
+  const keyPresent = !!process.env.OPENAI_API_KEY;
+
+  // simple instruction that returns "ok" on success
+  const prompt = "Reply with exactly: ok";
+
+  const [miniRes, mainRes] = await Promise.all([
+    probe(MINI, prompt, 32),
+    probe(MAIN, prompt, 32),
+  ]);
+
+  const ok = !!(miniRes.ok || mainRes.ok);
+
+  return NextResponse.json({
+    ok,
+    mini: miniRes,
+    main: mainRes,
     resolved: { MINI, MAIN },
-    key_present: !!process.env.OPENAI_API_KEY,
-    project: process.env.OPENAI_PROJECT ?? null,
-  };
-
-  return NextResponse.json(payload, { status: payload.ok ? 200 : 500 });
+    key_present: keyPresent,
+  });
 }
