@@ -1,8 +1,11 @@
 /* eslint-disable no-console */
-// Unified OpenAI wrapper:
-// - gpt-5* => Responses API (instructions + input_text, max_output_tokens >= 16)
-// - others => Chat Completions API (messages)
-// Returns a normalized shape consumed by models.ts and generateStack.ts
+/**
+ * ANCHOR: OPENAI_UNIFIED_WRAPPER_V3
+ * Unified OpenAI wrapper:
+ * - gpt-5* => Responses API (instructions + input_text, max_output_tokens >= 16)
+ * - others => Chat Completions API (messages)
+ * Returns a normalized shape consumed by models.ts and generateStack.ts
+ */
 
 import OpenAI from "openai";
 
@@ -41,13 +44,20 @@ function pickMaxTokens(opts?: CallOpts) {
   return typeof v === "number" ? v : undefined;
 }
 
-// Responses API expects:
-// - `instructions` (string) for any system content
-// - `input` (string OR array of content blocks). We’ll send an array of messages
-// - `max_output_tokens` (must be >= 16)
+function clampMinOutputTokens(v: number | undefined, min = 16) {
+  if (!v || typeof v !== "number") return min;
+  return v < min ? min : v;
+}
+
+/**
+ * Responses API expects:
+ * - `instructions` (string) for any system content
+ * - `input` (array of blocks) with `{ role, content:[{ type:"input_text", text }] }`
+ * - `max_output_tokens` (>= 16)
+ * Do NOT send: messages, modalities, response_format, text.format
+ */
 function toResponsesPayload(model: string, messages: ChatMsg[], opts?: CallOpts) {
-  const minOut = 16;
-  const want = Math.max(pickMaxTokens(opts) ?? 256, minOut);
+  const want = clampMinOutputTokens(pickMaxTokens(opts) ?? 256, 16);
 
   let instructions = "";
   const inputBlocks: Array<{
@@ -69,38 +79,47 @@ function toResponsesPayload(model: string, messages: ChatMsg[], opts?: CallOpts)
 
   const body: any = {
     model,
-    input: inputBlocks.length ? inputBlocks : [{ role: "user", content: [{ type: "input_text", text: "" }]}],
+    input: inputBlocks.length
+      ? inputBlocks
+      : [{ role: "user", content: [{ type: "input_text", text: "" }]}],
     max_output_tokens: want,
   };
 
   if (instructions.trim()) body.instructions = instructions.trim();
-  // No temperature on gpt-5* (caused 400s in our history)
+  // temperature intentionally omitted for gpt-5* (has caused 400s)
 
   return body;
 }
 
-// Extract text from Responses API result robustly
+/** Robust extractor for Responses API variants */
 function extractResponsesText(resp: any): string {
-  if (typeof resp?.output_text === "string") return resp.output_text.trim();
+  if (typeof resp?.output_text === "string" && resp.output_text.trim()) {
+    return resp.output_text.trim();
+  }
 
-  // Newer SDKs: resp.output is an array of content blocks
   const gather = (obj: any): string => {
     if (!obj) return "";
     if (typeof obj === "string") return obj;
     if (Array.isArray(obj)) return obj.map(gather).join("");
     if (typeof obj === "object") {
-      // try common shapes
       if (typeof obj.text === "string") return obj.text;
       if (obj.content) return gather(obj.content);
       if (obj.output_text) return String(obj.output_text);
+      if (obj.annotations && typeof obj.annotations?.text === "string") return obj.annotations.text;
     }
     return "";
   };
 
   const a = gather(resp?.output);
-  if (a) return a.trim();
+  if (a.trim()) return a.trim();
   const b = gather(resp?.content);
-  if (b) return b.trim();
+  if (b.trim()) return b.trim();
+
+  // Very rare fall-back shape (choices) if a gateway normalized it
+  if (Array.isArray(resp?.choices) && resp.choices[0]?.message?.content) {
+    return String(resp.choices[0].message.content).trim();
+  }
+
   return "";
 }
 
@@ -133,8 +152,10 @@ function usageFromChat(resp: any) {
   };
 }
 
-// Export ONE canonical wrapper used everywhere else.
-// Signature matches your call sites: callOpenAI(model, messagesOrString, opts)
+/**
+ * Export ONE canonical wrapper used everywhere else.
+ * Signature matches your call sites: callOpenAI(model, messagesOrString, opts)
+ */
 export async function callOpenAI(
   model: string,
   messagesOrString: ChatMsg[] | string,
@@ -150,6 +171,7 @@ export async function callOpenAI(
 
   if (isResponsesModel(model)) {
     const body = toResponsesPayload(model, messages, opts);
+
     const resp = await new Promise<any>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error(`OpenAI Responses timeout after ${timeoutMs} ms`)), timeoutMs);
       client.responses.create(body).then((r) => { clearTimeout(t); resolve(r); })
@@ -190,5 +212,6 @@ export async function callOpenAI(
     __raw: resp,
   };
 }
+
 // --- Back-compat type shim ---------------------------------------------------
 export type LLMResult = NormalizedLLMResponse;
