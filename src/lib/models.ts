@@ -1,43 +1,58 @@
 /* eslint-disable no-console */
-import { callOpenAI, type NormalizedLLMResponse, type ChatMsg } from "@/lib/openai";
+import { callOpenAI } from "@/lib/openai";
 
 function parseList(v: string | undefined, def: string[]): string[] {
-  return (v || "").split(",").map(s => s.trim()).filter(Boolean).length ? (v || "").split(",").map(s => s.trim()).filter(Boolean) : def;
+  if (!v) return def;
+  const s = v.trim();
+  if (!s) return def;
+  return s
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
 }
 
-const DEFAULT_MAIN = "gpt-5";
-const DEFAULT_MINI = "gpt-5-mini";
-const DEFAULT_FALLBACK_MAIN = "gpt-4o";
-const DEFAULT_FALLBACK_MINI = "gpt-4o-mini";
+type AskAnyOpts = { maxTokens?: number; temperature?: number; timeoutMs?: number };
 
-export function resolvedModels() {
-  // Pull from env if present, else defaults
-  const MAIN = process.env.OPENAI_MODEL_MAIN || DEFAULT_MAIN;
-  const MINI = process.env.OPENAI_MODEL_MINI || DEFAULT_MINI;
-  const FALLBACK_MAIN = process.env.OPENAI_FALLBACK_MAIN || DEFAULT_FALLBACK_MAIN;
-  const FALLBACK_MINI = process.env.OPENAI_FALLBACK_MINI || DEFAULT_FALLBACK_MINI;
-
-  return { MAIN, MINI, FALLBACK_MAIN, FALLBACK_MINI };
-}
-
-// Try a list of models in order; return first success
 export async function askAny(
   models: string[],
-  messagesOrString: ChatMsg[] | string,
-  opts?: { maxTokens?: number; temperature?: number; timeoutMs?: number }
-): Promise<{ res: NormalizedLLMResponse; used: string }> {
+  messagesOrString: any,
+  opts?: AskAnyOpts
+): Promise<{ res: { text: string; modelUsed?: string }; used: string }> {
   let lastErr: any = null;
+
   for (const m of models) {
     try {
       const res = await callOpenAI(m, messagesOrString, opts);
-      // If no text came back, treat as failure so we can fall back
-      const txt = (res.text || "").trim();
-      if (!txt) throw new Error(`[askAny] model ${m} returned empty text`);
-      return { res, used: res.modelUsed || res.model || m };
+      const text = (res.text || "").trim();
+      if (!text) throw new Error(`[askAny] model ${m} returned empty text`);
+      return { res: { text, modelUsed: res.modelUsed }, used: res.modelUsed || m };
     } catch (e) {
       lastErr = e;
       console.warn(`[askAny] model ${m} failed`, e);
     }
   }
-  throw lastErr ?? new Error("askAny: all models failed");
+  throw lastErr || new Error("All models failed");
+}
+
+export function resolvedModels() {
+  // Primary (5* families)
+  const MAIN = process.env.OPENAI_MODEL_MAIN || "gpt-5";
+  const MINI = process.env.OPENAI_MODEL_MINI || "gpt-5-mini";
+
+  // Fallbacks (4o families)
+  const FALLBACK_MAIN = process.env.OPENAI_MODEL_FALLBACK_MAIN || "gpt-4o";
+  const FALLBACK_MINI = process.env.OPENAI_MODEL_FALLBACK_MINI || "gpt-4o-mini";
+
+  // Optional overrides via public envs (comma-separated)
+  const overrideMain = parseList(process.env.NEXT_PUBLIC_OVERRIDE_MAIN, [MAIN, FALLBACK_MAIN]);
+  const overrideMini = parseList(process.env.NEXT_PUBLIC_OVERRIDE_MINI, [MINI, FALLBACK_MINI]);
+
+  return {
+    MAIN,
+    MINI,
+    FALLBACK_MAIN,
+    FALLBACK_MINI,
+    overrideMain,
+    overrideMini,
+  };
 }
