@@ -1,10 +1,10 @@
 /* eslint-disable no-console */
 /**
- * ANCHOR: OPENAI_UNIFIED_WRAPPER_V3
+ * ANCHOR: OPENAI_UNIFIED_WRAPPER_V4
  * Unified OpenAI wrapper:
  * - gpt-5* => Responses API (instructions + input_text, max_output_tokens >= 16)
  * - others => Chat Completions API (messages)
- * Returns a normalized shape consumed by models.ts and generateStack.ts
+ * Normalizes to: { model, modelUsed, text, usage, __raw }
  */
 
 import OpenAI from "openai";
@@ -43,22 +43,35 @@ function pickMaxTokens(opts?: CallOpts) {
   const v = typeof opts?.maxTokens === "number" ? opts!.maxTokens : opts?.max;
   return typeof v === "number" ? v : undefined;
 }
-
 function clampMinOutputTokens(v: number | undefined, min = 16) {
   if (!v || typeof v !== "number") return min;
   return v < min ? min : v;
 }
 
-/**
- * Responses API expects:
- * - `instructions` (string) for any system content
- * - `input` (array of blocks) with `{ role, content:[{ type:"input_text", text }] }`
- * - `max_output_tokens` (>= 16)
- * Do NOT send: messages, modalities, response_format, text.format
- */
+/** Build a Responses API body. */
 function toResponsesPayload(model: string, messages: ChatMsg[], opts?: CallOpts) {
   const want = clampMinOutputTokens(pickMaxTokens(opts) ?? 256, 16);
 
+  // If it’s a simple single-user prompt with no system/assistant,
+  // prefer the simplest acceptable shape (some gateways are picky).
+  const onlyUser = messages.every(m => m.role === "user");
+  const hasSystem = messages.some(m => m.role === "system");
+  const hasAssistant = messages.some(m => m.role === "assistant");
+
+  if (onlyUser && !hasSystem && !hasAssistant && messages.length === 1) {
+    return {
+      model,
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: messages[0].content }],
+        },
+      ],
+      max_output_tokens: want,
+    } as any;
+  }
+
+  // General case: collect system => instructions, others => input blocks
   let instructions = "";
   const inputBlocks: Array<{
     role: "user" | "assistant";
@@ -79,45 +92,59 @@ function toResponsesPayload(model: string, messages: ChatMsg[], opts?: CallOpts)
 
   const body: any = {
     model,
-    input: inputBlocks.length
-      ? inputBlocks
-      : [{ role: "user", content: [{ type: "input_text", text: "" }]}],
+    input:
+      inputBlocks.length > 0
+        ? inputBlocks
+        : [{ role: "user", content: [{ type: "input_text", text: "" }]}],
     max_output_tokens: want,
   };
-
   if (instructions.trim()) body.instructions = instructions.trim();
-  // temperature intentionally omitted for gpt-5* (has caused 400s)
-
   return body;
 }
 
-/** Robust extractor for Responses API variants */
+/** Robust text extractor for the Responses API (handles many shapes). */
 function extractResponsesText(resp: any): string {
+  // 1) Common direct field
   if (typeof resp?.output_text === "string" && resp.output_text.trim()) {
     return resp.output_text.trim();
   }
 
-  const gather = (obj: any): string => {
-    if (!obj) return "";
-    if (typeof obj === "string") return obj;
-    if (Array.isArray(obj)) return obj.map(gather).join("");
-    if (typeof obj === "object") {
-      if (typeof obj.text === "string") return obj.text;
-      if (obj.content) return gather(obj.content);
-      if (obj.output_text) return String(obj.output_text);
-      if (obj.annotations && typeof obj.annotations?.text === "string") return obj.annotations.text;
+  // 2) Walk output blocks: output[*].content[*].{type,text,refusal}
+  const fromOutputBlocks = (() => {
+    const out = resp?.output;
+    if (!Array.isArray(out)) return "";
+    const pieces: string[] = [];
+    for (const block of out) {
+      const content = block?.content;
+      if (!Array.isArray(content)) continue;
+      for (const seg of content) {
+        // Prefer explicit output_text; fall back to text; include refusal if present
+        if (typeof seg?.text === "string") pieces.push(seg.text);
+        else if (typeof seg?.output_text === "string") pieces.push(seg.output_text);
+        else if (typeof seg?.refusal === "string") pieces.push(seg.refusal);
+        else if (seg && typeof seg === "object") {
+          // Some SDKs nest text under different keys
+          if (typeof seg?.content === "string") pieces.push(seg.content);
+          if (Array.isArray(seg?.content)) {
+            for (const inner of seg.content) {
+              if (typeof inner?.text === "string") pieces.push(inner.text);
+              if (typeof inner?.output_text === "string") pieces.push(inner.output_text);
+            }
+          }
+        }
+      }
     }
-    return "";
-  };
+    return pieces.join("").trim();
+  })();
+  if (fromOutputBlocks) return fromOutputBlocks;
 
-  const a = gather(resp?.output);
-  if (a.trim()) return a.trim();
-  const b = gather(resp?.content);
-  if (b.trim()) return b.trim();
+  // 3) Older/alt shapes
+  if (typeof resp?.content === "string" && resp.content.trim()) return resp.content.trim();
 
-  // Very rare fall-back shape (choices) if a gateway normalized it
+  // 4) Rare gateway-normalized shape (choices like chat)
   if (Array.isArray(resp?.choices) && resp.choices[0]?.message?.content) {
-    return String(resp.choices[0].message.content).trim();
+    const t = String(resp.choices[0].message.content).trim();
+    if (t) return t;
   }
 
   return "";
@@ -133,15 +160,15 @@ function usageFromResponses(resp: any) {
     : undefined;
 }
 
+/** For Chat Completions (GPT-4 family). */
 function toChatMessages(messages: ChatMsg[]) {
-  // Map 'tool' -> 'assistant' (string content) to satisfy SDK union
+  // Map 'tool' -> 'assistant' string content to satisfy the SDK union
   return messages.map((m) =>
     m.role === "tool"
       ? ({ role: "assistant", content: m.content } as any)
       : ({ role: m.role, content: m.content } as any)
   );
 }
-
 function usageFromChat(resp: any) {
   const u = resp?.usage;
   if (!u) return undefined;
@@ -152,10 +179,7 @@ function usageFromChat(resp: any) {
   };
 }
 
-/**
- * Export ONE canonical wrapper used everywhere else.
- * Signature matches your call sites: callOpenAI(model, messagesOrString, opts)
- */
+/** Canonical wrapper used everywhere. */
 export async function callOpenAI(
   model: string,
   messagesOrString: ChatMsg[] | string,
@@ -171,7 +195,6 @@ export async function callOpenAI(
 
   if (isResponsesModel(model)) {
     const body = toResponsesPayload(model, messages, opts);
-
     const resp = await new Promise<any>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error(`OpenAI Responses timeout after ${timeoutMs} ms`)), timeoutMs);
       client.responses.create(body).then((r) => { clearTimeout(t); resolve(r); })
@@ -213,5 +236,5 @@ export async function callOpenAI(
   };
 }
 
-// --- Back-compat type shim ---------------------------------------------------
+// Back-compat type alias
 export type LLMResult = NormalizedLLMResponse;
