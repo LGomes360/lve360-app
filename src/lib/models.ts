@@ -1,54 +1,43 @@
 /* eslint-disable no-console */
-// Model resolution + simple fallbacks
-// Never use dated version strings here. Let OpenAI route them.
+import { callOpenAI, type NormalizedLLMResponse, type ChatMsg } from "@/lib/openai";
 
-import { callOpenAI, type NormalizedLLMResponse } from "@/lib/openai";
-
-function env(name: string, def?: string) {
-  const v = process.env[name];
-  return (v && v.trim()) || def || "";
+function parseList(v: string | undefined, def: string[]): string[] {
+  return (v || "").split(",").map(s => s.trim()).filter(Boolean).length ? (v || "").split(",").map(s => s.trim()).filter(Boolean) : def;
 }
 
-// Primary envs you already have in Vercel:
-const MAIN   = env("OPENAI_MAIN_MODEL", "gpt-5");      // best-effort main
-const MINI   = env("OPENAI_MINI_MODEL", "gpt-5-mini"); // best-effort mini
+const DEFAULT_MAIN = "gpt-5";
+const DEFAULT_MINI = "gpt-5-mini";
+const DEFAULT_FALLBACK_MAIN = "gpt-4o";
+const DEFAULT_FALLBACK_MINI = "gpt-4o-mini";
 
-// New explicit fallbacks you added:
-const FB_MAIN = env("OPENAI_FALLBACK_MAIN_MODEL", "gpt-4o");
-const FB_MINI = env("OPENAI_FALLBACK_MINI_MODEL", "gpt-4o-mini");
+export function resolvedModels() {
+  // Pull from env if present, else defaults
+  const MAIN = process.env.OPENAI_MODEL_MAIN || DEFAULT_MAIN;
+  const MINI = process.env.OPENAI_MODEL_MINI || DEFAULT_MINI;
+  const FALLBACK_MAIN = process.env.OPENAI_FALLBACK_MAIN || DEFAULT_FALLBACK_MAIN;
+  const FALLBACK_MINI = process.env.OPENAI_FALLBACK_MINI || DEFAULT_FALLBACK_MINI;
 
-// For healthchecks/askAny etc.
-export function getResolvedModels() {
-  return {
-    MAIN,
-    MINI,
-    FALLBACK_MAIN: FB_MAIN,
-    FALLBACK_MINI: FB_MINI,
-  };
+  return { MAIN, MINI, FALLBACK_MAIN, FALLBACK_MINI };
 }
 
+// Try a list of models in order; return first success
 export async function askAny(
   models: string[],
-  messagesOrString: any,
+  messagesOrString: ChatMsg[] | string,
   opts?: { maxTokens?: number; temperature?: number; timeoutMs?: number }
 ): Promise<{ res: NormalizedLLMResponse; used: string }> {
   let lastErr: any = null;
   for (const m of models) {
     try {
       const res = await callOpenAI(m, messagesOrString, opts);
-      return { res, used: res.modelUsed || m };
+      // If no text came back, treat as failure so we can fall back
+      const txt = (res.text || "").trim();
+      if (!txt) throw new Error(`[askAny] model ${m} returned empty text`);
+      return { res, used: res.modelUsed || res.model || m };
     } catch (e) {
       lastErr = e;
       console.warn(`[askAny] model ${m} failed`, e);
     }
   }
-  throw lastErr ?? new Error("All models failed");
-}
-
-// Convenience helpers
-export async function askMini(messagesOrString: any, opts?: { maxTokens?: number; timeoutMs?: number }) {
-  return askAny([MINI, FB_MINI], messagesOrString, opts);
-}
-export async function askMain(messagesOrString: any, opts?: { maxTokens?: number; timeoutMs?: number }) {
-  return askAny([MAIN, FB_MAIN], messagesOrString, opts);
+  throw lastErr ?? new Error("askAny: all models failed");
 }
