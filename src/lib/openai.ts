@@ -2,7 +2,6 @@
 // Unified OpenAI wrapper:
 // - gpt-5* => Responses API (instructions + single-string input, max_output_tokens >= 16)
 // - others => Chat Completions API (messages)
-// Returns a normalized shape consumed by models.ts and generateStack.ts
 
 import OpenAI from "openai";
 
@@ -29,7 +28,7 @@ export type NormalizedLLMResponse = {
     prompt_tokens?: number | null;
     completion_tokens?: number | null;
   };
-  __raw?: unknown;
+  __raw?: unknown; // carry through for debugging
 };
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -59,14 +58,7 @@ function toResponsesPayload(model: string, messages: ChatMsg[], opts?: CallOpts)
   for (const m of messages) {
     if (m.role === "system") {
       instructions += (instructions ? "\n" : "") + m.content;
-    } else if (m.role === "assistant") {
-      // Keep it simple; Responses API doesn't need role tagging in input
-      parts.push(m.content);
-    } else if (m.role === "tool") {
-      // Map tool content as plain text context
-      parts.push(m.content);
     } else {
-      // user
       parts.push(m.content);
     }
   }
@@ -84,19 +76,51 @@ function toResponsesPayload(model: string, messages: ChatMsg[], opts?: CallOpts)
   return body;
 }
 
-/** Extract text robustly from Responses API results */
+/** Robust text extractor for Responses API */
 function extractResponsesText(resp: any): string {
-  // Preferred field per SDK
-  if (typeof resp?.output_text === "string") return resp.output_text.trim();
+  // 1) Preferred shortcut
+  if (typeof resp?.output_text === "string" && resp.output_text.trim()) {
+    return resp.output_text.trim();
+  }
 
-  // Generic gatherer over possible shapes
+  // 2) Newer "message/content" shape: resp.output is an array
+  //    Each output[i] typically has: { type: "message", role: "assistant", content: [ ... ] }
+  //    Items inside content can be { type: "output_text", text: "..." } or other types.
+  const out = resp?.output;
+  if (Array.isArray(out)) {
+    for (const block of out) {
+      const content = block?.content;
+      if (Array.isArray(content)) {
+        // prefer explicit output_text items first
+        for (const item of content) {
+          if (item?.type === "output_text" && typeof item?.text === "string") {
+            const t = item.text.trim();
+            if (t) return t;
+          }
+        }
+        // fallback: any item with .text
+        for (const item of content) {
+          if (typeof item?.text === "string") {
+            const t = item.text.trim();
+            if (t) return t;
+          }
+          if (typeof item?.content === "string") {
+            const t = item.content.trim();
+            if (t) return t;
+          }
+        }
+      }
+    }
+  }
+
+  // 3) Very defensive gatherer (legacy shapes)
   const gather = (node: any): string => {
     if (!node) return "";
     if (typeof node === "string") return node;
     if (Array.isArray(node)) return node.map(gather).join("");
     if (typeof node === "object") {
-      if (typeof node.text === "string") return node.text;
       if (typeof node.output_text === "string") return node.output_text;
+      if (typeof node.text === "string") return node.text;
       if (node.content) return gather(node.content);
       if (node.output) return gather(node.output);
     }
@@ -104,9 +128,10 @@ function extractResponsesText(resp: any): string {
   };
 
   const a = gather(resp?.output);
-  if (a) return a.trim();
+  if (a.trim()) return a.trim();
   const b = gather(resp?.content);
-  if (b) return b.trim();
+  if (b.trim()) return b.trim();
+
   return "";
 }
 
