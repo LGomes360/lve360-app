@@ -76,53 +76,86 @@ function toResponsesPayload(model: string, messages: ChatMsg[], opts?: CallOpts)
   return body;
 }
 
-/** Robust text extractor for Responses API */
 function extractResponsesText(resp: any): string {
-  // 1) Preferred shortcut
+  // 1) Simple fast-paths
   if (typeof resp?.output_text === "string" && resp.output_text.trim()) {
     return resp.output_text.trim();
   }
 
-  // 2) Newer "message/content" shape: resp.output is an array
-  //    Each output[i] typically has: { type: "message", role: "assistant", content: [ ... ] }
-  //    Items inside content can be { type: "output_text", text: "..." } or other types.
+  // 2) Modern block shape: resp.output is an array of blocks
   const out = resp?.output;
   if (Array.isArray(out)) {
     for (const block of out) {
-      const content = block?.content;
+      // 2a) Newer models often put text under block.summary
+      const summary = (block as any)?.summary;
+      if (summary) {
+        // summary can be a string, an array of items, or an object with .text
+        if (typeof summary === "string" && summary.trim()) return summary.trim();
+
+        const gatherSummary = (node: any): string => {
+          if (!node) return "";
+          if (typeof node === "string") return node;
+          if (Array.isArray(node)) {
+            for (const it of node) {
+              // prefer explicit output_text / summary_text
+              if ((it?.type === "output_text" || it?.type === "summary_text") && typeof it?.text === "string") {
+                const t = it.text.trim();
+                if (t) return t;
+              }
+              if (typeof it?.text === "string" && it.text.trim()) return it.text.trim();
+              if (typeof it?.content === "string" && it.content.trim()) return it.content.trim();
+            }
+            // last resort: concatenate
+            return node.map(gatherSummary).join("").trim();
+          }
+          if (typeof node === "object") {
+            if (typeof node.output_text === "string" && node.output_text.trim()) return node.output_text.trim();
+            if (typeof node.summary_text === "string" && node.summary_text.trim()) return node.summary_text.trim();
+            if (typeof node.text === "string" && node.text.trim()) return node.text.trim();
+            if (node.content) {
+              const c = gatherSummary(node.content);
+              if (c) return c;
+            }
+          }
+          return "";
+        };
+
+        const s = gatherSummary(summary);
+        if (s) return s;
+      }
+
+      // 2b) Older “message/content” shape: block.content is an array of items
+      const content = (block as any)?.content;
       if (Array.isArray(content)) {
-        // prefer explicit output_text items first
+        // prefer explicit output_text
         for (const item of content) {
-          if (item?.type === "output_text" && typeof item?.text === "string") {
+          if ((item?.type === "output_text" || item?.type === "summary_text") && typeof item?.text === "string") {
             const t = item.text.trim();
             if (t) return t;
           }
         }
-        // fallback: any item with .text
+        // fallback: any .text / .content
         for (const item of content) {
-          if (typeof item?.text === "string") {
-            const t = item.text.trim();
-            if (t) return t;
-          }
-          if (typeof item?.content === "string") {
-            const t = item.content.trim();
-            if (t) return t;
-          }
+          if (typeof item?.text === "string" && item.text.trim()) return item.text.trim();
+          if (typeof item?.content === "string" && item.content.trim()) return item.content.trim();
         }
       }
     }
   }
 
-  // 3) Very defensive gatherer (legacy shapes)
+  // 3) Very defensive legacy gather
   const gather = (node: any): string => {
     if (!node) return "";
     if (typeof node === "string") return node;
     if (Array.isArray(node)) return node.map(gather).join("");
     if (typeof node === "object") {
       if (typeof node.output_text === "string") return node.output_text;
+      if (typeof node.summary_text === "string") return node.summary_text;
       if (typeof node.text === "string") return node.text;
+      if (node.summary) return gather(node.summary);
       if (node.content) return gather(node.content);
       if (node.output) return gather(node.output);
+      if (node.message) return gather(node.message);
     }
     return "";
   };
@@ -134,6 +167,7 @@ function extractResponsesText(resp: any): string {
 
   return "";
 }
+
 
 function usageFromResponses(resp: any) {
   const u = resp?.usage || {};
