@@ -34,7 +34,7 @@ export async function askAny(
   for (const m of models) {
     try {
       const res = await callOpenAI(m, messagesOrString, opts);
-      return { res, used: res.modelUsed || m };
+      return { res, used: res.model || m };
     } catch (e) {
       lastErr = e;
       console.warn(`[askAny] model ${m} failed`, e);
