@@ -76,8 +76,13 @@ function toResponsesPayload(model: string, messages: ChatMsg[], opts?: CallOpts)
   return body;
 }
 
+/**
+ * Robust extractor for Responses API shapes (output_text, summary/summary_text,
+ * nested content blocks, etc.). If truly no text is found, last-ditch returns "ok"
+ * if that literal appears anywhere in the raw JSON (for healthchecks only).
+ */
 function extractResponsesText(resp: any): string {
-  // 0) Fast paths seen in some SDKs
+  // 0) Fast paths
   if (typeof resp?.output_text === "string" && resp.output_text.trim()) {
     return resp.output_text.trim();
   }
@@ -104,7 +109,7 @@ function extractResponsesText(resp: any): string {
       return;
     }
 
-    // Objects: try the common text carriers first
+    // Objects: try common text carriers first
     if (typeof node.output_text === "string") take(node.output_text);
     if (typeof node.summary_text === "string") take(node.summary_text);
     if (typeof node.text === "string") take(node.text);
@@ -116,11 +121,13 @@ function extractResponsesText(resp: any): string {
     if (node.message) visit(node.message);
     if (node.output) visit(node.output);
 
-    // Finally traverse any remaining object props (future-proof)
+    // Finally traverse any remaining props (future-proof)
     for (const k of Object.keys(node)) {
-      if (k === "summary" || k === "content" || k === "message" || k === "output" || k.endsWith("_text") || k === "text") {
-        // already visited or handled above
-        continue;
+      if (
+        k === "summary" || k === "content" || k === "message" || k === "output" ||
+        k.endsWith("_text") || k === "text"
+      ) {
+        continue; // already visited or handled
       }
       visit(node[k]);
     }
@@ -130,7 +137,8 @@ function extractResponsesText(resp: any): string {
 
   if (firstText && firstText.trim()) return firstText.trim();
 
-  // Last-ditch: if the model really returned structured output with "ok" somewhere, allow healthcheck to succeed.
+  // Last-ditch: if the model returned structured output that literally contains "ok",
+  // allow healthcheck to succeed.
   try {
     const raw = JSON.stringify(resp);
     if (/"ok"/i.test(raw)) return "ok";
@@ -138,98 +146,6 @@ function extractResponsesText(resp: any): string {
 
   return "";
 }
-
-  // 1) Simple fast-paths
-  if (typeof resp?.output_text === "string" && resp.output_text.trim()) {
-    return resp.output_text.trim();
-  }
-
-  // 2) Modern block shape: resp.output is an array of blocks
-  const out = resp?.output;
-  if (Array.isArray(out)) {
-    for (const block of out) {
-      // 2a) Newer models often put text under block.summary
-      const summary = (block as any)?.summary;
-      if (summary) {
-        // summary can be a string, an array of items, or an object with .text
-        if (typeof summary === "string" && summary.trim()) return summary.trim();
-
-        const gatherSummary = (node: any): string => {
-          if (!node) return "";
-          if (typeof node === "string") return node;
-          if (Array.isArray(node)) {
-            for (const it of node) {
-              // prefer explicit output_text / summary_text
-              if ((it?.type === "output_text" || it?.type === "summary_text") && typeof it?.text === "string") {
-                const t = it.text.trim();
-                if (t) return t;
-              }
-              if (typeof it?.text === "string" && it.text.trim()) return it.text.trim();
-              if (typeof it?.content === "string" && it.content.trim()) return it.content.trim();
-            }
-            // last resort: concatenate
-            return node.map(gatherSummary).join("").trim();
-          }
-          if (typeof node === "object") {
-            if (typeof node.output_text === "string" && node.output_text.trim()) return node.output_text.trim();
-            if (typeof node.summary_text === "string" && node.summary_text.trim()) return node.summary_text.trim();
-            if (typeof node.text === "string" && node.text.trim()) return node.text.trim();
-            if (node.content) {
-              const c = gatherSummary(node.content);
-              if (c) return c;
-            }
-          }
-          return "";
-        };
-
-        const s = gatherSummary(summary);
-        if (s) return s;
-      }
-
-      // 2b) Older “message/content” shape: block.content is an array of items
-      const content = (block as any)?.content;
-      if (Array.isArray(content)) {
-        // prefer explicit output_text
-        for (const item of content) {
-          if ((item?.type === "output_text" || item?.type === "summary_text") && typeof item?.text === "string") {
-            const t = item.text.trim();
-            if (t) return t;
-          }
-        }
-        // fallback: any .text / .content
-        for (const item of content) {
-          if (typeof item?.text === "string" && item.text.trim()) return item.text.trim();
-          if (typeof item?.content === "string" && item.content.trim()) return item.content.trim();
-        }
-      }
-    }
-  }
-
-  // 3) Very defensive legacy gather
-  const gather = (node: any): string => {
-    if (!node) return "";
-    if (typeof node === "string") return node;
-    if (Array.isArray(node)) return node.map(gather).join("");
-    if (typeof node === "object") {
-      if (typeof node.output_text === "string") return node.output_text;
-      if (typeof node.summary_text === "string") return node.summary_text;
-      if (typeof node.text === "string") return node.text;
-      if (node.summary) return gather(node.summary);
-      if (node.content) return gather(node.content);
-      if (node.output) return gather(node.output);
-      if (node.message) return gather(node.message);
-    }
-    return "";
-  };
-
-  const a = gather(resp?.output);
-  if (a.trim()) return a.trim();
-  const b = gather(resp?.content);
-  if (b.trim()) return b.trim();
-
-  return "";
-}
-
 
 function usageFromResponses(resp: any) {
   const u = resp?.usage || {};
