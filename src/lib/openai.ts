@@ -82,14 +82,14 @@ function toResponsesPayload(model: string, messages: ChatMsg[], opts?: CallOpts)
  * if that literal appears anywhere in the raw JSON (for healthchecks only).
  */
 function extractResponsesText(resp: any): string {
-  // 0) Fast paths
+  // 0) Fast path
   if (typeof resp?.output_text === "string" && resp.output_text.trim()) {
     return resp.output_text.trim();
   }
 
   // Deep collector: hunts through summary/content/message trees for any text-y fields
   const seen = new Set<any>();
-  let firstText: string | null = null;
+  let firstText: string = ""; // <-- avoid nullable; prevents 'never' inference
 
   const take = (s: any) => {
     if (typeof s === "string") {
@@ -115,7 +115,7 @@ function extractResponsesText(resp: any): string {
     if (typeof node.text === "string") take(node.text);
     if (typeof node.content === "string") take(node.content);
 
-    // Then traverse the known containers
+    // Then traverse known containers
     if (node.summary) visit(node.summary);
     if (node.content) visit(node.content);
     if (node.message) visit(node.message);
@@ -126,19 +126,17 @@ function extractResponsesText(resp: any): string {
       if (
         k === "summary" || k === "content" || k === "message" || k === "output" ||
         k.endsWith("_text") || k === "text"
-      ) {
-        continue; // already visited or handled
-      }
+      ) continue;
       visit(node[k]);
     }
   };
 
   visit(resp);
 
-  if (firstText && firstText.trim()) return firstText.trim();
+  if (firstText.trim()) return firstText.trim();
 
   // Last-ditch: if the model returned structured output that literally contains "ok",
-  // allow healthcheck to succeed.
+  // allow healthcheck to succeed (handy for Responses API oddities).
   try {
     const raw = JSON.stringify(resp);
     if (/"ok"/i.test(raw)) return "ok";
@@ -146,6 +144,7 @@ function extractResponsesText(resp: any): string {
 
   return "";
 }
+
 
 function usageFromResponses(resp: any) {
   const u = resp?.usage || {};
