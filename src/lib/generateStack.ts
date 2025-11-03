@@ -341,11 +341,31 @@ const messages: ChatMsg[] = [
     allergies: allergyArr,
   });
 
-  // 8) Affiliate enrichment
-  const itemsEnriched = await enrichAffiliateLinks(itemsSafe);
+// 8) Affiliate enrichment (library type may drop stack_id)
+const itemsEnriched = await enrichAffiliateLinks(itemsSafe as any);
 
-  // 9) Persist items
-  await insertStackItems(stack.id, itemsEnriched);
+// 8.1) Reattach stack_id for DB insert; keep all other fields intact
+const itemsForInsert: StackItem[] = (itemsEnriched || []).map((it: any) => ({
+  // keep original fields from enrichment (brand/source_url/etc.)
+  ...it,
+  // ensure required fields exist for our table contract
+  stack_id: stack.id,
+  name: normalizeName(it?.name ?? ""),
+  form: it?.form ?? null,
+  dose: it?.dose ?? null,
+  unit: it?.unit ?? null,
+  frequency: it?.frequency ?? null,
+  timing: normalizeTimingLabel(it?.timing) ?? null,
+  rationale: it?.rationale ?? null,
+  safety_flags: it?.safety_flags ?? null,
+  source_url: it?.source_url ?? null,
+  brand: it?.brand ?? null,
+  raw: it?.raw ?? it,
+})).filter(x => x.name);
+
+// 9) Persist items
+await insertStackItems(stack.id, itemsForInsert);
+
 
   return {
     ok: true as const,
