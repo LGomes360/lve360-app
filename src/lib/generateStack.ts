@@ -252,8 +252,10 @@ export async function generateStackForSubmission(opts: GenerateOptions) {
   const condArr = (Array.isArray(conditions) ? conditions : String(conditions || "").split(/[;,]\s*|\n+/)).map((s) => s.trim()).filter(Boolean);
   const timingPref = normalizeTimingLabel(sub?.dosing_pref ?? sub?.timing_pref ?? null);
 
-  // Top evidence to anchor
-  const citationsTop = getTopCitationsFor?.(goals ?? "", medArrayToString(medsArr)) ?? [];
+  // Top evidence to anchor (support helper that expects topK first)
+  const medQuery = medArrayToString(medsArr);
+  const citationsTop = (getTopCitationsFor as any)?.(6, `${(goals ?? "").trim()} ${medQuery}`.trim()) ?? [];
+
 
   // 2) Build messages
 const messages: ChatMsg[] = [
