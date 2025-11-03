@@ -123,6 +123,7 @@ function buildUserPrompt(ctx: {
   conditions: string[];
   timingPref?: string | null;
   citationsTop?: Array<{ id: string; title: string }>;
+  goals?: string;
 }): string {
   const lines: string[] = [];
   lines.push("User Profile:");
@@ -239,6 +240,7 @@ export async function generateStackForSubmission(opts: GenerateOptions) {
 
   // Pull goals, meds, supplements, allergies, conditions from submission (keep keys generic—your DB schema provides them)
   const goals = (sub?.goals_text ?? sub?.goals ?? "") as string;
+  const goalsNormalized = String(goals || "").trim() || undefined;
   const meds = (Array.isArray(sub?.medications) ? sub.medications : (sub?.medications_list ?? "")) as string[] | string;
   const supplements = (Array.isArray(sub?.supplements) ? sub.supplements : (sub?.supplements_list ?? "")) as string[] | string;
   const allergies = (Array.isArray(sub?.allergies) ? sub.allergies : (sub?.allergies_list ?? "")) as string[] | string;
@@ -254,24 +256,23 @@ export async function generateStackForSubmission(opts: GenerateOptions) {
   const citationsTop = getTopCitationsFor?.(goals ?? "", medArrayToString(medsArr)) ?? [];
 
   // 2) Build messages
-  const messages: ChatMsg[] = [
-    { role: "system", content: buildSystemPrompt() },
-    {
-      role: "user",
-      content: buildUserPrompt({
-        profile,
-        meds: medsArr,
-        supplements: suppArr,
-        allergies: allergyArr,
-        conditions: condArr,
-        timingPref,
-        // @ts-expect-error (older evidence helper returns {id,title,url}? we use title only)
-        citationsTop,
-        // @ts-ignore include goals as property consumed in builder
-        goals,
-      }),
-    },
-  ];
+const messages: ChatMsg[] = [
+  { role: "system", content: buildSystemPrompt() },
+  {
+    role: "user",
+    content: buildUserPrompt({
+      profile,
+      meds: medsArr,
+      supplements: suppArr,
+      allergies: allergyArr,
+      conditions: condArr,
+      timingPref,
+      citationsTop,
+      goals: goalsNormalized,
+    }),
+  },
+];
+
 
   // 3) Call LLM with fallbacks (main → mini)
   let combined: NormalizedLLMResponse | null = null;
