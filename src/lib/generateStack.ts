@@ -14,16 +14,17 @@ import { enrichAffiliateLinks } from "@/lib/affiliateLinks";
 import { getTopCitationsFor } from "@/lib/evidence";
 
 // ---------- Types ----------
-type GenerateMode = "initial" | "revision";
-
 type GenerateOptions = {
-  submissionId: string;
-  mode?: GenerateMode;               // default "initial"
-  modelOrderMain?: string[];         // e.g., ["gpt-5", "gpt-4o"]
-  modelOrderMini?: string[];         // e.g., ["gpt-5-mini", "gpt-4o-mini"]
-  maxTokens?: number;                // model output cap
-  timeoutMs?: number;                // per-call timeout
+  submissionId?: string;           // real PK from public.submissions
+  tallySubmissionId?: string | null; // UUID like fc7642ed-... from Tally
+  tallyShort?: string | null;        // e.g., "kdgxab6"
+  mode?: "initial" | "revision";
+  modelOrderMain?: string[];
+  modelOrderMini?: string[];
+  maxTokens?: number;
+  timeoutMs?: number;
 };
+
 
 type StackRow = {
   id: string;
@@ -213,6 +214,8 @@ function splitMarkdownSections(md: string): { blueprint: string | null; dosing: 
 export async function generateStackForSubmission(opts: GenerateOptions) {
   const {
     submissionId,
+    tallySubmissionId,
+    tallyShort,
     mode = "initial",
     modelOrderMain = ["gpt-5", "gpt-4o"],
     modelOrderMini = ["gpt-5-mini", "gpt-4o-mini"],
@@ -220,15 +223,51 @@ export async function generateStackForSubmission(opts: GenerateOptions) {
     timeoutMs = 40_000,
   } = opts;
 
-  if (!submissionId) throw new Error("submissionId required");
+  // --- Resolve submissionId if only tally IDs were provided ---
+  let resolvedSubmissionId = submissionId ?? null;
 
-  // 1) Load submission context (kept lightweight; assumes your 'submissions' table has these columns)
-  const { data: sub, error: subErr } = await supabaseAdmin
-    .from("submissions")
-    .select("*")
-    .eq("id", submissionId)
-    .single();
-  if (subErr) throw subErr;
+  if (!resolvedSubmissionId && (tallySubmissionId || tallyShort)) {
+    // 1) If we have the long Tally UUID, try submissions directly
+    if (tallySubmissionId) {
+      const { data: s1, error: e1 } = await supabaseAdmin
+        .from("submissions")
+        .select("id")
+        .eq("tally_submission_id", tallySubmissionId)
+        .maybeSingle();
+      if (e1) throw e1;
+      if (s1?.id) resolvedSubmissionId = s1.id;
+    }
+
+    // 2) If still not found and we have the short code, optionally hop via intake_events (if you store it there)
+    if (!resolvedSubmissionId && tallyShort) {
+      // Try direct on submissions if you keep a short field there:
+      const { data: s2, error: e2 } = await supabaseAdmin
+        .from("submissions")
+        .select("id")
+        .eq("tally_short", tallyShort)
+        .maybeSingle();
+      if (e2) throw e2;
+      if (s2?.id) resolvedSubmissionId = s2.id;
+
+      // If that didn't work, try your intake_events (adjust column names if different)
+      if (!resolvedSubmissionId) {
+        const { data: ie, error: e3 } = await supabaseAdmin
+          .from("intake_events")
+          .select("submission_id")
+          .eq("short_id", tallyShort)
+          .maybeSingle();
+        if (e3) throw e3;
+        if (ie?.submission_id) resolvedSubmissionId = ie.submission_id;
+      }
+    }
+  }
+
+  if (!resolvedSubmissionId) {
+    throw new Error(
+      "submissionId required (pass { submissionId } or { tallySubmissionId } / { tallyShort })"
+    );
+  }
+
 
   // Build profile text
   const profileBits = [];
@@ -308,7 +347,7 @@ const messages: ChatMsg[] = [
 
   // 5) Upsert stack (draft)
   const stack = await upsertStackRecord({
-    submissionId,
+     submissionId: resolvedSubmissionId,
     status: "draft",
     blueprint_md: blueprint || null,
     dosing_md: dosing || null,
