@@ -369,6 +369,83 @@ function extractBlueprintTable(md: string): string | null {
   if (!/\|\s*-{3,}\s*\|/.test(table)) return null;
   return table;
 }
+// --- Pass-B tolerant detection + repair helpers ------------------------------
+
+const CONTRA_HDR_RE =
+  /^\s*#{2,3}\s*(contraindications?)(?:\s*&\s*|\s*and\s+)?(?:\s*(?:med(?:ication)?|drug))?\s*interactions?\s*:?\s*$/im;
+
+const DOSING_HDR_RE =
+  /^\s*#{2,3}\s*dosing\s*(?:&|and)?\s*notes\s*:?\s*$/im;
+
+// Accept some common alternates (model creativity tax)
+const ALT_CONTRA_HDR_RE =
+  /^\s*#{2,3}\s*(interactions?|safety|risks?)\b.*$/im;
+const ALT_DOSING_HDR_RE =
+  /^\s*#{2,3}\s*(dosage|posology|instructions|how\s+to\s+take)\b.*$/im;
+
+function hasContraSection(s: string) {
+  return CONTRA_HDR_RE.test(s) || ALT_CONTRA_HDR_RE.test(s);
+}
+function hasDosingSection(s: string) {
+  return DOSING_HDR_RE.test(s) || ALT_DOSING_HDR_RE.test(s);
+}
+
+// Normalize whatever headings the model used to the canonical H2s
+function normalizePassBHeadings(s: string) {
+  let out = s;
+  // Normalize any Contra…/Interactions-like heading
+  out = out.replace(
+    /^\s*#{2,3}\s*(contraindications?.*interactions?.*)$/gim,
+    "## Contraindications & Med Interactions"
+  );
+  out = out.replace(
+    /^\s*#{2,3}\s*(interactions?|safety|risks?).*$/gim,
+    "## Contraindications & Med Interactions"
+  );
+
+  // Normalize any Dosing…Notes-like heading
+  out = out.replace(
+    /^\s*#{2,3}\s*(dosing.*notes.*)$/gim,
+    "## Dosing & Notes"
+  );
+  out = out.replace(
+    /^\s*#{2,3}\s*(dosage|posology|instructions|how\s+to\s+take).*$/gim,
+    "## Dosing & Notes"
+  );
+  return out;
+}
+
+// One-shot repair prompt that converts whatever came back into exactly the two sections we need
+function formatRepairBPrompt(fullClient: any, blueprintTable: string, brokenText: string) {
+  return `
+You are reformatting model output.
+
+### CLIENT (for context)
+\`\`\`json
+${JSON.stringify(fullClient, null, 2)}
+\`\`\`
+
+### BLUEPRINT TABLE (do not rewrite)
+${brokenText.includes("| Rank |") ? "" : "\n"}${blueprintTable}
+
+### BROKEN PASS-B TEXT (reformat only; do not invent new info)
+${"```"}
+${brokenText}
+${"```"}
+
+### TASK
+Rewrite the BROKEN PASS-B TEXT into **exactly TWO H2 sections** with these exact headings, in this order:
+
+## Contraindications & Med Interactions
+## Dosing & Notes
+
+Rules:
+- Keep all real safety info and dosing notes; fix headings/format only.
+- Bullets are fine; keep plain-English.
+- No code fences, no extra sections, no intro/outro, no END line.
+- Return ONLY those two sections in ASCII Markdown.
+`.trim();
+}
 
 // ----------------------------------------------------------------------------
 // Name normalization + aliasing for evidence lookup
@@ -775,21 +852,47 @@ if (resA?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resA.usage
 if (resA?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resA.usage.completion_tokens ?? 0);
 modelUsed = resA?.modelUsed ?? modelUsed;
 
-// PASS B: Contraindications + Dosing
+// PASS B: Contraindications + Dosing (tolerant detection + self-repair)
 console.info("[gen.passB:start]", { candidates: candidateModels("mini") });
+
 const resB = await callChatWithRetry("mini", [
   { role: "system", content: systemPromptB_SafetyDosing() },
   { role: "user", content: safetyAndDosingPrompt(fullClient, tableMd) },
 ]);
 
-const dosingMd = stripCodeFences(String(resB?.text || "").trim());
-const hasContra = /## Contraindications & Med Interactions/i.test(dosingMd);
-const hasDosing = /## Dosing & Notes/i.test(dosingMd);
-if (!hasContra || !hasDosing) throw new Error("Pass B missing sections");
+let dosingMd = stripCodeFences(String(resB?.text || "").trim());
+dosingMd = normalizePassBHeadings(dosingMd);
 
+let okContra = hasContraSection(dosingMd);
+let okDosing = hasDosingSection(dosingMd);
+
+// If still missing, run one-shot repair with main models to reformat the text
+if (!okContra || !okDosing) {
+  console.warn("[gen.passB] headings not detected; attempting repair with main model");
+  const resRepair = await callChatWithRetry("main", [
+    { role: "system", content: systemPromptB_SafetyDosing() },
+    { role: "user", content: formatRepairBPrompt(fullClient, tableMd, dosingMd) },
+  ]);
+  let repaired = stripCodeFences(String(resRepair?.text || "").trim());
+  repaired = normalizePassBHeadings(repaired);
+
+  // Accept repair if valid, else keep original (we’ll soft-fail later)
+  if (hasContraSection(repaired) && hasDosingSection(repaired)) {
+    dosingMd = repaired;
+    okContra = okDosing = true;
+  }
+}
+
+if (!okContra || !okDosing) {
+  // Bubble the same soft-fail message your logs show to keep behavior consistent
+  throw new Error("Pass B missing sections");
+}
+
+// token accounting (wrapper exposes usage.*)
 if (resB?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resB.usage.prompt_tokens ?? 0);
 if (resB?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resB.usage.completion_tokens ?? 0);
 modelUsed = resB?.modelUsed ?? modelUsed;
+
 
 // PASS C: Remaining sections
 console.info("[gen.passC:start]", { candidates: candidateModels("mini") });
