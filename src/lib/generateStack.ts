@@ -340,12 +340,13 @@ function computeValidationTargets(_mode: GenerateMode, _cap?: number) {
 }
 function stripCodeFences(s: string): string {
   if (!s) return "";
-  // remove ```...``` blocks while keeping inner content
+  // remove ```lang\n...\n``` blocks while preserving the inner text
   return s
-    .replace(/```[\s\S]*?```/g, (m) => m.replace(/^```[\w-]*\n?/, "").replace(/```$/, ""))
+    .replace(/```[\s\S]*?```/g, (m) =>
+      m.replace(/^```[\w-]*\n?/, "").replace(/```$/, "")
+    )
     .trim();
 }
-
 function extractBlueprintTable(md: string): string | null {
   const s = stripCodeFences(md);
   // Find a markdown table that has the exact header (allow flexible spacing/case)
@@ -445,10 +446,6 @@ Rules:
 - No code fences, no extra sections, no intro/outro, no END line.
 - Return ONLY those two sections in ASCII Markdown.
 `.trim();
-}
-// --- Shared fence stripper (if you don't already have it) ---
-function stripCodeFences(s: string) {
-  return String(s || "").replace(/```[a-z]*\n([\s\S]*?)```/gi, "$1").trim();
 }
 
 // --- Pass-C tolerant heading normalization ---
