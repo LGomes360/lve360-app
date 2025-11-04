@@ -310,7 +310,9 @@ async function api(path: string, body?: any) {
       : { method: "GET" };
 
   // 3 tries, 0.5s → 1s → 2s backoff, 15s per-attempt timeout
-  const res = await fetchWithRetry(path, init, 3, 500, 15000);
+ const isGenerate = path.includes("/api/generate-stack");
+const res = await fetchWithRetry(path, init, isGenerate ? 1 : 3, 500, isGenerate ? 150000 : 15000);
+
 
   // Try to read JSON; if it fails, surface status
   let json: any = {};
@@ -390,8 +392,10 @@ async function api(path: string, body?: any) {
     
         setFlow("done");
       } catch (e: any) {
-        setError(e?.message ?? "Unknown error");
-        setFlow("error");
+const aborted = e?.name === "AbortError" || String(e?.message || "").includes("timed out");
+setError(aborted ? "Request timed out. Please try again." : (e?.message ?? "Unknown error"));
+setFlow("error");
+
       } finally {
         setGenerating(false);
         setWarmingUp(false);
