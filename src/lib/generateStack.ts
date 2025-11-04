@@ -914,7 +914,7 @@ const resA = await callChatWithRetry("mini", [
   { role: "user", content: tableOnlyPrompt(compactClient) },
 ]);
 
-const rawA = stripCodeFences(String(resA?.text || "").trim());
+const rawA = stripCodeFences(String(resA?.text ?? "").trim());
 const tableMd = extractBlueprintTable(rawA);
 if (!tableMd) {
   throw new Error("Pass A did not return the Blueprint table");
@@ -925,6 +925,7 @@ if (resA?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resA.usage
 if (resA?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resA.usage.completion_tokens ?? 0);
 modelUsed = resA?.modelUsed ?? modelUsed;
 
+
 // PASS B: Contraindications + Dosing (tolerant detection + self-repair)
 console.info("[gen.passB:start]", { candidates: candidateModels("mini") });
 
@@ -933,27 +934,28 @@ const resB = await callChatWithRetry("mini", [
   { role: "user", content: safetyAndDosingPrompt(fullClient, tableMd) },
 ]);
 
-// Tolerant normalize/repair for Pass B
-const _stripFences = (s: string) => String(s || "").replace(/```[a-z]*\n([\s\S]*?)```/gi, "$1").trim();
-const _hasContra   = (s: string) => /^\s*#{2,3}\s*(contraindications?)(?:\s*&\s*|\s*and\s+)?(?:\s*(?:med(?:ication)?|drug))?\s*interactions?\s*:?\s*$/im.test(s)
-                                   || /^\s*#{2,3}\s*(interactions?|safety|risks?)\b.*$/im.test(s);
-const _hasDosing   = (s: string) => /^\s*#{2,3}\s*dosing\s*(?:&|and)?\s*notes\s*:?\s*$/im.test(s)
-                                   || /^\s*#{2,3}\s*(dosage|posology|instructions|how\s+to\s+take)\b.*$/im.test(s);
-const _normalizeB  = (s: string) => s
-  // normalize any safety/interaction heading to canonical
+// Tolerant normalize/repair for Pass B (LOCAL HELPERS — scoped to avoid collisions)
+const _hasContra = (s: string) =>
+  /^\s*#{2,3}\s*(contraindications?)(?:\s*&\s*|\s*and\s+)?(?:\s*(?:med(?:ication)?|drug))?\s*interactions?\s*:?\s*$/im.test(s) ||
+  /^\s*#{2,3}\s*(interactions?|safety|risks?)\b.*$/im.test(s);
+
+const _hasDosing = (s: string) =>
+  /^\s*#{2,3}\s*dosing\s*(?:&|and)?\s*notes\s*:?\s*$/im.test(s) ||
+  /^\s*#{2,3}\s*(dosage|posology|instructions|how\s+to\s+take)\b.*$/im.test(s);
+
+const _normalizeB = (s: string) => s
   .replace(/^\s*#{2,3}\s*(contraindications?.*interactions?.*)$/gim, "## Contraindications & Med Interactions")
   .replace(/^\s*#{2,3}\s*(interactions?|safety|risks?).*$/gim,       "## Contraindications & Med Interactions")
-  // normalize any dosing heading to canonical
   .replace(/^\s*#{2,3}\s*(dosing.*notes.*)$/gim,                     "## Dosing & Notes")
   .replace(/^\s*#{2,3}\s*(dosage|posology|instructions|how\s+to\s+take).*$/gim, "## Dosing & Notes");
 
-let dosingMdRaw = String(resB?.text || "").trim();
-let dosingMd    = _normalizeB(_stripFences(dosingMdRaw));
-let hasContra   = _hasContra(dosingMd);
-let hasDosing   = _hasDosing(dosingMd);
+let dosingMdRaw = String(resB?.text ?? "").trim();
+let dosingMd = _normalizeB(stripCodeFences(dosingMdRaw));
+let hasContra = _hasContra(dosingMd);
+let hasDosing = _hasDosing(dosingMd);
 
+// If headings missing, one-shot repair with mini
 if (!hasContra || !hasDosing) {
-  // One-shot repair: reformat whatever came back into the two required H2 sections
   const repairPrompt = `
 You are reformatting model output.
 
@@ -983,46 +985,31 @@ Rules:
 - Return ONLY those two sections in ASCII Markdown.
 `.trim();
 
-  const resRepair = await callChatWithRetry("mini", [
+  const resRepairMini = await callChatWithRetry("mini", [
     { role: "system", content: systemPromptB_SafetyDosing() },
     { role: "user", content: repairPrompt },
   ]);
 
-  dosingMdRaw = String(resRepair?.text || "").trim();
-  dosingMd    = _normalizeB(_stripFences(dosingMdRaw));
-  hasContra   = _hasContra(dosingMd);
-  hasDosing   = _hasDosing(dosingMd);
+  const repairedMini = _normalizeB(stripCodeFences(String(resRepairMini?.text ?? "").trim()));
+  if (_hasContra(repairedMini) && _hasDosing(repairedMini)) {
+    dosingMd = repairedMini;
+  } else {
+    // Try once with main model
+    const resRepairMain = await callChatWithRetry("main", [
+      { role: "system", content: systemPromptB_SafetyDosing() },
+      { role: "user", content: repairPrompt },
+    ]);
+    const repairedMain = _normalizeB(stripCodeFences(String(resRepairMain?.text ?? "").trim()));
+    if (_hasContra(repairedMain) && _hasDosing(repairedMain)) {
+      dosingMd = repairedMain;
+    }
+  }
+
+  hasContra = _hasContra(dosingMd);
+  hasDosing = _hasDosing(dosingMd);
 }
 
 if (!hasContra || !hasDosing) {
-  throw new Error("Pass B missing sections");
-}
-
-let dosingMd = stripCodeFences(String(resB?.text || "").trim());
-dosingMd = normalizePassBHeadings(dosingMd);
-
-let okContra = hasContraSection(dosingMd);
-let okDosing = hasDosingSection(dosingMd);
-
-// If still missing, run one-shot repair with main models to reformat the text
-if (!okContra || !okDosing) {
-  console.warn("[gen.passB] headings not detected; attempting repair with main model");
-  const resRepair = await callChatWithRetry("main", [
-    { role: "system", content: systemPromptB_SafetyDosing() },
-    { role: "user", content: formatRepairBPrompt(fullClient, tableMd, dosingMd) },
-  ]);
-  let repaired = stripCodeFences(String(resRepair?.text || "").trim());
-  repaired = normalizePassBHeadings(repaired);
-
-  // Accept repair if valid, else keep original (we’ll soft-fail later)
-  if (hasContraSection(repaired) && hasDosingSection(repaired)) {
-    dosingMd = repaired;
-    okContra = okDosing = true;
-  }
-}
-
-if (!okContra || !okDosing) {
-  // Bubble the same soft-fail message your logs show to keep behavior consistent
   throw new Error("Pass B missing sections");
 }
 
@@ -1032,14 +1019,15 @@ if (resB?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) +
 modelUsed = resB?.modelUsed ?? modelUsed;
 
 
-// PASS C: Remaining sections (tolerant + self-repair)
+// PASS C: Remaining sections (tolerant)
 console.info("[gen.passC:start]", { candidates: candidateModels("mini") });
 
 const resC = await callChatWithRetry("mini", [
   { role: "system", content: systemPromptC_RestOfReport() },
   { role: "user", content: remainingSectionsPrompt(fullClient, tableMd, dosingMd) },
 ]);
-const restMd = String(resC?.text || "").trim();
+
+let restMd = stripCodeFences(String(resC?.text ?? "").trim());
 const requiredH2 = [
   "## Intro Summary",
   "## Goals",
@@ -1053,40 +1041,14 @@ const requiredH2 = [
 ];
 const missing = requiredH2.filter((h) => !restMd.includes(h));
 if (missing.length) {
-  // you can either rethrow, or run a small repair pass similar to Pass B
   console.warn("[passC] missing sections:", missing);
-}
-
-
-let restMd = stripCodeFences(String(resC?.text || "").trim());
-restMd = normalizePassCHeadings(restMd);
-
-let missing = missingPassCHeadings(restMd);
-
-// If a lot is missing (e.g., >3 sections), try a single repair with MAIN models
-if (missing.length > 3) {
-  console.warn("[gen.passC] too many missing sections, attempting repair with main model", { missing });
-  const resRepairC = await callChatWithRetry("main", [
-    { role: "system", content: systemPrompt() },
-    { role: "user", content: formatRepairCPrompt(fullClient, tableMd, dosingMd, restMd) },
-  ]);
-  let repaired = stripCodeFences(String(resRepairC?.text || "").trim());
-  repaired = normalizePassCHeadings(repaired);
-
-  // Accept repair if it reduced missing set; else keep original and let forceHeadings() pad
-  const missingAfter = missingPassCHeadings(repaired);
-  if (missingAfter.length < missing.length) {
-    restMd = repaired;
-    missing = missingAfter;
-  }
+  // (Optional) You can add a Pass-C repair like Pass-B if this ever trips.
 }
 
 // token accounting
 if (resC?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resC.usage.prompt_tokens ?? 0);
 if (resC?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resC.usage.completion_tokens ?? 0);
 modelUsed = resC?.modelUsed ?? modelUsed;
-
-
 
 
   // ---------- Stitch full Markdown ----------
