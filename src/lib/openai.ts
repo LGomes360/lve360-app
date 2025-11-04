@@ -15,7 +15,7 @@ export type CallOpts = {
   maxTokens?: number;     // output-token cap; min 16 for gpt-5*
   max?: number;           // alias of maxTokens
   temperature?: number;   // ignored for gpt-5*
-  timeoutMs?: number;     // default 60s
+  timeoutMs?: number;     // default 75s
 };
 
 /** ANCHOR: NormalizedLLMResponse */
@@ -187,7 +187,7 @@ export async function callOpenAI(
     ? messagesOrString
     : [{ role: "user", content: String(messagesOrString) }];
 
-  const timeoutMs = opts.timeoutMs ?? 60_000;
+  const timeoutMs = opts.timeoutMs ?? 75_000;
 
   if (isResponsesModel(model)) {
     const body = toResponsesPayload(model, messages, opts);
