@@ -359,9 +359,11 @@ return NextResponse.json(
 const stackId = result?.raw?.stack_id as string | undefined;
 
 let itemsInserted = 0;
-if (typeof stackId === "string") {
-  itemsInserted = await countItemsForStack(stackId);
+if (stackId != null) {
+  const sid: string = stackId;         // <- force concrete string type
+  itemsInserted = await countItemsForStack(sid);
 }
+
 
     return NextResponse.json(
       {
