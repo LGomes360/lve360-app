@@ -1094,6 +1094,79 @@ if (resA?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resA.usage
 if (resA?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resA.usage.completion_tokens ?? 0);
 modelUsed = resA?.modelUsed ?? modelUsed;
 
+// ---- Local fallback for Pass B (no LLM) ------------------------------------
+function synthesizePassBFromLocal(sub: any, blueprintTable: string) {
+  // 1) grab item names from the Blueprint table
+  const names = Array.from(blueprintTable.matchAll(/\|\s*\d+\s*\|\s*([^|]+)\|/g))
+    .map(m => (m[1] || "").trim())
+    .filter(Boolean)
+    .slice(0, 12);
+
+  // Normalize using your existing helper
+  const normNames = names.map(n => normalizeSupplementName(n));
+
+  // 2) simple dosing defaults for common items (plain English, safe)
+  const DOSE: Record<string, string> = {
+    "Omega-3": "1000 mg EPA+DHA daily with a meal (AM/PM).",
+    "Vitamin D": "1000–2000 IU daily with food; adjust per 25-OH labs.",
+    "Magnesium": "200–400 mg (glycinate) in the evening; separate from antibiotics by ≥2h.",
+    "Soluble fiber": "1 serving (psyllium) with water before a meal; separate meds by 2–3h.",
+    "Probiotic": "1 capsule daily with food; stop if GI symptoms worsen.",
+    "Vitamin B12": "500–1000 mcg daily or per label; useful if on metformin.",
+    "Curcumin": "500–1000 mg daily with food; pick a standardized extract.",
+    "Green tea extract (EGCG)": "300–400 mg earlier in the day; avoid late PM.",
+    "CoQ10": "100–200 mg with a meal (often AM).",
+    "Collagen": "10–20 g daily; mix into coffee or smoothies.",
+  };
+
+  const dosingLines = normNames.map(n => {
+    const base = DOSE[n] || "Use label-directed dose; start low, increase as tolerated.";
+    return `- **${n}** — ${base}`;
+  });
+
+  // 3) safety heuristics using intake
+  const medsArr = Array.isArray(sub?.medications) ? sub.medications : [];
+  const condArr = Array.isArray(sub?.conditions) ? sub.conditions : [];
+  const medsText = JSON.stringify(medsArr).toLowerCase();
+  const condText = JSON.stringify(condArr).toLowerCase();
+
+  const onBloodThinner = /(warfarin|coumadin|apixaban|eliquis|clopidogrel|plavix|xarelto|aspirin)/i.test(medsText);
+  const onSSRIorMAOI = /(fluox|sertral|citalo|parox|venlafax|dulox|maoi|selegiline|phenelzine)/i.test(medsText);
+  const bpMeds = /(losartan|lisinopril|amlodipine|metoprolol|hctz|hydrochloro)/i.test(medsText);
+  const kidneyIssues = /(ckd|kidney)/i.test(condText);
+  const liverIssues = /(liver|hepatic)/i.test(condText);
+  const immuneSuppressed = /(immun|chemo|steroid)/i.test(condText) || /(predni|methotrex|tacro|cyclo)/i.test(medsText);
+
+  const safety: string[] = [];
+  if (onBloodThinner) {
+    safety.push(
+      "- **Bleeding risk:** Omega-3 and Curcumin may increase bleeding tendency; coordinate with your clinician and pause before procedures."
+    );
+  }
+  if (bpMeds) {
+    safety.push("- **Blood pressure:** CoQ10 and Magnesium may lower BP slightly; monitor if on antihypertensives.");
+  }
+  if (onSSRIorMAOI) {
+    safety.push("- **Mood meds:** Avoid serotonergic herbs (e.g., St. John’s Wort). Current Blueprint avoids these by default.");
+  }
+  safety.push("- **Antibiotics/minerals:** Separate Magnesium and fiber from antibiotics or thyroid meds by 2–3 hours.");
+  if (kidneyIssues) safety.push("- **Kidney disease:** Use Vitamin D and Magnesium under clinician guidance.");
+  if (liverIssues) safety.push("- **Liver caution:** Use concentrated EGCG (green tea extract) cautiously; discontinue if you notice malaise/dark urine/abdominal pain.");
+  if (immuneSuppressed) safety.push("- **Immune status:** Use probiotics with caution if significantly immunocompromised (ask your clinician).");
+
+  // Build the two sections
+  const contraSection =
+    `## Contraindications & Med Interactions\n\n` +
+    (safety.length ? safety.map(s => s).join("\n") : "- No specific conflicts detected from your intake. Use standard care and consult your clinician.") +
+    `\n\n**Analysis**\n\nThese guardrails are generated from your reported meds/conditions and common supplement cautions (e.g., bleeding risk, antibiotic spacing, liver/kidney considerations). Please consult your clinician for personalized guidance.`;
+
+  const dosingSection =
+    `## Dosing & Notes\n\n` +
+    (dosingLines.length ? dosingLines.join("\n") : "- Dosing will populate once your Blueprint table is available.") +
+    `\n\n**Analysis**\n\nDoses favor low-to-moderate ranges, food timing for tolerability, and practical spacing around prescriptions. Adjust based on lab values and provider feedback.`;
+
+  return { contraSection, dosingSection };
+}
 
 // PASS B: Contraindications + Dosing (tolerant detection + self-repair)
 console.info("[gen.passB:start]", { candidates: candidateModels("mini") });
@@ -1101,7 +1174,7 @@ console.info("[gen.passB:start]", { candidates: candidateModels("mini") });
 const resB = await callChatWithRetry("mini", [
   { role: "system", content: systemPromptB_SafetyDosing() },
   { role: "user", content: safetyAndDosingPrompt(fullClient, tableMd) },
-]);
+]{ maxTokens: 1200, timeoutMs: LLM_TIMEOUT_MS });
 
 // Tolerant normalize/repair for Pass B (LOCAL HELPERS — scoped to avoid collisions)
 const _hasContra = (s: string) =>
@@ -1179,8 +1252,14 @@ Rules:
 }
 
 if (!hasContra || !hasDosing) {
-  throw new Error("Pass B missing sections");
+  console.warn("[passB] missing after repair — using local fallback");
+  const local = synthesizePassBFromLocal(fullClient, tableMd || "");
+  dosingMd = `${local.contraSection}\n\n${local.dosingSection}`;
+  // re-evaluate
+  hasContra = _hasContra(dosingMd);
+  hasDosing = _hasDosing(dosingMd);
 }
+
 
 // token accounting (wrapper exposes usage.*)
 if (resB?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resB.usage.prompt_tokens ?? 0);
