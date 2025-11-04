@@ -908,6 +908,7 @@ export async function generateStackForSubmission(arg: string | { submissionId: s
 
 // PASS A: Blueprint Table (mini first)
 console.info("[gen.passA:start]", { candidates: candidateModels("mini") });
+
 const resA = await callChatWithRetry("mini", [
   { role: "system", content: systemPromptA_TableOnly() },
   { role: "user", content: tableOnlyPrompt(compactClient) },
@@ -931,6 +932,71 @@ const resB = await callChatWithRetry("mini", [
   { role: "system", content: systemPromptB_SafetyDosing() },
   { role: "user", content: safetyAndDosingPrompt(fullClient, tableMd) },
 ]);
+
+// Tolerant normalize/repair for Pass B
+const _stripFences = (s: string) => String(s || "").replace(/```[a-z]*\n([\s\S]*?)```/gi, "$1").trim();
+const _hasContra   = (s: string) => /^\s*#{2,3}\s*(contraindications?)(?:\s*&\s*|\s*and\s+)?(?:\s*(?:med(?:ication)?|drug))?\s*interactions?\s*:?\s*$/im.test(s)
+                                   || /^\s*#{2,3}\s*(interactions?|safety|risks?)\b.*$/im.test(s);
+const _hasDosing   = (s: string) => /^\s*#{2,3}\s*dosing\s*(?:&|and)?\s*notes\s*:?\s*$/im.test(s)
+                                   || /^\s*#{2,3}\s*(dosage|posology|instructions|how\s+to\s+take)\b.*$/im.test(s);
+const _normalizeB  = (s: string) => s
+  // normalize any safety/interaction heading to canonical
+  .replace(/^\s*#{2,3}\s*(contraindications?.*interactions?.*)$/gim, "## Contraindications & Med Interactions")
+  .replace(/^\s*#{2,3}\s*(interactions?|safety|risks?).*$/gim,       "## Contraindications & Med Interactions")
+  // normalize any dosing heading to canonical
+  .replace(/^\s*#{2,3}\s*(dosing.*notes.*)$/gim,                     "## Dosing & Notes")
+  .replace(/^\s*#{2,3}\s*(dosage|posology|instructions|how\s+to\s+take).*$/gim, "## Dosing & Notes");
+
+let dosingMdRaw = String(resB?.text || "").trim();
+let dosingMd    = _normalizeB(_stripFences(dosingMdRaw));
+let hasContra   = _hasContra(dosingMd);
+let hasDosing   = _hasDosing(dosingMd);
+
+if (!hasContra || !hasDosing) {
+  // One-shot repair: reformat whatever came back into the two required H2 sections
+  const repairPrompt = `
+You are reformatting model output.
+
+### CLIENT (for context)
+\`\`\`json
+${JSON.stringify(fullClient, null, 2)}
+\`\`\`
+
+### BLUEPRINT TABLE (do not rewrite)
+${tableMd}
+
+### BROKEN PASS-B TEXT (reformat only)
+\`\`\`
+${dosingMdRaw}
+\`\`\`
+
+### TASK
+Rewrite the BROKEN PASS-B TEXT into **exactly TWO H2 sections** with these exact headings, in this order:
+
+## Contraindications & Med Interactions
+## Dosing & Notes
+
+Rules:
+- Keep the safety info and dosing notes; fix headings/format only.
+- Bullets are fine; keep plain-English.
+- No code fences, no extra sections, no intro/outro, no END line.
+- Return ONLY those two sections in ASCII Markdown.
+`.trim();
+
+  const resRepair = await callChatWithRetry("mini", [
+    { role: "system", content: systemPromptB_SafetyDosing() },
+    { role: "user", content: repairPrompt },
+  ]);
+
+  dosingMdRaw = String(resRepair?.text || "").trim();
+  dosingMd    = _normalizeB(_stripFences(dosingMdRaw));
+  hasContra   = _hasContra(dosingMd);
+  hasDosing   = _hasDosing(dosingMd);
+}
+
+if (!hasContra || !hasDosing) {
+  throw new Error("Pass B missing sections");
+}
 
 let dosingMd = stripCodeFences(String(resB?.text || "").trim());
 dosingMd = normalizePassBHeadings(dosingMd);
@@ -970,9 +1036,27 @@ modelUsed = resB?.modelUsed ?? modelUsed;
 console.info("[gen.passC:start]", { candidates: candidateModels("mini") });
 
 const resC = await callChatWithRetry("mini", [
-  { role: "system", content: systemPrompt() },
+  { role: "system", content: systemPromptC_RestOfReport() },
   { role: "user", content: remainingSectionsPrompt(fullClient, tableMd, dosingMd) },
 ]);
+const restMd = String(resC?.text || "").trim();
+const requiredH2 = [
+  "## Intro Summary",
+  "## Goals",
+  "## Current Stack",
+  "## Evidence & References",
+  "## Shopping Links",
+  "## Follow-up Plan",
+  "## Lifestyle Prescriptions",
+  "## Longevity Levers",
+  "## This Week Try",
+];
+const missing = requiredH2.filter((h) => !restMd.includes(h));
+if (missing.length) {
+  // you can either rethrow, or run a small repair pass similar to Pass B
+  console.warn("[passC] missing sections:", missing);
+}
+
 
 let restMd = stripCodeFences(String(resC?.text || "").trim());
 restMd = normalizePassCHeadings(restMd);
