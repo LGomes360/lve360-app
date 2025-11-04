@@ -1171,10 +1171,15 @@ function synthesizePassBFromLocal(sub: any, blueprintTable: string) {
 // PASS B: Contraindications + Dosing (tolerant detection + self-repair)
 console.info("[gen.passB:start]", { candidates: candidateModels("mini") });
 
-const resB = await callChatWithRetry("mini", [
-  { role: "system", content: systemPromptB_SafetyDosing() },
-  { role: "user", content: safetyAndDosingPrompt(fullClient, tableMd) },
-]{ maxTokens: 1200, timeoutMs: LLM_TIMEOUT_MS });
+const resB = await callChatWithRetry(
+  "mini",
+  [
+    { role: "system", content: systemPromptB_SafetyDosing() },
+    { role: "user", content: safetyAndDosingPrompt(fullClient, tableMd) },
+  ],
+  { maxTokens: 1200, timeoutMs: LLM_TIMEOUT_MS }
+);
+
 
 // Tolerant normalize/repair for Pass B (LOCAL HELPERS — scoped to avoid collisions)
 const _hasContra = (s: string) =>
