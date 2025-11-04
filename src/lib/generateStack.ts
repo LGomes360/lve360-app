@@ -1017,6 +1017,35 @@ function applyLinkPolicy(items: StackItem[], sub: any, mode: GenerateMode): Stac
     return { ...it, link_amazon: linkAmazon };
   });
 }
+// Put these above generateStack()
+const SECTION_HEADINGS = [
+  "Intro Summary","Summary","Goals","Contraindications","Contraindications & Med Interactions",
+  "Current Stack","Your Blueprint Recommendations","High-Impact \"Bang-for-Buck\" Additions",
+  "Dosing & Notes","Dosing","Evidence & References","Shopping Links",
+  "Follow-up Plan","Lifestyle Prescriptions","Longevity Levers","This Week Try","Weekly Experiment",
+];
+
+function hasUsableSections(md: string | null | undefined): boolean {
+  if (!md) return false;
+  const t = md.toLowerCase();
+  if (!t.includes("## ")) return false; // no headings at all
+  return SECTION_HEADINGS.some(h => t.includes(("## " + h).toLowerCase()));
+}
+
+async function refetchUntilReady(qp: string, maxMs = 25_000): Promise<string> {
+  const deadline = Date.now() + maxMs;
+  let last = "";
+  while (Date.now() < deadline) {
+    const refreshed = await api(`/api/get-stack?${qp}`);
+    const md = sanitizeMarkdown(
+      refreshed?.stack?.sections?.markdown ?? refreshed?.stack?.summary ?? ""
+    );
+    last = md;
+    if (hasUsableSections(md)) return md;
+    await new Promise(r => setTimeout(r, 1500)); // poll every 1.5s
+  }
+  return last; // whatever we have, may still be empty
+}
 
 // ----------------------------------------------------------------------------
 // Main export (accepts either string id OR {submissionId})
