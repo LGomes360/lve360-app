@@ -355,14 +355,15 @@ return NextResponse.json(
 );
 
 
-    // Count items actually written (best-effort)
-const stackId = result?.raw?.stack_id as string | undefined;
+// Count items actually written (best-effort)
+const stackIdRaw = result?.raw?.stack_id;
+const stackIdStr = typeof stackIdRaw === "string" && stackIdRaw.length > 0 ? stackIdRaw : undefined;
 
 let itemsInserted = 0;
-if (stackId != null) {
-  const sid: string = stackId;         // <- force concrete string type
-  itemsInserted = await countItemsForStack(sid);
+if (stackIdStr) {
+  itemsInserted = await countItemsForStack(stackIdStr);
 }
+
 
 
     return NextResponse.json(
