@@ -1186,6 +1186,18 @@ if (resB?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resB.usage
 if (resB?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resB.usage.completion_tokens ?? 0);
 modelUsed = resB?.modelUsed ?? modelUsed;
 
+  const PASSC_REQUIRED = [
+  "## Intro Summary",
+  "## Goals",
+  "## Current Stack",
+  "## Evidence & References",
+  "## Shopping Links",
+  "## Follow-up Plan",
+  "## Lifestyle Prescriptions",
+  "## Longevity Levers",
+  "## This Week Try",
+];
+
 // PASS C: Remaining sections (strict + tolerant + repair + local synth fallback)
 console.info("[gen.passC:start]", { candidates: candidateModels("mini") });
 
@@ -1253,7 +1265,7 @@ No other sections, no code fences.
 }
 
 // Local synth if empty/garbled
-if (tooShort || missing.length === PASSC_REQUIRED.length) {
+if (tooShort || missing.length >= 9) {
   console.warn("[passC] empty/garbled first pass; synthesizing sections locally");
   const userName = sub?.name ? String(sub.name).split(" ")[0] : "there";
   const analysis3 = (topic: string) =>
