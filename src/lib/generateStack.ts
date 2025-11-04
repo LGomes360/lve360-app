@@ -83,6 +83,7 @@ interface EvidenceEntry { url?: string | null; [key: string]: any }
 type EvidenceIndex = Record<string, EvidenceEntry[]>;
 const EVIDENCE: EvidenceIndex = (evidenceIndex as unknown) as EvidenceIndex;
 const LLM_DEFAULT_TIMEOUT_MS = 90_000; // 90s default for all LLM calls
+const LLM_TIMEOUT_MS = 70_000; // 70s to align with the GPT-5 pass budget
 
 // ----------------------------------------------------------------------------
 // Model resolution + safe caller
