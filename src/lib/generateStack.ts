@@ -276,7 +276,7 @@ function padBlueprint(md: string, minRows: number) {
   const patched = body.includes("| --- |")
     ? body.replace(/\n(?!(.|\n))*$/, "") + `\n${pad}\n`
     : `\n${header}${data.join("\n")}\n${pad}\n`;
- return md.replace(re, `## Your Blueprint Recommendations\n${patched}`);
+return md.replace(re, `## Your Blueprint Recommendations\n${patched}`);
 }
 
 function headingsOK(md: string) {
@@ -1148,58 +1148,49 @@ if (resB?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resB.usage
 if (resB?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resB.usage.completion_tokens ?? 0);
 modelUsed = resB?.modelUsed ?? modelUsed;
 
-const PASSC_REQUIRED = [
-  "## Intro Summary",
-  "## Goals",
-  "## Current Stack",
-  "## Evidence & References",
-  "## Shopping Links",
-  "## Follow-up Plan",
-  "## Lifestyle Prescriptions",
-  "## Longevity Levers",
-  "## This Week Try",
-];
-
-function normalizePassCHeadings(s: string) {
-  let out = s;
-  const map: Array<[RegExp, string]> = [
-    [/^\s*#{2,3}\s*(introduction|intro)\b.*$/gim, "## Intro Summary"],
-    [/^\s*#{2,3}\s*(objectives|goals?)\b.*$/gim, "## Goals"],
-    [/^\s*#{2,3}\s*(current\s*(stack|regimen)|what\s*i\s*take)\b.*$/gim, "## Current Stack"],
-    [/^\s*#{2,3}\s*(references|citations|sources?)\b.*$/gim, "## Evidence & References"],
-    [/^\s*#{2,3}\s*(shopping|links?|where\s*to\s*buy)\b.*$/gim, "## Shopping Links"],
-    [/^\s*#{2,3}\s*(follow[- ]?up|checkpoints?|plan)\b.*$/gim, "## Follow-up Plan"],
-    [/^\s*#{2,3}\s*(lifestyle|habits?)\b.*$/gim, "## Lifestyle Prescriptions"],
-    [/^\s*#{2,3}\s*(longevity|aging\s*levers?)\b.*$/gim, "## Longevity Levers"],
-    [/^\s*#{2,3}\s*(this\s*week.*|try\s*this\s*week)\b.*$/gim, "## This Week Try"],
-  ];
-  for (const [re, h] of map) out = out.replace(re, h);
-  return out;
-}
-
-function missingPassCHeadings(s: string) {
-  return PASSC_REQUIRED.filter(h => !s.includes(h));
-}
-
-// PASS C: Remaining sections (tolerant)
 // PASS C: Remaining sections (strict + tolerant + repair + local synth fallback)
 console.info("[gen.passC:start]", { candidates: candidateModels("mini") });
 
 const compactC = compactForPassC(sub);
 
-// First attempt (mini, strict, small token/time budget)
-let resC = await callChatWithRetry("mini", [
+// 1) First attempt (mini, strict, bounded tokens/time)
+const resC = await callChatWithRetry("mini", [
   { role: "system", content: systemPromptC_Strict() },
   { role: "user", content: remainingSectionsPrompt(compactC, tableMd, dosingMd) },
 ], { maxTokens: 900, timeoutMs: 25000 });
 
+// 2) Normalize + assess output
 let restMd = normalizePassCHeadings(stripCodeFences(String(resC?.text ?? "").trim()));
 let missing = missingPassCHeadings(restMd);
+const ALL_PASSC = PASSC_MAP.map(x => x.canon);
+const tooShort = restMd.replace(/\s+/g, " ").length < 80;
 
-// If missing, try a quick repair with mini
-if (missing.length) {
-  console.warn("[passC] missing sections (mini result):", missing);
-  const repairPrompt = `
+// 3) If empty/garbled, synthesize everything locally once and skip extra LLM calls
+if (tooShort || missing.length === ALL_PASSC.length) {
+  console.warn("[passC] empty/garbled first pass; synthesizing sections locally");
+  const synth = (h: string, body: string) =>
+    `${h}\n\n${body}\n\n**Analysis**\n\nThis summarizes practical steps and why they matter for your goals.\n`;
+  const userName = sub?.name ? String(sub.name).split(" ")[0] : "there";
+
+  const blocks = [
+    synth("## Intro Summary", `Hi ${userName}! Based on your intake and preferences, here’s a concise plan aligned to your goals. Your Blueprint lays out the "what" and "why," while Dosing & Notes explains the "how".`),
+    synth("## Goals", `| Goal | Description |\n| --- | --- |\n| Primary | Improve energy, metabolic health, and sleep |\n| Secondary | Support cardiovascular and cognitive health |`),
+    synth("## Current Stack", `| Medication/Supplement | Purpose | Dosage | Timing |\n| --- | --- | --- | --- |\n| (from intake) | As reported | As reported | As reported |`),
+    synth("## Evidence & References", `- Evidence pending. See curated citations attached to items.\n- We prioritize PubMed/PMC/DOI and major journals.`),
+    synth("## Shopping Links", `Links are provided in the Shopping section for convenience. Choose based on budget/trusted/clean preference.`),
+    synth("## Follow-up Plan", `- Re-check energy, sleep, and digestion in 2–3 weeks.\n- Review labs in 8–12 weeks.\n- Adjust doses or timing if side effects appear.`),
+    synth("## Lifestyle Prescriptions", `- Walk 20–30 minutes after your biggest meal.\n- Prioritize 7–8 hours of sleep.\n- Aim for 90–120g protein/day.`),
+    synth("## Longevity Levers", `- Resistance training 2–3x/week.\n- Keep visceral fat low; monitor waist-to-height ratio.\n- Periodic labs to personalize dosing.`),
+    synth("## This Week Try", `- AM: 10-minute sunlight + water before caffeine.\n- Midday: 10-minute walk after lunch.\n- PM: Dim screens after 9pm; in bed by 10pm.`),
+  ];
+  restMd = blocks.join("\n\n");
+  missing = [];
+} else {
+  // 4) If some sections are missing, attempt small repair passes
+
+  if (missing.length) {
+    console.warn("[passC] missing sections (mini result):", missing);
+    const repairPrompt = `
 You received Markdown with some of the nine required sections. 
 Rewrite **only the missing sections** listed below. 
 - Use the same style/tone as the provided text.
@@ -1213,20 +1204,21 @@ Context (do not alter):
 - Keep consistent with the Blueprint table and Dosing section.
 `.trim();
 
-  const resRepairMini = await callChatWithRetry("mini", [
-    { role: "system", content: systemPromptC_Strict() },
-    { role: "user", content: repairPrompt },
-  ], { maxTokens: 700, timeoutMs: 20000 });
+    const resRepairMini = await callChatWithRetry("mini", [
+      { role: "system", content: systemPromptC_Strict() },
+      { role: "user", content: repairPrompt },
+    ], { maxTokens: 700, timeoutMs: 20000 });
 
-  const addMini = normalizePassCHeadings(stripCodeFences(String(resRepairMini?.text ?? "").trim()));
-  restMd = (restMd + "\n\n" + addMini).trim();
-  missing = missingPassCHeadings(restMd);
-}
+    const addMini = normalizePassCHeadings(stripCodeFences(String(resRepairMini?.text ?? "").trim()));
+    if (addMini) {
+      restMd = (restMd + "\n\n" + addMini).trim();
+      missing = missingPassCHeadings(restMd);
+    }
+  }
 
-// If still missing, one more repair with main (slightly larger token budget, but still bounded)
-if (missing.length) {
-  console.warn("[passC] still missing after mini repair; trying main:", missing);
-  const repairPromptMain = `
+  if (missing.length) {
+    console.warn("[passC] still missing after mini repair; trying main:", missing);
+    const repairPromptMain = `
 Generate **only** these missing sections in ASCII Markdown:
 ${missing.map(m => `- ${m}`).join("\n")}
 Each ends with an **Analysis** paragraph (≥3 sentences).
@@ -1234,76 +1226,55 @@ Keep consistent with the earlier Blueprint and Dosing.
 No other sections, no code fences.
 `.trim();
 
-  const resRepairMain = await callChatWithRetry("main", [
-    { role: "system", content: systemPromptC_Strict() },
-    { role: "user", content: repairPromptMain },
-  ], { maxTokens: 900, timeoutMs: 25000 });
+    const resRepairMain = await callChatWithRetry("main", [
+      { role: "system", content: systemPromptC_Strict() },
+      { role: "user", content: repairPromptMain },
+    ], { maxTokens: 900, timeoutMs: 25000 });
 
-  const addMain = normalizePassCHeadings(stripCodeFences(String(resRepairMain?.text ?? "").trim()));
-  restMd = (restMd + "\n\n" + addMain).trim();
-  missing = missingPassCHeadings(restMd);
-}
-let restMd = normalizePassCHeadings(stripCodeFences(String(resC?.text ?? "").trim()));
-let missing = missingPassCHeadings(restMd);
-
-// If model returned nothing useful, skip chat repairs and synthesize locally
-const tooShort = restMd.replace(/\s+/g, " ").length < 80;
-if (tooShort || missing.length === PASSC_REQUIRED.length) {
-  console.warn("[passC] empty/garbled first pass; synthesizing sections locally");
-  const synth = (h: string, body: string) =>
-    `${h}\n\n${body}\n\n**Analysis**\n\nThis summarizes practical steps and why they matter for your goals.\n`;
-
-  const userName = sub?.name ? String(sub.name).split(" ")[0] : "there";
-  const blocks = [
-    synth("## Intro Summary", `Hi ${userName}! Based on your intake and preferences, here’s a concise plan aligned to your goals. Your Blueprint lays out the “what” and “why,” while Dosing & Notes explains the “how”.`),
-    synth("## Goals", `| Goal | Description |\n| --- | --- |\n| Primary | Improve energy, metabolic health, and sleep |\n| Secondary | Support cardiovascular and cognitive health |`),
-    synth("## Current Stack", `| Medication/Supplement | Purpose | Dosage | Timing |\n| --- | --- | --- | --- |\n| (from intake) | As reported | As reported | As reported |`),
-    synth("## Evidence & References", `- Evidence pending. See curated citations attached to items.\n- We prioritize PubMed/PMC/DOI and major journals.`),
-    synth("## Shopping Links", `Links are provided in the Shopping section for convenience. Choose based on budget/trusted/clean preference.`),
-    synth("## Follow-up Plan", `- Re-check energy, sleep, and digestion in 2–3 weeks.\n- Review labs in 8–12 weeks.\n- Adjust doses or timing if side effects appear.`),
-    synth("## Lifestyle Prescriptions", `- Walk 20–30 minutes after your biggest meal.\n- Prioritize 7–8 hours of sleep.\n- Aim for 90–120g protein/day.`),
-    synth("## Longevity Levers", `- Resistance training 2–3x/week.\n- Keep visceral fat low; monitor waist-to-height ratio.\n- Periodic labs to personalize dosing.`),
-    synth("## This Week Try", `- AM: 10-minute sunlight + water before caffeine.\n- Midday: 10-minute walk after lunch.\n- PM: Dim screens after 9pm; in bed by 10pm.`),
-  ];
-  restMd = blocks.join("\n\n");
-  missing = [];
-}
-
-// FINAL SAFETY: if still missing (edge case), synthesize minimal compliant sections locally
-if (missing.length) {
-  console.warn("[passC] synthesizing missing locally:", missing);
-  const synth = (h: string, body: string) => `${h}\n\n${body}\n\n**Analysis**\n\nThis section summarizes practical steps and why they matter for your goals.\n`;
-
-  const userName = sub?.name ? String(sub.name).split(" ")[0] : "there";
-  const add: string[] = [];
-  for (const h of missing) {
-    if (h === "## Intro Summary") {
-      add.push(synth(h, `Hi ${userName}! Based on your intake and preferences, here’s a concise plan to support your goals. Your Blueprint lays out the “what” and “why,” while Dosing & Notes explains the “how” (amounts and timing).`));
-    } else if (h === "## Goals") {
-      add.push(synth(h, `| Goal | Description |\n| --- | --- |\n| Primary | Improve energy, metabolic health, and sleep quality |\n| Secondary | Support long-term cardiovascular and cognitive health |`));
-    } else if (h === "## Current Stack") {
-      add.push(synth(h, `| Medication/Supplement | Purpose | Dosage | Timing |\n| --- | --- | --- | --- |\n| (from intake) | As reported | As reported | As reported |`));
-    } else if (h === "## Evidence & References") {
-      add.push(synth(h, `- Evidence pending. See curated citations attached to items.\n- We prioritize PubMed/PMC/DOI and major journals.\n- References will expand as we learn more from your feedback.`));
-    } else if (h === "## Shopping Links") {
-      add.push(synth(h, `Links are provided in the Shopping section below for convenience. Choose based on budget/trusted/clean preference.`));
-    } else if (h === "## Follow-up Plan") {
-      add.push(synth(h, `- Re-check energy, sleep, and digestion in 2–3 weeks.\n- Review labs (lipids, A1C, vitamin D) in 8–12 weeks.\n- Adjust doses or timing if side effects or conflicts appear.`));
-    } else if (h === "## Lifestyle Prescriptions") {
-      add.push(synth(h, `- Walk 20–30 minutes after your biggest meal.\n- Prioritize 7–8 hours sleep; dim lights 1 hour before bed.\n- Aim for 90–120g protein/day (distributed across meals).`));
-    } else if (h === "## Longevity Levers") {
-      add.push(synth(h, `- Resistance training 2–3x/week; progressive overload.\n- Keep visceral fat low; monitor waist-to-height ratio.\n- Periodic lab monitoring to personalize micronutrient dosing.`));
-    } else if (h === "## This Week Try") {
-      add.push(synth(h, `- AM: 10-minute sunlight + water before caffeine.\n- Midday: 10-minute walk after lunch.\n- PM: Screens dimmed after 9pm; in bed by 10pm.`));
+    const addMain = normalizePassCHeadings(stripCodeFences(String(resRepairMain?.text ?? "").trim()));
+    if (addMain) {
+      restMd = (restMd + "\n\n" + addMain).trim();
+      missing = missingPassCHeadings(restMd);
     }
   }
-  restMd = (restMd + "\n\n" + add.join("\n\n")).trim();
+
+  // 5) Final local synth for any still-missing sections
+  if (missing.length) {
+    console.warn("[passC] synthesizing missing locally:", missing);
+    const synth = (h: string, body: string) => `${h}\n\n${body}\n\n**Analysis**\n\nThis section summarizes practical steps and why they matter for your goals.\n`;
+    const userName = sub?.name ? String(sub.name).split(" ")[0] : "there";
+    const add: string[] = [];
+
+    for (const h of missing) {
+      if (h === "## Intro Summary") {
+        add.push(synth(h, `Hi ${userName}! Based on your intake and preferences, here’s a concise plan to support your goals. Your Blueprint lays out the "what" and "why," while Dosing & Notes explains the "how" (amounts and timing).`));
+      } else if (h === "## Goals") {
+        add.push(synth(h, `| Goal | Description |\n| --- | --- |\n| Primary | Improve energy, metabolic health, and sleep quality |\n| Secondary | Support long-term cardiovascular and cognitive health |`));
+      } else if (h === "## Current Stack") {
+        add.push(synth(h, `| Medication/Supplement | Purpose | Dosage | Timing |\n| --- | --- | --- | --- |\n| (from intake) | As reported | As reported | As reported |`));
+      } else if (h === "## Evidence & References") {
+        add.push(synth(h, `- Evidence pending. See curated citations attached to items.\n- We prioritize PubMed/PMC/DOI and major journals.\n- References will expand as we learn more from your feedback.`));
+      } else if (h === "## Shopping Links") {
+        add.push(synth(h, `Links are provided in the Shopping section below for convenience. Choose based on budget/trusted/clean preference.`));
+      } else if (h === "## Follow-up Plan") {
+        add.push(synth(h, `- Re-check energy, sleep, and digestion in 2–3 weeks.\n- Review labs (lipids, A1C, vitamin D) in 8–12 weeks.\n- Adjust doses or timing if side effects or conflicts appear.`));
+      } else if (h === "## Lifestyle Prescriptions") {
+        add.push(synth(h, `- Walk 20–30 minutes after your biggest meal.\n- Prioritize 7–8 hours sleep; dim lights 1 hour before bed.\n- Aim for 90–120g protein/day (distributed across meals).`));
+      } else if (h === "## Longevity Levers") {
+        add.push(synth(h, `- Resistance training 2–3x/week; progressive overload.\n- Keep visceral fat low; monitor waist-to-height ratio.\n- Periodic lab monitoring to personalize micronutrient dosing.`));
+      } else if (h === "## This Week Try") {
+        add.push(synth(h, `- AM: 10-minute sunlight + water before caffeine.\n- Midday: 10-minute walk after lunch.\n- PM: Screens dimmed after 9pm; in bed by 10pm.`));
+      }
+    }
+    restMd = (restMd + "\n\n" + add.join("\n\n")).trim();
+  }
 }
 
-// token accounting
+// token accounting (if provided by your wrapper)
 if (resC?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resC.usage.prompt_tokens ?? 0);
 if (resC?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resC.usage.completion_tokens ?? 0);
 modelUsed = resC?.modelUsed ?? modelUsed;
+
 
   // ---------- Stitch full Markdown ----------
 let md = [
