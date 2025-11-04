@@ -446,6 +446,81 @@ Rules:
 - Return ONLY those two sections in ASCII Markdown.
 `.trim();
 }
+// --- Shared fence stripper (if you don't already have it) ---
+function stripCodeFences(s: string) {
+  return String(s || "").replace(/```[a-z]*\n([\s\S]*?)```/gi, "$1").trim();
+}
+
+// --- Pass-C tolerant heading normalization ---
+const PASSC_MAP: Array<{canon: string; variants: RegExp[]}> = [
+  { canon: "## Intro Summary", variants: [/^\s*#{2,3}\s*(intro(?:duction)?\s*)?summary\b.*$/im] },
+  { canon: "## Goals", variants: [/^\s*#{2,3}\s*goals?\b.*$/im] },
+  { canon: "## Current Stack", variants: [/^\s*#{2,3}\s*current\s*(stack|supplements?)\b.*$/im] },
+  { canon: "## Evidence & References", variants: [/^\s*#{2,3}\s*(evidence|references?)\b.*$/im] },
+  { canon: "## Shopping Links", variants: [/^\s*#{2,3}\s*(shopping|links?)\b.*$/im] },
+  { canon: "## Follow-up Plan", variants: [/^\s*#{2,3}\s*follow[-\s]*up\s*plan\b.*$/im] },
+  { canon: "## Lifestyle Prescriptions", variants: [/^\s*#{2,3}\s*(lifestyle|habits?)\s*(prescriptions?|plan)?\b.*$/im] },
+  { canon: "## Longevity Levers", variants: [/^\s*#{2,3}\s*longevity\s*(levers?|drivers?)\b.*$/im] },
+  { canon: "## This Week Try", variants: [/^\s*#{2,3}\s*this\s*week\s*try\b.*$/im] },
+];
+
+function normalizePassCHeadings(md: string) {
+  let out = md || "";
+  for (const { canon, variants } of PASSC_MAP) {
+    for (const rx of variants) {
+      out = out.replace(rx, canon);
+    }
+  }
+  return out;
+}
+
+function missingPassCHeadings(md: string) {
+  const needed = PASSC_MAP.map(x => x.canon);
+  return needed.filter(h => !(md || "").includes(h));
+}
+
+// One-shot reformat prompt to coerce headings/order for Pass C
+function formatRepairCPrompt(fullClient: any, blueprintTable: string, dosingSection: string, brokenText: string) {
+  return `
+You are reformatting model output ONLY.
+
+### CLIENT (context)
+\`\`\`json
+${JSON.stringify(fullClient, null, 2)}
+\`\`\`
+
+### GIVEN (do not rewrite)
+**Blueprint Table**  
+${blueprintTable}
+
+**Contraindications & Dosing Section**  
+${dosingSection}
+
+### BROKEN PASS-C TEXT (reformat only)
+\`\`\`
+${brokenText}
+\`\`\`
+
+### TASK
+Rewrite the BROKEN PASS-C TEXT into EXACTLY these H2 sections in this order:
+
+## Intro Summary
+## Goals
+## Current Stack
+## Evidence & References
+## Shopping Links
+## Follow-up Plan
+## Lifestyle Prescriptions
+## Longevity Levers
+## This Week Try
+
+Rules:
+- Fix headings/levels/ordering only; keep the user-facing content.
+- Plain ASCII Markdown. No code fences.
+- Each section ends with an **Analysis** paragraph (≥3 sentences). If missing, summarize the existing content; do not invent clinical claims.
+- End with a line "## END".
+`.trim();
+}
 
 // ----------------------------------------------------------------------------
 // Name normalization + aliasing for evidence lookup
@@ -894,17 +969,43 @@ if (resB?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) +
 modelUsed = resB?.modelUsed ?? modelUsed;
 
 
-// PASS C: Remaining sections
+// PASS C: Remaining sections (tolerant + self-repair)
 console.info("[gen.passC:start]", { candidates: candidateModels("mini") });
+
 const resC = await callChatWithRetry("mini", [
-  { role: "system", content: systemPromptC_RestOfReport() },
+  { role: "system", content: systemPrompt() },
   { role: "user", content: remainingSectionsPrompt(fullClient, tableMd, dosingMd) },
 ]);
 
-const restMd = stripCodeFences(String(resC?.text || "").trim());
-modelUsed = resC?.modelUsed ?? modelUsed;
+let restMd = stripCodeFences(String(resC?.text || "").trim());
+restMd = normalizePassCHeadings(restMd);
+
+let missing = missingPassCHeadings(restMd);
+
+// If a lot is missing (e.g., >3 sections), try a single repair with MAIN models
+if (missing.length > 3) {
+  console.warn("[gen.passC] too many missing sections, attempting repair with main model", { missing });
+  const resRepairC = await callChatWithRetry("main", [
+    { role: "system", content: systemPrompt() },
+    { role: "user", content: formatRepairCPrompt(fullClient, tableMd, dosingMd, restMd) },
+  ]);
+  let repaired = stripCodeFences(String(resRepairC?.text || "").trim());
+  repaired = normalizePassCHeadings(repaired);
+
+  // Accept repair if it reduced missing set; else keep original and let forceHeadings() pad
+  const missingAfter = missingPassCHeadings(repaired);
+  if (missingAfter.length < missing.length) {
+    restMd = repaired;
+    missing = missingAfter;
+  }
+}
+
+// token accounting
 if (resC?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resC.usage.prompt_tokens ?? 0);
 if (resC?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resC.usage.completion_tokens ?? 0);
+modelUsed = resC?.modelUsed ?? modelUsed;
+
+
 
 
   // ---------- Stitch full Markdown ----------
