@@ -345,62 +345,97 @@ const res = await fetchWithRetry(path, init, isGenerate ? 1 : 3, 500, isGenerate
         }
       })();
     }, [anyId, tallyId]);
+// --- success detector + short polling (client-only) ---
+const SECTION_HEADINGS = [
+  "Intro Summary","Summary","Goals","Contraindications","Contraindications & Med Interactions",
+  "Current Stack","Your Blueprint Recommendations","High-Impact \"Bang-for-Buck\" Additions",
+  "Dosing & Notes","Dosing","Evidence & References","Shopping Links",
+  "Follow-up Plan","Lifestyle Prescriptions","Longevity Levers","This Week Try","Weekly Experiment",
+];
 
-    async function generateStack() {
-      if (!anyId) {
-        setError("Missing submission ID.");
-        return;
-      }
-    
-      try {
-        setError(null);
-        setFlow("warmup");
-        setWarmingUp(true);
-        await new Promise((r) => setTimeout(r, 800));
-        setWarmingUp(false);
-        setFlow("generating");
-        setGenerating(true);
-    
-        // Kick off generation with whichever id we have
-        const payload: { tally_submission_id?: string; submission_id?: string } = tallyId
-          ? { tally_submission_id: tallyId as string }
-          : { submission_id: anyId as string };
-    
-        const data = await api("/api/generate-stack", payload);
-    
-        // Show something immediately if we have it
-        const first =
-          data?.ai?.markdown ??
-          data?.stack?.sections?.markdown ??
-          data?.stack?.summary ??
-          "";
-        if (first) setMarkdown(sanitizeMarkdown(first));
-    
-        // Clean re-fetch to ensure DB state is synced
-        const qp2 = tallyId
-          ? `tally_submission_id=${encodeURIComponent(tallyId as string)}`
-          : `submission_id=${encodeURIComponent(anyId as string)}`;
-    
-        const refreshed = await api(`/api/get-stack?${qp2}`);
-        const finalMd =
-          refreshed?.stack?.sections?.markdown ??
-          refreshed?.stack?.summary ??
-          first;
-    
-        setMarkdown(sanitizeMarkdown(finalMd));
-        setStackId(refreshed?.stack?.id ?? data?.stack?.id ?? null);
-    
-        setFlow("done");
-      } catch (e: any) {
-const aborted = e?.name === "AbortError" || String(e?.message || "").includes("timed out");
-setError(aborted ? "Request timed out. Please try again." : (e?.message ?? "Unknown error"));
-setFlow("error");
+function hasUsableSections(md: string | null | undefined): boolean {
+  if (!md) return false;
+  const t = md.toLowerCase();
+  if (!t.includes("## ")) return false; // has at least one heading
+  return SECTION_HEADINGS.some(h => t.includes(("## " + h).toLowerCase()));
+}
 
-      } finally {
-        setGenerating(false);
-        setWarmingUp(false);
-      }
+async function refetchUntilReady(qp: string, maxMs = 25_000): Promise<string> {
+  const deadline = Date.now() + maxMs;
+  let last = "";
+  while (Date.now() < deadline) {
+    const refreshed = await api(`/api/get-stack?${qp}`);
+    const md = sanitizeMarkdown(
+      refreshed?.stack?.sections?.markdown ?? refreshed?.stack?.summary ?? ""
+    );
+    last = md;
+    if (hasUsableSections(md)) return md;
+    await new Promise(r => setTimeout(r, 1500)); // poll every 1.5s
+  }
+  return last; // may still be empty if backend soft-failed
+}
+
+async function generateStack() {
+  if (!anyId) {
+    setError("Missing submission ID.");
+    return;
+  }
+
+  try {
+    setError(null);
+    setFlow("warmup");
+    setWarmingUp(true);
+    await new Promise((r) => setTimeout(r, 800));
+    setWarmingUp(false);
+    setFlow("generating");
+    setGenerating(true);
+
+    // Kick off generation with whichever id we have
+    const payload: { tally_submission_id?: string; submission_id?: string } = tallyId
+      ? { tally_submission_id: tallyId as string }
+      : { submission_id: anyId as string };
+
+    const data = await api("/api/generate-stack", payload);
+
+    // Show something immediately if we have it
+    const first =
+      data?.ai?.markdown ??
+      data?.stack?.sections?.markdown ??
+      data?.stack?.summary ??
+      "";
+    if (first) setMarkdown(sanitizeMarkdown(first));
+
+    // Build the correct query once
+    const qp = tallyId
+      ? `tally_submission_id=${encodeURIComponent(tallyId as string)}`
+      : `submission_id=${encodeURIComponent(anyId as string)}`;
+
+    // Poll for a few seconds until real sections land
+    const finalMd = await refetchUntilReady(qp, 25_000);
+    setMarkdown(sanitizeMarkdown(finalMd));
+
+    // Try to capture a stack id (from the refetch)
+    try {
+      const latest = await api(`/api/get-stack?${qp}`);
+      setStackId(latest?.stack?.id ?? data?.stack?.id ?? null);
+    } catch {}
+
+    // Success only if we actually have content
+    if (hasUsableSections(finalMd)) {
+      setFlow("done");
+    } else {
+      setError("Generation finished without full sections (likely a timeout). Please try again.");
+      setFlow("error");
     }
+  } catch (e: any) {
+    setError(e?.message ?? "Unknown error");
+    setFlow("error");
+  } finally {
+    setGenerating(false);
+    setWarmingUp(false);
+  }
+}
+
 
 
   async function exportPDF() {
