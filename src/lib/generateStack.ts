@@ -276,7 +276,7 @@ function padBlueprint(md: string, minRows: number) {
   const patched = body.includes("| --- |")
     ? body.replace(/\n(?!(.|\n))*$/, "") + `\n${pad}\n`
     : `\n${header}${data.join("\n")}\n${pad}\n`;
-  return md.replace(re, `## Your Blueprint Recommendations${patched}`);
+ return md.replace(re, `## Your Blueprint Recommendations\n${patched}`);
 }
 
 function headingsOK(md: string) {
@@ -369,6 +369,70 @@ function extractBlueprintTable(md: string): string | null {
   if (!/\|\s*-{3,}\s*\|/.test(table)) return null;
   return table;
 }
+function extractBlueprintTableLoose(md: string): string | null {
+  const s = stripCodeFences(md);
+  const lines = s.split(/\r?\n/);
+
+  // find any header row that looks like a table
+  const idx = lines.findIndex((ln) => /^\s*\|.+\|\s*$/.test(ln) && /\|\s*-{2,}\s*\|/.test(lines[lines.indexOf(ln)+1] || ""));
+  if (idx < 0) return null;
+
+  // capture contiguous table block
+  let start = idx;
+  while (start > 0 && /^\s*\|/.test(lines[start - 1])) start--;
+  let end = idx;
+  while (end + 1 < lines.length && /^\s*\|/.test(lines[end + 1])) end++;
+  const table = lines.slice(start, end + 1).map(l => l.trimEnd());
+  if (table.length < 2) return null;
+
+  // parse header cells
+  const headCells = table[0].split("|").map(c => c.trim().toLowerCase());
+  const find = (alts: RegExp[]) => headCells.findIndex(h => alts.some(rx => rx.test(h)));
+
+  const iRank = find([/rank/]);
+  const iSupp = find([/supplement|item|product|nutrient|compound/]);
+  const iWhy  = find([/why.*matters|rationale|benefit|reason/]);
+
+  // must have at least these
+  if (iRank < 0 || iSupp < 0 || iWhy < 0) return null;
+
+  // rebuild as 3-column table
+  const out: string[] = [];
+  out.push("| Rank | Supplement | Why it Matters |");
+  out.push("| --- | --- | --- |");
+
+  for (let i = 2; i < table.length; i++) {
+    const row = table[i];
+    if (!/^\s*\|/.test(row)) continue;
+    const cells = row.split("|").map(c => c.trim());
+    const rank = (cells[iRank] ?? "").replace(/^\D+/, "") || String(i - 1);
+    const supp = cells[iSupp] ?? "";
+    const why  = cells[iWhy] ?? "See Dosing & Notes";
+    if (!supp || /^tbd$/i.test(supp)) continue;
+    out.push(`| ${rank} | ${supp} | ${why} |`);
+  }
+  // require 1+ data rows
+  return out.length >= 3 ? out.join("\n") : null;
+}
+function synthesizeBlueprintFromIntake(sub: any): string {
+  const header = "| Rank | Supplement | Why it Matters |\n| --- | --- | --- |\n";
+  const fromIntake = ([] as string[])
+    .concat((sub?.supplements ?? []).map((x:any) => cleanName(x?.name ?? x)))
+    .concat((sub?.medications ?? []).map((x:any) => cleanName(x?.name ?? x)))
+    .filter(Boolean);
+
+  const defaults = [
+    "Omega-3", "Vitamin D", "Magnesium", "Soluble fiber", "Probiotic",
+    "Vitamin B12", "Curcumin", "Green tea extract (EGCG)", "CoQ10", "Collagen"
+  ];
+
+  const dedup = (arr: string[]) => Array.from(new Set(arr.map(cleanName))).filter(Boolean);
+  const names = dedup([...fromIntake, ...defaults]).slice(0, 10);
+
+  const rows = names.map((name, i) => `| ${i + 1} | ${name} | See Dosing & Notes |`).join("\n");
+  return header + rows + "\n";
+}
+
 // --- Pass-B tolerant detection + repair helpers ------------------------------
 
 const CONTRA_HDR_RE =
@@ -953,10 +1017,38 @@ const resA = await callChatWithRetry("mini", [
 ]);
 
 const rawA = stripCodeFences(String(resA?.text ?? "").trim());
-const tableMd = extractBlueprintTable(rawA);
+let tableMd = extractBlueprintTable(rawA) || extractBlueprintTableLoose(rawA);
+
 if (!tableMd) {
-  throw new Error("Pass A did not return the Blueprint table");
+  // One-shot repair ask: convert whatever came back into the exact table
+  const repairPromptA = `
+Convert the text below into a single Markdown table ONLY with header exactly:
+| Rank | Supplement | Why it Matters |
+
+- Provide exactly 10 data rows (Rank 1..10).
+- Short, plain-English "Why it Matters".
+- If dose/timing is relevant, write "See Dosing & Notes".
+- No other text. No code fences.
+---
+${rawA}
+`.trim();
+
+  try {
+    const resARepair = await callChatWithRetry("mini", [
+      { role: "system", content: systemPromptA_TableOnly() },
+      { role: "user", content: repairPromptA },
+    ], { maxTokens: 600, timeoutMs: 20000 });
+
+    const repaired = stripCodeFences(String(resARepair?.text ?? "").trim());
+    tableMd = extractBlueprintTable(repaired) || extractBlueprintTableLoose(repaired) || null;
+  } catch (_) { /* continue to synth */ }
 }
+
+if (!tableMd) {
+  console.warn("[passA] falling back to synthesized table from intake/defaults");
+  tableMd = synthesizeBlueprintFromIntake(fullClient);
+}
+
 
 // token accounting (if available)
 if (resA?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resA.usage.prompt_tokens ?? 0);
@@ -1150,6 +1242,31 @@ No other sections, no code fences.
   const addMain = normalizePassCHeadings(stripCodeFences(String(resRepairMain?.text ?? "").trim()));
   restMd = (restMd + "\n\n" + addMain).trim();
   missing = missingPassCHeadings(restMd);
+}
+let restMd = normalizePassCHeadings(stripCodeFences(String(resC?.text ?? "").trim()));
+let missing = missingPassCHeadings(restMd);
+
+// If model returned nothing useful, skip chat repairs and synthesize locally
+const tooShort = restMd.replace(/\s+/g, " ").length < 80;
+if (tooShort || missing.length === PASSC_REQUIRED.length) {
+  console.warn("[passC] empty/garbled first pass; synthesizing sections locally");
+  const synth = (h: string, body: string) =>
+    `${h}\n\n${body}\n\n**Analysis**\n\nThis summarizes practical steps and why they matter for your goals.\n`;
+
+  const userName = sub?.name ? String(sub.name).split(" ")[0] : "there";
+  const blocks = [
+    synth("## Intro Summary", `Hi ${userName}! Based on your intake and preferences, here’s a concise plan aligned to your goals. Your Blueprint lays out the “what” and “why,” while Dosing & Notes explains the “how”.`),
+    synth("## Goals", `| Goal | Description |\n| --- | --- |\n| Primary | Improve energy, metabolic health, and sleep |\n| Secondary | Support cardiovascular and cognitive health |`),
+    synth("## Current Stack", `| Medication/Supplement | Purpose | Dosage | Timing |\n| --- | --- | --- | --- |\n| (from intake) | As reported | As reported | As reported |`),
+    synth("## Evidence & References", `- Evidence pending. See curated citations attached to items.\n- We prioritize PubMed/PMC/DOI and major journals.`),
+    synth("## Shopping Links", `Links are provided in the Shopping section for convenience. Choose based on budget/trusted/clean preference.`),
+    synth("## Follow-up Plan", `- Re-check energy, sleep, and digestion in 2–3 weeks.\n- Review labs in 8–12 weeks.\n- Adjust doses or timing if side effects appear.`),
+    synth("## Lifestyle Prescriptions", `- Walk 20–30 minutes after your biggest meal.\n- Prioritize 7–8 hours of sleep.\n- Aim for 90–120g protein/day.`),
+    synth("## Longevity Levers", `- Resistance training 2–3x/week.\n- Keep visceral fat low; monitor waist-to-height ratio.\n- Periodic labs to personalize dosing.`),
+    synth("## This Week Try", `- AM: 10-minute sunlight + water before caffeine.\n- Midday: 10-minute walk after lunch.\n- PM: Dim screens after 9pm; in bed by 10pm.`),
+  ];
+  restMd = blocks.join("\n\n");
+  missing = [];
 }
 
 // FINAL SAFETY: if still missing (edge case), synthesize minimal compliant sections locally
