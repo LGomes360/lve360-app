@@ -853,7 +853,7 @@ Finish with a line \`## END\`.
 }
 function systemPromptC_Strict(): string {
   return `
-You are LVE360 Concierge AI. Output **ASCII Markdown only**.
+You are LVE360 Concierge AI. Output **only ASCII Markdown** with **exactly** the sections below.
 Return **exactly these nine H2 sections in this order**, nothing else:
 
 ## Intro Summary
@@ -870,7 +870,7 @@ Rules:
 - Each section ends with an **Analysis** paragraph (≥3 sentences).
 - Use the given Blueprint/Dosing for consistency (do not rewrite them).
 - Evidence must include ≥8 valid links (PubMed/PMC/DOI or trusted journals).
-- No code fences, no preamble/epilogue, do not include "## END".
+- No code fences or preamble. Finish with a single line: ## END
 `.trim();
 }
 
@@ -1278,16 +1278,18 @@ modelUsed = resB?.modelUsed ?? modelUsed;
   "## This Week Try",
 ];
 
-// PASS C: Remaining sections (strict + tolerant + repair + local synth fallback)
-console.info("[gen.passC:start]", { candidates: candidateModels("mini") });
+// PASS C: Remaining sections (use GPT-5 main, bigger headroom)
+console.info("[gen.passC:start]", { candidates: ["gpt-5"] });
 
-const compactC = compactForPassC(sub);
+let resC = await callChatWithRetry(
+  "main", // we’ll ask for main and pass a GPT-5 model name explicitly
+  [
+    { role: "system", content: systemPromptC_Strict() },
+    { role: "user", content: remainingSectionsPrompt(compactForPassC(sub), tableMd, dosingMd) },
+  ],
+  { maxTokens: 1600, timeoutMs: 120_000 } // more room than 900/25s
+);
 
-// First attempt (mini, strict)
-const resC = await callChatWithRetry("mini", [
-  { role: "system", content: systemPromptC_Strict() },
-  { role: "user", content: remainingSectionsPrompt(compactC, tableMd, dosingMd) },
-], { maxTokens: 900, timeoutMs: 120_000 });
 
 // Parse result up front (so we don't reference undefined vars)
 let restMd = normalizePassCHeadings(stripCodeFences(String(resC?.text ?? "").trim()));
