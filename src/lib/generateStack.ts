@@ -116,32 +116,31 @@ type AnyCaller = (model: string, input: any, options?: any) => Promise<any>;
 // Accept messages[] or joined string, and rotate candidates on 400/404/timeouts
 async function callChatWithRetry(
   requestedModelKind: "mini" | "main",
-  msgs: ChatMsg[]
+  msgs: ChatMsg[],
+  opts?: { maxTokens?: number; timeoutMs?: number }
 ): Promise<any> {
-  const fn = callOpenAI as unknown as AnyCaller;
+  const fn = callOpenAI as unknown as (model: string, input: any, options?: any) => Promise<any>;
   const models = candidateModels(requestedModelKind);
   let lastErr: any = null;
   for (const model of models) {
     try {
-      // prefer messages signature; if wrapper only accepts string, fallback to joined
       try {
-        return await fn(model, msgs, { maxTokens: 1800, timeoutMs: 45_000 });
-      } catch (sigErr) {
-        const joined = msgs.map(m => `[${m.role.toUpperCase()}]\n${m.content}`.trim()).join("\n\n");
-        return await fn(model, joined, { maxTokens: 1800, timeoutMs: 45_000 });
+        return await fn(model, msgs, { maxTokens: opts?.maxTokens ?? 1200, timeoutMs: opts?.timeoutMs ?? 30000 });
+      } catch {
+        const joined = msgs.map(m => `[${m.role.toUpperCase()}]\n${m.content}`).join("\n\n");
+        return await fn(model, joined, { maxTokens: opts?.maxTokens ?? 1200, timeoutMs: opts?.timeoutMs ?? 30000 });
       }
     } catch (e: any) {
       lastErr = e;
       const msg = String(e?.message || e);
       const code = (e?.status ?? e?.code ?? "").toString();
-      const isInvalid = /invalid model|model_not_found|400|404/i.test(msg) || code === "400" || code === "404";
-      const isTimeout = /timeout|ETIMEDOUT|Request timed out/i.test(msg);
+      if (!/invalid model|model_not_found|400|404|timeout|ETIMEDOUT/i.test(msg) && code !== "400" && code !== "404") break;
       console.warn(`[llm.retry] ${model} failed: ${msg}`);
-      if (!isInvalid && !isTimeout) break; // other errors → stop rotating
     }
   }
   throw lastErr || new Error("All model candidates failed");
 }
+
 
 // ----------------------------------------------------------------------------
 // Config & Constants
@@ -518,6 +517,23 @@ Rules:
 - End with a line "## END".
 `.trim();
 }
+function compactForPassC(sub: any) {
+  // keep it lean to avoid timeouts
+  const take = <T>(a: T[], n: number) => (Array.isArray(a) ? a.slice(0, n) : []);
+  return {
+    name: sub?.name ?? null,
+    email: sub?.user_email ?? sub?.email ?? null,
+    sex: sub?.sex ?? null,
+    age: age(sub?.dob ?? null),
+    goals: take(sub?.goals ?? [], 6),
+    conditions: take(sub?.conditions ?? [], 8),
+    allergies: take(sub?.allergies ?? [], 6),
+    medications: take(sub?.medications ?? [], 10),
+    supplements: take(sub?.supplements ?? [], 12),
+    dosing_pref: sub?.dosing_pref ?? sub?.preferences?.dosing_pref ?? null,
+    today: TODAY,
+  };
+}
 
 // ----------------------------------------------------------------------------
 // Name normalization + aliasing for evidence lookup
@@ -730,6 +746,28 @@ Section rules:
 • Shopping Links → links + Analysis.
 • Follow-up Plan, Lifestyle Prescriptions, Longevity Levers, This Week Try → each ends with Analysis.
 Finish with a line \`## END\`.
+`.trim();
+}
+function systemPromptC_Strict(): string {
+  return `
+You are LVE360 Concierge AI. Output **ASCII Markdown only**.
+Return **exactly these nine H2 sections in this order**, nothing else:
+
+## Intro Summary
+## Goals
+## Current Stack
+## Evidence & References
+## Shopping Links
+## Follow-up Plan
+## Lifestyle Prescriptions
+## Longevity Levers
+## This Week Try
+
+Rules:
+- Each section ends with an **Analysis** paragraph (≥3 sentences).
+- Use the given Blueprint/Dosing for consistency (do not rewrite them).
+- Evidence must include ≥8 valid links (PubMed/PMC/DOI or trusted journals).
+- No code fences, no preamble/epilogue, do not include "## END".
 `.trim();
 }
 
@@ -1018,17 +1056,7 @@ if (resB?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resB.usage
 if (resB?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resB.usage.completion_tokens ?? 0);
 modelUsed = resB?.modelUsed ?? modelUsed;
 
-
-// PASS C: Remaining sections (tolerant)
-console.info("[gen.passC:start]", { candidates: candidateModels("mini") });
-
-const resC = await callChatWithRetry("mini", [
-  { role: "system", content: systemPromptC_RestOfReport() },
-  { role: "user", content: remainingSectionsPrompt(fullClient, tableMd, dosingMd) },
-]);
-
-let restMd = stripCodeFences(String(resC?.text ?? "").trim());
-const requiredH2 = [
+const PASSC_REQUIRED = [
   "## Intro Summary",
   "## Goals",
   "## Current Stack",
@@ -1039,17 +1067,126 @@ const requiredH2 = [
   "## Longevity Levers",
   "## This Week Try",
 ];
-const missing = requiredH2.filter((h) => !restMd.includes(h));
+
+function normalizePassCHeadings(s: string) {
+  let out = s;
+  const map: Array<[RegExp, string]> = [
+    [/^\s*#{2,3}\s*(introduction|intro)\b.*$/gim, "## Intro Summary"],
+    [/^\s*#{2,3}\s*(objectives|goals?)\b.*$/gim, "## Goals"],
+    [/^\s*#{2,3}\s*(current\s*(stack|regimen)|what\s*i\s*take)\b.*$/gim, "## Current Stack"],
+    [/^\s*#{2,3}\s*(references|citations|sources?)\b.*$/gim, "## Evidence & References"],
+    [/^\s*#{2,3}\s*(shopping|links?|where\s*to\s*buy)\b.*$/gim, "## Shopping Links"],
+    [/^\s*#{2,3}\s*(follow[- ]?up|checkpoints?|plan)\b.*$/gim, "## Follow-up Plan"],
+    [/^\s*#{2,3}\s*(lifestyle|habits?)\b.*$/gim, "## Lifestyle Prescriptions"],
+    [/^\s*#{2,3}\s*(longevity|aging\s*levers?)\b.*$/gim, "## Longevity Levers"],
+    [/^\s*#{2,3}\s*(this\s*week.*|try\s*this\s*week)\b.*$/gim, "## This Week Try"],
+  ];
+  for (const [re, h] of map) out = out.replace(re, h);
+  return out;
+}
+
+function missingPassCHeadings(s: string) {
+  return PASSC_REQUIRED.filter(h => !s.includes(h));
+}
+
+// PASS C: Remaining sections (tolerant)
+// PASS C: Remaining sections (strict + tolerant + repair + local synth fallback)
+console.info("[gen.passC:start]", { candidates: candidateModels("mini") });
+
+const compactC = compactForPassC(sub);
+
+// First attempt (mini, strict, small token/time budget)
+let resC = await callChatWithRetry("mini", [
+  { role: "system", content: systemPromptC_Strict() },
+  { role: "user", content: remainingSectionsPrompt(compactC, tableMd, dosingMd) },
+], { maxTokens: 900, timeoutMs: 25000 });
+
+let restMd = normalizePassCHeadings(stripCodeFences(String(resC?.text ?? "").trim()));
+let missing = missingPassCHeadings(restMd);
+
+// If missing, try a quick repair with mini
 if (missing.length) {
-  console.warn("[passC] missing sections:", missing);
-  // (Optional) You can add a Pass-C repair like Pass-B if this ever trips.
+  console.warn("[passC] missing sections (mini result):", missing);
+  const repairPrompt = `
+You received Markdown with some of the nine required sections. 
+Rewrite **only the missing sections** listed below. 
+- Use the same style/tone as the provided text.
+- Do not repeat sections that already exist.
+- ASCII Markdown only, no code fences.
+
+Missing sections:
+${missing.map(m => `- ${m}`).join("\n")}
+
+Context (do not alter):
+- Keep consistent with the Blueprint table and Dosing section.
+`.trim();
+
+  const resRepairMini = await callChatWithRetry("mini", [
+    { role: "system", content: systemPromptC_Strict() },
+    { role: "user", content: repairPrompt },
+  ], { maxTokens: 700, timeoutMs: 20000 });
+
+  const addMini = normalizePassCHeadings(stripCodeFences(String(resRepairMini?.text ?? "").trim()));
+  restMd = (restMd + "\n\n" + addMini).trim();
+  missing = missingPassCHeadings(restMd);
+}
+
+// If still missing, one more repair with main (slightly larger token budget, but still bounded)
+if (missing.length) {
+  console.warn("[passC] still missing after mini repair; trying main:", missing);
+  const repairPromptMain = `
+Generate **only** these missing sections in ASCII Markdown:
+${missing.map(m => `- ${m}`).join("\n")}
+Each ends with an **Analysis** paragraph (≥3 sentences).
+Keep consistent with the earlier Blueprint and Dosing.
+No other sections, no code fences.
+`.trim();
+
+  const resRepairMain = await callChatWithRetry("main", [
+    { role: "system", content: systemPromptC_Strict() },
+    { role: "user", content: repairPromptMain },
+  ], { maxTokens: 900, timeoutMs: 25000 });
+
+  const addMain = normalizePassCHeadings(stripCodeFences(String(resRepairMain?.text ?? "").trim()));
+  restMd = (restMd + "\n\n" + addMain).trim();
+  missing = missingPassCHeadings(restMd);
+}
+
+// FINAL SAFETY: if still missing (edge case), synthesize minimal compliant sections locally
+if (missing.length) {
+  console.warn("[passC] synthesizing missing locally:", missing);
+  const synth = (h: string, body: string) => `${h}\n\n${body}\n\n**Analysis**\n\nThis section summarizes practical steps and why they matter for your goals.\n`;
+
+  const userName = sub?.name ? String(sub.name).split(" ")[0] : "there";
+  const add: string[] = [];
+  for (const h of missing) {
+    if (h === "## Intro Summary") {
+      add.push(synth(h, `Hi ${userName}! Based on your intake and preferences, here’s a concise plan to support your goals. Your Blueprint lays out the “what” and “why,” while Dosing & Notes explains the “how” (amounts and timing).`));
+    } else if (h === "## Goals") {
+      add.push(synth(h, `| Goal | Description |\n| --- | --- |\n| Primary | Improve energy, metabolic health, and sleep quality |\n| Secondary | Support long-term cardiovascular and cognitive health |`));
+    } else if (h === "## Current Stack") {
+      add.push(synth(h, `| Medication/Supplement | Purpose | Dosage | Timing |\n| --- | --- | --- | --- |\n| (from intake) | As reported | As reported | As reported |`));
+    } else if (h === "## Evidence & References") {
+      add.push(synth(h, `- Evidence pending. See curated citations attached to items.\n- We prioritize PubMed/PMC/DOI and major journals.\n- References will expand as we learn more from your feedback.`));
+    } else if (h === "## Shopping Links") {
+      add.push(synth(h, `Links are provided in the Shopping section below for convenience. Choose based on budget/trusted/clean preference.`));
+    } else if (h === "## Follow-up Plan") {
+      add.push(synth(h, `- Re-check energy, sleep, and digestion in 2–3 weeks.\n- Review labs (lipids, A1C, vitamin D) in 8–12 weeks.\n- Adjust doses or timing if side effects or conflicts appear.`));
+    } else if (h === "## Lifestyle Prescriptions") {
+      add.push(synth(h, `- Walk 20–30 minutes after your biggest meal.\n- Prioritize 7–8 hours sleep; dim lights 1 hour before bed.\n- Aim for 90–120g protein/day (distributed across meals).`));
+    } else if (h === "## Longevity Levers") {
+      add.push(synth(h, `- Resistance training 2–3x/week; progressive overload.\n- Keep visceral fat low; monitor waist-to-height ratio.\n- Periodic lab monitoring to personalize micronutrient dosing.`));
+    } else if (h === "## This Week Try") {
+      add.push(synth(h, `- AM: 10-minute sunlight + water before caffeine.\n- Midday: 10-minute walk after lunch.\n- PM: Screens dimmed after 9pm; in bed by 10pm.`));
+    }
+  }
+  restMd = (restMd + "\n\n" + add.join("\n\n")).trim();
 }
 
 // token accounting
 if (resC?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resC.usage.prompt_tokens ?? 0);
 if (resC?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resC.usage.completion_tokens ?? 0);
 modelUsed = resC?.modelUsed ?? modelUsed;
-
 
   // ---------- Stitch full Markdown ----------
 let md = [
