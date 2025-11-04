@@ -21,7 +21,8 @@ import { generateStackForSubmission } from "@/lib/generateStack";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";       // use Node functions, not edge
 export const maxDuration = 300;        // seconds (pick 60–120 for safety)
-
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
 
 // ---- local types ------------------------------------------------------------
 type Tier = "free" | "premium" | "unknown";
@@ -341,6 +342,17 @@ try {
     { status: 200 }
   );
 }
+// pseudo inside your POST/GET handler after generateStackForSubmission(...)
+const val = result?.raw?.validation ?? {};
+const ok =
+  Boolean(val.headingsValid) &&
+  Boolean(val.blueprintValid) &&
+  Boolean(val.citationsValid);
+
+return NextResponse.json(
+  { ok, stack: { id: result?.raw?.stack_id, sections: { markdown: result.markdown } } },
+  { status: ok ? 200 : 200 } // still 200, but ok=false lets client show error
+);
 
 
     // Count items actually written (best-effort)
