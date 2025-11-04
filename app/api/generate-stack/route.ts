@@ -253,7 +253,7 @@ function withTimeout<T>(p: Promise<T>, ms = HARD_TIMEOUT_MS): Promise<T> {
 }
 
 // ---- handler ----------------------------------------------------------------
-
+console.info("[generate-stack] runtime =", process.env.NEXT_RUNTIME || "unknown");
 export async function POST(req: NextRequest) {
   let submissionId: string | null = null;
 
@@ -356,8 +356,12 @@ return NextResponse.json(
 
 
     // Count items actually written (best-effort)
-    const stackId: string | undefined = result?.raw?.stack_id;
-    const itemsInserted = stackId ? await countItemsForStack(stackId) : 0;
+const stackId = result?.raw?.stack_id as string | undefined;
+
+let itemsInserted = 0;
+if (typeof stackId === "string") {
+  itemsInserted = await countItemsForStack(stackId);
+}
 
     return NextResponse.json(
       {
