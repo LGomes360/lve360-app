@@ -82,6 +82,7 @@ interface EvidenceEntry { url?: string | null; [key: string]: any }
 
 type EvidenceIndex = Record<string, EvidenceEntry[]>;
 const EVIDENCE: EvidenceIndex = (evidenceIndex as unknown) as EvidenceIndex;
+const LLM_DEFAULT_TIMEOUT_MS = 90_000; // 90s default for all LLM calls
 
 // ----------------------------------------------------------------------------
 // Model resolution + safe caller
@@ -125,10 +126,10 @@ async function callChatWithRetry(
   for (const model of models) {
     try {
       try {
-        return await fn(model, msgs, { maxTokens: opts?.maxTokens ?? 1200, timeoutMs: opts?.timeoutMs ?? 30000 });
+        return await fn(model, msgs, { maxTokens: opts?.maxTokens ?? 1200, timeoutMs: opts?.timeoutMs ?? LLM_DEFAULT_TIMEOUT_MS });
       } catch {
         const joined = msgs.map(m => `[${m.role.toUpperCase()}]\n${m.content}`).join("\n\n");
-        return await fn(model, joined, { maxTokens: opts?.maxTokens ?? 1200, timeoutMs: opts?.timeoutMs ?? 30000 });
+        return await fn(model, joined, { maxTokens: opts?.maxTokens ?? 1200, timeoutMs: opts?.timeoutMs ?? LLM_DEFAULT_TIMEOUT_MS });
       }
     } catch (e: any) {
       lastErr = e;
@@ -1075,7 +1076,7 @@ ${rawA}
     const resARepair = await callChatWithRetry("mini", [
       { role: "system", content: systemPromptA_TableOnly() },
       { role: "user", content: repairPromptA },
-    ], { maxTokens: 600, timeoutMs: 20000 });
+    ], { maxTokens: 600, timeoutMs: 45_000 });
 
     const repaired = stripCodeFences(String(resARepair?.text ?? "").trim());
     tableMd = extractBlueprintTable(repaired) || extractBlueprintTableLoose(repaired) || null;
@@ -1207,7 +1208,7 @@ const compactC = compactForPassC(sub);
 const resC = await callChatWithRetry("mini", [
   { role: "system", content: systemPromptC_Strict() },
   { role: "user", content: remainingSectionsPrompt(compactC, tableMd, dosingMd) },
-], { maxTokens: 900, timeoutMs: 25000 });
+], { maxTokens: 900, timeoutMs: 120_000 });
 
 // Parse result up front (so we don't reference undefined vars)
 let restMd = normalizePassCHeadings(stripCodeFences(String(resC?.text ?? "").trim()));
@@ -1234,7 +1235,7 @@ Context (do not alter):
   const resRepairMini = await callChatWithRetry("mini", [
     { role: "system", content: systemPromptC_Strict() },
     { role: "user", content: repairPrompt },
-  ], { maxTokens: 700, timeoutMs: 20000 });
+  ], { maxTokens: 700, timeoutMs: 90_000 });
 
   const addMini = normalizePassCHeadings(stripCodeFences(String(resRepairMini?.text ?? "").trim()));
   restMd = (restMd + "\n\n" + addMini).trim();
@@ -1256,7 +1257,7 @@ No other sections, no code fences.
   const resRepairMain = await callChatWithRetry("main", [
     { role: "system", content: systemPromptC_Strict() },
     { role: "user", content: repairPromptMain },
-  ], { maxTokens: 900, timeoutMs: 25000 });
+  ], { maxTokens: 900, timeoutMs: 120_000 });
 
   const addMain = normalizePassCHeadings(stripCodeFences(String(resRepairMain?.text ?? "").trim()));
   restMd = (restMd + "\n\n" + addMain).trim();
