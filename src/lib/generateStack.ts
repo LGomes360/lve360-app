@@ -338,6 +338,37 @@ function forceHeadings(md: string): string {
 function computeValidationTargets(_mode: GenerateMode, _cap?: number) {
   return { minWords: 700, minRows: BLUEPRINT_MIN_ROWS, minSent: MIN_ANALYSIS_SENTENCES };
 }
+function stripCodeFences(s: string): string {
+  if (!s) return "";
+  // remove ```...``` blocks while keeping inner content
+  return s
+    .replace(/```[\s\S]*?```/g, (m) => m.replace(/^```[\w-]*\n?/, "").replace(/```$/, ""))
+    .trim();
+}
+
+function extractBlueprintTable(md: string): string | null {
+  const s = stripCodeFences(md);
+  // Find a markdown table that has the exact header (allow flexible spacing/case)
+  const headerRe = /\| *Rank *\| *Supplement *\| *Why it Matters *\|/i;
+  if (!headerRe.test(s)) return null;
+  // Capture the full table block lines around the header
+  const lines = s.split(/\r?\n/);
+  const idx = lines.findIndex((ln) => headerRe.test(ln));
+  if (idx < 0) return null;
+
+  // Scroll up to table start (first leading '|' row contiguous with header)
+  let start = idx;
+  while (start > 0 && /^\s*\|/.test(lines[start - 1])) start--;
+
+  // Scroll down to table end (last '|' row)
+  let end = idx;
+  while (end + 1 < lines.length && /^\s*\|/.test(lines[end + 1])) end++;
+
+  const table = lines.slice(start, end + 1).join("\n").trim();
+  // Require a separator row like | --- | --- | --- |
+  if (!/\|\s*-{3,}\s*\|/.test(table)) return null;
+  return table;
+}
 
 // ----------------------------------------------------------------------------
 // Name normalization + aliasing for evidence lookup
@@ -515,51 +546,44 @@ function buildShoppingLinksSection(items: StackItem[]): string {
 // ----------------------------------------------------------------------------
 // Prompts (3 passes: A table, B safety+dosing, C remaining sections)
 // ----------------------------------------------------------------------------
-function systemPrompt() {
+function systemPromptA_TableOnly(): string {
+  return `
+You are **LVE360 Concierge AI**. Follow the user's task **exactly**.
+Output **only** what is asked. No extra prose, no other sections, no code fences.
+When asked for a table, return a **markdown table only**.
+`.trim();
+}
+
+function systemPromptB_SafetyDosing(): string {
+  return `
+You are **LVE360 Concierge AI**, a supportive, plain-English wellness coach.
+Task: produce **only** the sections requested by the user prompt.
+Use clear, conservative guidance. No code fences. No extra sections.
+`.trim();
+}
+
+function systemPromptC_RestOfReport(): string {
   return `
 You are **LVE360 Concierge AI**, a friendly but professional wellness coach.
-Tone: encouraging, plain-English, never clinical or robotic.
-Always explain *why it matters* in a supportive, human way.
-Always greet the client by name in the Intro Summary if provided.
-
 Return **plain ASCII Markdown only** with headings EXACTLY:
 
 ${HEADINGS.slice(0, -1).join("\n")}
 
-Tables must use \`Column | Column\` pipe format, **no curly quotes or bullets**.
-Every table/list MUST be followed by **Analysis** ≥3 sentences that:
-• Summarize the section
-• Explain why it matters
-• Give practical implication
-
-### Section-specific rules
-• **Intro Summary** → greet by name (if available), ≥2 sentences.  
-• **Goals** → Table: Goal | Description, then Analysis.  
-• **Current Stack** → Table: Medication/Supplement | Purpose | Dosage | Timing, then Analysis.  
-• **Your Blueprint Recommendations** → 3-column table: Rank | Supplement | Why it Matters.  
-  Must include ≥10 unique rows.  
-  Add: *“See Dosing & Notes for amounts and timing.”*  
-  Follow with 3–5 sentence Analysis.  
-• **Dosing & Notes** → Bullets with dose + timing (AM/PM/with meals) and short note; end with Analysis.  
-• **Evidence & References** → ≥8 bullet links (PubMed/PMC/DOI), then Analysis.  
-• **Shopping Links** → Provide links + Analysis.  
-• **Follow-up Plan** → ≥3 checkpoints + Analysis.  
-• **Lifestyle Prescriptions** → ≥3 actions + Analysis.  
-• **Longevity Levers** → ≥3 strategies + Analysis.  
-• **This Week Try** → Exactly 3 micro-habits + Analysis.  
-• Finish with line \`## END\`.
-
-### Hard Guardrails
-• MUST output H2s in this exact order:
-  ${HEADINGS.slice(0, -1).join("\n  ")}
-• "Your Blueprint Recommendations" MUST be a Markdown table with header:
-    | Rank | Supplement | Why it Matters |
-  and at least 10 data rows.
-• Each narrative section (other than Intro) MUST have ≥3 sentences.
-• Evidence MUST contain ≥8 Markdown links ("- [Title](https://...)").
-• Always end with a line "## END".
-`;
+Tables must use \`Column | Column\` pipe format, no curly quotes or bullets.
+Every table/list MUST be followed by **Analysis** (≥3 sentences).
+Section rules:
+• Intro Summary → greet by name (if available).
+• Goals → Table: Goal | Description, then Analysis.
+• Current Stack → Table: Medication/Supplement | Purpose | Dosage | Timing, then Analysis.
+• Your Blueprint Recommendations → Table: | Rank | Supplement | Why it Matters | with ≥10 rows; add “See Dosing & Notes…”.
+• Dosing & Notes → bullets per item (dose/timing), end with Analysis.
+• Evidence & References → ≥8 markdown links (PubMed/PMC/DOI etc.), then Analysis.
+• Shopping Links → links + Analysis.
+• Follow-up Plan, Lifestyle Prescriptions, Longevity Levers, This Week Try → each ends with Analysis.
+Finish with a line \`## END\`.
+`.trim();
 }
+
 
 function tableOnlyPrompt(compactClient: any) {
   return `
@@ -732,54 +756,64 @@ export async function generateStackForSubmission(arg: string | { submissionId: s
   let promptTokens: number | null = null;
   let completionTokens: number | null = null;
 
-  // PASS A: Blueprint Table (mini first)
-  console.info("[gen.passA:start]", { candidates: candidateModels("mini") });
-  const resA = await callChatWithRetry("mini", [
-    { role: "system", content: systemPrompt() },
-    { role: "user", content: tableOnlyPrompt(compactClient) },
-  ]);
-  const tableMd = String(resA?.text || "").trim();
-  if (!/\| *Rank *\| *Supplement *\| *Why it Matters *\|/i.test(tableMd)) {
-    throw new Error("Pass A did not return the Blueprint table");
-  }
-  modelUsed = resA?.modelUsed ?? modelUsed;
-  if (typeof resA?.promptTokens === "number") promptTokens = (promptTokens ?? 0) + resA.promptTokens;
-  if (typeof resA?.completionTokens === "number") completionTokens = (completionTokens ?? 0) + resA.completionTokens;
 
-  // PASS B: Contraindications + Dosing
-  console.info("[gen.passB:start]", { candidates: candidateModels("mini") });
-  const resB = await callChatWithRetry("mini", [
-    { role: "system", content: systemPrompt() },
-    { role: "user", content: safetyAndDosingPrompt(fullClient, tableMd) },
-  ]);
-  const dosingMd = String(resB?.text || "").trim();
-  const hasContra = /## Contraindications & Med Interactions/i.test(dosingMd);
-  const hasDosing = /## Dosing & Notes/i.test(dosingMd);
-  if (!hasContra || !hasDosing) throw new Error("Pass B missing sections");
-  modelUsed = resB?.modelUsed ?? modelUsed;
-  if (typeof resB?.promptTokens === "number") promptTokens = (promptTokens ?? 0) + resB.promptTokens;
-  if (typeof resB?.completionTokens === "number") completionTokens = (completionTokens ?? 0) + resB.completionTokens;
+// PASS A: Blueprint Table (mini first)
+console.info("[gen.passA:start]", { candidates: candidateModels("mini") });
+const resA = await callChatWithRetry("mini", [
+  { role: "system", content: systemPromptA_TableOnly() },
+  { role: "user", content: tableOnlyPrompt(compactClient) },
+]);
 
-  // PASS C: Remaining sections
-  console.info("[gen.passC:start]", { candidates: candidateModels("mini") });
-  const resC = await callChatWithRetry("mini", [
-    { role: "system", content: systemPrompt() },
-    { role: "user", content: remainingSectionsPrompt(fullClient, tableMd, dosingMd) },
-  ]);
-  const restMd = String(resC?.text || "").trim();
-  modelUsed = resC?.modelUsed ?? modelUsed;
-  if (typeof resC?.promptTokens === "number") promptTokens = (promptTokens ?? 0) + resC.promptTokens;
-  if (typeof resC?.completionTokens === "number") completionTokens = (completionTokens ?? 0) + resC.completionTokens;
+const rawA = stripCodeFences(String(resA?.text || "").trim());
+const tableMd = extractBlueprintTable(rawA);
+if (!tableMd) {
+  throw new Error("Pass A did not return the Blueprint table");
+}
+
+// token accounting (if available)
+if (resA?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resA.usage.prompt_tokens ?? 0);
+if (resA?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resA.usage.completion_tokens ?? 0);
+modelUsed = resA?.modelUsed ?? modelUsed;
+
+// PASS B: Contraindications + Dosing
+console.info("[gen.passB:start]", { candidates: candidateModels("mini") });
+const resB = await callChatWithRetry("mini", [
+  { role: "system", content: systemPromptB_SafetyDosing() },
+  { role: "user", content: safetyAndDosingPrompt(fullClient, tableMd) },
+]);
+
+const dosingMd = stripCodeFences(String(resB?.text || "").trim());
+const hasContra = /## Contraindications & Med Interactions/i.test(dosingMd);
+const hasDosing = /## Dosing & Notes/i.test(dosingMd);
+if (!hasContra || !hasDosing) throw new Error("Pass B missing sections");
+
+if (resB?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resB.usage.prompt_tokens ?? 0);
+if (resB?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resB.usage.completion_tokens ?? 0);
+modelUsed = resB?.modelUsed ?? modelUsed;
+
+// PASS C: Remaining sections
+console.info("[gen.passC:start]", { candidates: candidateModels("mini") });
+const resC = await callChatWithRetry("mini", [
+  { role: "system", content: systemPromptC_RestOfReport() },
+  { role: "user", content: remainingSectionsPrompt(fullClient, tableMd, dosingMd) },
+]);
+
+const restMd = stripCodeFences(String(resC?.text || "").trim());
+modelUsed = resC?.modelUsed ?? modelUsed;
+if (resC?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resC.usage.prompt_tokens ?? 0);
+if (resC?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resC.usage.completion_tokens ?? 0);
+
 
   // ---------- Stitch full Markdown ----------
-  let md = [
-    restMd.includes("## Intro Summary") ? "" : "## Intro Summary\n",
-    restMd,
-    "\n\n## Your Blueprint Recommendations\n",
-    tableMd,
-    "\n\n",
-    dosingMd,
-  ].join("\n").trim();
+let md = [
+  restMd.includes("## Intro Summary") ? "" : "## Intro Summary\n",
+  restMd,
+  "\n\n## Your Blueprint Recommendations\n",
+  tableMd, // <- already sanitized to just the table
+  "\n\n",
+  dosingMd,
+].join("\n").trim();
+
 
   // Sanity: enforce headings / pad blueprint / end marker
   md = forceHeadings(md);
