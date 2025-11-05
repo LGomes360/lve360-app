@@ -235,7 +235,7 @@ async function ensureFallbackStack(
   };
 }
 // Hard wall to avoid Vercel 110s function timeout
-const HARD_TIMEOUT_MS = 95_000; // keep this < maxDuration*1000
+const HARD_TIMEOUT_MS = 210_000; // 3.5 minutes safety window
 
 class TimeoutError extends Error {
   constructor(message = "generator timed out") {
