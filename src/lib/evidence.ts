@@ -39,6 +39,86 @@ const EVIDENCE_ALIASES: Record<string, string> = {
   "omega 3": "omega-3 (epa+dha)",
   "zinc": "zinc (picolinate)",
   "magnesium": "magnesium (glycinate)",
+  "magnesium glycinate": "magnesium (glycinate)",
+  "magnesium bisglycinate": "magnesium (glycinate)",
+  "magnesium citrate": "magnesium (glycinate)",
+  "magnesium malate": "magnesium (glycinate)",
+  "magnesium taurate": "magnesium (glycinate)",
+  "magnesium threonate": "magnesium (glycinate)",   // alias threonate for now
+  "magtein": "magnesium (glycinate)",               // brand synonym
+  "magnesium oxide": "magnesium (glycinate)",
+  "magnesium chloride": "magnesium (glycinate)",
+  "magnesium sulfate": "magnesium (glycinate)",
+  "epsom salt": "magnesium (glycinate)",
+   "whey": "protein (whey isolate)",
+  "whey isolate": "protein (whey isolate)",
+  "whey protein": "protein (whey isolate)",
+  "casein": "protein (casein)",
+  "protein powder": "protein (whey isolate)",
+
+  // ===== CREATINE =====
+  "creatine": "creatine (monohydrate)",
+  "creatine monohydrate": "creatine (monohydrate)",
+
+  // ===== FISH OIL / OMEGA-3 =====
+  "omega 3": "omega-3 (epa+dha)",
+  "omega-3": "omega-3 (epa+dha)",
+  "fish oil": "omega-3 (epa+dha)",
+  "epa dha": "omega-3 (epa+dha)",
+
+  // ===== MAGNESIUM (MAP ALL FORMS → GLYCINATE unless you add distinct SKUs) =====
+  "magnesium": "magnesium (glycinate)",
+  "magnesium glycinate": "magnesium (glycinate)",
+  "magnesium bisglycinate": "magnesium (glycinate)",
+  "magnesium citrate": "magnesium (glycinate)",
+  "magnesium malate": "magnesium (glycinate)",
+  "magnesium taurate": "magnesium (glycinate)",
+  "magnesium threonate": "magnesium (glycinate)",
+  "magtein": "magnesium (glycinate)",
+  "magnesium oxide": "magnesium (glycinate)",
+  "magnesium chloride": "magnesium (glycinate)",
+  "magnesium sulfate": "magnesium (glycinate)",
+  "epsom salt": "magnesium (glycinate)",
+
+  // ===== B-VITAMINS =====
+  "b12": "b12 (methylcobalamin)",
+  "vitamin b12": "b12 (methylcobalamin)",
+  "cyanocobalamin": "b12 (methylcobalamin)",
+  "methylcobalamin": "b12 (methylcobalamin)",
+
+  // ===== VITAMIN D =====
+  "vitamin d": "vitamin d3 (cholecalciferol)",
+  "vitamin d3": "vitamin d3 (cholecalciferol)",
+  "cholecalciferol": "vitamin d3 (cholecalciferol)",
+
+  // ===== ZINC =====
+  "zinc": "zinc (picolinate)",
+  "zinc picolinate": "zinc (picolinate)",
+  "zinc citrate": "zinc (picolinate)",
+
+  // ===== CURCUMIN / TURMERIC =====
+  "turmeric": "curcumin (95% curcuminoids + piperine)",
+  "curcumin": "curcumin (95% curcuminoids + piperine)",
+  "curcumin with piperine": "curcumin (95% curcuminoids + piperine)",
+
+  // ===== COQ10 =====
+  "coq10": "coq10 (ubiquinone)",
+  "ubiquinone": "coq10 (ubiquinone)",
+  "ubiquinol": "coq10 (ubiquinone)",
+
+  // ===== PROBIOTICS =====
+  "probiotic": "probiotic (lacto/bifido blend)",
+  "probiotics": "probiotic (lacto/bifido blend)",
+
+  // ===== FIBER =====
+  "psyllium": "fiber (psyllium husk)",
+  "psyllium husk": "fiber (psyllium husk)",
+  "glucomannan": "fiber (glucomannan)",
+  "fiber": "fiber (psyllium husk)",
+
+  // ===== ELECTROLYTES (OPTIONAL) =====
+  "electrolytes": "electrolytes (balanced mix)",
+  "oral rehydration": "electrolytes (balanced mix)",
 
   // 🔑 Add more aliases as needed
 };
