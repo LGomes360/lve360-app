@@ -1292,7 +1292,7 @@ modelUsed = resB?.modelUsed ?? modelUsed;
 ];
 
 // PASS C: Remaining sections (use GPT-5 main, bigger headroom)
-console.info("[gen.passC:start]", { candidates: ["gpt-5"] });
+console.info("[gen.passC:start]", { candidates: candidateModels("main") });
 
 let resC = await callChatWithRetry(
   "main", // we’ll ask for main and pass a GPT-5 model name explicitly
@@ -1300,7 +1300,7 @@ let resC = await callChatWithRetry(
     { role: "system", content: systemPromptC_Strict() },
     { role: "user", content: remainingSectionsPrompt(compactForPassC(sub), tableMd, dosingMd) },
   ],
-  { maxTokens: 1600, timeoutMs: 120_000 } // more room than 900/25s
+  { maxTokens: 2000, timeoutMs: 120_000 } // a bit more room for 9 narrative sections
 );
 
 
