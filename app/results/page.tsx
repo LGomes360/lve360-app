@@ -319,8 +319,9 @@ const res = await fetchWithRetry(path, init, isGenerate ? 1 : 3, 500, isGenerate
   try { json = await res.json(); } catch {}
 
   if (!res.ok || json?.ok === false) {
-    const msg = json?.error ? String(json.error) : `HTTP ${res.status}`;
-    throw new Error(msg);
+const msg = json?.error
+  ? String(json.error)
+  : (res.status !== 200 ? `HTTP ${res.status}` : "The robots are still working, standby captain.");
   }
   return json;
 }
