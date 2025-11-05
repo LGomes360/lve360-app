@@ -231,10 +231,10 @@ function Stepper({
 }
 
 /* --- 2-minute countdown --- */
-function TwoMinuteCountdown({
+ function TwoMinuteCountdown({
   running,
   onDone,
-  seconds = 120,
+  seconds = 180,
 }: {
   running: boolean;
   onDone?: () => void;
@@ -360,7 +360,7 @@ function hasUsableSections(md: string | null | undefined): boolean {
   return SECTION_HEADINGS.some(h => t.includes(("## " + h).toLowerCase()));
 }
 
-async function refetchUntilReady(qp: string, maxMs = 25_000): Promise<string> {
+async function refetchUntilReady(qp: string, maxMs = 120_000): Promise<string> {
   const deadline = Date.now() + maxMs;
   let last = "";
   while (Date.now() < deadline) {
@@ -411,7 +411,7 @@ async function generateStack() {
       : `submission_id=${encodeURIComponent(anyId as string)}`;
 
     // Poll for a few seconds until real sections land
-    const finalMd = await refetchUntilReady(qp, 25_000);
+    const finalMd = await refetchUntilReady(qp, 120_000);
     setMarkdown(sanitizeMarkdown(finalMd));
 
     // Try to capture a stack id (from the refetch)
