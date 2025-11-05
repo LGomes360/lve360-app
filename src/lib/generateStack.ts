@@ -83,7 +83,8 @@ interface EvidenceEntry { url?: string | null; [key: string]: any }
 type EvidenceIndex = Record<string, EvidenceEntry[]>;
 const EVIDENCE: EvidenceIndex = (evidenceIndex as unknown) as EvidenceIndex;
 const LLM_DEFAULT_TIMEOUT_MS = 90_000; // 90s default for all LLM calls
-const LLM_TIMEOUT_MS = 70_000; // 70s to align with the GPT-5 pass budget
+const LLM_TIMEOUT_MS = 95_000; // 95s to prevent Pass B timeouts seen in logs
+const wait = (ms:number)=>new Promise(res=>setTimeout(res, ms));
 
 // ----------------------------------------------------------------------------
 // Model resolution + safe caller
@@ -1178,7 +1179,7 @@ const resB = await callChatWithRetry(
     { role: "system", content: systemPromptB_SafetyDosing() },
     { role: "user", content: safetyAndDosingPrompt(fullClient, tableMd) },
   ],
-  { maxTokens: 1200, timeoutMs: LLM_TIMEOUT_MS }
+  { maxTokens: 1600, timeoutMs: LLM_TIMEOUT_MS }
 );
 
 
@@ -1202,6 +1203,7 @@ let dosingMd = _normalizeB(stripCodeFences(dosingMdRaw));
 let hasContra = _hasContra(dosingMd);
 let hasDosing = _hasDosing(dosingMd);
 
+  
 // If headings missing, one-shot repair with mini
 if (!hasContra || !hasDosing) {
   const repairPrompt = `
@@ -1233,6 +1235,8 @@ Rules:
 - Return ONLY those two sections in ASCII Markdown.
 `.trim();
 
+  await wait(700);
+
   const resRepairMini = await callChatWithRetry("mini", [
     { role: "system", content: systemPromptB_SafetyDosing() },
     { role: "user", content: repairPrompt },
@@ -1242,6 +1246,9 @@ Rules:
   if (_hasContra(repairedMini) && _hasDosing(repairedMini)) {
     dosingMd = repairedMini;
   } else {
+    
+    await wait(700);
+
     // Try once with main model
     const resRepairMain = await callChatWithRetry("main", [
       { role: "system", content: systemPromptB_SafetyDosing() },
