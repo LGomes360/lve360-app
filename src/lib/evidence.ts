@@ -28,6 +28,18 @@ const EVIDENCE_ALIASES: Record<string, string> = {
   "zinc": "zinc (picolinate)",
   "magnesium": "magnesium (glycinate)",
   "nac": "nac (n-acetylcysteine)"
+  "turmeric": "curcumin (95% curcuminoids + piperine)",
+  "curcumin": "curcumin (95% curcuminoids + piperine)",
+  "probiotic": "probiotic (lacto/bifido blend)",
+  "probiotics": "probiotic (lacto/bifido blend)",
+  "vitamin b12": "b12 (methylcobalamin)",
+  "b12": "b12 (methylcobalamin)",
+  "coq10": "coq10 (ubiquinone)",
+  "omega-3": "omega-3 (epa+dha)",
+  "omega 3": "omega-3 (epa+dha)",
+  "zinc": "zinc (picolinate)",
+  "magnesium": "magnesium (glycinate)",
+
   // 🔑 Add more aliases as needed
 };
 
