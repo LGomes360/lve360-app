@@ -86,22 +86,32 @@ export function parseMarkdownToItems(md: string): ParsedItem[] {
   // 1) Your Blueprint Recommendations (table -> names + rationale)
   const rec = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
   if (rec) {
-    const rows = rec[1].split("\n").filter((l) => l.trim().startsWith("|"));
-    // Expect: | Rank | Supplement | Why it Matters |
-    rows.slice(1).forEach((row, i) => {
-      const cols = row.split("|").map((c) => c.trim());
-      const name = cleanName(cols[2] || `Item ${i + 1}`);
-      if (!name) return;
-      base[name.toLowerCase()] = {
-        name,
-        rationale: cols[3] || null,
-        dose: null,
-        timing: null,
-        timing_text: null,
-        is_current: false,
-      };
-    });
-  }
+const rows = rec[1]
+  .split("\n")
+  .filter((l) => {
+    const t = l.trim();
+    // keep only table rows, drop the separator like | --- | --- | --- |
+    return t.startsWith("|") && !/^\|\s*-+\s*\|/.test(t);
+  });
+
+// Expect: header row + data rows. Remove header before iterating.
+rows.slice(1).forEach((row, i) => {
+  const cols = row.split("|").map((c) => c.trim());
+  const name = cleanName(cols[2] || `Item ${i + 1}`);
+
+  // Skip bogus rows that are just dashes/empty
+  if (!name || /^-+$/.test(name)) return;
+
+  base[name.toLowerCase()] = {
+    name,
+    rationale: cols[3] || null,
+    dose: null,
+    timing: null,
+    timing_text: null,
+    is_current: false,
+  };
+});
+
 
   // 2) Current Stack (table -> mark is_current=true and copy dose/timing if present)
   const current = md.match(/## Current Stack([\s\S]*?)(\n## |$)/i);
