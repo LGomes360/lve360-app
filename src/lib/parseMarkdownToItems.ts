@@ -2,6 +2,7 @@
 
 // Central, single-source parser for converting the Markdown report into
 // normalized stack items used by the DB/UI.
+import { normalizeSupplementName } from "@/lib/aliases";
 
 export type ParsedItem = {
   name: string;
@@ -84,33 +85,55 @@ export function parseMarkdownToItems(md: string): ParsedItem[] {
   const base: Record<string, any> = {};
 
   // 1) Your Blueprint Recommendations (table -> names + rationale)
-  const rec = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
-  if (rec) {
-const rows = rec[1]
-  .split("\n")
-  .filter((l) => {
-    const t = l.trim();
-    // keep only table rows, drop the separator like | --- | --- | --- |
-    return t.startsWith("|") && !/^\|\s*-+\s*\|/.test(t);
+// ---- Parse "Your Blueprint Recommendations" table safely ----
+const rec = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
+if (rec) {
+  const tableSection = rec[1] || "";
+
+  // Split lines, keep only table rows starting with "|", and DROP the separator row(s) like:
+  // | ---- | ---- | ---- |
+  const rows = tableSection
+    .split("\n")
+    .filter((l) => {
+      const t = l.trim();
+      // keep actual table rows
+      if (!t.startsWith("|")) return false;
+      // drop any "all dashes" separator rows (handles any number of columns)
+      // matches: | --- | ---- | --- |    (with optional spaces)
+      if (/^\|\s*-+(\s*\|\s*-+)*\s*\|?$/.test(t)) return false;
+      return true;
+    });
+
+  // Expect the first retained row to be the header
+  const dataRows = rows.length > 1 ? rows.slice(1) : [];
+
+  dataRows.forEach((row, i) => {
+    // Split columns; safe even if there are extra pipes
+    const cols = row.split("|").map((c) => c.trim());
+
+    // column 2 is "Supplement" in your table spec: | Rank | Supplement | Why it Matters |
+    const nameRaw = (cols[2] || `Item ${i + 1}`).trim();
+
+    // Skip dashed/empty names
+    if (!nameRaw || /^-+$/.test(nameRaw)) return;
+
+    // Normalize the supplement to the canonical catalog/evidence key
+    const canonical = normalizeSupplementName(nameRaw);
+
+    // column 3 is "Why it Matters"
+    const rationale = cols[3] ? String(cols[3]).trim() : null;
+
+    base[canonical.toLowerCase()] = {
+      name: canonical,          // store canonical name for downstream systems
+      rationale,
+      dose: null,
+      timing: null,
+      timing_text: null,
+      is_current: false,
+    };
   });
+}
 
-// Expect: header row + data rows. Remove header before iterating.
-rows.slice(1).forEach((row, i) => {
-  const cols = row.split("|").map((c) => c.trim());
-  const name = cleanName(cols[2] || `Item ${i + 1}`);
-
-  // Skip bogus rows that are just dashes/empty
-  if (!name || /^-+$/.test(name)) return;
-
-  base[name.toLowerCase()] = {
-    name,
-    rationale: cols[3] || null,
-    dose: null,
-    timing: null,
-    timing_text: null,
-    is_current: false,
-  };
-});
 
 
   // 2) Current Stack (table -> mark is_current=true and copy dose/timing if present)
