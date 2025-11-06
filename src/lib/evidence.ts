@@ -94,6 +94,21 @@ const EVIDENCE_ALIASES: Record<string, string> = {
   "oral rehydration": "electrolytes (balanced mix)"
 };
 
+// Derive a normalized alias map so "omega-3", "omega 3", "OMEGA3" all hit the same key
+const ALIASES_BY_KEY: Record<string, string> = (() => {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(EVIDENCE_ALIASES)) {
+    out[keyOf(k)] = v;
+  }
+  return out;
+})();
+
+// Exported canonicalizer used by BOTH evidence + shopping + parser
+export function normalizeSupplementName(name: string): string {
+  const k = keyOf(name || "");
+  return ALIASES_BY_KEY[k] || k; // if not aliased, return normalized key
+}
+
 // Main lookup
 export function getTopCitationsFor(name: string, limit = 2): string[] {
   if (!name) return [];
