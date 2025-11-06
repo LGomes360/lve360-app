@@ -2,7 +2,8 @@
 
 // Central, single-source parser for converting the Markdown report into
 // normalized stack items used by the DB/UI.
-import { normalizeSupplementName } from "@/lib/aliases";
+import { normalizeSupplementName } from "@/lib/evidence";
+
 
 export type ParsedItem = {
   name: string;
