@@ -67,7 +67,7 @@ const EVIDENCE_ALIASES: Record<string, string> = {
   "whey protein": "protein (whey isolate)",
   "casein": "protein (casein)",
   "protein powder": "protein (whey isolate)",
-
+  "l carnitine": "l-carnitine",
   "creatine": "creatine (monohydrate)",
   "creatine monohydrate": "creatine (monohydrate)",
 
@@ -103,46 +103,61 @@ const ALIASES_BY_KEY: Record<string, string> = (() => {
   return out;
 })();
 
+// Names we never want to cite (UI placeholders / non-specific)
+const IGNORE_FOR_EVIDENCE = new Set<string>([
+  "see dosing notes",
+  "see dosing",
+  "see notes",
+  "-",
+  "—",
+  "multivitamin" // remove when you add a curated "multivitamin (...)" entry
+]);
+
 // Exported canonicalizer used by BOTH evidence + shopping + parser
 export function normalizeSupplementName(name: string): string {
   const k = keyOf(name || "");
   return ALIASES_BY_KEY[k] || k; // if not aliased, return normalized key
 }
 
+// Build a normalized index from the evidence JSON: keyOf(human-key) -> array of entries
+type EvidenceEntry = { url: string; [k: string]: any };
+const curatedIndex: Record<string, EvidenceEntry[]> = (() => {
+  const out: Record<string, EvidenceEntry[]> = {};
+  for (const [humanKey, arr] of Object.entries(evidence as Record<string, EvidenceEntry[]>)) {
+    out[keyOf(humanKey)] = arr;
+  }
+  return out;
+})();
+
 // Main lookup
 export function getTopCitationsFor(name: string, limit = 2): string[] {
   if (!name) return [];
 
-  const norm = keyOf(name);
+  const lowered = name.toLowerCase().trim();
+  if (IGNORE_FOR_EVIDENCE.has(lowered)) return [];
 
-  // 1. Alias map
-  const aliasKey = EVIDENCE_ALIASES[norm];
-  if (aliasKey && (evidence as any)[aliasKey]) {
-    return sanitizeCitations(
-      (evidence as any)[aliasKey].slice(0, limit).map((e: any) => e.url)
-    );
+  // 1) Canonicalize using the alias map you already normalized
+  const canonical = normalizeSupplementName(name);
+
+  // 2) Normalize the canonical to the index key
+  const k = keyOf(canonical);
+
+  // 3) Exact normalized hit from prebuilt index
+  const arr = curatedIndex[k];
+  if (arr && arr.length) {
+    return sanitizeCitations(arr.slice(0, limit).map((e) => e.url));
   }
 
-  // 2. Exact key match
-  if ((evidence as any)[norm]) {
-    return sanitizeCitations(
-      (evidence as any)[norm].slice(0, limit).map((e: any) => e.url)
-    );
+  // 4) Soft fallback: substring search on normalized keys
+  const softHitKey = Object.keys(curatedIndex).find((kk) => kk.includes(k));
+  if (softHitKey) {
+    return sanitizeCitations(curatedIndex[softHitKey].slice(0, limit).map((e) => e.url));
   }
 
-  // 3. Fuzzy contains match
-  const hit = Object.keys(evidence as any).find((sk) =>
-    keyOf(sk).includes(norm)
-  );
-  if (hit) {
-    return sanitizeCitations(
-      (evidence as any)[hit].slice(0, limit).map((e: any) => e.url)
-    );
-  }
-
-  // 4. Nothing found
+  // 5) Nothing found
   return [];
 }
+
 
 // Enforce PubMed/DOI only
 export function sanitizeCitations(urls: string[]): string[] {
