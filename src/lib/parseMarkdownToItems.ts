@@ -4,6 +4,25 @@
 // normalized stack items used by the DB/UI.
 import { normalizeSupplementName } from "@/lib/evidence";
 
+const TIME_MAP: Record<string, "am" | "pm" | "am_pm"> = {
+  am: "am",
+  morning: "am",
+  breakfast: "am",
+  pm: "pm",
+  evening: "pm",
+  bedtime: "pm",
+  night: "pm",
+  both: "am_pm",
+  split: "am_pm",
+};
+
+function inferTimeOfDayFromText(txt: string): "am" | "pm" | "am_pm" | null {
+  const s = (txt || "").toLowerCase();
+  if (/\b(am|morning|breakfast)\b/.test(s)) return "am";
+  if (/\b(pm|evening|bedtime|night)\b/.test(s)) return "pm";
+  if (/\b(both|split)\b/.test(s)) return "am_pm";
+  return null;
+}
 
 export type ParsedItem = {
   name: string;
@@ -134,8 +153,11 @@ if (rec) {
     };
   });
 }
-
-
+  
+// Skip junk/placeholder rows so they don't become items
+if (/^\s*(see dosing notes|see dosing|see notes|-|—)\s*$/i.test(nameRaw || "")) {
+  return null; // or `continue` depending on your loop
+}
 
   // 2) Current Stack (table -> mark is_current=true and copy dose/timing if present)
   const current = md.match(/## Current Stack([\s\S]*?)(\n## |$)/i);
@@ -191,6 +213,11 @@ if (rec) {
 
       const name = cleanName(nameRaw);
       if (!name) continue;
+      
+const whenGuess = inferTimeOfDayFromText(`${timing ?? ""} ${notes ?? ""}`);
+if (whenGuess) {
+  item.time_of_day = whenGuess; // "am" | "pm" | "am_pm"
+}
 
       // Dose candidate: the first sentence-ish chunk
       const firstSentence = rest.split(/[.!?]/)[0]?.trim() || rest;
@@ -274,5 +301,16 @@ if (rec) {
 
   return items;
 }
+function backfillTimingFromNotes(items: any[], markdown: string) {
+  const section = (markdown || "").split(/^#+\s*Dosing\s*&\s*Notes\b/im)[1] || markdown;
+  for (const it of items) {
+    if (it.time_of_day) continue;
+    const pat = new RegExp(`\\b${(it.name || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b[^\\n]*`, "i");
+    const line = (section.match(pat) || [])[0] || "";
+    const guess = inferTimeOfDayFromText(line);
+    if (guess) it.time_of_day = guess;
+  }
+}
+backfillTimingFromNotes(items, markdown);
 
 export default parseMarkdownToItems;
