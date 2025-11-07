@@ -1,6 +1,22 @@
 // src/lib/evidence.ts
 import evidence from "@/evidence/evidence_index_top3.json";
 
+// Build a normalized index once so alias and key variations resolve cleanly
+const curatedIndex: Record<string, { url: string }[]> = {};
+for (const [k, arr] of Object.entries(evidence as any)) {
+  curatedIndex[keyOf(k)] = arr as any[];
+}
+
+// Rows we never want to cite
+const IGNORE_FOR_EVIDENCE = new Set<string>([
+  "see dosing notes",
+  "see dosing",
+  "see notes",
+  "-",
+  "—",
+  "multivitamin" // until we curate it, suppress noisy lookups
+]);
+
 // Normalize a string into a simple key
 const keyOf = (s: string) =>
   s.toLowerCase()
@@ -132,21 +148,29 @@ const curatedIndex: Record<string, EvidenceEntry[]> = (() => {
 // Main lookup
 export function getTopCitationsFor(name: string, limit = 2): string[] {
   if (!name) return [];
-
-  const lowered = name.toLowerCase().trim();
+  const lowered = (name || "").toLowerCase().trim();
   if (IGNORE_FOR_EVIDENCE.has(lowered)) return [];
 
-  // 1) Canonicalize using the alias map you already normalized
+  // Canonicalize (aliases → curated key), then normalize for index lookup
   const canonical = normalizeSupplementName(name);
-
-  // 2) Normalize the canonical to the index key
   const k = keyOf(canonical);
 
-  // 3) Exact normalized hit from prebuilt index
-  const arr = curatedIndex[k];
-  if (arr && arr.length) {
-    return sanitizeCitations(arr.slice(0, limit).map((e) => e.url));
-  }
+  const arr =
+    curatedIndex[k] ||
+    curatedIndex[keyOf(name)] || // fallback to the raw key
+    [];
+
+  console.info("evidence.lookup", {
+    rawName: name,
+    canonical,
+    indexKey: k,
+    curatedCount: arr.length,
+  });
+
+  if (arr.length === 0) return [];
+  return sanitizeCitations(arr.slice(0, limit).map((e: any) => e.url));
+}
+
 
   // 4) Soft fallback: substring search on normalized keys
   const softHitKey = Object.keys(curatedIndex).find((kk) => kk.includes(k));
