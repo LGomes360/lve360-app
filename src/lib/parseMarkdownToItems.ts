@@ -2,34 +2,15 @@
 
 // Central, single-source parser for converting the Markdown report into
 // normalized stack items used by the DB/UI.
+
 import { normalizeSupplementName } from "@/lib/evidence";
-
-const TIME_MAP: Record<string, "am" | "pm" | "am_pm"> = {
-  am: "am",
-  morning: "am",
-  breakfast: "am",
-  pm: "pm",
-  evening: "pm",
-  bedtime: "pm",
-  night: "pm",
-  both: "am_pm",
-  split: "am_pm",
-};
-
-function inferTimeOfDayFromText(txt: string): "am" | "pm" | "am_pm" | null {
-  const s = (txt || "").toLowerCase();
-  if (/\b(am|morning|breakfast)\b/.test(s)) return "am";
-  if (/\b(pm|evening|bedtime|night)\b/.test(s)) return "pm";
-  if (/\b(both|split)\b/.test(s)) return "am_pm";
-  return null;
-}
 
 export type ParsedItem = {
   name: string;
   rationale?: string | null;
   dose?: string | null;
-  timing?: string | null;        // normalized "AM" | "PM" | "AM/PM" or null
-  timing_text?: string | null;   // original free-text (e.g., "before meals", "in the evening")
+  timing?: string | null;        // "AM" | "PM" | "AM/PM" | null
+  timing_text?: string | null;   // original free-text
   timing_bucket?: "AM" | "PM" | "AM/PM" | "Anytime" | null;
   is_current?: boolean | null;
   caution?: string | null;
@@ -45,17 +26,14 @@ export type ParsedItem = {
 
 // -------------------------- helpers -----------------------------------------
 
-const seeDN = "See Dosing & Notes";
+const SEE_DN = /^(see dosing & notes|see dosing notes|see dosing|see notes)$/i;
 
 function cleanName(raw: string): string {
   if (!raw) return "";
-  return raw
-    .replace(/[*_`#]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return raw.replace(/[*_`#]/g, "").replace(/\s+/g, " ").trim();
 }
 
-export function normalizeTiming(raw?: string | null): string | null {
+function normalizeTiming(raw?: string | null): "AM" | "PM" | "AM/PM" | null {
   if (!raw) return null;
   const s = raw.toLowerCase();
   if (/\bam\b|morning|breakfast/.test(s)) return "AM";
@@ -64,7 +42,7 @@ export function normalizeTiming(raw?: string | null): string | null {
   return null;
 }
 
-export function classifyTimingBucket(text?: string | null): "AM" | "PM" | "AM/PM" | "Anytime" | null {
+function classifyTimingBucket(text?: string | null): "AM" | "PM" | "AM/PM" | "Anytime" | null {
   if (!text) return null;
   const s = text.toLowerCase();
   const am = /\b(am|morning|breakfast)\b/.test(s);
@@ -77,19 +55,30 @@ export function classifyTimingBucket(text?: string | null): "AM" | "PM" | "AM/PM
   return "Anytime";
 }
 
-export function parseDose(dose?: string | null): { amount?: number; unit?: string } {
+function parseDose(dose?: string | null): { amount?: number; unit?: string } {
   if (!dose) return {};
   const cleaned = dose.replace(/[,]/g, " ").replace(/\s+/g, " ");
   const matches = cleaned.match(/(\d+(?:\.\d+)?)/g);
   if (!matches) return {};
   const amount = parseFloat(matches[matches.length - 1]);
-  const unitMatch = cleaned.match(/(mcg|μg|ug|mg|g|iu)\b/i);
+  const unitMatch = cleaned.match(/\b(mcg|μg|ug|mg|g|iu)\b/i);
   const rawUnit = unitMatch ? unitMatch[1] : "";
   let unit = rawUnit ? rawUnit.toLowerCase() : "";
   if (unit === "μg" || unit === "ug") unit = "mcg";
   if (unit === "iu") unit = "IU";
   if (unit === "g") return { amount: amount * 1000, unit: "mg" };
   return { amount, unit: unit || undefined };
+}
+
+// Backfill timing if it wasn’t found in a table line by scanning the Dosing & Notes text
+function inferTimingFromNotesLine(name: string, notesBlock: string): "AM" | "PM" | "AM/PM" | "Anytime" | null {
+  if (!name || !notesBlock) return null;
+  const pat = new RegExp(`^\\s*[-*]\\s*${name.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\s*[:—-]\\s*(.+)$`, "im");
+  const m = notesBlock.match(pat);
+  if (!m) return null;
+  const line = m[1] || "";
+  const bucket = classifyTimingBucket(line);
+  return bucket || null;
 }
 
 // -------------------------- core parser --------------------------------------
@@ -104,86 +93,66 @@ export function parseDose(dose?: string | null): { amount?: number; unit?: strin
 export function parseMarkdownToItems(md: string): ParsedItem[] {
   const base: Record<string, any> = {};
 
-  // 1) Your Blueprint Recommendations (table -> names + rationale)
-// ---- Parse "Your Blueprint Recommendations" table safely ----
-const rec = md.match(/## Your Blueprint Recommendations([\s\S]*?)(\n## |$)/i);
-if (rec) {
-  const tableSection = rec[1] || "";
+  // ---------- 1) Your Blueprint Recommendations ----------
+  const rec = md.match(/##\s*Your Blueprint Recommendations([\s\S]*?)(\n##\s+|$)/i);
+  if (rec) {
+    const tableSection = rec[1] || "";
+    const rows = tableSection
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((t) => {
+        if (!t.startsWith("|")) return false;
+        // drop markdown separator rows like | --- | ---- |
+        if (/^\|\s*-+(\s*\|\s*-+)*\s*\|?\s*$/.test(t)) return false;
+        return true;
+      });
 
-  // Split lines, keep only table rows starting with "|", and DROP the separator row(s) like:
-  // | ---- | ---- | ---- |
-  const rows = tableSection
-    .split("\n")
-    .filter((l) => {
-      const t = l.trim();
-      // keep actual table rows
-      if (!t.startsWith("|")) return false;
-      // drop any "all dashes" separator rows (handles any number of columns)
-      // matches: | --- | ---- | --- |    (with optional spaces)
-      if (/^\|\s*-+(\s*\|\s*-+)*\s*\|?$/.test(t)) return false;
-      return true;
+    const dataRows = rows.length > 1 ? rows.slice(1) : [];
+    dataRows.forEach((row, i) => {
+      const cols = row.split("|").map((c) => c.trim());
+      // | Rank | Supplement | Why it Matters |
+      const rawName = cols[2] || `Item ${i + 1}`;
+      const cleaned = cleanName(rawName);
+      if (!cleaned || SEE_DN.test(cleaned)) return;
+
+      const canonical = normalizeSupplementName(cleaned);
+      const rationale = cols[3] ? String(cols[3]).trim() : null;
+
+      base[canonical.toLowerCase()] = {
+        name: canonical,
+        rationale,
+        dose: null,
+        timing: null,
+        timing_text: null,
+        is_current: false,
+      };
     });
+  }
 
-  // Expect the first retained row to be the header
-  const dataRows = rows.length > 1 ? rows.slice(1) : [];
-
-  dataRows.forEach((row, i) => {
-    // Split columns; safe even if there are extra pipes
-    const cols = row.split("|").map((c) => c.trim());
-
-    // column 2 is "Supplement" in your table spec: | Rank | Supplement | Why it Matters |
-    const nameRaw = (cols[2] || `Item ${i + 1}`).trim();
-
-    // Skip dashed/empty names
-    if (!nameRaw || /^-+$/.test(nameRaw)) return;
-
-    // Normalize the supplement to the canonical catalog/evidence key
-    const canonical = normalizeSupplementName(nameRaw);
-
-    // column 3 is "Why it Matters"
-    const rationale = cols[3] ? String(cols[3]).trim() : null;
-
-    base[canonical.toLowerCase()] = {
-      name: canonical,          // store canonical name for downstream systems
-      rationale,
-      dose: null,
-      timing: null,
-      timing_text: null,
-      is_current: false,
-    };
-  });
-}
-  
-// Skip junk/placeholder rows so they don't become items
-// Use only `name` to avoid undeclared identifiers in TS build.
-const nameText =
-  (typeof name !== "undefined" && name != null)
-    ? String(name).trim()
-    : "";
-
-if (/^\s*(see dosing notes|see dosing|see notes|-|—)\s*$/i.test(nameText)) {
-  return null; // or `continue` depending on your loop
-}
-
-  // 2) Current Stack (table -> mark is_current=true and copy dose/timing if present)
-  const current = md.match(/## Current Stack([\s\S]*?)(\n## |$)/i);
+  // ---------- 2) Current Stack ----------
+  const current = md.match(/##\s*Current Stack([\s\S]*?)(\n##\s+|$)/i);
   if (current) {
-    const rows = current[1].split("\n").filter((l) => l.trim().startsWith("|"));
-    // Expect: | Medication/Supplement | Purpose | Dosage | Timing |
+    const rows = current[1]
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((t) => t.startsWith("|"));
+    // Expect header, then data: | Medication/Supplement | Purpose | Dosage | Timing |
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
-      const name = cleanName(cols[1] || `Current Item ${i + 1}`);
-      if (!name) return;
+      const raw = cols[1] || `Current Item ${i + 1}`;
+      const cleaned = cleanName(raw);
+      if (!cleaned || SEE_DN.test(cleaned)) return;
+
+      const canonical = normalizeSupplementName(cleaned);
+      const key = canonical.toLowerCase();
       const purpose = cols[2] || null;
       const dose = cols[3] || null;
       const timingCell = cols[4] || null;
-
       const timingNorm = normalizeTiming(timingCell);
-      const key = name.toLowerCase();
 
       if (!base[key]) {
         base[key] = {
-          name,
+          name: canonical,
           rationale: purpose,
           dose,
           dose_parsed: parseDose(dose),
@@ -202,56 +171,53 @@ if (/^\s*(see dosing notes|see dosing|see notes|-|—)\s*$/i.test(nameText)) {
     });
   }
 
-  // 3) Dosing & Notes (bulleted list -> robust name+dose+timing_text)
-  const dosing = md.match(/## Dosing & Notes([\s\S]*?)(\n## |\n## END|$)/i);
-  if (dosing) {
-    const lines = dosing[1].split("\n").filter((l) => l.trim().length > 0);
+  // ---------- 3) Dosing & Notes ----------
+  const dosing = md.match(/##\s*Dosing\s*&\s*Notes([\s\S]*?)(\n##\s+|\n##\s*END|$)/i);
+  const dosingBlock = dosing ? dosing[1] : "";
+  if (dosingBlock) {
+    const lines = dosingBlock
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
 
     for (const raw of lines) {
-      // Strip "- " or "* "
+      // Only bullet lines; ignore stray text
+      if (!/^\s*[-*]\s+/.test(raw)) continue;
+
       const line = raw.replace(/^\s*[-*]\s*/, "");
-      // Split only on the FIRST ":" or "—" to keep hyphenated names intact
-      const parts = line.split(/[:—]/);
+      // Split only on the FIRST ":" or "—"
+      const parts = line.split(/[:—-]/);
       if (!parts || parts.length < 2) continue;
 
       const nameRaw = parts.shift()!.trim();
-      const rest = parts.join(":").trim(); // keep any internal ":" after the first
+      const remainder = parts.join(":").trim();
 
-      const name = cleanName(nameRaw);
-      if (!name) continue;
-      
-const whenGuess = inferTimeOfDayFromText(`${timing ?? ""} ${notes ?? ""}`);
-if (whenGuess) {
-  item.time_of_day = whenGuess; // "am" | "pm" | "am_pm"
-}
+      const cleaned = cleanName(nameRaw);
+      if (!cleaned || SEE_DN.test(cleaned)) continue;
 
-      // Dose candidate: the first sentence-ish chunk
-      const firstSentence = rest.split(/[.!?]/)[0]?.trim() || rest;
+      const canonical = normalizeSupplementName(cleaned);
+      const firstSentence = (remainder.split(/[.!?]/)[0] || remainder).trim();
       const doseCandidate = firstSentence.replace(/\s+/g, " ").replace(/^[–—-]\s*/, "").trim();
 
-      // Timing candidate: anything after the first sentence OR timing-like words inside the dose
-      const remainderAfterDose = rest.slice(firstSentence.length).trim();
-      const timingCandidate = remainderAfterDose
-        ? remainderAfterDose
-        : /(?:\bAM\b|\bPM\b|morning|evening|night|bedtime|with (?:meal|meals|food)|twice|2x|BID|split|AM\/PM)/i.test(
-            doseCandidate
-          )
-        ? doseCandidate
-        : null;
+      const remainderAfterDose = remainder.slice(firstSentence.length).trim();
+      const hasTimingWords = /(?:\bAM\b|\bPM\b|morning|evening|night|bedtime|with (?:meal|meals|food)|twice|2x|BID|split|AM\/PM)/i.test(
+        doseCandidate
+      );
+      const timingCandidate = remainderAfterDose ? remainderAfterDose : hasTimingWords ? doseCandidate : null;
 
       const dose = doseCandidate || null;
       const timing_text = timingCandidate || null;
       const timingNorm = normalizeTiming(timing_text);
-      const key = name.toLowerCase();
+      const key = canonical.toLowerCase();
 
       if (base[key]) {
-        base[key].dose = dose;
-        base[key].dose_parsed = parseDose(dose);
-        base[key].timing = timingNorm;
-        base[key].timing_text = timing_text;
+        base[key].dose = base[key].dose ?? dose;
+        base[key].dose_parsed = base[key].dose_parsed ?? parseDose(dose);
+        base[key].timing = base[key].timing ?? timingNorm;
+        base[key].timing_text = base[key].timing_text ?? timing_text;
       } else {
         base[key] = {
-          name,
+          name: canonical,
           rationale: null,
           dose,
           dose_parsed: parseDose(dose),
@@ -263,7 +229,7 @@ if (whenGuess) {
     }
   }
 
-  // Finalize / clean
+  // ---------- 4) Finalize / clean ----------
   const seen = new Set<string>();
   const items: ParsedItem[] = Object.values(base)
     .filter((it: any) => {
@@ -271,19 +237,29 @@ if (whenGuess) {
       const key = String(it.name).trim().toLowerCase();
       if (!key || seen.has(key)) return false;
       if (it.name.length > 80) return false;
-      if (/^analysis$/i.test(it.name.trim())) return false;
+      if (/^analysis$/i.test(String(it.name).trim())) return false;
       seen.add(key);
       return true;
     })
     .map((it: any) => {
-      const timing_bucket = classifyTimingBucket(it.timing_text ?? it.timing ?? null);
+      // Timing bucket from the best available signal
+      let bucket = classifyTimingBucket(it.timing_text ?? it.timing ?? null);
+      if (!bucket && dosingBlock) {
+        const guess = inferTimingFromNotesLine(it.name, dosingBlock);
+        bucket = guess ?? null;
+      }
+      // If “See Dosing Notes” appears inside dose, default to Anytime bucket
+      if (!it.timing && !it.timing_text && typeof it.dose === "string" && /see dosing/i.test(it.dose)) {
+        bucket = "Anytime";
+      }
+
       return {
         name: it.name,
         rationale: it.rationale ?? null,
         dose: it.dose ?? null,
         timing: it.timing ?? null,
         timing_text: it.timing_text ?? null,
-        timing_bucket,
+        timing_bucket: bucket ?? null,
         is_current: Boolean(it.is_current ?? false),
         caution: it.caution ?? null,
         notes: it.notes ?? null,
@@ -296,27 +272,7 @@ if (whenGuess) {
       } as ParsedItem;
     });
 
-  // If the model used "See Dosing & Notes" in tables, ensure timing falls back to AM for sidebar utility
-  for (const i of items) {
-    if (!i.timing && !i.timing_text && i.dose && i.dose.includes(seeDN)) {
-      i.timing = null;
-      i.timing_text = null;
-      i.timing_bucket = "Anytime";
-    }
-  }
-
   return items;
 }
-function backfillTimingFromNotes(items: any[], markdown: string) {
-  const section = (markdown || "").split(/^#+\s*Dosing\s*&\s*Notes\b/im)[1] || markdown;
-  for (const it of items) {
-    if (it.time_of_day) continue;
-    const pat = new RegExp(`\\b${(it.name || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b[^\\n]*`, "i");
-    const line = (section.match(pat) || [])[0] || "";
-    const guess = inferTimeOfDayFromText(line);
-    if (guess) it.time_of_day = guess;
-  }
-}
-backfillTimingFromNotes(items, markdown);
 
 export default parseMarkdownToItems;
