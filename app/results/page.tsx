@@ -234,7 +234,7 @@ function Stepper({
  function TwoMinuteCountdown({
   running,
   onDone,
-  seconds = 180,
+  seconds = 120,
 }: {
   running: boolean;
   onDone?: () => void;
@@ -318,13 +318,14 @@ const res = await fetchWithRetry(path, init, isGenerate ? 1 : 3, 500, isGenerate
   let json: any = {};
   try { json = await res.json(); } catch {}
 
-  if (!res.ok || json?.ok === false) {
-const msg = json?.error
-  ? String(json.error)
-  : (res.status !== 200 ? `HTTP ${res.status}` : "The robots are still working, standby captain.");
-  }
-  return json;
+if (!res.ok || json?.ok === false) {
+  const msg = json?.error
+    ? String(json.error)
+    : (res.status !== 200 ? `HTTP ${res.status}` : "Temporary issue, please retry.");
+  throw new Error(msg);
 }
+return json;
+
 
 
     // Load any existing stack
@@ -439,19 +440,23 @@ async function generateStack() {
 
 
 
-  async function exportPDF() {
-    if (!tallyId) return;
-    try {
-      const res = await fetch(`/api/export-pdf?submission_id=${encodeURIComponent(tallyId)}`);
-      if (!res.ok) throw new Error(`PDF export failed (${res.status})`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank");
-      setTimeout(() => URL.revokeObjectURL(url), 5_000);
-    } catch (e: any) {
-      setError(e.message ?? "PDF export failed");
-    }
+async function exportPDF() {
+  try {
+    const qp = tallyId
+      ? `tally_submission_id=${encodeURIComponent(tallyId)}`
+      : (submissionId ? `submission_id=${encodeURIComponent(submissionId)}` : "");
+    if (!qp) throw new Error("Missing submission ID.");
+    const res = await fetch(`/api/export-pdf?${qp}`);
+    if (!res.ok) throw new Error(`PDF export failed (${res.status})`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 5_000);
+  } catch (e: any) {
+    setError(e.message ?? "PDF export failed");
   }
+}
+
 
   const sec = useMemo(() => {
     const md = markdown ?? "";
