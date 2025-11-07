@@ -155,9 +155,18 @@ if (rec) {
 }
   
 // Skip junk/placeholder rows so they don't become items
-if (/^\s*(see dosing notes|see dosing|see notes|-|—)\s*$/i.test(nameRaw || "")) {
+// Derive a name string safely, regardless of upstream variable names.
+const nameText =
+  (typeof name !== "undefined" && name != null)
+    ? String(name).trim()
+    : ((typeof cells !== "undefined" && Array.isArray(cells) && cells[0] != null)
+        ? String(cells[0]).trim()
+        : "");
+
+if (/^\s*(see dosing notes|see dosing|see notes|-|—)\s*$/i.test(nameText)) {
   return null; // or `continue` depending on your loop
 }
+
 
   // 2) Current Stack (table -> mark is_current=true and copy dose/timing if present)
   const current = md.match(/## Current Stack([\s\S]*?)(\n## |$)/i);
