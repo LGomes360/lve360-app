@@ -30,9 +30,9 @@ function extractSection(md: string, heads: string[]): string | null {
     if (m && (start === -1 || (m.index ?? -1) < start)) start = m.index;
   }
   if (start === -1) return null;
-  const tail = md.slice(start + 1);
+  const tail = md.slice(start);
   const next = /\n##\s+/m.exec(tail);
-  const end = next ? start + 1 + next.index : md.length;
+  const end = next ? start + next.index : md.length;
   const slice = md.slice(start, end);
   return slice.replace(/^##\s*[^\n]+\n?/, "").trim();
 }
@@ -326,7 +326,7 @@ if (!res.ok || json?.ok === false) {
 }
 return json;
 
-
+}
 
     // Load any existing stack
     useEffect(() => {
@@ -658,3 +658,4 @@ export default function ResultsPageWrapper() {
     </Suspense>
   );
 }
+
