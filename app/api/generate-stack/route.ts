@@ -342,29 +342,36 @@ try {
     { status: 200 }
   );
 }
-// pseudo inside your POST/GET handler after generateStackForSubmission(...)
+// Validation is advisory (do NOT fail the request if generator succeeded)
 const val = result?.raw?.validation ?? {};
-const ok =
+const validation_ok =
   Boolean(val.headingsValid) &&
   Boolean(val.blueprintValid) &&
   Boolean(val.citationsValid);
 
-return NextResponse.json(
-  { ok, stack: { id: result?.raw?.stack_id, sections: { markdown: result.markdown } } },
-  { status: ok ? 200 : 200 } // still 200, but ok=false lets client show error
-);
-
-
 // Count items actually written (best-effort)
 const stackIdRaw = result?.raw?.stack_id;
-const stackIdStr = typeof stackIdRaw === "string" && stackIdRaw.length > 0 ? stackIdRaw : undefined;
+const stackIdStr =
+  typeof stackIdRaw === "string" && stackIdRaw.length > 0 ? stackIdRaw : undefined;
 
 let itemsInserted = 0;
 if (stackIdStr) {
   itemsInserted = await countItemsForStack(stackIdStr);
 }
 
-
+return NextResponse.json(
+  {
+    ok: true, // generation succeeded
+    validation_ok,
+    validation: val, // optional: helps debugging
+    mode,
+    user_tier: tier,
+    stack: result,
+    itemsInserted,
+    ai: { markdown: result?.markdown ?? null, raw: result?.raw ?? null },
+  },
+  { status: 200 }
+);
 
     return NextResponse.json(
       {
