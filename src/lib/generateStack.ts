@@ -1039,15 +1039,62 @@ export async function generateStackForSubmission(arg: string | { submissionId: s
 
   const user_id = extractUserId(sub);
   const userEmail = (sub as any)?.user?.email ?? (sub as any)?.user_email ?? (sub as any)?.email ?? null;
+  
+function extractFromAnswers(sub: any) {
+  // answers can be: array of fields OR already-normalized object
+  const answers = sub?.engine_input_json ?? sub?.answers ?? [];
 
+  // If it’s already an object with keys, return it
+  if (answers && typeof answers === "object" && !Array.isArray(answers)) return answers;
+
+  // If it’s an array of { key, value, label, ... } (Tally fields), build a map
+  const map: Record<string, any> = {};
+  for (const f of answers ?? []) {
+    const key = f?.key ?? f?.field?.key ?? f?.field?.id;
+    if (!key) continue;
+    map[String(key)] = f?.value ?? f?.text ?? f?.answer ?? null;
+    if (f?.label) map[`label::${String(f.label).toLowerCase()}`] = map[String(key)];
+    if (f?.field?.label) map[`label::${String(f.field.label).toLowerCase()}`] = map[String(key)];
+  }
+  return map;
+}
+
+function getAnswer(map: Record<string, any>, key: string, labelCandidates: string[] = []) {
+  if (key && map[key] != null) return map[key];
+  for (const l of labelCandidates) {
+    const v = map[`label::${l.toLowerCase()}`];
+    if (v != null) return v;
+  }
+  return null;
+}
+
+function toList(v: any): string[] {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.map(String).map(s => s.trim()).filter(Boolean);
+  return String(v)
+    .split(/,|\n|;|\|/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
   // ---------- STAGED LLM PASSES ----------
-  const compactClient = summarizeForLLM(sub);
+  const ans = extractFromAnswers(sub);
+
+// Pull the “real” intake from answers first; fall back to columns second
+const goalsRaw = getAnswer(ans, "question_o2lQ0N", ["what are your top health goals"]) ?? sub?.goals;
+const conditionsRaw = getAnswer(ans, "question_7K5Yj6", ["do you have any current health conditions"]) ?? sub?.conditions;
+
+const compactClient = summarizeForLLM({
+  ...sub,
+  goals: toList(goalsRaw),
+  conditions: toList(conditionsRaw),
+});
   const fullClient = { ...sub, age: age((sub as any).dob ?? null), today: TODAY };
 
   let modelUsed: string = "unknown";
   let promptTokens: number | null = null;
   let completionTokens: number | null = null;
-
+  
+console.info("[gen.intake.compactClient]", compactClient);
 
 // PASS A: Blueprint Table (mini first)
 console.info("[gen.passA:start]", { candidates: candidateModels("mini") });
