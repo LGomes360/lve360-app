@@ -19,12 +19,19 @@ const REPLAY_TTL_SECONDS = 10 * 60; // 10 minutes window
 // ---------- Utilities ----------
 function cleanSingle(val: any): string | undefined {
   if (val == null) return undefined;
+
   if (Array.isArray(val)) return val.length ? cleanSingle(val[0]) : undefined;
-  if (typeof val === "object" && "value" in val) return cleanSingle(val.value);
-  if (typeof val === "object" && "id" in val) return cleanSingle(val.id);
-  if (typeof val === "object" && Object.keys(val).length === 1 && "label" in val)
-    return cleanSingle(val.label);
-  if (typeof val === "object") return undefined;
+
+  if (typeof val === "object") {
+    // Prefer human label first
+    if ("label" in val && val.label != null && String(val.label).trim() !== "") {
+      return cleanSingle((val as any).label);
+    }
+    if ("value" in val) return cleanSingle((val as any).value);
+    if ("id" in val) return cleanSingle((val as any).id);
+    return undefined;
+  }
+
   if (typeof val === "boolean") return val ? "yes" : "no";
   return String(val);
 }
