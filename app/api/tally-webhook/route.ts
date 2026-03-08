@@ -64,7 +64,8 @@ function answersToMap(answers: any[]): Record<string, unknown> {
   const map: Record<string, unknown> = {};
   for (const a of answers ?? []) {
     const label = a?.field?.label ? String(a.field.label).toLowerCase() : undefined;
-    const key = a?.field?.id ?? a?.field?.key;
+    const key = a?.field?.key ?? a?.field?.id;
+    const id  = a?.field?.id;
     let val =
       a?.text ?? a?.email ?? a?.choice?.label ?? a?.choices?.labels ?? a?.value ?? a;
     if (Array.isArray(val)) {
@@ -75,6 +76,7 @@ function answersToMap(answers: any[]): Record<string, unknown> {
         .filter(Boolean);
     }
     if (key) map[key] = val;
+    if (id) map[id] = val;
     if (label) map[`label::${label}`] = val;
   }
   return map;
@@ -184,7 +186,7 @@ export async function POST(req: NextRequest) {
       sex: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.sex, ["sex"])),
       gender: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.gender, ["gender"])),
       pregnant: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.pregnant, ["pregnant"])),
-      goals: cleanArray(parseList(getByKeyOrLabel(src, TALLY_KEYS.goals, ["goals"]))),
+      goals: cleanArray(parseList(getByKeyOrLabel(src, TALLY_KEYS.goals, [   "goals",   "what are your top health goals", ]))),
       skip_meals: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.skip_meals, ["skip meals"])),
       energy_rating: cleanSingle(
         getByKeyOrLabel(src, TALLY_KEYS.energy_rating, ["energy rating"])
@@ -203,12 +205,15 @@ export async function POST(req: NextRequest) {
           ? cleanArray(parseList(details))
           : [];
       })(),
-      conditions: cleanArray(
-        parseList(getByKeyOrLabel(src, TALLY_KEYS.conditions, ["conditions"]))
-      ),
-      medications: cleanArray(
-        parseList(getByKeyOrLabel(src, TALLY_KEYS.medications, ["medications"]))
-      ),
+      conditions: cleanArray(parseList(getByKeyOrLabel(src, TALLY_KEYS.conditions, [
+        "conditions",
+        "do you have any current health conditions",
+      ]))),
+      medications: cleanArray(parseList(getByKeyOrLabel(src, TALLY_KEYS.medications, [
+        "medications",
+        "list medication",
+        "do you take any medications",
+      ]))),
       supplements: parseSupplements(
         getByKeyOrLabel(src, TALLY_KEYS.supplements, ["supplements"])
       ),
