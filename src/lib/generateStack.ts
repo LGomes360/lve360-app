@@ -1569,7 +1569,7 @@ const safetyInput = {
     catch (e) { console.warn("enrichAffiliateLinks failed; skipping enrichment.", e); return normalizedForLinks; }
   })();
 
-  const finalStack: StackItem[] = applyLinkPolicy(enriched, baseClient, mode);(compactForPassC(baseClient)
+  const finalStack: StackItem[] = applyLinkPolicy(enriched, baseClient, mode);
   const withEvidence: StackItem[] = asArray(finalStack).map(attachEvidence);
 
   // Evidence override
