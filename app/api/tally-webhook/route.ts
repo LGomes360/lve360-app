@@ -272,18 +272,40 @@ export async function POST(req: NextRequest) {
         }
       }
     }
-
+const joinList = (v: any): string | null => {
+  if (v == null) return null;
+  if (Array.isArray(v)) {
+    const cleaned = v.map(x => String(x).trim()).filter(Boolean);
+    return cleaned.length ? cleaned.join("; ") : null;
+  }
+  const s = String(v).trim();
+  return s ? s : null;
+};
     // Build submission row
-    const { user_email, ...restData } = data;
-    const submissionRow = {
-      user_id: userId ?? null,
-      user_email: user_email ? normalizeEmail(user_email) : null,
-      tally_submission_id,
-      ...restData,
-      payload_json: body,
-      answers: body?.data?.fields ?? body?.form_response?.answers ?? [],
-      updated_at: new Date().toISOString(),
-    };
+const submissionRow = {
+  user_id: userId ?? null,
+  user_email: user_email ? normalizeEmail(user_email) : null,
+  tally_submission_id,
+
+  // --- TEXT columns (store readable strings) ---
+  goals: joinList(data.goals),
+  conditions: joinList(data.conditions),
+  medications: joinList(data.medications),
+  supplements: joinList(data.supplements),
+  hormones: joinList(data.hormones),
+
+  // --- already scalar text fields ---
+  name: data.name ?? null,
+  sex: data.sex ?? null,
+  dosing_pref: data.dosing_pref ?? null,
+  brand_pref: data.brand_pref ?? null,
+  // ... keep the rest as you currently do ...
+
+  payload_json: body,
+  answers: body?.data?.fields ?? body?.form_response?.answers ?? [],
+  engine_input_json: data, // OPTIONAL: keep normalized object here (recommended)
+  updated_at: new Date().toISOString(),
+};
 
     // Idempotent UPSERT on tally_submission_id
     const { data: subRow, error: subErr } = await supa
