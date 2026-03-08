@@ -1039,8 +1039,10 @@ export async function generateStackForSubmission(arg: string | { submissionId: s
 
   const user_id = extractUserId(sub);
   const userEmail = (sub as any)?.user?.email ?? (sub as any)?.user_email ?? (sub as any)?.email ?? null;
-  
-function extractFromAnswers(sub: any) {
+  let modelUsed: string = "unknown";
+  let promptTokens: number | null = null;
+  let completionTokens: number | null = null;
+  function extractFromAnswers(sub: any) {
   // answers can be: array of fields OR already-normalized object
   const answers = sub?.engine_input_json ?? sub?.answers ?? [];
 
@@ -1363,7 +1365,7 @@ let resC = await callChatWithRetry(
   "main", // we’ll ask for main and pass a GPT-5 model name explicitly
   [
     { role: "system", content: systemPromptC_Strict() },
-    { role: "user", content: remainingSectionsPrompt(compactForPassC(sub), tableMd, dosingMd) },
+    { role: "user", content: remainingSectionsPrompt(compactForPassC(baseClient), tableMd, dosingMd) },
   ],
   { maxTokens: 2000, timeoutMs: 120_000 } // a bit more room for 9 narrative sections
 );
@@ -1534,15 +1536,24 @@ let md = [
 
   type SafetyStatus = "safe" | "warning" | "error";
   interface SafetyOutput { cleaned: StackItem[]; status: SafetyStatus }
-  const safetyInput = {
-    medications: Array.isArray((sub as any).medications) ? (sub as any).medications.map((m: any) => m.med_name || m.name || m) : [],
-    conditions: Array.isArray((sub as any).conditions) ? (sub as any).conditions.map((c: any) => c.condition_name || c.name || c) : [],
-    allergies: Array.isArray((sub as any).allergies) ? (sub as any).allergies.map((a: any) => a.allergy_name || a.name || a) : [],
-    pregnant: typeof (sub as any).pregnant === "boolean" || typeof (sub as any).pregnant === "string" ? (sub as any).pregnant : null,
-    brand_pref: (sub as any)?.preferences?.brand_pref ?? null,
-    dosing_pref: (sub as any)?.preferences?.dosing_pref ?? null,
-    is_premium: mode === "premium",
-  };
+const safetyInput = {
+  medications: Array.isArray((baseClient as any).medications)
+    ? (baseClient as any).medications.map((m: any) => m?.med_name || m?.name || m)
+    : [],
+  conditions: Array.isArray((baseClient as any).conditions)
+    ? (baseClient as any).conditions.map((c: any) => c?.condition_name || c?.name || c)
+    : [],
+  allergies: Array.isArray((baseClient as any).allergies)
+    ? (baseClient as any).allergies.map((a: any) => a?.allergy_name || a?.name || a)
+    : [],
+  pregnant:
+    typeof (baseClient as any).pregnant === "boolean" || typeof (baseClient as any).pregnant === "string"
+      ? (baseClient as any).pregnant
+      : null,
+  brand_pref: (baseClient as any)?.preferences?.brand_pref ?? (baseClient as any)?.brand_pref ?? null,
+  dosing_pref: (baseClient as any)?.preferences?.dosing_pref ?? (baseClient as any)?.dosing_pref ?? null,
+  is_premium: mode === "premium",
+};
 
   let safetyStatus: SafetyStatus = "warning";
   let cleanedItems: StackItem[] = filteredItems;
@@ -1558,7 +1569,7 @@ let md = [
     catch (e) { console.warn("enrichAffiliateLinks failed; skipping enrichment.", e); return normalizedForLinks; }
   })();
 
-  const finalStack: StackItem[] = applyLinkPolicy(enriched, sub, mode);
+  const finalStack: StackItem[] = applyLinkPolicy(enriched, baseClient, mode);(compactForPassC(baseClient)
   const withEvidence: StackItem[] = asArray(finalStack).map(attachEvidence);
 
   // Evidence override
