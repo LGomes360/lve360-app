@@ -282,9 +282,10 @@ const joinList = (v: any): string | null => {
   return s ? s : null;
 };
     // Build submission row
+    const userEmail = data.user_email ? normalizeEmail(data.user_email) : null;
 const submissionRow = {
   user_id: userId ?? null,
-  user_email: user_email ? normalizeEmail(user_email) : null,
+  user_email: userEmail,
   tally_submission_id,
 
   // --- TEXT columns (store readable strings) ---
@@ -408,7 +409,7 @@ const submissionRow = {
 
     const submissionId = subRow.id;
     const resultsUrl = `https://app.lve360.com/results?submissionId=${submissionId}&email=${encodeURIComponent(
-      data.user_email ?? ""
+      userEmail ?? ""
     )}`;
 
     // Fire-and-forget stack generation
