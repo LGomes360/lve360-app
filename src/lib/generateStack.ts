@@ -1080,22 +1080,40 @@ function toList(v: any): string[] {
   const ans = extractFromAnswers(sub);
 
 // Pull the “real” intake from answers first; fall back to columns second
-const goalsRaw = getAnswer(ans, "question_o2lQ0N", ["what are your top health goals"]) ?? sub?.goals;
-const conditionsRaw = getAnswer(ans, "question_7K5Yj6", ["do you have any current health conditions"]) ?? sub?.conditions;
+const goalsRaw =
+  getAnswer(ans, "question_o2lQ0N", ["what are your top health goals"]) ?? sub?.goals;
 
-const compactClient = summarizeForLLM({
+const conditionsRaw =
+  getAnswer(ans, "question_7K5Yj6", ["do you have any current health conditions"]) ??
+  sub?.conditions;
+
+const medicationsRaw =
+  getAnswer(ans, "question_Ex8YB2", ["medications", "list medication", "do you take any medications"]) ??
+  sub?.medications;
+
+const supplementsRaw =
+  getAnswer(ans, "question_kNO8DM", ["supplements"]) ?? sub?.supplements;
+
+const hormonesRaw =
+  getAnswer(ans, "question_ro2Myv", ["hormones"]) ?? sub?.hormones;
+
+// ONE source of truth for the rest of the file:
+const baseClient = {
   ...sub,
   goals: toList(goalsRaw),
   conditions: toList(conditionsRaw),
+  medications: toList(medicationsRaw),
+  supplements: toList(supplementsRaw),
+  hormones: toList(hormonesRaw),
+};
+
+const compactClient = summarizeForLLM(baseClient);
+const fullClient = { ...baseClient, age: age((baseClient as any).dob ?? null), today: TODAY };
+console.info("[gen.intake.check]", {
+  goals: (baseClient as any).goals,
+  conditions: (baseClient as any).conditions,
+  medications: (baseClient as any).medications,
 });
-  const fullClient = { ...sub, age: age((sub as any).dob ?? null), today: TODAY };
-
-  let modelUsed: string = "unknown";
-  let promptTokens: number | null = null;
-  let completionTokens: number | null = null;
-  
-console.info("[gen.intake.compactClient]", compactClient);
-
 // PASS A: Blueprint Table (mini first)
 console.info("[gen.passA:start]", { candidates: candidateModels("mini") });
 
