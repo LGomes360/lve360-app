@@ -8,17 +8,26 @@
 const required = [
   "NEXT_PUBLIC_SUPABASE_URL",
   "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  "NEXT_PUBLIC_APP_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
   "STRIPE_SECRET_KEY",
   "STRIPE_PRICE_PREMIUM",
+  "STRIPE_PRICE_ANNUAL",
+  "STRIPE_WEBHOOK_SECRET",
+  "OPENAI_API_KEY",
+  "TALLY_WEBHOOK_SECRET",
 ] as const;
 
 const optional = [
-  "STRIPE_PRICE_PRO",
-  "STRIPE_WEBHOOK_SECRET",
-  "RESEND_API_KEY",
+  "NEXT_PUBLIC_AMAZON_TAG",
   "NEXT_PUBLIC_SITE_URL",
-  "OPENAI_API_KEY",
+  "OPENAI_MAIN_MODEL",
+  "OPENAI_MINI_MODEL",
+  "OPENAI_MODEL",
+  "STRIPE_PRICE_PRO",
+  "RESEND_API_KEY",
+  "FULLSCRIPT_BASE_URL",
+  "FULLSCRIPT_API_KEY",
 ] as const;
 
 function isProductionRuntime() {
@@ -62,6 +71,6 @@ export function assertEnv() {
   }
 
   if (missingOptional.length) {
-    console.warn(`⚠️ Missing optional env vars: ${missingOptional.join(", ")} (may be required in production)`);
+    console.warn(`⚠️ Missing optional env vars: ${missingOptional.join(", ")} (may be required for optional integrations)`);
   }
 }
