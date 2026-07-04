@@ -5,7 +5,11 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "qa:env": "node scripts/check-env.mjs",
+    "qa:build": "npm run typecheck && npm run build",
+    "qa:all": "npm run qa:env && npm run qa:build"
   },
   "dependencies": {
     "@radix-ui/react-slider": "^1.3.6",
