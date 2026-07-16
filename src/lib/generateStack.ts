@@ -251,6 +251,63 @@ function sectionChunk(md: string, header: string) {
   return m ? m[1] : "";
 }
 
+const CANONICAL_REPORT_HEADINGS = HEADINGS.slice(0, -1);
+
+function blueprintNames(blueprintTable: string): string[] {
+  return Array.from(blueprintTable.matchAll(/\|\s*\d+\s*\|\s*([^|]+)\|/g))
+    .map((match) => cleanName(match[1] || ""))
+    .filter((name) => name && !/^TBD$/i.test(name));
+}
+
+function alignedDosingBody(blueprintTable: string, passB: string): string {
+  const body = sectionChunk(passB, "## Dosing & Notes").trim();
+  const lowerBody = body.toLowerCase();
+  const missing = blueprintNames(blueprintTable).filter(
+    (name) => !lowerBody.includes(name.toLowerCase())
+  );
+  if (!missing.length) return body;
+
+  const coverage = missing
+    .map(
+      (name) =>
+        `- **${name}** — Clinician review is recommended before use; a specific dose or timing is not provided.`
+    )
+    .join("\n");
+  const analysisIndex = body.search(/^\*\*Analysis\*\*/im);
+  if (analysisIndex >= 0) {
+    return `${body.slice(0, analysisIndex).trim()}\n${coverage}\n\n${body.slice(analysisIndex).trim()}`;
+  }
+  return `${body}\n${coverage}\n\n**Analysis**\n\nThese notes cover every Blueprint recommendation. Specific dosing should be reviewed with a clinician when it cannot be provided safely from the intake alone.`.trim();
+}
+
+function assembleCanonicalReport(restMd: string, blueprintTable: string, passB: string): string {
+  const sources: Record<string, string> = {
+    "## Contraindications & Med Interactions": passB,
+    "## Your Blueprint Recommendations": `## Your Blueprint Recommendations\n\n${blueprintTable}`,
+    "## Dosing & Notes": `## Dosing & Notes\n\n${alignedDosingBody(blueprintTable, passB)}`,
+  };
+
+  return CANONICAL_REPORT_HEADINGS.map((heading) => {
+    if (heading === "## Your Blueprint Recommendations" || heading === "## Dosing & Notes") {
+      return sources[heading];
+    }
+    const body = sectionChunk(sources[heading] || restMd, heading).trim();
+    return `${heading}\n\n${body}`.trim();
+  })
+    .join("\n\n")
+    .replace(/(^|\n)##\s*END\s*(?=\n|$)/gi, "$1")
+    .trim();
+}
+
+function ensureReportDosingAlignment(md: string): string {
+  const blueprint = sectionChunk(md, "## Your Blueprint Recommendations");
+  const dosing = alignedDosingBody(blueprint, md);
+  return md.replace(
+    /## Dosing & Notes[\s\S]*?(?=\n## |$)/i,
+    `## Dosing & Notes\n\n${dosing}`
+  );
+}
+
 function padBlueprint(md: string, minRows: number) {
   const re = /## Your Blueprint Recommendations([\s\S]*?)(?=\n## |\n## END|$)/i;
   const m = md.match(re);
@@ -596,7 +653,7 @@ Rules:
 - Fix headings/levels/ordering only; keep the user-facing content.
 - Plain ASCII Markdown. No code fences.
 - Each section ends with an **Analysis** paragraph (≥3 sentences). If missing, summarize the existing content; do not invent clinical claims.
-- End with a line "## END".
+- Do not include an END marker.
 `.trim();
 }
 function compactForPassC(sub: any) {
@@ -850,7 +907,7 @@ Section rules:
 • Evidence & References → ≥8 markdown links (PubMed/PMC/DOI etc.), then Analysis.
 • Shopping Links → links + Analysis.
 • Follow-up Plan, Lifestyle Prescriptions, Longevity Levers, This Week Try → each ends with Analysis.
-Finish with a line \`## END\`.
+Do not include an END marker.
 `.trim();
 }
 function systemPromptC_Strict(): string {
@@ -872,7 +929,7 @@ Rules:
 - Each section ends with an **Analysis** paragraph (≥3 sentences).
 - Use the given Blueprint/Dosing for consistency (do not rewrite them).
 - Evidence must include ≥8 valid links (PubMed/PMC/DOI or trusted journals).
-- No code fences or preamble. Finish with a single line: ## END
+- No code fences, preamble, or END marker.
 `.trim();
 }
 
@@ -949,7 +1006,7 @@ Rules:
 - Keep language plain-English and encouraging (not clinical).
 - Each section must end with an **Analysis** paragraph of ≥3 sentences.
 - Evidence must include ≥8 valid links (PubMed/PMC/DOI and trusted journals).
-- End output with a line "## END".
+- Do not include an END marker.
 `;
 }
 
@@ -1500,21 +1557,14 @@ if (resC?.usage?.prompt_tokens) promptTokens = (promptTokens ?? 0) + (resC.usage
 if (resC?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) + (resC.usage.completion_tokens ?? 0);
 modelUsed = resC?.modelUsed ?? modelUsed;
 
-  // ---------- Stitch full Markdown ----------
-let md = [
-  restMd.includes("## Intro Summary") ? "" : "## Intro Summary\n",
-  restMd,
-  "\n\n## Your Blueprint Recommendations\n",
-  tableMd, // <- already sanitized to just the table
-  "\n\n",
-  dosingMd,
-].join("\n").trim();
+  // ---------- Stitch full Markdown in canonical user-facing order ----------
+let md = assembleCanonicalReport(restMd, tableMd, dosingMd);
 
 
-  // Sanity: enforce headings / pad blueprint / end marker
+  // Sanity: enforce headings and pad the Blueprint without exposing END.
   md = forceHeadings(md);
-  md = ensureEnd(md);
   md = hardenBlueprintSection(md, computeValidationTargets(mode, cap).minRows);
+  md = ensureReportDosingAlignment(md);
 
   // ---------- Parse items / safety / enrichment ----------
   const TIMING_ARTIFACT_RE = /^(on\s+waking|am\b.*breakfast|evening\b.*dinner|before\s+bed|pre[- ]?exercise(?:.*)?|hold\/adjust|simplify\s+sleep\s+aids)$/i;
@@ -1589,7 +1639,7 @@ const safetyInput = {
     blueprintValid: blueprintOK(md, targets.minRows),
     citationsValid: citationsOK(md),
     narrativesValid: narrativesOK(md, targets.minSent),
-    endValid: /\n## END\s*$/.test(md),
+    endValid: !/(^|\n)##\s*END\s*(?=\n|$)/i.test(md),
   };
   console.info("validation.targets", targets);
   console.info("validation.debug", { ...ok, actualWordCount: wc(md) });

@@ -6,7 +6,7 @@ import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 export const dynamic = "force-dynamic";
 
 // Only allow safe next values to avoid open redirects
-const ALLOW_NEXT = new Set<string>([
+const ALLOW_NEXT_PATHS = new Set<string>([
   "/dashboard",
   "/results",
   "/account",
@@ -14,6 +14,17 @@ const ALLOW_NEXT = new Set<string>([
   "/premium",
   "/onboarding",
 ]);
+
+function safeNext(raw: string): string {
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/dashboard";
+  const target = new URL(raw, "https://app.lve360.com");
+  if (!ALLOW_NEXT_PATHS.has(target.pathname)) return "/dashboard";
+  if (target.pathname !== "/upgrade") return target.pathname;
+  const plan = target.searchParams.get("plan");
+  return plan === "monthly" || plan === "annual"
+    ? `/upgrade?plan=${plan}`
+    : "/upgrade";
+}
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -47,6 +58,6 @@ if (user) {
 }
 
   // All good → redirect to a safe next page
-  const dest = ALLOW_NEXT.has(next) ? next : "/dashboard";
+  const dest = safeNext(next);
   return NextResponse.redirect(new URL(dest, url.origin));
 }
