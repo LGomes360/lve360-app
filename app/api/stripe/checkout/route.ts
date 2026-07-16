@@ -13,11 +13,11 @@ export async function POST(req: NextRequest) {
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     const priceMonthly = process.env.STRIPE_PRICE_PREMIUM;
     const priceAnnual = process.env.STRIPE_PRICE_ANNUAL;
-    const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "");
 
-    if (!stripeKey || !priceMonthly || !priceAnnual) {
+    if (!stripeKey || !priceMonthly || !priceAnnual || !appUrl) {
       return NextResponse.json(
-        { error: "Missing Stripe envs (STRIPE_SECRET_KEY, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_ANNUAL)" },
+        { error: "Missing required Stripe checkout configuration" },
         { status: 500 }
       );
     }
@@ -53,8 +53,9 @@ export async function POST(req: NextRequest) {
       customer_email: user.email.toLowerCase(),
       client_reference_id: user.id,                 // ← helps correlate
       metadata: { plan, user_id: user.id },         // ← used by /confirm
-      success_url: `${APP_URL}/upgrade/success?session_id={CHECKOUT_SESSION_ID}&just=1`,
-      cancel_url: `${APP_URL}/upgrade?canceled=1`,
+      subscription_data: { metadata: { plan, user_id: user.id } },
+      success_url: `${appUrl}/upgrade/success?session_id={CHECKOUT_SESSION_ID}&just=1`,
+      cancel_url: `${appUrl}/upgrade?canceled=1`,
       allow_promotion_codes: true,
     });
 

@@ -420,13 +420,14 @@ const submissionRow = {
 
 
     const submissionId = subRow.id;
-    const resultsUrl = `https://app.lve360.com/results?submissionId=${submissionId}&email=${encodeURIComponent(
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://app.lve360.com").replace(/\/+$/, "");
+    const resultsUrl = `${appUrl}/results?submission_id=${submissionId}&email=${encodeURIComponent(
       userEmail ?? ""
     )}`;
 
     // Fire-and-forget stack generation
     try {
-      fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/generate-stack`, {
+      fetch(`${appUrl}/api/generate-stack`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ submission_id: submissionId }),

@@ -34,8 +34,6 @@ export default function AccountPage() {
     try {
       const res = await fetch("/api/stripe/portal", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: user.email }),
       });
       const data = await res.json();
       if (data?.url) window.location.href = data.url;

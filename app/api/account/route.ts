@@ -10,7 +10,7 @@ export async function GET() {
   const { data } = await supabase
     .from("users")
     .select("email, tier, billing_interval, subscription_end_date")
-    .eq("email", user.email)
+    .eq("id", user.id)
     .maybeSingle();
 
   return NextResponse.json(data);
