@@ -293,6 +293,8 @@ function ResultsContent() {
   const [generating, setGenerating] = useState(false);
   const [ready, setReady] = useState(true);
   const [stackId, setStackId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const [flow, setFlow] = useState<"idle" | "warmup" | "generating" | "done" | "error">("idle");
 
   const searchParams = useSearchParams();
@@ -398,6 +400,9 @@ async function generateStack() {
       : { submission_id: anyId as string };
 
     const data = await api("/api/generate-stack", payload);
+    setStackId(
+      data?.stack?.id ?? data?.stack?.raw?.stack_id ?? data?.ai?.raw?.stack_id ?? null
+    );
 
     // Show something immediately if we have it
     const first =
@@ -419,7 +424,9 @@ async function generateStack() {
     // Try to capture a stack id (from the refetch)
     try {
       const latest = await api(`/api/get-stack?${qp}`);
-      setStackId(latest?.stack?.id ?? data?.stack?.id ?? null);
+      setStackId(
+        latest?.stack?.id ?? data?.stack?.id ?? data?.stack?.raw?.stack_id ?? data?.ai?.raw?.stack_id ?? null
+      );
     } catch {}
 
     // Success only if we actually have content
@@ -442,18 +449,18 @@ async function generateStack() {
 
 async function exportPDF() {
   try {
+    setPdfError(null);
+    setExporting(true);
+    if (!stackId || !hasUsableSections(markdown)) throw new Error("Generate the report before exporting a PDF.");
     const qp = tallyId
       ? `tally_submission_id=${encodeURIComponent(tallyId)}`
       : (submissionId ? `submission_id=${encodeURIComponent(submissionId)}` : "");
     if (!qp) throw new Error("Missing submission ID.");
-    const res = await fetch(`/api/export-pdf?${qp}`);
-    if (!res.ok) throw new Error(`PDF export failed (${res.status})`);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-    setTimeout(() => URL.revokeObjectURL(url), 5_000);
+    window.open(`/api/export-pdf?${qp}`, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => setExporting(false), 1500);
   } catch (e: any) {
-    setError(e.message ?? "PDF export failed");
+    setPdfError(e.message ?? "PDF export failed. Please try again.");
+    setExporting(false);
   }
 }
 
@@ -627,12 +634,14 @@ async function exportPDF() {
             <div className="flex justify-center mt-8">
               <button
                 onClick={exportPDF}
+                disabled={exporting || generating || warmingUp || !stackId || !hasUsableSections(markdown)}
                 aria-label="Export PDF"
-                className="w-10 h-10 flex items-center justify-center rounded-md border border-gray-300 bg-white shadow-sm hover:shadow-md transition"
+                className="min-w-24 h-10 px-3 flex items-center justify-center rounded-md border border-gray-300 bg-white shadow-sm hover:shadow-md transition disabled:cursor-not-allowed disabled:opacity-50"
               >
-                PDF
+                {exporting ? "Opening PDF..." : "Export PDF"}
               </button>
             </div>
+            {pdfError && <p className="mt-2 text-center text-sm text-red-600">{pdfError}</p>}
           </div>
 
           {/* RIGHT: sticky sidebar */}
@@ -641,7 +650,9 @@ async function exportPDF() {
               <ResultsSidebar stackId={stackId} />
             ) : (
               <div className="rounded-xl border p-4 text-sm text-gray-600">
-                Sidebar will appear after your stack loads.
+                {generating || warmingUp
+                  ? "Stack items will appear when generation finishes."
+                  : "Stack items are unavailable for this report. Generate or reload the report to try again."}
               </div>
             )}
           </div>

@@ -22,7 +22,7 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
 
-  // --- fetch merged current + blueprint (de-duped) ------------------------------
+  // Free results use the generated stack id; authenticated dashboard data stays on /combined.
   useEffect(() => {
     let cancelled = false;
     const ac = new AbortController();
@@ -32,11 +32,12 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
         setLoading(true);
         setError(null);
 
-        const r = await fetch("/api/stacks/combined", {
+        const r = await fetch(`/api/stack-items?stack_id=${encodeURIComponent(stackId)}`, {
           cache: "no-store",
           signal: ac.signal,
         });
         const j = await r.json();
+        if (!r.ok || j?.ok === false) throw new Error(j?.error || "Items request failed");
 
         if (!cancelled) {
           setItems(Array.isArray(j?.items) ? j.items : []);
@@ -44,7 +45,7 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
         }
       } catch {
         if (!cancelled) {
-          setError("Couldn’t load items.");
+          setError("Could not load stack items. Please refresh or try again.");
           setLoading(false);
         }
       }
@@ -54,7 +55,7 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
       cancelled = true;
       ac.abort();
     };
-  }, []); // merged endpoint; no stackId dependency
+  }, [stackId]);
 
   // --- counts for tabs ----------------------------------------------------------
   const counts = useMemo(() => {
@@ -94,7 +95,15 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
   }, [filtered]);
 
   // --- UI guards ----------------------------------------------------------------
-  if (loading || items.length === 0) return null;
+  if (loading) {
+    return <aside className="rounded-xl border p-4 text-sm text-zinc-600">Loading your stack items...</aside>;
+  }
+  if (error) {
+    return <aside className="rounded-xl border border-red-200 p-4 text-sm text-red-700">{error}</aside>;
+  }
+  if (items.length === 0) {
+    return <aside className="rounded-xl border p-4 text-sm text-zinc-600">No stack items are available for this report yet.</aside>;
+  }
 
   // affiliate helpers (unchanged)
   const amazonTag = process.env.NEXT_PUBLIC_AMAZON_TAG || "";
@@ -157,8 +166,6 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
   // --- render -------------------------------------------------------------------
   return (
     <aside className="sticky top-4 space-y-6">
-      {error && <div className="text-sm text-red-600">{error}</div>}
-
       {/* Filter toggle */}
       <div
         role="tablist"

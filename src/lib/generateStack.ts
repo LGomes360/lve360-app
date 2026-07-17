@@ -296,11 +296,13 @@ function currentStackEntries(client: any) {
   }));
 }
 
-function buildCurrentStackSection(client: any): string {
+function buildCurrentStackSection(client: any, referencedElsewhere = false): string {
   const entries = currentStackEntries(client);
   const body = entries.length
     ? `| Medication/Supplement/Hormone | Purpose/Notes | Dosage | Timing |\n| --- | --- | --- | --- |\n${entries.map((item) => `| ${item.name} | ${item.kind}: ${item.purpose} | ${item.dose} | ${item.timing} |`).join("\n")}`
-    : "No current medications, supplements, or hormones were reported in the intake.";
+    : referencedElsewhere
+      ? "Current-stack items are referenced elsewhere in this report, but structured intake details could not be recovered. Review the safety and dosing sections with a qualified clinician before making changes."
+      : "No current medications, supplements, or hormones were reported in the intake.";
   return `## Current Stack\n\n${body}\n\n**Analysis**\n\nThis section reflects the current medications, supplements, and hormones reported in the intake. Review it for accuracy and discuss changes or potential interactions with a qualified clinician.`;
 }
 
@@ -1250,44 +1252,108 @@ function toList(v: any): string[] {
     .map(s => s.trim())
     .filter(Boolean);
 }
+
+const UUID_VALUE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function readableAnswerMap(submission: any): Record<string, any> {
+  let payload = submission?.payload_json ?? {};
+  if (typeof payload === "string") {
+    try { payload = JSON.parse(payload); } catch { payload = {}; }
+  }
+  const fields = [
+    ...(Array.isArray(submission?.answers) ? submission.answers : []),
+    ...(Array.isArray(payload?.data?.fields) ? payload.data.fields : []),
+    ...(Array.isArray(payload?.form_response?.answers) ? payload.form_response.answers : []),
+  ];
+  const map: Record<string, any> = {};
+  for (const field of fields) {
+    const key = field?.key ?? field?.field?.key ?? field?.field?.id;
+    const label = field?.label ?? field?.field?.label;
+    const raw = field?.text ?? field?.email ?? field?.choice?.label ?? field?.choices?.labels ?? field?.value ?? field?.answer ?? null;
+    const options = field?.options ?? field?.field?.options ?? [];
+    const optionMap = new Map(
+      options.map((option: any) => [String(option?.id ?? option?.value), String(option?.text ?? option?.label ?? option?.value ?? "")])
+    );
+    const resolve = (value: any) => {
+      const scalar = value?.label ?? value?.text ?? value?.value ?? value;
+      return optionMap.get(String(scalar)) || scalar;
+    };
+    const value = Array.isArray(raw) ? raw.map(resolve) : resolve(raw);
+    if (key) map[String(key)] = value;
+    if (label) map[`label::${String(label).trim().toLowerCase()}`] = value;
+  }
+  return map;
+}
+
+function mergeReadableValues(...sources: any[]): any[] {
+  const seen = new Set<string>();
+  const merged: any[] = [];
+  for (const source of sources) {
+    for (const item of intakeItems(source)) {
+      const name = intakeItemName(item) ?? validItemName(item);
+      if (!name || UUID_VALUE_RE.test(name) || seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      merged.push(typeof item === "object" ? item : name);
+    }
+  }
+  return merged;
+}
   // ---------- STAGED LLM PASSES ----------
   const ans = extractFromAnswers(sub);
+const readableAns = readableAnswerMap(sub);
+const engineInput = (sub as any)?.engine_input_json ?? {};
 
 // Pull the “real” intake from answers first; fall back to columns second
-const goalsRaw =
-  getAnswer(ans, "question_o2lQ0N", ["what are your top health goals"]) ?? sub?.goals;
+const goalsRaw = mergeReadableValues(
+  engineInput?.goals, (sub as any)?.goals,
+  getAnswer(readableAns, "question_o2lQ0N", ["what are your top health goals"]),
+  getAnswer(ans, "question_o2lQ0N", ["what are your top health goals"])
+);
 
-const conditionsRaw =
-  getAnswer(ans, "question_7K5Yj6", ["do you have any current health conditions"]) ??
-  sub?.conditions;
+const conditionsRaw = mergeReadableValues(
+  engineInput?.conditions, (sub as any)?.conditions,
+  getAnswer(readableAns, "question_7K5Yj6", ["do you have any current health conditions"]),
+  getAnswer(ans, "question_7K5Yj6", ["do you have any current health conditions"])
+);
 
-const medicationsRaw =
-  getAnswer(ans, "question_Ex8YB2", ["medications", "list medication", "do you take any medications"]) ??
-  sub?.medications;
+const medicationsRaw = mergeReadableValues(
+  engineInput?.medications, engineInput?.meds, (sub as any)?.medications_text, (sub as any)?.medications,
+  getAnswer(readableAns, "question_Ex8YB2", ["medications", "list medication", "do you take any medications"]),
+  getAnswer(ans, "question_Ex8YB2", ["medications", "list medication", "do you take any medications"])
+);
 
-const supplementsRaw =
-  getAnswer(ans, "question_kNO8DM", ["supplements"]) ?? sub?.supplements;
+const supplementsRaw = mergeReadableValues(
+  engineInput?.current_supplements, engineInput?.supplements, (sub as any)?.supplements_text, (sub as any)?.supplements,
+  getAnswer(readableAns, "question_kNO8DM", ["supplements"]),
+  getAnswer(ans, "question_kNO8DM", ["supplements"])
+);
 
-const hormonesRaw =
-  getAnswer(ans, "question_ro2Myv", ["hormones"]) ?? sub?.hormones;
+const hormonesRaw = mergeReadableValues(
+  engineInput?.hormones, (sub as any)?.hormones_text, (sub as any)?.hormones,
+  getAnswer(readableAns, "question_ro2Myv", ["hormones"]),
+  getAnswer(ans, "question_ro2Myv", ["hormones"])
+);
 
 // ONE source of truth for the rest of the file:
 const baseClient = {
   ...sub,
-  goals: toList(goalsRaw),
-  conditions: toList(conditionsRaw),
-  medications: toList(medicationsRaw),
-  supplements: toList(supplementsRaw),
-  hormones: toList(hormonesRaw),
+  goals: goalsRaw,
+  conditions: conditionsRaw,
+  medications: medicationsRaw,
+  supplements: supplementsRaw,
+  hormones: hormonesRaw,
 };
 
 const compactClient = summarizeForLLM(baseClient);
 const fullClient = { ...baseClient, age: age((baseClient as any).dob ?? null), today: TODAY };
 const currentStackClient = { medications: medicationsRaw, supplements: supplementsRaw, hormones: hormonesRaw };
 console.info("[gen.intake.check]", {
-  goals: (baseClient as any).goals,
-  conditions: (baseClient as any).conditions,
-  medications: (baseClient as any).medications,
+  normalized_goals: (baseClient as any).goals,
+  normalized_conditions: (baseClient as any).conditions,
+  normalized_medications: (baseClient as any).medications,
+  normalized_supplements: (baseClient as any).supplements,
+  normalized_hormones: (baseClient as any).hormones,
+  currentStackEntries_count: currentStackEntries(currentStackClient).length,
 });
 // PASS A: Blueprint Table (mini first)
 console.info("[gen.passA:start]", { candidates: candidateModels("mini") });
@@ -1681,7 +1747,8 @@ modelUsed = resC?.modelUsed ?? modelUsed;
 
   // ---------- Stitch full Markdown in canonical user-facing order ----------
 const currentNames = currentStackEntries(currentStackClient).map((item) => item.name);
-restMd = replaceOrAppendSection(restMd, buildCurrentStackSection(currentStackClient));
+const currentItemsReferencedElsewhere = /\b(?:medication|supplement|hormone|metformin|zepbound|armour|testosterone|dhea|pregnenolone|glycine|creatine)\b/i.test(dosingMd);
+restMd = replaceOrAppendSection(restMd, buildCurrentStackSection(currentStackClient, currentItemsReferencedElsewhere));
 let md = assembleCanonicalReport(restMd, tableMd, dosingMd, currentNames);
 
 
