@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
     const excludedItems: string[] = [];
     const safeItems = (items ?? []).filter((item) => {
       const name = typeof item?.name === "string" ? item.name.trim() : "";
-      const currentKindExcluded = /^Current (?:medication|hormone) reported in intake\./i.test(String(item?.notes ?? ""));
+      const currentKindExcluded = /^Current (?:medication|hormone|hormone-active supplement) reported in intake\./i.test(String(item?.notes ?? ""));
       const allowed = Boolean(
         name &&
         isEligibleSupplementName(name) &&

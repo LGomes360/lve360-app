@@ -25,7 +25,8 @@ const PREFERENCE_VALUES = [
   "either (no preference)",
 ];
 
-const NON_SHOPPABLE_MEDICATION_OR_HORMONE_RE = /\b(?:metformin|zepbound|tirzepatide|mounjaro|armour\s+thyroid|levothyroxine|synthroid|testosterone(?:\s+gel)?|dhea|pregnenolone|xanax|zanax|alprazolam)\b/i;
+const ENDOCRINE_ACTIVE_SUPPLEMENT_RE = /^(?:dhea|pregnenolone)\b/i;
+const NON_SHOPPABLE_MEDICATION_OR_HORMONE_RE = /\b(?:metformin|zepbound|tirzepatide|mounjaro|armour\s+thyroid|levothyroxine|synthroid|testosterone(?:\s+gel)?|dhea|pregnenolone|lunesta|eszopiclone|xanax|zanax|alprazolam)\b/i;
 
 export const RECOMMENDABLE_SUPPLEMENT_CANDIDATES = [
   "Omega-3",
@@ -61,6 +62,10 @@ export function preferenceValuesFound(text: string): string[] {
 export function isMedicationOrHormoneName(value: unknown): boolean {
   const text = normalize(value);
   return Boolean(text && NON_SHOPPABLE_MEDICATION_OR_HORMONE_RE.test(text));
+}
+
+export function isEndocrineActiveSupplementName(value: unknown): boolean {
+  return ENDOCRINE_ACTIVE_SUPPLEMENT_RE.test(String(value ?? "").trim());
 }
 
 export function isEligibleSupplementName(value: unknown): boolean {

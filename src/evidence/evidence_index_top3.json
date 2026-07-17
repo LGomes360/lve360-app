@@ -1484,6 +1484,34 @@
       "source_sheet": "Top100 Evidence"
     }
   ],
+  "fiber (psyllium husk)": [
+    {
+      "supplement": "Soluble fiber (psyllium husk)",
+      "study_type": "Systematic review and meta-analysis of randomized controlled trials",
+      "year": 2018,
+      "quality": "A",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/30239559/",
+      "pmid": "30239559",
+      "doi": "10.1093/ajcn/nqy115",
+      "outcome": "Cardiometabolic markers",
+      "tag": "fiber",
+      "journal": "American Journal of Clinical Nutrition",
+      "source_sheet": "PR30 aligned evidence"
+    },
+    {
+      "supplement": "Soluble fiber (psyllium husk)",
+      "study_type": "Meta-analysis of randomized controlled trials",
+      "year": 2015,
+      "quality": "A",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/26561625/",
+      "pmid": "26561625",
+      "doi": null,
+      "outcome": "Glycemic markers",
+      "tag": "fiber",
+      "journal": "American Journal of Clinical Nutrition",
+      "source_sheet": "PR30 aligned evidence"
+    }
+  ],
   "zinc (picolinate)": [
     {
       "supplement": "Zinc (picolinate)",

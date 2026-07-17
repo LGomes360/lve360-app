@@ -1,6 +1,6 @@
 import { isPreferenceFieldOrValue } from "@/lib/supplementEligibility";
 
-export type CurrentStackKind = "medication" | "supplement" | "hormone";
+export type CurrentStackKind = "medication" | "supplement" | "hormone" | "endocrine_active_supplement";
 
 export type NormalizedCurrentStackLedgerItem = {
   name: string;
@@ -23,6 +23,58 @@ const DETAIL_KEYS = new Set(["dose", "dosage", "amount", "timing", "frequency", 
 const METADATA_KEYS = new Set(["id", "key", "type", "options", "submission_id", "field_id", "created_at", "updated_at"]);
 const DETAIL_LABEL_RE = /\b(?:purpose|dose|dosage|frequency|timing|how often|when taken)\b/i;
 const YES_NO_RE = /^(?:yes|no|true|false)$/i;
+const ENDOCRINE_ACTIVE_RE = /^(?:dhea|pregnenolone)\b/i;
+const INLINE_DOSE_RE = /\b\d+(?:\.\d+)?\s*(?:mcg|\u00b5g|ug|mg|g|iu|ml)\b|\b\d+(?:\.\d+)?\s*%/i;
+const INLINE_FREQUENCY_RE = /\b(?:(?:once|twice|three times|\d+\s*x)\s*(?:(?:a|per)\s+)?(?:day|daily)?|daily|weekly|monthly|every other day)\b/i;
+
+export function classifyCurrentStackKind(name: string, fallback: CurrentStackKind): CurrentStackKind {
+  return ENDOCRINE_ACTIVE_RE.test(name.trim()) ? "endocrine_active_supplement" : fallback;
+}
+
+export function currentStackKindLabel(kind: CurrentStackKind): string {
+  if (kind === "endocrine_active_supplement") return "Hormone-active supplement";
+  return kind.charAt(0).toUpperCase() + kind.slice(1);
+}
+
+export function parseCurrentStackFreeText(raw: string): {
+  name: string;
+  dose?: string;
+  timing?: string;
+  purpose?: string;
+} {
+  const original = raw.replace(/\s+/g, " ").trim();
+  const dose = original.match(INLINE_DOSE_RE)?.[0]?.trim();
+  const purposeMatch = original.match(/\bfor\s+([^,;]+)$/i);
+  const purpose = purposeMatch?.[1]?.trim();
+  const timingParts: string[] = [];
+  const timeOfDay = original.match(/\b(?:morning|evening|night|bedtime|am|pm)\b/i)?.[0];
+  const frequency = original.match(INLINE_FREQUENCY_RE)?.[0];
+  const withFood = original.match(/\bwith\s+(?:breakfast|lunch|dinner|meals?|food)\b/i)?.[0];
+  const asNeeded = /\bas needed\b/i.test(original) ? "As needed" : undefined;
+  for (const part of [timeOfDay, frequency, withFood, asNeeded]) {
+    if (part && !timingParts.some((existing) => existing.toLowerCase() === part.toLowerCase())) timingParts.push(part);
+  }
+
+  let name = original;
+  if (purposeMatch) name = name.replace(purposeMatch[0], " ");
+  if (dose) name = name.replace(dose, " ");
+  name = name
+    .replace(/\bat\s+(?:morning|evening|night|bedtime)\b/gi, " ")
+    .replace(/\b(?:morning|evening|night|bedtime|am|pm)\b/gi, " ")
+    .replace(new RegExp(INLINE_FREQUENCY_RE.source, "gi"), " ")
+    .replace(/\bwith\s+(?:breakfast|lunch|dinner|meals?|food)\b/gi, " ")
+    .replace(/\bas needed\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .replace(/[,:;-]+$/g, "")
+    .trim();
+
+  return {
+    name: name || original,
+    ...(dose ? { dose } : {}),
+    ...(timingParts.length ? { timing: timingParts.map((part) => part.replace(/^./, (c) => c.toUpperCase())).join("; ") } : {}),
+    ...(purpose ? { purpose: purpose.replace(/^./, (c) => c.toUpperCase()) } : {}),
+  };
+}
 
 function parseJson(value: unknown): any {
   if (typeof value !== "string") return value;
@@ -173,10 +225,14 @@ export function parseTallyCurrentStackFields(
       .flatMap((value) => extractLedgerReadableNames(value))
       .filter((name) => !isPreferenceFieldOrValue(name) && !YES_NO_RE.test(name) && !UUID_RE.test(name) && !INVALID_NAME_RE.test(name));
     currentItems = [];
-    for (const name of names) {
+    for (const rawName of names) {
+      const parsedValue = parseCurrentStackFreeText(rawName);
       const item: NormalizedCurrentStackLedgerItem = {
-        name,
-        kind,
+        name: parsedValue.name,
+        kind: classifyCurrentStackKind(parsedValue.name, kind),
+        ...(parsedValue.purpose ? { purpose: parsedValue.purpose } : {}),
+        ...(parsedValue.dose ? { dose: parsedValue.dose } : {}),
+        ...(parsedValue.timing ? { timing: parsedValue.timing } : {}),
         source_paths: [`${sourcePath}[${index}]`],
         raw_labels: [label],
       };
@@ -221,13 +277,15 @@ export function buildNormalizedCurrentStackLedger(submission: any): NormalizedCu
     const parts = Array.isArray(parsed) ? parsed : [parsed];
     for (const part of parts) {
       const names = extractLedgerReadableNames(part);
-      for (const name of names) {
-        if (!name || isPreferenceFieldOrValue(rawLabel) || isPreferenceFieldOrValue(name) || YES_NO_RE.test(name) || UUID_RE.test(name) || INVALID_NAME_RE.test(name)) continue;
-        const key = `${kind}:${name.toLowerCase()}`;
+      for (const rawName of names) {
+        if (!rawName || isPreferenceFieldOrValue(rawLabel) || isPreferenceFieldOrValue(rawName) || YES_NO_RE.test(rawName) || UUID_RE.test(rawName) || INVALID_NAME_RE.test(rawName)) continue;
+        const parsedValue = parseCurrentStackFreeText(rawName);
+        const resolvedKind = classifyCurrentStackKind(parsedValue.name, kind);
+        const key = `${resolvedKind}:${parsedValue.name.toLowerCase()}`;
         const object = part && typeof part === "object" && !Array.isArray(part) ? part as Record<string, any> : {};
-        const nextDose = detailFrom(object.dose ?? object.dosage ?? object.amount);
-        const nextTiming = detailFrom(object.timing ?? object.frequency ?? object.schedule);
-        const nextPurpose = detailFrom(object.purpose ?? object.notes);
+        const nextDose = detailFrom(object.dose ?? object.dosage ?? object.amount) ?? parsedValue.dose;
+        const nextTiming = detailFrom(object.timing ?? object.frequency ?? object.schedule) ?? parsedValue.timing;
+        const nextPurpose = detailFrom(object.purpose ?? object.notes) ?? parsedValue.purpose;
         const existing = ledger.get(key);
         if (existing) {
           if (!existing.purpose && nextPurpose) existing.purpose = nextPurpose;
@@ -237,8 +295,8 @@ export function buildNormalizedCurrentStackLedger(submission: any): NormalizedCu
           if (rawLabel && !existing.raw_labels.includes(rawLabel)) existing.raw_labels.push(rawLabel);
         } else {
           ledger.set(key, {
-            name,
-            kind,
+            name: parsedValue.name,
+            kind: resolvedKind,
             ...(nextPurpose ? { purpose: nextPurpose } : {}),
             ...(nextDose ? { dose: nextDose } : {}),
             ...(nextTiming ? { timing: nextTiming } : {}),
