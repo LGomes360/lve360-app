@@ -16,6 +16,7 @@ import { getTopCitationsFor } from "@/lib/evidence";
 import { callOpenAI } from "@/lib/openai";
 import {
   buildNormalizedCurrentStackLedger,
+  currentStackKindLabel,
   findMissingRepeatedTallyItems,
   type NormalizedCurrentStackLedgerItem,
 } from "@/lib/normalizedCurrentStackLedger";
@@ -344,25 +345,53 @@ function normalizedItemWithDetails(item: unknown, name: string): string | Record
 
 function buildCurrentStackSection(ledger: NormalizedCurrentStackLedgerItem[]): string {
   const body = ledger.length
-    ? `| Medication/Supplement/Hormone | Type | Purpose | Dosage | Timing |\n| --- | --- | --- | --- | --- |\n${ledger.map((item) => `| ${item.name} | ${item.kind} | ${item.purpose ?? "Not provided"} | ${item.dose ?? "Not provided"} | ${item.timing ?? "Not provided"} |`).join("\n")}`
+    ? `| Current Item | Type | Purpose | Dosage | Timing |\n| --- | --- | --- | --- | --- |\n${ledger.map((item) => `| ${item.name} | ${currentStackKindLabel(item.kind)} | ${item.purpose ?? "Not provided"} | ${item.dose ?? "Not provided"} | ${item.timing ?? "Not provided"} |`).join("\n")}`
     : "No current medications, supplements, or hormones were reported in the intake.";
   return `## Current Stack\n\n${body}\n\n**Analysis**\n\nThis section reflects the current medications, supplements, and hormones reported in the intake. Review it for accuracy and discuss changes or potential interactions with a qualified clinician.`;
 }
 
-function ensureContraCurrentStackCoverage(passB: string, currentNames: string[]): string {
+const FORBIDDEN_COMPLIANCE_RE = /\b(?:therapeutically|therapeutic|alleviate symptoms?|safe|no significant interactions?)\b/i;
+
+function complianceSafeLanguage(text: string): string {
+  return text
+    .replace(/\btherapeutically\b/gi, "for wellness support")
+    .replace(/\btherapeutic\b/gi, "wellness")
+    .replace(/\balleviat(?:e|es|ed|ing)\s+symptoms?\b/gi, "support day-to-day well-being")
+    .replace(/\bsafe to use\b/gi, "appropriate to consider only after clinician review")
+    .replace(/\bsafe\b/gi, "appropriate")
+    .replace(/\bno significant interactions?\b/gi, "No specific interaction was flagged by this report")
+    .replace(/\bno specific conflicts? (?:were )?detected(?: from your intake)?\b/gi, "No specific interaction was flagged by this report");
+}
+
+function ensureContraCurrentStackCoverage(passB: string, ledger: NormalizedCurrentStackLedgerItem[]): string {
   const header = "## Contraindications & Med Interactions";
   const body = sectionChunk(passB, header);
-  if (!body || !currentNames.length) return passB;
-  const missing = currentNames.filter((name) => !body.toLowerCase().includes(name.toLowerCase()));
-  if (!missing.length) return passB;
-  const coverage = missing.map((name) =>
-    `- **${name}:** Reported in Current Stack. No specific interaction conclusion is provided here; review it with a qualified clinician or pharmacist before changing use.`
-  ).join("\n");
-  const analysisAt = body.search(/\n\*\*Analysis\*\*/i);
-  const repairedBody = analysisAt >= 0
-    ? `${body.slice(0, analysisAt).trimEnd()}\n${coverage}\n${body.slice(analysisAt)}`
-    : `${body.trimEnd()}\n${coverage}\n`;
-  return passB.replace(`${header}${body}`, `${header}${repairedBody}`);
+  if (!body || !ledger.length) return complianceSafeLanguage(passB);
+  const beforeAnalysis = body.split(/^\*\*Analysis\*\*/im)[0] ?? "";
+  const sourceBullets = beforeAnalysis.split(/\r?\n/).filter((line) => /^\s*[-*]\s+/.test(line));
+  const bullets = ledger.map((item) => {
+    const existing = sourceBullets.find((line) => line.toLowerCase().includes(item.name.toLowerCase()));
+    const detail = existing
+      ? existing
+          .replace(/^\s*[-*]\s+/, "")
+          .replace(/^\*\*[^*]+\*\*\s*(?::|--|\u2014|-)?\s*/, "")
+          .trim()
+      : "No specific interaction was flagged by this report.";
+    const review = /qualified clinician|pharmacist/i.test(detail)
+      ? detail
+      : `${detail.replace(/[.\s]+$/, "")}. Review with a qualified clinician or pharmacist before changing use.`;
+    return `- **${item.name}:** ${complianceSafeLanguage(review)}`;
+  });
+  const analysisSource = body.match(/^\*\*Analysis\*\*\s*([\s\S]*)$/im)?.[1]
+    ?.split(/\r?\n/)
+    .filter((line) => !/^\s*[-*]\s+/.test(line) && !/^\s*\*\*Analysis\*\*/i.test(line))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const analysis = complianceSafeLanguage(analysisSource ||
+    "This report highlights potential considerations from the Current Stack but does not establish that any combination is appropriate for an individual. Review medications, hormones, hormone-active supplements, and other supplements with a qualified clinician or pharmacist. Seek individualized guidance before starting, stopping, or changing any item.");
+  const repaired = `${header}\n\n${bullets.join("\n")}\n\n**Analysis**\n\n${analysis}`;
+  return complianceSafeLanguage(passB.replace(`${header}${body}`, repaired));
 }
 
 function validateCurrentStackParity(md: string, ledger: NormalizedCurrentStackLedgerItem[]) {
@@ -406,16 +435,23 @@ function blueprintNames(blueprintTable: string): string[] {
 function sanitizeBlueprintTable(
   blueprintTable: string,
   minRows = BLUEPRINT_MIN_ROWS,
-  allowedNames: string[] = DEFAULT_BLUEPRINT_ITEMS
+  allowedNames: string[] = DEFAULT_BLUEPRINT_ITEMS,
+  currentLedger: NormalizedCurrentStackLedgerItem[] = [],
+  berberineRequiresReview = false
 ): string {
-  const rows = Array.from(blueprintTable.matchAll(/\|\s*\d+\s*\|\s*([^|]+)\|\s*([^|]*)\|/g));
+  const rows = blueprintTable.split(/\r?\n/).filter((line) => /^\s*\|\s*\d+\s*\|/.test(line));
   const seen = new Set<string>();
   const allowed = new Set(allowedNames.map((name) => name.toLowerCase()));
-  const items = rows.flatMap((match) => {
-    const name = validItemName(match[1]);
+  const currentSupplements = new Set(currentLedger
+    .filter((item) => item.kind === "supplement")
+    .map((item) => normalizeSupplementName(item.name).toLowerCase()));
+  const items = rows.flatMap((row) => {
+    const cells = row.split("|").slice(1, -1).map((cell) => cell.trim());
+    const name = validItemName(cells[1]);
     if (!name || !isEligibleSupplementName(name) || !allowed.has(name.toLowerCase()) || seen.has(name.toLowerCase())) return [];
     seen.add(name.toLowerCase());
-    return [{ name, why: cleanName(match[2] || "") || "Consider based on intake goals and clinician review" }];
+    const whyCell = cells.length >= 4 ? cells[3] : cells[2];
+    return [{ name, why: cleanName(whyCell || "") || "Consider based on intake goals and clinician review" }];
   });
   for (const name of DEFAULT_BLUEPRINT_ITEMS) {
     if (items.length >= minRows) break;
@@ -423,8 +459,18 @@ function sanitizeBlueprintTable(
     seen.add(name.toLowerCase());
     items.push({ name, why: "Consider based on intake goals and clinician review" });
   }
-  const header = "| Rank | Supplement | Why it Matters |\n| --- | --- | --- |";
-  return `${header}\n${items.map((item, index) => `| ${index + 1} | ${item.name} | ${item.why} |`).join("\n")}`;
+  const header = "| Rank | Supplement | Status | Why it Matters |\n| --- | --- | --- | --- |";
+  return `${header}\n${items.map((item, index) => {
+    const status = berberineRequiresReview && /^berberine$/i.test(item.name)
+      ? "Clinician review"
+      : currentSupplements.has(normalizeSupplementName(item.name).toLowerCase())
+        ? "Current - optimize"
+        : "New - consider";
+    const why = status === "Clinician review"
+      ? `${item.why.replace(/[.\s]+$/, "")}. Coordinate with a qualified clinician before considering use.`
+      : item.why;
+    return `| ${index + 1} | ${item.name} | ${status} | ${complianceSafeLanguage(why)} |`;
+  }).join("\n")}`;
 }
 
 function alignedDosingBody(blueprintTable: string, passB: string): string {
@@ -448,38 +494,57 @@ function alignedDosingBody(blueprintTable: string, passB: string): string {
   return `${body}\n${coverage}\n\n**Analysis**\n\nThese notes cover every Blueprint recommendation. Specific dosing should be reviewed with a clinician when it cannot be provided safely from the intake alone.`.trim();
 }
 
-function consistentDosingBody(blueprintTable: string, passB: string, ledger: NormalizedCurrentStackLedgerItem[]): string {
+function consistentDosingBody(
+  blueprintTable: string,
+  passB: string,
+  ledger: NormalizedCurrentStackLedgerItem[],
+  berberineRequiresReview = false
+): string {
   const body = sectionChunk(passB, "## Dosing & Notes").trim();
   const blueprint = blueprintNames(blueprintTable);
-  const blueprintSet = new Set(blueprint.map((name) => name.toLowerCase()));
+  const blueprintSet = new Set(blueprint.map((name) => normalizeSupplementName(name).toLowerCase()));
   const currentNames = ledger.map((item) => item.name);
-  const currentSet = new Set(currentNames.map((name) => name.toLowerCase()));
+  const currentSet = new Set(currentNames.map((name) => normalizeSupplementName(name).toLowerCase()));
   const bulletName = (line: string) => validItemName(
     line.match(/^\s*[-*]\s+(?:\*\*)?(.+?)(?:\*\*)?\s*(?::|-|—)\s+/)?.[1]
   );
   const bullets = body.split(/\r?\n/).filter((line) => /^\s*[-*]\s+/.test(line));
-  const blueprintLines = bullets.filter((line) => {
+  const modelBlueprintLines = bullets.filter((line) => {
     const name = bulletName(line);
-    return Boolean(name && blueprintSet.has(name.toLowerCase()));
+    return Boolean(name && blueprintSet.has(normalizeSupplementName(name).toLowerCase()));
   });
   const currentLines = bullets.filter((line) => {
     const name = bulletName(line);
-    return Boolean(name && !blueprintSet.has(name.toLowerCase()) && currentSet.has(name.toLowerCase()));
+    return Boolean(name && !blueprintSet.has(normalizeSupplementName(name).toLowerCase()) && currentSet.has(normalizeSupplementName(name).toLowerCase()));
   });
   const covered = new Set(
-    blueprintLines.map((line) => bulletName(line)?.toLowerCase()).filter((name): name is string => Boolean(name))
+    modelBlueprintLines.map((line) => bulletName(line)?.toLowerCase()).filter((name): name is string => Boolean(name))
   );
   const missingLines = blueprint
     .filter((name) => !covered.has(name.toLowerCase()))
     .map((name) => `- **${name}** — Clinician review is recommended before use; a specific dose or timing is not provided.`);
+  const modelLineByName = new Map([...modelBlueprintLines, ...missingLines]
+    .map((line) => [bulletName(line)?.toLowerCase(), line] as const)
+    .filter((entry): entry is readonly [string, string] => Boolean(entry[0])));
+  const blueprintLines = blueprint.map((name) => {
+    const current = ledger.find((item) => item.kind === "supplement" &&
+      normalizeSupplementName(item.name).toLowerCase() === normalizeSupplementName(name).toLowerCase());
+    const reported = [current?.dose, current?.timing].filter(Boolean).join(", ");
+    if (current && reported) return `- **${name}** -- Currently reported: ${reported}. Review before changing.`;
+    if (berberineRequiresReview && /^berberine$/i.test(name)) {
+      return `- **${name}** -- Clinician review is required before considering use because glucose-lowering medication or blood-sugar context was reported. Do not start without coordinated review.`;
+    }
+    return modelLineByName.get(name.toLowerCase()) ??
+      `- **${name}** -- Clinician review is recommended before use; a specific dose or timing is not provided.`;
+  }).map(complianceSafeLanguage);
   const coveredCurrent = new Set(
     currentLines.map((line) => bulletName(line)?.toLowerCase()).filter((name): name is string => Boolean(name))
   );
   const missingCurrentLines = ledger
-    .filter((item) => !blueprintSet.has(item.name.toLowerCase()) && !coveredCurrent.has(item.name.toLowerCase()))
+    .filter((item) => !blueprintSet.has(normalizeSupplementName(item.name).toLowerCase()) && !coveredCurrent.has(item.name.toLowerCase()))
     .map((item) => {
       const details = [item.dose ? `dose: ${item.dose}` : null, item.timing ? `timing: ${item.timing}` : null].filter(Boolean).join("; ");
-      return `- **${item.name}** -- Current ${item.kind} reported${details ? ` (${details})` : ""}. Review interactions and any changes with a qualified clinician or pharmacist.`;
+      return `- **${item.name}** -- Current ${currentStackKindLabel(item.kind).toLowerCase()} reported${details ? ` (${details})` : ""}. Review interactions and any changes with a qualified clinician or pharmacist.`;
     });
   const currentNotes = [...currentLines, ...missingCurrentLines];
   const currentBlock = currentNotes.length
@@ -489,14 +554,20 @@ function consistentDosingBody(blueprintTable: string, passB: string, ledger: Nor
   const analysis = analysisIndex >= 0
     ? body.slice(analysisIndex).trim()
     : "**Analysis**\n\nThese notes cover every Blueprint recommendation. Specific dosing should be reviewed with a clinician when it cannot be provided safely from the intake alone.";
-  return `${[...blueprintLines, ...missingLines].join("\n")}${currentBlock}\n\n${analysis}`.trim();
+  return complianceSafeLanguage(`${blueprintLines.join("\n")}${currentBlock}\n\n${analysis}`.trim());
 }
 
-function assembleCanonicalReport(restMd: string, blueprintTable: string, passB: string, ledger: NormalizedCurrentStackLedgerItem[]): string {
+function assembleCanonicalReport(
+  restMd: string,
+  blueprintTable: string,
+  passB: string,
+  ledger: NormalizedCurrentStackLedgerItem[],
+  berberineRequiresReview = false
+): string {
   const sources: Record<string, string> = {
     "## Contraindications & Med Interactions": passB,
     "## Your Blueprint Recommendations": `## Your Blueprint Recommendations\n\n${blueprintTable}`,
-    "## Dosing & Notes": `## Dosing & Notes\n\n${consistentDosingBody(blueprintTable, passB, ledger)}`,
+    "## Dosing & Notes": `## Dosing & Notes\n\n${consistentDosingBody(blueprintTable, passB, ledger, berberineRequiresReview)}`,
   };
 
   return CANONICAL_REPORT_HEADINGS.map((heading) => {
@@ -511,9 +582,9 @@ function assembleCanonicalReport(restMd: string, blueprintTable: string, passB: 
     .trim();
 }
 
-function ensureReportDosingAlignment(md: string, ledger: NormalizedCurrentStackLedgerItem[]): string {
+function ensureReportDosingAlignment(md: string, ledger: NormalizedCurrentStackLedgerItem[], berberineRequiresReview = false): string {
   const blueprint = sectionChunk(md, "## Your Blueprint Recommendations");
-  const dosing = consistentDosingBody(blueprint, md, ledger);
+  const dosing = consistentDosingBody(blueprint, md, ledger, berberineRequiresReview);
   return md.replace(
     /## Dosing & Notes[\s\S]*?(?=\n## |$)/i,
     `## Dosing & Notes\n\n${dosing}`
@@ -619,10 +690,16 @@ function stripCodeFences(s: string): string {
     .trim();
 }
 
-function hardenBlueprintSection(md: string, requiredRows: number, allowedNames?: string[]) {
+function hardenBlueprintSection(
+  md: string,
+  requiredRows: number,
+  allowedNames?: string[],
+  currentLedger: NormalizedCurrentStackLedgerItem[] = [],
+  berberineRequiresReview = false
+) {
   const body = sectionChunk(md, "## Your Blueprint Recommendations");
   if (!body) return md;
-  const rebuilt = `## Your Blueprint Recommendations\n\n${sanitizeBlueprintTable(body, requiredRows, allowedNames)}\n`;
+  const rebuilt = `## Your Blueprint Recommendations\n\n${sanitizeBlueprintTable(body, requiredRows, allowedNames, currentLedger, berberineRequiresReview)}\n`;
   return md.replace(/## Your Blueprint Recommendations([\s\S]*?)(?=\n## |\n## END|$)/i, rebuilt);
 }
 
@@ -630,7 +707,7 @@ function hardenBlueprintSection(md: string, requiredRows: number, allowedNames?:
 function extractBlueprintTable(md: string): string | null {
   const s = stripCodeFences(md);
   // Find a markdown table that has the exact header (allow flexible spacing/case)
-  const headerRe = /\| *Rank *\| *Supplement *\| *Why it Matters *\|/i;
+  const headerRe = /\| *Rank *\| *Supplement *\|(?: *Status *\|)? *Why it Matters *\|/i;
   if (!headerRe.test(s)) return null;
   // Capture the full table block lines around the header
   const lines = s.split(/\r?\n/);
@@ -895,6 +972,10 @@ function normalizeSupplementName(name: string): string {
   if (collapsed.startsWith("ashwa")) return "Ashwagandha";
   if (collapsed.startsWith("bacopa")) return "Bacopa Monnieri";
   if (collapsed.startsWith("coq")) return "CoQ10";
+  if (collapsed.startsWith("creatine")) return "Creatine Monohydrate";
+  if (collapsed.startsWith("curcumin") || collapsed.startsWith("turmeric")) return "Curcumin";
+  if (collapsed.startsWith("probiotic")) return "Probiotic";
+  if (collapsed.includes("psyllium") || collapsed.startsWith("soluble fiber") || collapsed.startsWith("fiber (")) return "Soluble fiber (psyllium)";
   if (collapsed.startsWith("rhodiola")) return "Rhodiola Rosea";
   if (collapsed.startsWith("ginkgo")) return "Ginkgo Biloba";
   if (collapsed.startsWith("zinc")) return "Zinc";
@@ -909,6 +990,10 @@ const ALIAS_MAP: Record<string, string> = {
   "Ashwagandha": "ashwagandha (ksm-66 or similar)",
   "Bacopa Monnieri": "bacopa monnieri (50% bacosides)",
   "CoQ10": "coq10 (ubiquinone)",
+  "Creatine Monohydrate": "creatine (monohydrate)",
+  "Curcumin": "curcumin (95% curcuminoids + piperine)",
+  "Probiotic": "probiotic (lacto/bifido blend)",
+  "Soluble fiber (psyllium)": "fiber (psyllium husk)",
   "Rhodiola Rosea": "rhodiola rosea (3% rosavins)",
   "Ginkgo Biloba": "ginkgo biloba (24/6)",
   "Zinc": "zinc (picolinate)",
@@ -936,6 +1021,10 @@ function buildEvidenceCandidates(normName: string): string[] {
     "Ashwagandha": ["ashwagandha (ksm-66 or similar)", "ashwagandha"],
     "Bacopa Monnieri": ["bacopa monnieri (50% bacosides)", "bacopa monnieri"],
     "CoQ10": ["coq10 (ubiquinone)", "coq10"],
+    "Creatine Monohydrate": ["creatine (monohydrate)", "creatine monohydrate", "creatine"],
+    "Curcumin": ["curcumin (95% curcuminoids + piperine)", "curcumin", "turmeric"],
+    "Probiotic": ["probiotic (lacto/bifido blend)", "probiotic", "probiotics"],
+    "Soluble fiber (psyllium)": ["fiber (psyllium husk)", "psyllium husk", "psyllium", "soluble fiber"],
     "Rhodiola Rosea": ["rhodiola rosea (3% rosavins)", "rhodiola rosea"],
     "Ginkgo Biloba": ["ginkgo biloba (24/6)", "ginkgo biloba"],
     "Zinc": ["zinc (picolinate)", "zinc"],
@@ -1135,7 +1224,11 @@ Rules:
 }
 
 
-function tableOnlyPrompt(compactClient: any, recommendableSupplementLedger: Array<{ name: string }>) {
+function tableOnlyPrompt(
+  compactClient: any,
+  recommendableSupplementLedger: Array<{ name: string }>,
+  berberineRequiresReview: boolean
+) {
   return `
 ### CLIENT (Compact)
 \`\`\`json
@@ -1149,12 +1242,14 @@ ${JSON.stringify(recommendableSupplementLedger, null, 2)}
 
 ### TASK
 Output ONLY the section "## Your Blueprint Recommendations" as a Markdown table with the exact header:
-| Rank | Supplement | Why it Matters |
+| Rank | Supplement | Status | Why it Matters |
 
 - Provide exactly **10** data rows (Rank 1..10).
 - Recommend goal-aligned supplement options only. Never recommend medications, prescription drugs, or hormones.
+- Never recommend endocrine-active supplements such as DHEA or Pregnenolone by default.
 - Select from the recommendable supplement ledger. Do not simply copy the Current Stack unless a legitimate current supplement has a clear optimization reason.
-- Berberine requires explicit clinician-review language when medication context may affect safety.
+- Status must be exactly "Current - optimize" for a reported current supplement, "New - consider" for a new option, or "Clinician review" when coordinated review is needed.
+- ${berberineRequiresReview ? "Berberine must use Clinician review status and explicit coordinated clinician-review language because glucose-lowering context is present." : "Berberine still requires conservative clinician-review language."}
 - Use short, plain-English rationales ("Why it Matters").
 - If dosing/timing is relevant, write "See Dosing & Notes".
 - Do NOT output any other text. Do NOT include END. Only the table.
@@ -1181,7 +1276,7 @@ ${JSON.stringify(promptClient, null, 2)}
 \`\`\`json
 ${JSON.stringify(fullClient.normalizedCurrentStackLedger ?? [], null, 2)}
 \`\`\`
-Use this ledger as the only source of truth for current medications, supplements, and hormones.
+Use this ledger as the only source of truth for current medications, supplements, hormones, and hormone-active supplements.
 
 ### GIVEN BLUEPRINT (exactly as provided)
 \n**Blueprint Table**\n\n${blueprintTable}
@@ -1192,12 +1287,17 @@ Generate ONLY these two sections, in this order:
 ## Contraindications & Med Interactions
 - Identify potential conflicts among medications, hormones, and supplements.
 - Review every normalized Current Stack item shown in CLIENT; do not silently omit an item.
-- If no specific interaction is identified for an item, state that no conclusion is provided and recommend clinician or pharmacist review.
+- Use exactly one bullet per Current Stack item and put every bullet before Analysis.
+- If no specific interaction is identified for an item, write "No specific interaction was flagged by this report" and recommend review with a qualified clinician or pharmacist.
 - Call out classes (e.g., MAO-B risk, serotonin, anticoagulants).
+- Avoid definitive safety statements and disease-treatment wording. Analysis must be last.
 - Use plain English. End with **Analysis** (≥3 sentences).
 
 ## Dosing & Notes
 - Bullet each recommended supplement with dose + timing (AM/PM/with meals) and short note.
+- For a current Blueprint supplement with known dose or timing, write "Currently reported: [dose], [timing]. Review before changing."
+- Put non-Blueprint current items only under a separate "### Current Stack Notes" subsection.
+- For Berberine with Metformin, Zepbound, diabetes, glucose, or blood-sugar context, require coordinated clinician review and do not imply it is appropriate to start.
 - Reference meds/hormones when timing matters.
 - End with **Analysis** (≥3 sentences).
 
@@ -1446,6 +1546,9 @@ const conditionsRaw = conditionsMerged.values;
 const currentStackLedger = buildNormalizedCurrentStackLedger(sub).filter((item) =>
   !isPreferenceFieldOrValue(item.name) && !item.raw_labels.some(isPreferenceFieldOrValue)
 );
+const berberineRequiresReview = /\b(?:metformin|zepbound|tirzepatide|mounjaro|diabet(?:es|ic)?|blood sugar|glucose|a1c)\b/i.test(
+  JSON.stringify({ currentStackLedger, conditions: conditionsRaw })
+);
 const recommendableSupplementLedger = Array.from(new Set([
   ...RECOMMENDABLE_SUPPLEMENT_CANDIDATES,
   ...currentStackLedger
@@ -1475,6 +1578,7 @@ const ledgerItems = (kind: NormalizedCurrentStackLedgerItem["kind"]) => currentS
 const medicationsRaw = ledgerItems("medication");
 const supplementsRaw = ledgerItems("supplement");
 const hormonesRaw = ledgerItems("hormone");
+const endocrineActiveRaw = ledgerItems("endocrine_active_supplement");
 
 // ONE source of truth for the rest of the file:
 const baseClient = {
@@ -1484,6 +1588,7 @@ const baseClient = {
   medications: medicationsRaw,
   supplements: supplementsRaw,
   hormones: hormonesRaw,
+  endocrine_active_supplements: endocrineActiveRaw,
   normalizedCurrentStackLedger: currentStackLedger,
   recommendableSupplementLedger,
 };
@@ -1497,14 +1602,17 @@ console.info("[gen.intake.check]", {
   normalized_medications: (baseClient as any).medications,
   normalized_supplements: (baseClient as any).supplements,
   normalized_hormones: (baseClient as any).hormones,
+  normalized_endocrine_active_supplements: (baseClient as any).endocrine_active_supplements,
   medications_normalized_count: medicationsRaw.length,
   supplements_normalized_count: supplementsRaw.length,
   hormones_normalized_count: hormonesRaw.length,
+  endocrine_active_supplements_normalized_count: endocrineActiveRaw.length,
   rejected_object_values_count: normalizationStats.rejectedObjectValues,
   ledger_total_count: currentStackLedger.length,
   ledger_medication_count: medicationsRaw.length,
   ledger_supplement_count: supplementsRaw.length,
   ledger_hormone_count: hormonesRaw.length,
+  ledger_endocrine_active_supplement_count: endocrineActiveRaw.length,
   ledger_item_names: currentNames,
   ledger_source_paths_by_item: Object.fromEntries(currentStackLedger.map((item) => [`${item.kind}:${item.name}`, item.source_paths])),
   current_stack_rendered_count: currentStackLedger.length,
@@ -1522,7 +1630,7 @@ console.info("[gen.passA:start]", { candidates: candidateModels("mini") });
 
 const resA = await callChatWithRetry("mini", [
   { role: "system", content: systemPromptA_TableOnly() },
-  { role: "user", content: tableOnlyPrompt(compactClient, recommendableSupplementLedger) },
+  { role: "user", content: tableOnlyPrompt(compactClient, recommendableSupplementLedger, berberineRequiresReview) },
 ]);
 
 const rawA = stripCodeFences(String(resA?.text ?? "").trim());
@@ -1532,7 +1640,7 @@ if (!tableMd) {
   // One-shot repair ask: convert whatever came back into the exact table
   const repairPromptA = `
 Convert the text below into a single Markdown table ONLY with header exactly:
-| Rank | Supplement | Why it Matters |
+| Rank | Supplement | Status | Why it Matters |
 
 - Provide exactly 10 data rows (Rank 1..10).
 - Short, plain-English "Why it Matters".
@@ -1557,7 +1665,13 @@ if (!tableMd) {
   console.warn("[passA] falling back to synthesized table from intake/defaults");
   tableMd = synthesizeBlueprintFromIntake(fullClient);
 }
-tableMd = sanitizeBlueprintTable(tableMd, BLUEPRINT_MIN_ROWS, recommendableSupplementLedger.map((item) => item.name));
+tableMd = sanitizeBlueprintTable(
+  tableMd,
+  BLUEPRINT_MIN_ROWS,
+  recommendableSupplementLedger.map((item) => item.name),
+  currentStackLedger,
+  berberineRequiresReview
+);
 
 
 // token accounting (if available)
@@ -1745,7 +1859,7 @@ if (!hasContra || !hasDosing || !passBHasBodies()) {
   hasContra = _hasContra(dosingMd);
   hasDosing = _hasDosing(dosingMd);
 }
-dosingMd = ensureContraCurrentStackCoverage(dosingMd, currentNames);
+dosingMd = ensureContraCurrentStackCoverage(dosingMd, currentStackLedger);
 
 
 // token accounting (wrapper exposes usage.*)
@@ -1910,13 +2024,19 @@ modelUsed = resC?.modelUsed ?? modelUsed;
 
   // ---------- Stitch full Markdown in canonical user-facing order ----------
 restMd = replaceOrAppendSection(restMd, buildCurrentStackSection(currentStackLedger));
-let md = assembleCanonicalReport(restMd, tableMd, dosingMd, currentStackLedger);
+let md = assembleCanonicalReport(restMd, tableMd, dosingMd, currentStackLedger, berberineRequiresReview);
 
 
   // Sanity: enforce headings and pad the Blueprint without exposing END.
   md = forceHeadings(md);
-  md = hardenBlueprintSection(md, computeValidationTargets(mode, cap).minRows, recommendableSupplementLedger.map((item) => item.name));
-  md = ensureReportDosingAlignment(md, currentStackLedger);
+  md = hardenBlueprintSection(
+    md,
+    computeValidationTargets(mode, cap).minRows,
+    recommendableSupplementLedger.map((item) => item.name),
+    currentStackLedger,
+    berberineRequiresReview
+  );
+  md = ensureReportDosingAlignment(md, currentStackLedger, berberineRequiresReview);
 
   // ---------- Parse items / safety / enrichment ----------
   const TIMING_ARTIFACT_RE = /^(on\s+waking|am\b.*breakfast|evening\b.*dinner|before\s+bed|pre[- ]?exercise(?:.*)?|hold\/adjust|simplify\s+sleep\s+aids)$/i;
@@ -1981,6 +2101,12 @@ const safetyInput = {
   const isShoppableItem = (item: StackItem) => {
     const key = itemKey(item.name);
     const currentKind = currentKindByName.get(key);
+    if (berberineRequiresReview && /^berberine$/i.test(item.name)) return false;
+    return shoppableNames.has(key) && isEligibleSupplementName(item.name) && (!currentKind || currentKind === "supplement");
+  };
+  const isEvidenceItem = (item: StackItem) => {
+    const key = itemKey(item.name);
+    const currentKind = currentKindByName.get(key);
     return shoppableNames.has(key) && isEligibleSupplementName(item.name) && (!currentKind || currentKind === "supplement");
   };
   const normalizedForLinks: StackItem[] = cleanedItems
@@ -2010,8 +2136,11 @@ const safetyInput = {
   const shoppableSupplementLedger: StackItem[] = finalStack
     .filter(isShoppableItem)
     .sort((a, b) => Number(blueprintShoppableNames.has(itemKey(b.name))) - Number(blueprintShoppableNames.has(itemKey(a.name))));
-  const shoppableWithEvidence = shoppableSupplementLedger.map(attachEvidence);
-  const evidenceByName = new Map(shoppableWithEvidence.map((item) => [itemKey(item.name), item]));
+  const evidenceSupplementLedger: StackItem[] = finalStack
+    .filter(isEvidenceItem)
+    .sort((a, b) => Number(blueprintShoppableNames.has(itemKey(b.name))) - Number(blueprintShoppableNames.has(itemKey(a.name))));
+  const evidenceAlignedItems = evidenceSupplementLedger.map(attachEvidence);
+  const evidenceByName = new Map(evidenceAlignedItems.map((item) => [itemKey(item.name), item]));
   const withEvidence: StackItem[] = finalStack.map((item) => evidenceByName.get(itemKey(item.name)) ?? item);
   const persistedItemsByName = new Map<string, StackItem>();
   for (const item of withEvidence) {
@@ -2023,7 +2152,7 @@ const safetyInput = {
       ...item,
       is_current: Boolean(ledgerItem) || item.is_current,
       notes: ledgerItem
-        ? `Current ${ledgerItem.kind} reported in intake.${ledgerItem.purpose ? ` Purpose: ${ledgerItem.purpose}` : ""}`
+        ? `Current ${currentStackKindLabel(ledgerItem.kind).toLowerCase()} reported in intake.${ledgerItem.purpose ? ` Purpose: ${ledgerItem.purpose}` : ""}`
         : item.notes,
     };
     persistedItemsByName.set(key, ledgerItem && ledgerItem.kind !== "supplement" ? clearShoppingLinks(persistedItem) : persistedItem);
@@ -2035,7 +2164,7 @@ const safetyInput = {
         name: item.name,
         dose: item.dose ?? null,
         timing: item.timing ?? null,
-        notes: `Current ${item.kind} reported in intake.${item.purpose ? ` Purpose: ${item.purpose}` : ""}`,
+        notes: `Current ${currentStackKindLabel(item.kind).toLowerCase()} reported in intake.${item.purpose ? ` Purpose: ${item.purpose}` : ""}`,
         is_current: true,
       });
     }
@@ -2052,13 +2181,14 @@ const safetyInput = {
   }
 
   // Evidence override
-  const { section: evidenceSection } = buildEvidenceSection(shoppableWithEvidence, 8);
+  const { section: evidenceSection } = buildEvidenceSection(evidenceAlignedItems, 8);
   md = overrideEvidenceInMarkdown(md, evidenceSection);
 
   // Shopping links override
-  const shoppingSection = buildShoppingLinksSection(shoppableWithEvidence);
+  const shoppingSection = buildShoppingLinksSection(shoppableSupplementLedger);
   const shoppingRe = /## Shopping Links([\s\S]*?)(?=\n## |\n## END|$)/i;
   md = shoppingRe.test(md) ? md.replace(shoppingRe, shoppingSection) : md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
+  md = complianceSafeLanguage(md);
 
   if (/\[object Object\]/i.test(md)) {
     throw new Error("Invalid object string leaked into report");
@@ -2077,12 +2207,14 @@ const safetyInput = {
     .filter((item) => item.kind !== "supplement" || isMedicationOrHormoneName(item.name))
     .filter((item) => shoppingBody.toLowerCase().includes(item.name.toLowerCase()))
     .map((item) => item.name);
-  if (preferenceLeaks.length || uuidLeaks.length || blueprintEligibilityViolations.length || shoppingEligibilityViolations.length) {
+  const complianceViolations = Array.from(md.matchAll(new RegExp(FORBIDDEN_COMPLIANCE_RE.source, "gi"))).map((match) => match[0]);
+  if (preferenceLeaks.length || uuidLeaks.length || blueprintEligibilityViolations.length || shoppingEligibilityViolations.length || complianceViolations.length) {
     console.warn("[validation] recommendation/shopping eligibility", {
       preferenceLeaks,
       uuidLeaks,
       blueprintEligibilityViolations,
       shoppingEligibilityViolations,
+      complianceViolations,
     });
     throw new Error("Report recommendation or shopping eligibility validation failed");
   }

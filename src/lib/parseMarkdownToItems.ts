@@ -107,16 +107,20 @@ export function parseMarkdownToItems(md: string): ParsedItem[] {
         return true;
       });
 
+    const headerCells = (rows[0] || "").split("|").map((cell) => cell.trim().toLowerCase());
+    const supplementIndex = headerCells.findIndex((cell) => cell === "supplement");
+    const whyIndex = headerCells.findIndex((cell) => /why it matters|rationale|reason/.test(cell));
+    const statusIndex = headerCells.findIndex((cell) => cell === "status");
     const dataRows = rows.length > 1 ? rows.slice(1) : [];
     dataRows.forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
-      // | Rank | Supplement | Why it Matters |
-      const rawName = cols[2] || `Item ${i + 1}`;
+      const rawName = cols[supplementIndex] || `Item ${i + 1}`;
       const cleaned = cleanName(rawName);
       if (!cleaned || SEE_DN.test(cleaned)) return;
 
       const canonical = normalizeSupplementName(cleaned);
-      const rationale = cols[3] ? String(cols[3]).trim() : null;
+      const rationale = whyIndex >= 0 && cols[whyIndex] ? String(cols[whyIndex]).trim() : null;
+      const status = statusIndex >= 0 && cols[statusIndex] ? String(cols[statusIndex]).trim() : null;
 
       base[canonical.toLowerCase()] = {
         name: canonical,
@@ -125,6 +129,7 @@ export function parseMarkdownToItems(md: string): ParsedItem[] {
         timing: null,
         timing_text: null,
         is_current: false,
+        notes: status ? `Blueprint status: ${status}` : null,
       };
     });
   }
@@ -135,19 +140,23 @@ export function parseMarkdownToItems(md: string): ParsedItem[] {
     const rows = current[1]
       .split("\n")
       .map((l) => l.trim())
-      .filter((t) => t.startsWith("|"));
-    // Expect header, then data: | Medication/Supplement | Purpose | Dosage | Timing |
+      .filter((t) => t.startsWith("|") && !/^\|\s*-+(\s*\|\s*-+)*\s*\|?$/.test(t));
+    const currentHeader = (rows[0] || "").split("|").map((cell) => cell.trim().toLowerCase());
+    const nameIndex = currentHeader.findIndex((cell) => /medication|supplement|hormone|item/.test(cell));
+    const purposeIndex = currentHeader.findIndex((cell) => cell === "purpose");
+    const doseIndex = currentHeader.findIndex((cell) => /dosage|dose/.test(cell));
+    const timingIndex = currentHeader.findIndex((cell) => cell === "timing");
     rows.slice(1).forEach((row, i) => {
       const cols = row.split("|").map((c) => c.trim());
-      const raw = cols[1] || `Current Item ${i + 1}`;
+      const raw = cols[nameIndex] || `Current Item ${i + 1}`;
       const cleaned = cleanName(raw);
       if (!cleaned || SEE_DN.test(cleaned)) return;
 
       const canonical = normalizeSupplementName(cleaned);
       const key = canonical.toLowerCase();
-      const purpose = cols[2] || null;
-      const dose = cols[3] || null;
-      const timingCell = cols[4] || null;
+      const purpose = purposeIndex >= 0 ? cols[purposeIndex] || null : null;
+      const dose = doseIndex >= 0 ? cols[doseIndex] || null : null;
+      const timingCell = timingIndex >= 0 ? cols[timingIndex] || null : null;
       const timingNorm = normalizeTiming(timingCell);
 
       if (!base[key]) {
