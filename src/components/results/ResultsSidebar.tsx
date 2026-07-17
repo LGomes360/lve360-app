@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { bucketsFromRecord } from "@/src/lib/timing";
+import { isEligibleSupplementName, isMedicationOrHormoneName } from "@/lib/supplementEligibility";
 
 type Item = {
   id: string;
@@ -40,7 +41,10 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
         if (!r.ok || j?.ok === false) throw new Error(j?.error || "Items request failed");
 
         if (!cancelled) {
-          setItems(Array.isArray(j?.items) ? j.items : []);
+          const supplementItems = Array.isArray(j?.items)
+            ? j.items.filter((item: Item) => isEligibleSupplementName(item?.name) && !isMedicationOrHormoneName(item?.name))
+            : [];
+          setItems(supplementItems);
           setLoading(false);
         }
       } catch {
@@ -102,7 +106,7 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
     return <aside className="rounded-xl border border-red-200 p-4 text-sm text-red-700">{error}</aside>;
   }
   if (items.length === 0) {
-    return <aside className="rounded-xl border p-4 text-sm text-zinc-600">No stack items are available for this report yet.</aside>;
+    return <aside className="rounded-xl border p-4 text-sm text-zinc-600">No supplement items are available for this report yet.</aside>;
   }
 
   // affiliate helpers (unchanged)
@@ -176,10 +180,10 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
           const active = filter === key;
           const label =
             key === "all"
-              ? `All (${counts.all})`
+              ? `All Supplements (${counts.all})`
               : key === "current"
-              ? `Current (${counts.current})`
-              : `Recommended (${counts.recommended})`;
+              ? `Current Supplements (${counts.current})`
+              : `Recommended Supplements (${counts.recommended})`;
           return (
             <button
               key={key}
