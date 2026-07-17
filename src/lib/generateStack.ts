@@ -18,6 +18,7 @@ import {
   buildNormalizedCurrentStackLedger,
   currentStackKindLabel,
   findMissingRepeatedTallyItems,
+  isMalformedCurrentStackName,
   type NormalizedCurrentStackLedgerItem,
 } from "@/lib/normalizedCurrentStackLedger";
 import {
@@ -363,20 +364,37 @@ function complianceSafeLanguage(text: string): string {
     .replace(/\bno specific conflicts? (?:were )?detected(?: from your intake)?\b/gi, "No specific interaction was flagged by this report");
 }
 
-function ensureContraCurrentStackCoverage(passB: string, ledger: NormalizedCurrentStackLedgerItem[]): string {
+function ensureContraCurrentStackCoverage(
+  passB: string,
+  ledger: NormalizedCurrentStackLedgerItem[],
+  berberineRequiresReview = false
+): string {
   const header = "## Contraindications & Med Interactions";
   const body = sectionChunk(passB, header);
   if (!body || !ledger.length) return complianceSafeLanguage(passB);
   const beforeAnalysis = body.split(/^\*\*Analysis\*\*/im)[0] ?? "";
   const sourceBullets = beforeAnalysis.split(/\r?\n/).filter((line) => /^\s*[-*]\s+/.test(line));
+  const sourceByLabel = new Map(sourceBullets.flatMap((line) => {
+    const bold = line.match(/^\s*[-*]\s+\*\*([^*]+)\*\*/)?.[1];
+    const plain = line.match(/^\s*[-*]\s+([^:]+):/)?.[1];
+    const label = (bold ?? plain ?? "").replace(/:+$/g, "").trim().toLowerCase();
+    return label ? [[label, line] as const] : [];
+  }));
+  const sedationContext = /\b(?:lunesta|eszopiclone|xanax|zanax|alprazolam|melatonin|glycine)\b/i;
   const bullets = ledger.map((item) => {
-    const existing = sourceBullets.find((line) => line.toLowerCase().includes(item.name.toLowerCase()));
-    const detail = existing
+    const existing = sourceByLabel.get(item.name.toLowerCase());
+    let detail = existing
       ? existing
           .replace(/^\s*[-*]\s+/, "")
           .replace(/^\*\*[^*]+\*\*\s*(?::|--|\u2014|-)?\s*/, "")
           .trim()
       : "No specific interaction was flagged by this report.";
+    detail = detail.replace(new RegExp(`^(?:\\*\\*)?${escapeRe(item.name)}(?:\\*\\*)?\\s*:?\\s*`, "i"), "").trim();
+    if (sedationContext.test(item.name)) {
+      detail = "This item may add to drowsiness when combined with other sleep-supporting or sedating items. Review the combined routine with a qualified clinician or pharmacist.";
+    } else if (berberineRequiresReview && /^berberine(?:\s+hcl)?$/i.test(item.name)) {
+      detail = "Glucose-lowering medication or blood-sugar context was reported. Coordinate review with a qualified clinician or pharmacist before changing use.";
+    }
     const review = /qualified clinician|pharmacist/i.test(detail)
       ? detail
       : `${detail.replace(/[.\s]+$/, "")}. Review with a qualified clinician or pharmacist before changing use.`;
@@ -440,32 +458,53 @@ function sanitizeBlueprintTable(
   berberineRequiresReview = false
 ): string {
   const rows = blueprintTable.split(/\r?\n/).filter((line) => /^\s*\|\s*\d+\s*\|/.test(line));
-  const seen = new Set<string>();
   const allowed = new Set(allowedNames.map((name) => name.toLowerCase()));
   const currentSupplements = new Set(currentLedger
     .filter((item) => item.kind === "supplement")
     .map((item) => normalizeSupplementName(item.name).toLowerCase()));
-  const items = rows.flatMap((row) => {
+  const parsedItems = rows.flatMap((row) => {
     const cells = row.split("|").slice(1, -1).map((cell) => cell.trim());
     const name = validItemName(cells[1]);
-    if (!name || !isEligibleSupplementName(name) || !allowed.has(name.toLowerCase()) || seen.has(name.toLowerCase())) return [];
-    seen.add(name.toLowerCase());
+    if (!name || isMalformedCurrentStackName(name) || !isEligibleSupplementName(name) || !allowed.has(name.toLowerCase())) return [];
     const whyCell = cells.length >= 4 ? cells[3] : cells[2];
-    return [{ name, why: cleanName(whyCell || "") || "Consider based on intake goals and clinician review" }];
+    return [{ name, why: cleanName(whyCell || "") || "Consider based on intake goals and clinician review", explicit: true }];
   });
+  const candidates = [...parsedItems];
   for (const name of DEFAULT_BLUEPRINT_ITEMS) {
-    if (items.length >= minRows) break;
-    if (seen.has(name.toLowerCase())) continue;
-    seen.add(name.toLowerCase());
-    items.push({ name, why: "Consider based on intake goals and clinician review" });
+    if (!allowed.has(name.toLowerCase())) continue;
+    candidates.push({ name, why: "Consider based on intake goals and clinician review", explicit: false });
   }
+  const candidateNames = new Set<string>();
+  const deduped = candidates.filter((item) => {
+    const key = normalizeSupplementName(item.name).toLowerCase();
+    if (candidateNames.has(key)) return false;
+    candidateNames.add(key);
+    return true;
+  });
+  const classified = deduped.map((item) => ({
+    ...item,
+    status: berberineRequiresReview && /^berberine(?:\s+hcl)?$/i.test(item.name)
+      ? "Clinician review" as const
+      : currentSupplements.has(normalizeSupplementName(item.name).toLowerCase())
+        ? "Current - optimize" as const
+        : "New - consider" as const,
+  }));
+  const currentPool = classified.filter((item) => item.status === "Current - optimize").slice(0, 5);
+  const clinicianPool = classified.filter((item) => item.status === "Clinician review" && item.explicit).slice(0, 1);
+  const newPool = classified.filter((item) => item.status === "New - consider");
+  const selected = [...currentPool];
+  const reservedClinician = clinicianPool.length;
+  const requiredNew = Math.max(4, minRows - selected.length - reservedClinician);
+  selected.push(...newPool.slice(0, requiredNew));
+  selected.push(...clinicianPool);
+  if (selected.length < minRows) {
+    const selectedNames = new Set(selected.map((item) => normalizeSupplementName(item.name).toLowerCase()));
+    selected.push(...newPool.filter((item) => !selectedNames.has(normalizeSupplementName(item.name).toLowerCase())).slice(0, minRows - selected.length));
+  }
+  const items = selected.slice(0, minRows);
   const header = "| Rank | Supplement | Status | Why it Matters |\n| --- | --- | --- | --- |";
   return `${header}\n${items.map((item, index) => {
-    const status = berberineRequiresReview && /^berberine$/i.test(item.name)
-      ? "Clinician review"
-      : currentSupplements.has(normalizeSupplementName(item.name).toLowerCase())
-        ? "Current - optimize"
-        : "New - consider";
+    const status = item.status;
     const why = status === "Clinician review"
       ? `${item.why.replace(/[.\s]+$/, "")}. Coordinate with a qualified clinician before considering use.`
       : item.why;
@@ -515,8 +554,12 @@ function consistentDosingBody(
   });
   const currentLines = bullets.filter((line) => {
     const name = bulletName(line);
-    return Boolean(name && !blueprintSet.has(normalizeSupplementName(name).toLowerCase()) && currentSet.has(normalizeSupplementName(name).toLowerCase()));
+    return Boolean(name && !isMalformedCurrentStackName(name) && !blueprintSet.has(normalizeSupplementName(name).toLowerCase()) && currentSet.has(normalizeSupplementName(name).toLowerCase()));
   });
+  const uniqueCurrentLines = Array.from(new Map(currentLines.flatMap((line) => {
+    const name = bulletName(line);
+    return name ? [[normalizeSupplementName(name).toLowerCase(), line] as const] : [];
+  })).values());
   const covered = new Set(
     modelBlueprintLines.map((line) => bulletName(line)?.toLowerCase()).filter((name): name is string => Boolean(name))
   );
@@ -531,22 +574,25 @@ function consistentDosingBody(
       normalizeSupplementName(item.name).toLowerCase() === normalizeSupplementName(name).toLowerCase());
     const reported = [current?.dose, current?.timing].filter(Boolean).join(", ");
     if (current && reported) return `- **${name}** -- Currently reported: ${reported}. Review before changing.`;
-    if (berberineRequiresReview && /^berberine$/i.test(name)) {
+    if (berberineRequiresReview && /^berberine(?:\s+hcl)?$/i.test(name)) {
       return `- **${name}** -- Clinician review is required before considering use because glucose-lowering medication or blood-sugar context was reported. Do not start without coordinated review.`;
     }
     return modelLineByName.get(name.toLowerCase()) ??
       `- **${name}** -- Clinician review is recommended before use; a specific dose or timing is not provided.`;
   }).map(complianceSafeLanguage);
   const coveredCurrent = new Set(
-    currentLines.map((line) => bulletName(line)?.toLowerCase()).filter((name): name is string => Boolean(name))
+    uniqueCurrentLines.map((line) => {
+      const name = bulletName(line);
+      return name ? normalizeSupplementName(name).toLowerCase() : null;
+    }).filter((name): name is string => Boolean(name))
   );
   const missingCurrentLines = ledger
-    .filter((item) => !blueprintSet.has(normalizeSupplementName(item.name).toLowerCase()) && !coveredCurrent.has(item.name.toLowerCase()))
+    .filter((item) => !blueprintSet.has(normalizeSupplementName(item.name).toLowerCase()) && !coveredCurrent.has(normalizeSupplementName(item.name).toLowerCase()))
     .map((item) => {
       const details = [item.dose ? `dose: ${item.dose}` : null, item.timing ? `timing: ${item.timing}` : null].filter(Boolean).join("; ");
       return `- **${item.name}** -- Current ${currentStackKindLabel(item.kind).toLowerCase()} reported${details ? ` (${details})` : ""}. Review interactions and any changes with a qualified clinician or pharmacist.`;
     });
-  const currentNotes = [...currentLines, ...missingCurrentLines];
+  const currentNotes = [...uniqueCurrentLines, ...missingCurrentLines];
   const currentBlock = currentNotes.length
     ? `\n\n### Current Stack Notes\n\n${currentNotes.join("\n")}`
     : "";
@@ -636,6 +682,33 @@ function blueprintOK(md: string, minRows: number) {
   const dataStart = sepIdx >= 0 ? sepIdx + 1 : 1;
   const data = tableLines.slice(dataStart).filter((l) => /\S/.test(l));
   return data.length >= minRows;
+}
+
+function validateBlueprintMix(md: string) {
+  const rows = sectionChunk(md, "## Your Blueprint Recommendations")
+    .split(/\r?\n/)
+    .filter((line) => /^\s*\|\s*\d+\s*\|/.test(line))
+    .map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim()));
+  const statuses = rows.map((cells) => cells[2]);
+  const counts = {
+    total: rows.length,
+    current: statuses.filter((status) => status === "Current - optimize").length,
+    new: statuses.filter((status) => status === "New - consider").length,
+    clinicianReview: statuses.filter((status) => status === "Clinician review").length,
+  };
+  return {
+    valid: counts.total === 10 && counts.current <= 5 && counts.new >= 4 && counts.clinicianReview <= 1 &&
+      statuses.every((status) => ["Current - optimize", "New - consider", "Clinician review"].includes(status)),
+    counts,
+  };
+}
+
+function malformedCurrentStackRows(md: string): string[] {
+  return sectionChunk(md, "## Current Stack")
+    .split(/\r?\n/)
+    .filter((line) => /^\s*\|/.test(line) && !/^\s*\|\s*(?:Current Item|-+)/i.test(line))
+    .map((line) => line.split("|")[1]?.trim() ?? "")
+    .filter(isMalformedCurrentStackName);
 }
 
 function citationsOK(md: string) {
@@ -975,6 +1048,7 @@ function normalizeSupplementName(name: string): string {
   if (collapsed.startsWith("creatine")) return "Creatine Monohydrate";
   if (collapsed.startsWith("curcumin") || collapsed.startsWith("turmeric")) return "Curcumin";
   if (collapsed.startsWith("probiotic")) return "Probiotic";
+  if (collapsed.startsWith("collagen")) return "Collagen peptides";
   if (collapsed.includes("psyllium") || collapsed.startsWith("soluble fiber") || collapsed.startsWith("fiber (")) return "Soluble fiber (psyllium)";
   if (collapsed.startsWith("rhodiola")) return "Rhodiola Rosea";
   if (collapsed.startsWith("ginkgo")) return "Ginkgo Biloba";
@@ -993,6 +1067,7 @@ const ALIAS_MAP: Record<string, string> = {
   "Creatine Monohydrate": "creatine (monohydrate)",
   "Curcumin": "curcumin (95% curcuminoids + piperine)",
   "Probiotic": "probiotic (lacto/bifido blend)",
+  "Collagen peptides": "collagen peptides",
   "Soluble fiber (psyllium)": "fiber (psyllium husk)",
   "Rhodiola Rosea": "rhodiola rosea (3% rosavins)",
   "Ginkgo Biloba": "ginkgo biloba (24/6)",
@@ -1024,6 +1099,7 @@ function buildEvidenceCandidates(normName: string): string[] {
     "Creatine Monohydrate": ["creatine (monohydrate)", "creatine monohydrate", "creatine"],
     "Curcumin": ["curcumin (95% curcuminoids + piperine)", "curcumin", "turmeric"],
     "Probiotic": ["probiotic (lacto/bifido blend)", "probiotic", "probiotics"],
+    "Collagen peptides": ["collagen peptides", "collagen peptide", "hydrolyzed collagen"],
     "Soluble fiber (psyllium)": ["fiber (psyllium husk)", "psyllium husk", "psyllium", "soluble fiber"],
     "Rhodiola Rosea": ["rhodiola rosea (3% rosavins)", "rhodiola rosea"],
     "Ginkgo Biloba": ["ginkgo biloba (24/6)", "ginkgo biloba"],
@@ -1245,6 +1321,7 @@ Output ONLY the section "## Your Blueprint Recommendations" as a Markdown table 
 | Rank | Supplement | Status | Why it Matters |
 
 - Provide exactly **10** data rows (Rank 1..10).
+- Include at least 4 "New - consider" rows, no more than 5 "Current - optimize" rows, and no more than 1 "Clinician review" row.
 - Recommend goal-aligned supplement options only. Never recommend medications, prescription drugs, or hormones.
 - Never recommend endocrine-active supplements such as DHEA or Pregnenolone by default.
 - Select from the recommendable supplement ledger. Do not simply copy the Current Stack unless a legitimate current supplement has a clear optimization reason.
@@ -1561,7 +1638,7 @@ if (missingRepeatedTallyItems.length) {
   throw new Error(`Current stack ledger omitted repeated Tally items: ${missingRepeatedTallyItems.join(", ")}`);
 }
 if (currentStackLedger.some((item) =>
-  !item.name.trim() || UUID_VALUE_RE.test(item.name) || OBJECT_STRING_RE.test(item.name)
+  isMalformedCurrentStackName(item.name) || UUID_VALUE_RE.test(item.name) || OBJECT_STRING_RE.test(item.name)
 )) {
   throw new Error("Invalid current stack ledger item name");
 }
@@ -1643,6 +1720,7 @@ Convert the text below into a single Markdown table ONLY with header exactly:
 | Rank | Supplement | Status | Why it Matters |
 
 - Provide exactly 10 data rows (Rank 1..10).
+- Include at least 4 "New - consider" rows, no more than 5 "Current - optimize" rows, and no more than 1 "Clinician review" row.
 - Short, plain-English "Why it Matters".
 - If dose/timing is relevant, write "See Dosing & Notes".
 - No other text. No code fences.
@@ -1859,7 +1937,7 @@ if (!hasContra || !hasDosing || !passBHasBodies()) {
   hasContra = _hasContra(dosingMd);
   hasDosing = _hasDosing(dosingMd);
 }
-dosingMd = ensureContraCurrentStackCoverage(dosingMd, currentStackLedger);
+dosingMd = ensureContraCurrentStackCoverage(dosingMd, currentStackLedger, berberineRequiresReview);
 
 
 // token accounting (wrapper exposes usage.*)
@@ -2101,7 +2179,7 @@ const safetyInput = {
   const isShoppableItem = (item: StackItem) => {
     const key = itemKey(item.name);
     const currentKind = currentKindByName.get(key);
-    if (berberineRequiresReview && /^berberine$/i.test(item.name)) return false;
+    if (berberineRequiresReview && /^berberine(?:\s+hcl)?$/i.test(item.name)) return false;
     return shoppableNames.has(key) && isEligibleSupplementName(item.name) && (!currentKind || currentKind === "supplement");
   };
   const isEvidenceItem = (item: StackItem) => {
@@ -2175,7 +2253,7 @@ const safetyInput = {
   }
   if (itemsForPersistence.some((item) => {
     const name = validItemName(item.name);
-    return !name || UUID_VALUE_RE.test(name) || OBJECT_STRING_RE.test(name);
+    return !name || isMalformedCurrentStackName(name) || UUID_VALUE_RE.test(name) || OBJECT_STRING_RE.test(name);
   })) {
     throw new Error("Invalid current stack item blocked before persistence");
   }
@@ -2223,6 +2301,8 @@ const safetyInput = {
   const targets = computeValidationTargets(mode, cap);
   const emptySections = emptyRequiredSections(md);
   const parity = validateCurrentStackParity(md, currentStackLedger);
+  const blueprintMix = validateBlueprintMix(md);
+  const malformedCurrentRows = malformedCurrentStackRows(md);
   if (!parity.valid) console.warn("[validation] contraindication_current_stack_mismatch", parity.mismatch);
   console.info("[validation] current stack parity", {
     current_stack_rendered_count: currentStackLedger.filter((item) =>
@@ -2234,15 +2314,19 @@ const safetyInput = {
     wordCountOK: wc(md) >= targets.minWords,
     headingsValid: headingsOK(md),
     blueprintValid: blueprintOK(md, targets.minRows),
+    blueprintMixValid: blueprintMix.valid,
     citationsValid: citationsOK(md),
     narrativesValid: narrativesOK(md, targets.minSent),
     sectionBodiesValid: emptySections.length === 0,
     currentStackParityValid: parity.valid,
+    currentStackNamesValid: malformedCurrentRows.length === 0,
     endValid: !/(^|\n)##\s*END\s*(?=\n|$)/i.test(md),
   };
   if (emptySections.length) {
     console.warn("[validation] empty required section bodies:", emptySections);
   }
+  if (!blueprintMix.valid) console.warn("[validation] invalid Blueprint recommendation mix", blueprintMix.counts);
+  if (malformedCurrentRows.length) console.warn("[validation] malformed Current Stack rows", malformedCurrentRows);
   console.info("validation.targets", targets);
   console.info("validation.debug", { ...ok, actualWordCount: wc(md) });
 
@@ -2251,6 +2335,12 @@ const safetyInput = {
   }
   if (!ok.currentStackParityValid) {
     throw new Error(`Refusing to persist report with Current Stack mismatch: ${parity.mismatch.join(", ")}`);
+  }
+  if (!ok.blueprintMixValid) {
+    throw new Error(`Refusing to persist invalid Blueprint recommendation mix: ${JSON.stringify(blueprintMix.counts)}`);
+  }
+  if (!ok.currentStackNamesValid) {
+    throw new Error(`Refusing to persist malformed Current Stack rows: ${malformedCurrentRows.join(", ")}`);
   }
 
   // ----------------------------------------------------------------------------
@@ -2271,7 +2361,7 @@ const safetyInput = {
           tokens_used: (promptTokens ?? 0) + (completionTokens ?? 0),
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
-          safety_status: (ok.headingsValid && ok.blueprintValid && ok.citationsValid && ok.sectionBodiesValid && ok.currentStackParityValid) ? "safe" : "warning",
+          safety_status: (ok.headingsValid && ok.blueprintValid && ok.blueprintMixValid && ok.citationsValid && ok.sectionBodiesValid && ok.currentStackParityValid && ok.currentStackNamesValid) ? "safe" : "warning",
           summary: md,
           sections: { markdown: md, generated_at: new Date().toISOString(), mode, item_cap: cap ?? null },
           notes: null,

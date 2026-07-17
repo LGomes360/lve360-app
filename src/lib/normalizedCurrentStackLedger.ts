@@ -13,7 +13,7 @@ export type NormalizedCurrentStackLedgerItem = {
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const INVALID_NAME_RE = /^(?:\[object Object\]|tbd|none|null|no|n\/?a|blank|no (?:medications?|supplements?|hormones?)|not reported)$/i;
+const INVALID_NAME_RE = /^(?:\[object Object\]|tbd|none|null|no|n\/?a|blank|each|no (?:medications?|supplements?|hormones?)|not reported)$/i;
 const KIND_PATTERNS: Array<[CurrentStackKind, RegExp]> = [
   ["hormone", /\b(?:hormones?|trt|testosterone|dhea|pregnenolone)\b/i],
   ["medication", /\b(?:medications?|prescriptions?|drugs?|glp(?:[ -]?1)?|thyroid)\b/i],
@@ -25,7 +25,31 @@ const DETAIL_LABEL_RE = /\b(?:purpose|dose|dosage|frequency|timing|how often|whe
 const YES_NO_RE = /^(?:yes|no|true|false)$/i;
 const ENDOCRINE_ACTIVE_RE = /^(?:dhea|pregnenolone)\b/i;
 const INLINE_DOSE_RE = /\b\d+(?:\.\d+)?\s*(?:mcg|\u00b5g|ug|mg|g|iu|ml)\b|\b\d+(?:\.\d+)?\s*%/i;
-const INLINE_FREQUENCY_RE = /\b(?:(?:once|twice|three times|\d+\s*x)\s*(?:(?:a|per)\s+)?(?:day|daily)?|daily|weekly|monthly|every other day)\b/i;
+const INLINE_FREQUENCY_RE = /\b(?:(?:once|twice|three times|\d+\s*x)\s*(?:(?:a|per)\s+)?(?:day|daily)?|daily|nightly|weekly|monthly|every other day)\b/i;
+const DOSE_ONLY_RE = /^\d+(?:\.\d+)?\s*(?:mcg|\u00b5g|ug|mg|g|iu|ml|%)(?:\s*(?:daily|nightly|morning|evening|night|am|pm|weekly|monthly|twice daily))?$/i;
+const DANGLING_DASH_RE = /(?:\u2014|\u2013|â€”|â€“|-|\?)\s*$/;
+
+function normalizeNumericCommas(value: string): string {
+  return value.replace(/(\d),(?=\d{3}\b)/g, "$1");
+}
+
+function cleanParsedName(value: string): string {
+  const cleaned = value
+    .replace(/\s*(?:\u2014|\u2013|â€”|â€“|-)\s*$/g, "")
+    .replace(/\s*\?\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (/^(?:alcar|acetyl[- ]l[- ]carnitine(?:\s*\(alcar\))?)$/i.test(cleaned)) {
+    return "Acetyl-L-carnitine (ALCAR)";
+  }
+  return cleaned;
+}
+
+export function isMalformedCurrentStackName(value: unknown): boolean {
+  const name = String(value ?? "").replace(/\s+/g, " ").trim();
+  return !name || INVALID_NAME_RE.test(name) || UUID_RE.test(name) || DANGLING_DASH_RE.test(name) ||
+    /^\d+$/.test(name) || /^0{2,}\s*(?:mg|mcg|g|iu|ml)\b/i.test(name) || DOSE_ONLY_RE.test(name);
+}
 
 export function classifyCurrentStackKind(name: string, fallback: CurrentStackKind): CurrentStackKind {
   return ENDOCRINE_ACTIVE_RE.test(name.trim()) ? "endocrine_active_supplement" : fallback;
@@ -42,12 +66,12 @@ export function parseCurrentStackFreeText(raw: string): {
   timing?: string;
   purpose?: string;
 } {
-  const original = raw.replace(/\s+/g, " ").trim();
+  const original = normalizeNumericCommas(raw).replace(/\s+/g, " ").trim();
   const dose = original.match(INLINE_DOSE_RE)?.[0]?.trim();
   const purposeMatch = original.match(/\bfor\s+([^,;]+)$/i);
   const purpose = purposeMatch?.[1]?.trim();
   const timingParts: string[] = [];
-  const timeOfDay = original.match(/\b(?:morning|evening|night|bedtime|am|pm)\b/i)?.[0];
+  const timeOfDay = original.match(/\b(?:morning|evening|night|nightly|bedtime|am|pm)\b/i)?.[0];
   const frequency = original.match(INLINE_FREQUENCY_RE)?.[0];
   const withFood = original.match(/\bwith\s+(?:breakfast|lunch|dinner|meals?|food)\b/i)?.[0];
   const asNeeded = /\bas needed\b/i.test(original) ? "As needed" : undefined;
@@ -59,14 +83,15 @@ export function parseCurrentStackFreeText(raw: string): {
   if (purposeMatch) name = name.replace(purposeMatch[0], " ");
   if (dose) name = name.replace(dose, " ");
   name = name
-    .replace(/\bat\s+(?:morning|evening|night|bedtime)\b/gi, " ")
-    .replace(/\b(?:morning|evening|night|bedtime|am|pm)\b/gi, " ")
+    .replace(/\bat\s+(?:morning|evening|night|nightly|bedtime)\b/gi, " ")
+    .replace(/\b(?:morning|evening|night|nightly|bedtime|am|pm)\b/gi, " ")
     .replace(new RegExp(INLINE_FREQUENCY_RE.source, "gi"), " ")
     .replace(/\bwith\s+(?:breakfast|lunch|dinner|meals?|food)\b/gi, " ")
     .replace(/\bas needed\b/gi, " ")
     .replace(/\s+/g, " ")
-    .replace(/[,:;-]+$/g, "")
+    .replace(/[,:;]+$/g, "")
     .trim();
+  name = cleanParsedName(name);
 
   return {
     name: name || original,
@@ -85,8 +110,8 @@ function parseJson(value: unknown): any {
 
 function readableText(value: unknown): string | undefined {
   if (typeof value !== "string" && typeof value !== "number") return undefined;
-  const text = String(value).replace(/\s+/g, " ").trim();
-  return text && !INVALID_NAME_RE.test(text) && !UUID_RE.test(text) ? text : undefined;
+  const text = normalizeNumericCommas(String(value)).replace(/\s+/g, " ").trim();
+  return text && !isMalformedCurrentStackName(text) ? text : undefined;
 }
 
 export function extractLedgerReadableNames(
@@ -97,7 +122,7 @@ export function extractLedgerReadableNames(
   const value = parseJson(raw);
   if (value == null || depth > 12) return [];
   if (typeof value === "string") {
-    return value.split(/,|\n|;|\|/).map(readableText).filter((name): name is string => Boolean(name));
+    return normalizeNumericCommas(value).split(/,|\n|;|\|/).map(readableText).filter((name): name is string => Boolean(name));
   }
   if (typeof value !== "object") return [];
   if (seen.has(value)) return [];
@@ -223,10 +248,11 @@ export function parseTallyCurrentStackFields(
     activeKind = kind;
     const names = fieldValues(field)
       .flatMap((value) => extractLedgerReadableNames(value))
-      .filter((name) => !isPreferenceFieldOrValue(name) && !YES_NO_RE.test(name) && !UUID_RE.test(name) && !INVALID_NAME_RE.test(name));
+      .filter((name) => !isPreferenceFieldOrValue(name) && !YES_NO_RE.test(name) && !isMalformedCurrentStackName(name));
     currentItems = [];
     for (const rawName of names) {
       const parsedValue = parseCurrentStackFreeText(rawName);
+      if (isMalformedCurrentStackName(parsedValue.name)) continue;
       const item: NormalizedCurrentStackLedgerItem = {
         name: parsedValue.name,
         kind: classifyCurrentStackKind(parsedValue.name, kind),
@@ -278,8 +304,9 @@ export function buildNormalizedCurrentStackLedger(submission: any): NormalizedCu
     for (const part of parts) {
       const names = extractLedgerReadableNames(part);
       for (const rawName of names) {
-        if (!rawName || isPreferenceFieldOrValue(rawLabel) || isPreferenceFieldOrValue(rawName) || YES_NO_RE.test(rawName) || UUID_RE.test(rawName) || INVALID_NAME_RE.test(rawName)) continue;
+        if (!rawName || isPreferenceFieldOrValue(rawLabel) || isPreferenceFieldOrValue(rawName) || YES_NO_RE.test(rawName) || isMalformedCurrentStackName(rawName)) continue;
         const parsedValue = parseCurrentStackFreeText(rawName);
+        if (isMalformedCurrentStackName(parsedValue.name)) continue;
         const resolvedKind = classifyCurrentStackKind(parsedValue.name, kind);
         const key = `${resolvedKind}:${parsedValue.name.toLowerCase()}`;
         const object = part && typeof part === "object" && !Array.isArray(part) ? part as Record<string, any> : {};
