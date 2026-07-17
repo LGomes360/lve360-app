@@ -53,7 +53,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, items: items ?? [] }, { status: 200 });
+    const safeItems = (items ?? []).filter((item) => {
+      const name = typeof item?.name === "string" ? item.name.trim() : "";
+      return Boolean(name && !/^\[object Object\]$/i.test(name) && !/^(?:tbd|none|null|n\/?a)$/i.test(name));
+    });
+    return NextResponse.json({ ok: true, items: safeItems }, { status: 200 });
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: String(err?.message ?? err) }, { status: 500 });
   }
