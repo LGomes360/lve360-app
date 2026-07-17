@@ -258,21 +258,83 @@ const DEFAULT_BLUEPRINT_ITEMS = [
   "Omega-3", "Vitamin D", "Magnesium", "Soluble fiber", "Probiotic",
   "Vitamin B12", "Curcumin", "Green tea extract (EGCG)", "CoQ10", "Collagen",
 ];
+const OBJECT_STRING_RE = /^\[object Object\]$/i;
+type NormalizationStats = { rejectedObjectValues: number };
+
+function readableNameText(raw: string): string | null {
+  const name = cleanName(raw);
+  return name && !OBJECT_STRING_RE.test(name) && !INVALID_ITEM_NAME_RE.test(name) ? name : null;
+}
+
+export function extractReadableNames(
+  value: unknown,
+  stats?: NormalizationStats,
+  seen: WeakSet<object> = new WeakSet(),
+  depth = 0
+): string[] {
+  if (value == null || depth > 10) return [];
+  if (typeof value === "string") {
+    return value.split(/,|\n|;|\|/).map(readableNameText).filter((name): name is string => Boolean(name));
+  }
+  if (typeof value !== "object") return [];
+  if (seen.has(value as object)) return [];
+  seen.add(value as object);
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => extractReadableNames(item, stats, seen, depth + 1));
+  }
+
+  const object = value as Record<string, any>;
+  const candidates = [
+    object.med_name, object.supplement_name, object.hormone_name,
+    object.name, object.label, object.text, object.title,
+    object.selectedOptions, object.choices?.labels,
+    object.value, object.answer, object.choice,
+  ].filter((candidate) => candidate != null);
+  let names = candidates.flatMap((candidate) => extractReadableNames(candidate, stats, seen, depth + 1));
+  if (!names.length) {
+    const ignored = new Set(["id", "key", "type", "options", "dose", "dosage", "timing", "frequency", "purpose", "notes"]);
+    names = Object.entries(object)
+      .filter(([key]) => !ignored.has(key))
+      .flatMap(([, nested]) => extractReadableNames(nested, stats, seen, depth + 1));
+  }
+  if (!names.length) stats && (stats.rejectedObjectValues += 1);
+  return Array.from(new Set(names));
+}
 
 function validItemName(raw: unknown): string | null {
-  const name = cleanName(String(raw ?? ""));
-  return name && !INVALID_ITEM_NAME_RE.test(name) ? name : null;
+  if (typeof raw === "object" && raw !== null) return extractReadableNames(raw)[0] ?? null;
+  return readableNameText(String(raw ?? ""));
 }
 
 function intakeItemName(item: any): string | null {
-  if (typeof item === "string") return validItemName(item);
-  return validItemName(item?.med_name ?? item?.hormone_name ?? item?.supplement_name ?? item?.name ?? item?.label ?? item?.value);
+  return extractReadableNames(item)[0] ?? null;
 }
 
 function intakeItems(raw: any): any[] {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw;
-  return String(raw).split(/,|\n|;|\|/).map((name) => name.trim()).filter(Boolean);
+  if (typeof raw === "object") return [raw];
+  return extractReadableNames(raw);
+}
+
+function readableDetail(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string" || typeof value === "number") {
+    const text = cleanName(String(value));
+    return text && !OBJECT_STRING_RE.test(text) ? text : null;
+  }
+  return extractReadableNames(value)[0] ?? null;
+}
+
+function normalizedItemWithDetails(item: unknown, name: string): string | Record<string, string> {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return name;
+  const source = item as Record<string, unknown>;
+  const purpose = readableDetail(source.purpose ?? source.notes);
+  const dose = readableDetail(source.dose ?? source.dosage ?? source.amount);
+  const timing = readableDetail(source.timing ?? source.frequency ?? source.schedule);
+  return purpose || dose || timing
+    ? { name, ...(purpose ? { purpose } : {}), ...(dose ? { dose } : {}), ...(timing ? { timing } : {}) }
+    : name;
 }
 
 function currentStackEntries(client: any) {
@@ -282,18 +344,20 @@ function currentStackEntries(client: any) {
     ["Hormone", client?.hormones],
   ] as const;
   const seen = new Set<string>();
-  return groups.flatMap(([kind, raw]) => intakeItems(raw).flatMap((item) => {
-    const name = intakeItemName(item);
-    if (!name || seen.has(name.toLowerCase())) return [];
-    seen.add(name.toLowerCase());
-    return [{
-      name,
-      kind,
-      purpose: cleanName(String(item?.purpose ?? item?.notes ?? `${kind} reported in intake`)),
-      dose: cleanName(String(item?.dose ?? item?.dosage ?? "Not provided")),
-      timing: cleanName(String(item?.timing ?? item?.frequency ?? "Not provided")),
-    }];
-  }));
+  return groups.flatMap(([kind, raw]) => intakeItems(raw).flatMap((item) =>
+    extractReadableNames(item).flatMap((name) => {
+      if (seen.has(name.toLowerCase())) return [];
+      seen.add(name.toLowerCase());
+      const details = typeof item === "object" && item !== null ? item : {};
+      return [{
+        name,
+        kind,
+        purpose: readableDetail(details.purpose ?? details.notes) ?? `${kind} reported in intake`,
+        dose: readableDetail(details.dose ?? details.dosage ?? details.amount) ?? "Not provided",
+        timing: readableDetail(details.timing ?? details.frequency ?? details.schedule) ?? "Not provided",
+      }];
+    })
+  ));
 }
 
 function buildCurrentStackSection(client: any, referencedElsewhere = false): string {
@@ -304,6 +368,22 @@ function buildCurrentStackSection(client: any, referencedElsewhere = false): str
       ? "Current-stack items are referenced elsewhere in this report, but structured intake details could not be recovered. Review the safety and dosing sections with a qualified clinician before making changes."
       : "No current medications, supplements, or hormones were reported in the intake.";
   return `## Current Stack\n\n${body}\n\n**Analysis**\n\nThis section reflects the current medications, supplements, and hormones reported in the intake. Review it for accuracy and discuss changes or potential interactions with a qualified clinician.`;
+}
+
+function ensureContraCurrentStackCoverage(passB: string, currentNames: string[]): string {
+  const header = "## Contraindications & Med Interactions";
+  const body = sectionChunk(passB, header);
+  if (!body || !currentNames.length) return passB;
+  const missing = currentNames.filter((name) => !body.toLowerCase().includes(name.toLowerCase()));
+  if (!missing.length) return passB;
+  const coverage = missing.map((name) =>
+    `- **${name}:** Reported in Current Stack. No specific interaction conclusion is provided here; review it with a qualified clinician or pharmacist before changing use.`
+  ).join("\n");
+  const analysisAt = body.search(/\n\*\*Analysis\*\*/i);
+  const repairedBody = analysisAt >= 0
+    ? `${body.slice(0, analysisAt).trimEnd()}\n${coverage}\n${body.slice(analysisAt)}`
+    : `${body.trimEnd()}\n${coverage}\n`;
+  return passB.replace(`${header}${body}`, `${header}${repairedBody}`);
 }
 
 function sectionBodyMeaningful(md: string, heading: string): boolean {
@@ -1084,6 +1164,8 @@ Generate ONLY these two sections, in this order:
 
 ## Contraindications & Med Interactions
 - Identify potential conflicts among medications, hormones, and supplements.
+- Review every normalized Current Stack item shown in CLIENT; do not silently omit an item.
+- If no specific interaction is identified for an item, state that no conclusion is provided and recommend clinician or pharmacist review.
 - Call out classes (e.g., MAO-B risk, serotonin, anticoagulants).
 - Use plain English. End with **Analysis** (≥3 sentences).
 
@@ -1225,12 +1307,18 @@ export async function generateStackForSubmission(arg: string | { submissionId: s
 
   // If it’s an array of { key, value, label, ... } (Tally fields), build a map
   const map: Record<string, any> = {};
+  const append = (key: string, value: any) => {
+    if (value == null) return;
+    if (map[key] == null) map[key] = value;
+    else map[key] = [...(Array.isArray(map[key]) ? map[key] : [map[key]]), ...(Array.isArray(value) ? value : [value])];
+  };
   for (const f of answers ?? []) {
     const key = f?.key ?? f?.field?.key ?? f?.field?.id;
     if (!key) continue;
-    map[String(key)] = f?.value ?? f?.text ?? f?.answer ?? null;
-    if (f?.label) map[`label::${String(f.label).toLowerCase()}`] = map[String(key)];
-    if (f?.field?.label) map[`label::${String(f.field.label).toLowerCase()}`] = map[String(key)];
+    const value = f?.value ?? f?.text ?? f?.answer ?? null;
+    append(String(key), value);
+    if (f?.label) append(`label::${String(f.label).toLowerCase()}`, value);
+    if (f?.field?.label) append(`label::${String(f.field.label).toLowerCase()}`, value);
   }
   return map;
 }
@@ -1266,6 +1354,11 @@ function readableAnswerMap(submission: any): Record<string, any> {
     ...(Array.isArray(payload?.form_response?.answers) ? payload.form_response.answers : []),
   ];
   const map: Record<string, any> = {};
+  const append = (key: string, value: any) => {
+    if (value == null) return;
+    if (map[key] == null) map[key] = value;
+    else map[key] = [...(Array.isArray(map[key]) ? map[key] : [map[key]]), ...(Array.isArray(value) ? value : [value])];
+  };
   for (const field of fields) {
     const key = field?.key ?? field?.field?.key ?? field?.field?.id;
     const label = field?.label ?? field?.field?.label;
@@ -1279,60 +1372,70 @@ function readableAnswerMap(submission: any): Record<string, any> {
       return optionMap.get(String(scalar)) || scalar;
     };
     const value = Array.isArray(raw) ? raw.map(resolve) : resolve(raw);
-    if (key) map[String(key)] = value;
-    if (label) map[`label::${String(label).trim().toLowerCase()}`] = value;
+    if (key) append(String(key), value);
+    if (label) append(`label::${String(label).trim().toLowerCase()}`, value);
   }
   return map;
 }
 
-function mergeReadableValues(...sources: any[]): any[] {
-  const seen = new Set<string>();
-  const merged: any[] = [];
+function mergeReadableValues(stats: NormalizationStats, ...sources: any[]): { values: any[]; rawCount: number } {
+  const merged = new Map<string, any>();
+  let rawCount = 0;
   for (const source of sources) {
+    rawCount += extractReadableNames(source, stats).length;
     for (const item of intakeItems(source)) {
-      const name = intakeItemName(item) ?? validItemName(item);
-      if (!name || UUID_VALUE_RE.test(name) || seen.has(name.toLowerCase())) continue;
-      seen.add(name.toLowerCase());
-      merged.push(typeof item === "object" ? item : name);
+      for (const name of extractReadableNames(item)) {
+        if (UUID_VALUE_RE.test(name)) continue;
+        const key = name.toLowerCase();
+        const next = normalizedItemWithDetails(item, name);
+        const prior = merged.get(key);
+        if (!prior || (typeof prior === "string" && typeof next === "object")) merged.set(key, next);
+      }
     }
   }
-  return merged;
+  return { values: Array.from(merged.values()), rawCount };
 }
   // ---------- STAGED LLM PASSES ----------
   const ans = extractFromAnswers(sub);
 const readableAns = readableAnswerMap(sub);
 const engineInput = (sub as any)?.engine_input_json ?? {};
+const normalizationStats: NormalizationStats = { rejectedObjectValues: 0 };
 
 // Pull the “real” intake from answers first; fall back to columns second
-const goalsRaw = mergeReadableValues(
+const goalsMerged = mergeReadableValues(normalizationStats,
   engineInput?.goals, (sub as any)?.goals,
   getAnswer(readableAns, "question_o2lQ0N", ["what are your top health goals"]),
   getAnswer(ans, "question_o2lQ0N", ["what are your top health goals"])
 );
+const goalsRaw = goalsMerged.values;
 
-const conditionsRaw = mergeReadableValues(
+const conditionsMerged = mergeReadableValues(normalizationStats,
   engineInput?.conditions, (sub as any)?.conditions,
   getAnswer(readableAns, "question_7K5Yj6", ["do you have any current health conditions"]),
   getAnswer(ans, "question_7K5Yj6", ["do you have any current health conditions"])
 );
+const conditionsRaw = conditionsMerged.values;
 
-const medicationsRaw = mergeReadableValues(
+const medicationsMerged = mergeReadableValues(normalizationStats,
   engineInput?.medications, engineInput?.meds, (sub as any)?.medications_text, (sub as any)?.medications,
   getAnswer(readableAns, "question_Ex8YB2", ["medications", "list medication", "do you take any medications"]),
   getAnswer(ans, "question_Ex8YB2", ["medications", "list medication", "do you take any medications"])
 );
+const medicationsRaw = medicationsMerged.values;
 
-const supplementsRaw = mergeReadableValues(
+const supplementsMerged = mergeReadableValues(normalizationStats,
   engineInput?.current_supplements, engineInput?.supplements, (sub as any)?.supplements_text, (sub as any)?.supplements,
   getAnswer(readableAns, "question_kNO8DM", ["supplements"]),
   getAnswer(ans, "question_kNO8DM", ["supplements"])
 );
+const supplementsRaw = supplementsMerged.values;
 
-const hormonesRaw = mergeReadableValues(
+const hormonesMerged = mergeReadableValues(normalizationStats,
   engineInput?.hormones, (sub as any)?.hormones_text, (sub as any)?.hormones,
   getAnswer(readableAns, "question_ro2Myv", ["hormones"]),
   getAnswer(ans, "question_ro2Myv", ["hormones"])
 );
+const hormonesRaw = hormonesMerged.values;
 
 // ONE source of truth for the rest of the file:
 const baseClient = {
@@ -1347,12 +1450,20 @@ const baseClient = {
 const compactClient = summarizeForLLM(baseClient);
 const fullClient = { ...baseClient, age: age((baseClient as any).dob ?? null), today: TODAY };
 const currentStackClient = { medications: medicationsRaw, supplements: supplementsRaw, hormones: hormonesRaw };
+const currentNames = currentStackEntries(currentStackClient).map((item) => item.name);
 console.info("[gen.intake.check]", {
   normalized_goals: (baseClient as any).goals,
   normalized_conditions: (baseClient as any).conditions,
   normalized_medications: (baseClient as any).medications,
   normalized_supplements: (baseClient as any).supplements,
   normalized_hormones: (baseClient as any).hormones,
+  medications_raw_count: medicationsMerged.rawCount,
+  medications_normalized_count: medicationsRaw.length,
+  supplements_raw_count: supplementsMerged.rawCount,
+  supplements_normalized_count: supplementsRaw.length,
+  hormones_raw_count: hormonesMerged.rawCount,
+  hormones_normalized_count: hormonesRaw.length,
+  rejected_object_values_count: normalizationStats.rejectedObjectValues,
   currentStackEntries_count: currentStackEntries(currentStackClient).length,
 });
 // PASS A: Blueprint Table (mini first)
@@ -1583,6 +1694,7 @@ if (!hasContra || !hasDosing || !passBHasBodies()) {
   hasContra = _hasContra(dosingMd);
   hasDosing = _hasDosing(dosingMd);
 }
+dosingMd = ensureContraCurrentStackCoverage(dosingMd, currentNames);
 
 
 // token accounting (wrapper exposes usage.*)
@@ -1746,7 +1858,6 @@ if (resC?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) +
 modelUsed = resC?.modelUsed ?? modelUsed;
 
   // ---------- Stitch full Markdown in canonical user-facing order ----------
-const currentNames = currentStackEntries(currentStackClient).map((item) => item.name);
 const currentItemsReferencedElsewhere = /\b(?:medication|supplement|hormone|metformin|zepbound|armour|testosterone|dhea|pregnenolone|glycine|creatine)\b/i.test(dosingMd);
 restMd = replaceOrAppendSection(restMd, buildCurrentStackSection(currentStackClient, currentItemsReferencedElsewhere));
 let md = assembleCanonicalReport(restMd, tableMd, dosingMd, currentNames);
@@ -1769,14 +1880,15 @@ let md = assembleCanonicalReport(restMd, tableMd, dosingMd, currentNames);
   const allowedItemNames = new Set(
     [...blueprintNames(tableMd), ...currentNames].map((name) => normalizeSupplementName(name).toLowerCase())
   );
-  const parsedItemsRaw = (parseMarkdownToItems(md) as any[]).filter((item) =>
-    allowedItemNames.has(normalizeSupplementName(String(item?.name ?? "")).toLowerCase())
-  );
+  const parsedItemsRaw = (parseMarkdownToItems(md) as any[]).filter((item) => {
+    const name = validItemName(item?.name);
+    return Boolean(name && allowedItemNames.has(normalizeSupplementName(name).toLowerCase()));
+  });
   const rawCapped = typeof cap === "number" ? asArray(parsedItemsRaw).slice(0, cap) : asArray(parsedItemsRaw);
   const baseItems: StackItem[] = rawCapped.map((i: any) => ({ ...i, is_current: i?.is_current === true }));
   const filteredItems: StackItem[] = baseItems.filter((it) => {
-    const n = (it?.name || "").trim();
-    if (!n || n === "---" || /^TBD$/i.test(n)) return false;
+    const n = validItemName(it?.name);
+    if (!n || n === "---") return false;
     return !looksLikeTimingArtifact(n);
   });
 
@@ -1826,6 +1938,10 @@ const safetyInput = {
   const shoppingSection = buildShoppingLinksSection(withEvidence);
   const shoppingRe = /## Shopping Links([\s\S]*?)(?=\n## |\n## END|$)/i;
   md = shoppingRe.test(md) ? md.replace(shoppingRe, shoppingSection) : md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
+
+  if (md.includes("[object Object]")) {
+    throw new Error("Invalid object string leaked into report");
+  }
 
   // ---------- Final validation ----------
   const targets = computeValidationTargets(mode, cap);
@@ -1888,9 +2004,9 @@ const safetyInput = {
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", stackId);
       const rows: StackItemRow[] = (withEvidence || [])
         .map((it) => {
-          const normName = normalizeSupplementName(it?.name ?? "");
-          const safeName = cleanName(normName);
-          if (!safeName || safeName.toLowerCase() === "null") {
+          const readableName = validItemName(it?.name);
+          const safeName = readableName ? validItemName(normalizeSupplementName(readableName)) : null;
+          if (!safeName) {
             console.error("🚨 Blocking insert of invalid item", { stack_id: stackId, user_id, rawName: it?.name });
             return null;
           }
