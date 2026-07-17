@@ -12,11 +12,42 @@ import Stripe from "stripe";
 import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
 
 // ------------------- CONFIG -------------------
-const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY!;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://app.lve360.com";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {apiVersion: "2024-06-20",});
+
+async function syncUserProfile(
+  userId: string | null,
+  email: string | null,
+  fields: Record<string, unknown>
+) {
+  const payload = {
+    ...fields,
+    ...(email ? { email } : {}),
+    updated_at: new Date().toISOString(),
+  };
+
+  if (userId) {
+    const updated = await supa
+      .from("users")
+      .update(payload)
+      .eq("id", userId)
+      .select("id")
+      .maybeSingle();
+    if (updated.error) throw updated.error;
+    if (updated.data) return;
+
+    const inserted = await supa
+      .from("users")
+      .upsert({ id: userId, ...payload }, { onConflict: "id" });
+    if (inserted.error) throw inserted.error;
+    return;
+  }
+
+  if (!email) throw new Error("Stripe event could not be matched to a user");
+  const fallback = await supa.from("users").upsert(payload, { onConflict: "email" });
+  if (fallback.error) throw fallback.error;
+}
 
 // ------------------- MAIN HANDLER -------------------
 export async function POST(req: NextRequest) {
@@ -50,14 +81,12 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        const customerId = session.customer as string;
-        const email =
-          (session.customer_details?.email ||
-            session.client_reference_id ||
-            "").toLowerCase();
+        const customerId = typeof session.customer === "string" ? session.customer : null;
+        const userId = session.client_reference_id || session.metadata?.user_id || null;
+        const email = session.customer_details?.email?.toLowerCase() || null;
 
-        if (!email) {
-          console.warn("⚠️ Stripe checkout missing email:", session.id);
+        if (!userId && !email) {
+          console.warn("⚠️ Stripe checkout missing user correlation:", session.id);
           return NextResponse.json({ received: true }, { status: 200 });
         }
 
@@ -78,19 +107,12 @@ export async function POST(req: NextRequest) {
             : null;
         }
 
-        await supa.from("users").upsert(
-          {
-            email,
-            stripe_customer_id: customerId,
-            tier: "premium",
-            billing_interval: interval,
-            subscription_end_date: endDate
-              ? endDate.toISOString()
-              : null,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "email" }
-        );
+        await syncUserProfile(userId, email, {
+          stripe_customer_id: customerId,
+          tier: "premium",
+          billing_interval: interval,
+          subscription_end_date: endDate ? endDate.toISOString() : null,
+        });
 
         console.log(`💎 Upgraded ${email} → premium (${interval})`);
         return NextResponse.json({ received: true }, { status: 200 });
@@ -103,6 +125,7 @@ export async function POST(req: NextRequest) {
       case "customer.subscription.updated": {
         const sub = event.data.object as Stripe.Subscription;
         const customerId = sub.customer as string;
+        const userId = sub.metadata?.user_id || null;
         const price = sub.items.data[0]?.price;
         const unit = price?.recurring?.interval;
         const interval: "monthly" | "annual" =
@@ -112,26 +135,19 @@ export async function POST(req: NextRequest) {
           : null;
 
         const customer = await stripe.customers.retrieve(customerId);
-        const email = (customer as Stripe.Customer).email?.toLowerCase();
+        const email = (customer as Stripe.Customer).email?.toLowerCase() || null;
 
-        if (!email) {
-          console.warn("⚠️ Subscription update missing email:", sub.id);
+        if (!userId && !email) {
+          console.warn("⚠️ Subscription update missing user correlation:", sub.id);
           return NextResponse.json({ received: true }, { status: 200 });
         }
 
-        await supa.from("users").upsert(
-          {
-            email,
-            stripe_customer_id: customerId,
-            tier: sub.status === "active" ? "premium" : "free",
-            billing_interval: interval,
-            subscription_end_date: endDate
-              ? endDate.toISOString()
-              : null,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "email" }
-        );
+        await syncUserProfile(userId, email, {
+          stripe_customer_id: customerId,
+          tier: sub.status === "active" || sub.status === "trialing" ? "premium" : "free",
+          billing_interval: interval,
+          subscription_end_date: endDate ? endDate.toISOString() : null,
+        });
 
         console.log(`🔄 Synced subscription for ${email}`);
         return NextResponse.json({ received: true }, { status: 200 });
@@ -143,24 +159,20 @@ export async function POST(req: NextRequest) {
       case "customer.subscription.deleted": {
         const sub = event.data.object as Stripe.Subscription;
         const customerId = sub.customer as string;
+        const userId = sub.metadata?.user_id || null;
 
         const customer = await stripe.customers.retrieve(customerId);
-        const email = (customer as Stripe.Customer).email?.toLowerCase();
+        const email = (customer as Stripe.Customer).email?.toLowerCase() || null;
 
-        if (!email) {
-          console.warn("⚠️ Subscription deletion missing email:", sub.id);
+        if (!userId && !email) {
+          console.warn("⚠️ Subscription deletion missing user correlation:", sub.id);
           return NextResponse.json({ received: true }, { status: 200 });
         }
 
-        await supa.from("users").upsert(
-          {
-            email,
-            stripe_customer_id: customerId,
-            tier: "free",
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "email" }
-        );
+        await syncUserProfile(userId, email, {
+          stripe_customer_id: customerId,
+          tier: "free",
+        });
 
         console.log(`⬇️ Downgraded ${email} → free`);
         return NextResponse.json({ received: true }, { status: 200 });

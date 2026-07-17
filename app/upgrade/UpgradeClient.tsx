@@ -47,6 +47,10 @@ function Inner() {
   const router = useRouter();
   const sp = useSearchParams(); // safe inside Suspense
   const justUpgraded = sp?.get("just") === "1";
+  const requestedPlan: Plan | null =
+    sp?.get("plan") === "monthly" || sp?.get("plan") === "annual"
+      ? (sp.get("plan") as Plan)
+      : null;
 
   const [loadingPlan, setLoadingPlan] = useState<Plan | null>(null);
   const [tier, setTier] = useState<Tier>("free");
@@ -64,7 +68,8 @@ function Inner() {
 
         if (res.status === 401) {
           console.log("[/upgrade] 401 → to login");
-          router.replace("/login?next=/upgrade");
+          const next = requestedPlan ? `/upgrade?plan=${requestedPlan}` : "/upgrade";
+          router.replace(`/login?next=${encodeURIComponent(next)}`);
           return;
         }
 
@@ -93,6 +98,11 @@ function Inner() {
           console.log("[/upgrade] is premium → /dashboard");
           setTimeout(() => router.replace("/dashboard"), 400);
           return;
+        }
+
+        if (requestedPlan && data?.user_id) {
+          const label = requestedPlan === "annual" ? "Annual" : "Monthly";
+          setBanner(`You're signed in. Continue with ${label} Checkout below.`);
         }
 
         // If bounced here immediately after Stripe success, poll for flip
@@ -136,7 +146,7 @@ function Inner() {
     })();
 
     return () => { cancelled = true; };
-  }, [router, justUpgraded]);
+  }, [router, justUpgraded, requestedPlan]);
 
   async function handleUpgrade(plan: Plan) {
     setLoadingPlan(plan);
@@ -150,7 +160,7 @@ function Inner() {
       });
       if (res.status === 401) {
         console.log("[/upgrade] 401 on checkout → to login");
-        router.push("/login?next=/upgrade");
+        router.push(`/login?next=${encodeURIComponent(`/upgrade?plan=${plan}`)}`);
         return;
       }
       const json = await res.json();
@@ -206,7 +216,7 @@ function Inner() {
               disabled={disabled}
               className="text-lg px-6 py-3 w-full"
             >
-              {tier === "premium" ? "You're Premium" : loadingPlan === "monthly" ? "Redirecting…" : "Choose Monthly"}
+              {tier === "premium" ? "You're Premium" : loadingPlan === "monthly" ? "Redirecting…" : requestedPlan === "monthly" ? "Continue Monthly Checkout" : "Choose Monthly"}
             </CTAButton>
           </div>
 
@@ -220,7 +230,7 @@ function Inner() {
               disabled={disabled}
               className="text-lg px-6 py-3 w-full bg-yellow-400 hover:bg-yellow-500 text-purple-900 font-semibold"
             >
-              {tier === "premium" ? "You're Premium" : loadingPlan === "annual" ? "Redirecting…" : "Choose Annual"}
+              {tier === "premium" ? "You're Premium" : loadingPlan === "annual" ? "Redirecting…" : requestedPlan === "annual" ? "Continue Annual Checkout" : "Choose Annual"}
             </CTAButton>
           </div>
         </div>
