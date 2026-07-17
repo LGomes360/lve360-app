@@ -27,6 +27,7 @@ const PREFERENCE_VALUES = [
 
 const ENDOCRINE_ACTIVE_SUPPLEMENT_RE = /^(?:dhea|pregnenolone)\b/i;
 const NON_SHOPPABLE_MEDICATION_OR_HORMONE_RE = /\b(?:metformin|zepbound|tirzepatide|mounjaro|armour\s+thyroid|levothyroxine|synthroid|testosterone(?:\s+gel)?|dhea|pregnenolone|lunesta|eszopiclone|xanax|zanax|alprazolam)\b/i;
+const MALFORMED_ITEM_NAME_RE = /^(?:each|\d+|0{2,}\s*(?:mg|mcg|g|iu|ml)\b.*|\d+(?:\.\d+)?\s*(?:mg|mcg|g|iu|ml|%)(?:\s+(?:daily|nightly|morning|evening|night|am|pm))?)$/i;
 
 export const RECOMMENDABLE_SUPPLEMENT_CANDIDATES = [
   "Omega-3",
@@ -38,6 +39,7 @@ export const RECOMMENDABLE_SUPPLEMENT_CANDIDATES = [
   "Soluble fiber (psyllium)",
   "Probiotic",
   "Curcumin",
+  "Collagen peptides",
   "L-Theanine",
   "Vitamin B12",
   "Berberine",
@@ -74,6 +76,8 @@ export function isEligibleSupplementName(value: unknown): boolean {
     text &&
     !isPreferenceFieldOrValue(text) &&
     !isMedicationOrHormoneName(text) &&
+    !MALFORMED_ITEM_NAME_RE.test(text) &&
+    !/(?:\u2014|\u2013|â€”|â€“|-)\s*$/.test(text) &&
     !/^\[object object\]$/.test(text) &&
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(text)
   );
