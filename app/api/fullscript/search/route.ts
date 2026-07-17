@@ -2,17 +2,15 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
-import { createClient } from "@supabase/supabase-js";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 // --- Env ---
 const FULLSCRIPT_BASE = process.env.FULLSCRIPT_BASE_URL || "https://api.fullscript.com";
 const FULLSCRIPT_API_KEY = process.env.FULLSCRIPT_API_KEY || "";
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 // Fallback query against your own supplements table when Fullscript keys are missing
 async function fallbackSearch(q: string) {
-  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false }});
+  const admin = getSupabaseAdmin();
   const { data, error } = await admin
     .from("supplements")
     .select("id, ingredient, product_name, link_fullscript, link_amazon, notes")

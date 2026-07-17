@@ -2,14 +2,12 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
-import { createClient } from "@supabase/supabase-js";
 import { OpenAI } from "openai";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 // If you already have a helper in src/lib/openai.ts, you can import it instead.
 // import { openai } from "@/lib/openai";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
 
 // Small helper to compute a % (0–100) safely
@@ -21,9 +19,7 @@ function pct(numerator: number, denominator: number) {
 export async function POST() {
   const cookieStore = cookies();
   const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
-  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false },
-  });
+  const admin = getSupabaseAdmin();
 
   try {
     // 1) Auth

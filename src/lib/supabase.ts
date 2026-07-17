@@ -4,8 +4,8 @@
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 
-// Re-export admin client so existing imports keep working
-export { supabaseAdmin } from './supabaseAdmin';
+// Re-export the lazy admin getter and compatibility client for existing callers.
+export { getSupabaseAdmin, supabaseAdmin } from './supabaseAdmin';
 
 export function supabaseServer() {
   const cookieStore = cookies();

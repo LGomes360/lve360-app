@@ -4,7 +4,8 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 export async function GET() {
   try {
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+    if (!supabaseUrl || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
       console.error("[API] Supabase env vars missing");
       return NextResponse.json({ error: "Supabase envs not configured." }, { status: 500 });
     }

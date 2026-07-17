@@ -1,6 +1,8 @@
 // app/api/goals/route.ts
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+
+export const dynamic = "force-dynamic";
 
 type Body = {
   userId: string;
@@ -13,6 +15,7 @@ export async function GET(req: Request) {
   const userId = url.searchParams.get("userId");
   if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
 
+  const supabaseAdmin = getSupabaseAdmin();
   const { data, error } = await supabaseAdmin
     .from("goals")
     .select("goals, custom_goal, target_weight, target_sleep, target_energy")
@@ -27,6 +30,7 @@ export async function POST(req: Request) {
   const body = (await req.json()) as Body;
   if (!body?.userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
 
+  const supabaseAdmin = getSupabaseAdmin();
   const payload = {
     user_id: body.userId,
     goals: body.goals ?? [],
