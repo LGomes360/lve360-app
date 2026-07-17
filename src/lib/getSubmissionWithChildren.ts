@@ -52,6 +52,9 @@ export async function getSubmissionWithChildren(submissionId: string): Promise<S
 
   return {
     ...submission,
+    medications_text: submission.medications ?? null,
+    supplements_text: submission.supplements ?? null,
+    hormones_text: submission.hormones ?? null,
     medications: medResp.data ?? [],
     supplements: supResp.data ?? [],
     hormones: horResp.data ?? [],

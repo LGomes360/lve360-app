@@ -253,6 +253,58 @@ function sectionChunk(md: string, header: string) {
 
 const CANONICAL_REPORT_HEADINGS = HEADINGS.slice(0, -1);
 const PLACEHOLDER_SECTION_RE = /\b(?:tbd|placeholder|content pending|evidence pending|will populate|to be completed|this section will be auto-completed)\b/i;
+const INVALID_ITEM_NAME_RE = /^(?:see\s+(?:dosing(?:\s*&\s*notes)?|notes)|tbd|none|null|n\/?a|blank)$/i;
+const DEFAULT_BLUEPRINT_ITEMS = [
+  "Omega-3", "Vitamin D", "Magnesium", "Soluble fiber", "Probiotic",
+  "Vitamin B12", "Curcumin", "Green tea extract (EGCG)", "CoQ10", "Collagen",
+];
+
+function validItemName(raw: unknown): string | null {
+  const name = cleanName(String(raw ?? ""));
+  return name && !INVALID_ITEM_NAME_RE.test(name) ? name : null;
+}
+
+function intakeItemName(item: any): string | null {
+  if (typeof item === "string") return validItemName(item);
+  return validItemName(item?.med_name ?? item?.hormone_name ?? item?.supplement_name ?? item?.name ?? item?.label ?? item?.value);
+}
+
+function intakeItems(raw: any): any[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  return String(raw).split(/,|\n|;|\|/).map((name) => name.trim()).filter(Boolean);
+}
+
+function currentStackEntries(client: any) {
+  const groups = [
+    ["Medication", client?.medications],
+    ["Supplement", client?.supplements],
+    ["Hormone", client?.hormones],
+  ] as const;
+  const seen = new Set<string>();
+  return groups.flatMap(([kind, raw]) => intakeItems(raw).flatMap((item) => {
+    const name = intakeItemName(item);
+    if (!name || seen.has(name.toLowerCase())) return [];
+    seen.add(name.toLowerCase());
+    return [{
+      name,
+      kind,
+      purpose: cleanName(String(item?.purpose ?? item?.notes ?? `${kind} reported in intake`)),
+      dose: cleanName(String(item?.dose ?? item?.dosage ?? "Not provided")),
+      timing: cleanName(String(item?.timing ?? item?.frequency ?? "Not provided")),
+    }];
+  }));
+}
+
+function buildCurrentStackSection(client: any, referencedElsewhere = false): string {
+  const entries = currentStackEntries(client);
+  const body = entries.length
+    ? `| Medication/Supplement/Hormone | Purpose/Notes | Dosage | Timing |\n| --- | --- | --- | --- |\n${entries.map((item) => `| ${item.name} | ${item.kind}: ${item.purpose} | ${item.dose} | ${item.timing} |`).join("\n")}`
+    : referencedElsewhere
+      ? "Current-stack items are referenced elsewhere in this report, but structured intake details could not be recovered. Review the safety and dosing sections with a qualified clinician before making changes."
+      : "No current medications, supplements, or hormones were reported in the intake.";
+  return `## Current Stack\n\n${body}\n\n**Analysis**\n\nThis section reflects the current medications, supplements, and hormones reported in the intake. Review it for accuracy and discuss changes or potential interactions with a qualified clinician.`;
+}
 
 function sectionBodyMeaningful(md: string, heading: string): boolean {
   const body = sectionChunk(md, heading).trim();
@@ -279,8 +331,27 @@ function replaceOrAppendSection(md: string, block: string): string {
 
 function blueprintNames(blueprintTable: string): string[] {
   return Array.from(blueprintTable.matchAll(/\|\s*\d+\s*\|\s*([^|]+)\|/g))
-    .map((match) => cleanName(match[1] || ""))
-    .filter((name) => name && !/^TBD$/i.test(name));
+    .map((match) => validItemName(match[1]))
+    .filter((name): name is string => Boolean(name));
+}
+
+function sanitizeBlueprintTable(blueprintTable: string, minRows = BLUEPRINT_MIN_ROWS): string {
+  const rows = Array.from(blueprintTable.matchAll(/\|\s*\d+\s*\|\s*([^|]+)\|\s*([^|]*)\|/g));
+  const seen = new Set<string>();
+  const items = rows.flatMap((match) => {
+    const name = validItemName(match[1]);
+    if (!name || seen.has(name.toLowerCase())) return [];
+    seen.add(name.toLowerCase());
+    return [{ name, why: cleanName(match[2] || "") || "Consider based on intake goals and clinician review" }];
+  });
+  for (const name of DEFAULT_BLUEPRINT_ITEMS) {
+    if (items.length >= minRows) break;
+    if (seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    items.push({ name, why: "Consider based on intake goals and clinician review" });
+  }
+  const header = "| Rank | Supplement | Why it Matters |\n| --- | --- | --- |";
+  return `${header}\n${items.map((item, index) => `| ${index + 1} | ${item.name} | ${item.why} |`).join("\n")}`;
 }
 
 function alignedDosingBody(blueprintTable: string, passB: string): string {
@@ -304,11 +375,44 @@ function alignedDosingBody(blueprintTable: string, passB: string): string {
   return `${body}\n${coverage}\n\n**Analysis**\n\nThese notes cover every Blueprint recommendation. Specific dosing should be reviewed with a clinician when it cannot be provided safely from the intake alone.`.trim();
 }
 
-function assembleCanonicalReport(restMd: string, blueprintTable: string, passB: string): string {
+function consistentDosingBody(blueprintTable: string, passB: string, currentNames: string[]): string {
+  const body = sectionChunk(passB, "## Dosing & Notes").trim();
+  const blueprint = blueprintNames(blueprintTable);
+  const blueprintSet = new Set(blueprint.map((name) => name.toLowerCase()));
+  const currentSet = new Set(currentNames.map((name) => name.toLowerCase()));
+  const bulletName = (line: string) => validItemName(
+    line.match(/^\s*[-*]\s+(?:\*\*)?(.+?)(?:\*\*)?\s*(?::|-|—)\s+/)?.[1]
+  );
+  const bullets = body.split(/\r?\n/).filter((line) => /^\s*[-*]\s+/.test(line));
+  const blueprintLines = bullets.filter((line) => {
+    const name = bulletName(line);
+    return Boolean(name && blueprintSet.has(name.toLowerCase()));
+  });
+  const currentLines = bullets.filter((line) => {
+    const name = bulletName(line);
+    return Boolean(name && !blueprintSet.has(name.toLowerCase()) && currentSet.has(name.toLowerCase()));
+  });
+  const covered = new Set(
+    blueprintLines.map((line) => bulletName(line)?.toLowerCase()).filter((name): name is string => Boolean(name))
+  );
+  const missingLines = blueprint
+    .filter((name) => !covered.has(name.toLowerCase()))
+    .map((name) => `- **${name}** — Clinician review is recommended before use; a specific dose or timing is not provided.`);
+  const currentBlock = currentLines.length
+    ? `\n\n### Current Stack Notes\n\n${currentLines.join("\n")}`
+    : "";
+  const analysisIndex = body.search(/^\*\*Analysis\*\*/im);
+  const analysis = analysisIndex >= 0
+    ? body.slice(analysisIndex).trim()
+    : "**Analysis**\n\nThese notes cover every Blueprint recommendation. Specific dosing should be reviewed with a clinician when it cannot be provided safely from the intake alone.";
+  return `${[...blueprintLines, ...missingLines].join("\n")}${currentBlock}\n\n${analysis}`.trim();
+}
+
+function assembleCanonicalReport(restMd: string, blueprintTable: string, passB: string, currentNames: string[]): string {
   const sources: Record<string, string> = {
     "## Contraindications & Med Interactions": passB,
     "## Your Blueprint Recommendations": `## Your Blueprint Recommendations\n\n${blueprintTable}`,
-    "## Dosing & Notes": `## Dosing & Notes\n\n${alignedDosingBody(blueprintTable, passB)}`,
+    "## Dosing & Notes": `## Dosing & Notes\n\n${consistentDosingBody(blueprintTable, passB, currentNames)}`,
   };
 
   return CANONICAL_REPORT_HEADINGS.map((heading) => {
@@ -323,9 +427,9 @@ function assembleCanonicalReport(restMd: string, blueprintTable: string, passB: 
     .trim();
 }
 
-function ensureReportDosingAlignment(md: string): string {
+function ensureReportDosingAlignment(md: string, currentNames: string[]): string {
   const blueprint = sectionChunk(md, "## Your Blueprint Recommendations");
-  const dosing = alignedDosingBody(blueprint, md);
+  const dosing = consistentDosingBody(blueprint, md, currentNames);
   return md.replace(
     /## Dosing & Notes[\s\S]*?(?=\n## |$)/i,
     `## Dosing & Notes\n\n${dosing}`
@@ -433,14 +537,8 @@ function stripCodeFences(s: string): string {
 
 function hardenBlueprintSection(md: string, requiredRows: number) {
   const body = sectionChunk(md, "## Your Blueprint Recommendations");
-  const header = "| Rank | Supplement | Why it Matters |\n| --- | --- | --- |\n";
   if (!body) return md;
-  const rows = body.split(/\r?\n/).filter(l => l.trim().startsWith("|") && !/^\|\s*-+\s*\|/.test(l));
-  const data = rows.filter(Boolean);
-  const need = Math.max(0, requiredRows - data.length);
-  if (need <= 0) return md;
-  const pad = Array.from({ length: need }).map((_, i) => `| ${data.length + i + 1} | TBD | See Dosing & Notes |`);
-  const rebuilt = `## Your Blueprint Recommendations\n\n${header}${[...data, ...pad].join("\n")}\n`;
+  const rebuilt = `## Your Blueprint Recommendations\n\n${sanitizeBlueprintTable(body, requiredRows)}\n`;
   return md.replace(/## Your Blueprint Recommendations([\s\S]*?)(?=\n## |\n## END|$)/i, rebuilt);
 }
 
@@ -517,7 +615,6 @@ function synthesizeBlueprintFromIntake(sub: any): string {
   const header = "| Rank | Supplement | Why it Matters |\n| --- | --- | --- |\n";
   const fromIntake = ([] as string[])
     .concat((sub?.supplements ?? []).map((x:any) => cleanName(x?.name ?? x)))
-    .concat((sub?.medications ?? []).map((x:any) => cleanName(x?.name ?? x)))
     .filter(Boolean);
 
   const defaults = [
@@ -852,22 +949,18 @@ function buildEvidenceSection(items: StackItem[], minCount = 8): {
       const url = (rawUrl || "").trim();
       const normalized = url.endsWith("/") ? url : url + "/";
       if (CURATED_CITE_RE.test(normalized) || MODEL_CITE_RE.test(normalized)) {
-        bullets.push({ name: cleanName(it.name), url: normalized });
+        const label = `${cleanName(it.name)}${it.is_current ? " (Current Stack)" : ""}`;
+        bullets.push({ name: label, url: normalized });
       }
     }
   }
   const seen = new Set<string>();
   let unique = bullets.filter(b => (seen.has(b.url) ? false : (seen.add(b.url), true)));
 
-  if (unique.length < minCount) {
-    const extras = topUpCitations(minCount, unique);
-    unique = unique.concat(extras);
-  }
-
   const bulletsText = unique.map(b => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`).join("\n");
   const section =
     `## Evidence & References\n\n${bulletsText}\n\n` +
-    `**Analysis**\n\nLinks prioritize PubMed/PMC/DOI and major journals. We deduplicate sources and top up from LVE360’s curated index when per-item citations provide fewer than ${minCount} unique links, ensuring a reliable evidence floor.`;
+    `**Analysis**\n\nLinks prioritize PubMed/PMC/DOI and major journals and are limited to Blueprint recommendations plus clearly identified current-stack items. Sources are deduplicated; reports with fewer than ${minCount} aligned citations remain flagged for review rather than adding unrelated items.`;
   return { section, bullets: unique };
 }
 
@@ -883,7 +976,7 @@ function buildShoppingLinksSection(items: StackItem[]): string {
     return "## Shopping Links\n\n- No links available yet.\n\n**Analysis**\n\nLinks will be provided once products are mapped.";
   }
   const bullets = items.map((it) => {
-    const name = cleanName(it.name);
+    const name = `${cleanName(it.name)}${it.is_current ? " (Current Stack)" : ""}`;
     const links: string[] = [];
     if (it.link_amazon) links.push(`[Amazon](${it.link_amazon})`);
     if (it.link_fullscript) links.push(`[Fullscript](${it.link_fullscript})`);
@@ -1159,43 +1252,108 @@ function toList(v: any): string[] {
     .map(s => s.trim())
     .filter(Boolean);
 }
+
+const UUID_VALUE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function readableAnswerMap(submission: any): Record<string, any> {
+  let payload = submission?.payload_json ?? {};
+  if (typeof payload === "string") {
+    try { payload = JSON.parse(payload); } catch { payload = {}; }
+  }
+  const fields = [
+    ...(Array.isArray(submission?.answers) ? submission.answers : []),
+    ...(Array.isArray(payload?.data?.fields) ? payload.data.fields : []),
+    ...(Array.isArray(payload?.form_response?.answers) ? payload.form_response.answers : []),
+  ];
+  const map: Record<string, any> = {};
+  for (const field of fields) {
+    const key = field?.key ?? field?.field?.key ?? field?.field?.id;
+    const label = field?.label ?? field?.field?.label;
+    const raw = field?.text ?? field?.email ?? field?.choice?.label ?? field?.choices?.labels ?? field?.value ?? field?.answer ?? null;
+    const options = field?.options ?? field?.field?.options ?? [];
+    const optionMap = new Map(
+      options.map((option: any) => [String(option?.id ?? option?.value), String(option?.text ?? option?.label ?? option?.value ?? "")])
+    );
+    const resolve = (value: any) => {
+      const scalar = value?.label ?? value?.text ?? value?.value ?? value;
+      return optionMap.get(String(scalar)) || scalar;
+    };
+    const value = Array.isArray(raw) ? raw.map(resolve) : resolve(raw);
+    if (key) map[String(key)] = value;
+    if (label) map[`label::${String(label).trim().toLowerCase()}`] = value;
+  }
+  return map;
+}
+
+function mergeReadableValues(...sources: any[]): any[] {
+  const seen = new Set<string>();
+  const merged: any[] = [];
+  for (const source of sources) {
+    for (const item of intakeItems(source)) {
+      const name = intakeItemName(item) ?? validItemName(item);
+      if (!name || UUID_VALUE_RE.test(name) || seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      merged.push(typeof item === "object" ? item : name);
+    }
+  }
+  return merged;
+}
   // ---------- STAGED LLM PASSES ----------
   const ans = extractFromAnswers(sub);
+const readableAns = readableAnswerMap(sub);
+const engineInput = (sub as any)?.engine_input_json ?? {};
 
 // Pull the “real” intake from answers first; fall back to columns second
-const goalsRaw =
-  getAnswer(ans, "question_o2lQ0N", ["what are your top health goals"]) ?? sub?.goals;
+const goalsRaw = mergeReadableValues(
+  engineInput?.goals, (sub as any)?.goals,
+  getAnswer(readableAns, "question_o2lQ0N", ["what are your top health goals"]),
+  getAnswer(ans, "question_o2lQ0N", ["what are your top health goals"])
+);
 
-const conditionsRaw =
-  getAnswer(ans, "question_7K5Yj6", ["do you have any current health conditions"]) ??
-  sub?.conditions;
+const conditionsRaw = mergeReadableValues(
+  engineInput?.conditions, (sub as any)?.conditions,
+  getAnswer(readableAns, "question_7K5Yj6", ["do you have any current health conditions"]),
+  getAnswer(ans, "question_7K5Yj6", ["do you have any current health conditions"])
+);
 
-const medicationsRaw =
-  getAnswer(ans, "question_Ex8YB2", ["medications", "list medication", "do you take any medications"]) ??
-  sub?.medications;
+const medicationsRaw = mergeReadableValues(
+  engineInput?.medications, engineInput?.meds, (sub as any)?.medications_text, (sub as any)?.medications,
+  getAnswer(readableAns, "question_Ex8YB2", ["medications", "list medication", "do you take any medications"]),
+  getAnswer(ans, "question_Ex8YB2", ["medications", "list medication", "do you take any medications"])
+);
 
-const supplementsRaw =
-  getAnswer(ans, "question_kNO8DM", ["supplements"]) ?? sub?.supplements;
+const supplementsRaw = mergeReadableValues(
+  engineInput?.current_supplements, engineInput?.supplements, (sub as any)?.supplements_text, (sub as any)?.supplements,
+  getAnswer(readableAns, "question_kNO8DM", ["supplements"]),
+  getAnswer(ans, "question_kNO8DM", ["supplements"])
+);
 
-const hormonesRaw =
-  getAnswer(ans, "question_ro2Myv", ["hormones"]) ?? sub?.hormones;
+const hormonesRaw = mergeReadableValues(
+  engineInput?.hormones, (sub as any)?.hormones_text, (sub as any)?.hormones,
+  getAnswer(readableAns, "question_ro2Myv", ["hormones"]),
+  getAnswer(ans, "question_ro2Myv", ["hormones"])
+);
 
 // ONE source of truth for the rest of the file:
 const baseClient = {
   ...sub,
-  goals: toList(goalsRaw),
-  conditions: toList(conditionsRaw),
-  medications: toList(medicationsRaw),
-  supplements: toList(supplementsRaw),
-  hormones: toList(hormonesRaw),
+  goals: goalsRaw,
+  conditions: conditionsRaw,
+  medications: medicationsRaw,
+  supplements: supplementsRaw,
+  hormones: hormonesRaw,
 };
 
 const compactClient = summarizeForLLM(baseClient);
 const fullClient = { ...baseClient, age: age((baseClient as any).dob ?? null), today: TODAY };
+const currentStackClient = { medications: medicationsRaw, supplements: supplementsRaw, hormones: hormonesRaw };
 console.info("[gen.intake.check]", {
-  goals: (baseClient as any).goals,
-  conditions: (baseClient as any).conditions,
-  medications: (baseClient as any).medications,
+  normalized_goals: (baseClient as any).goals,
+  normalized_conditions: (baseClient as any).conditions,
+  normalized_medications: (baseClient as any).medications,
+  normalized_supplements: (baseClient as any).supplements,
+  normalized_hormones: (baseClient as any).hormones,
+  currentStackEntries_count: currentStackEntries(currentStackClient).length,
 });
 // PASS A: Blueprint Table (mini first)
 console.info("[gen.passA:start]", { candidates: candidateModels("mini") });
@@ -1237,6 +1395,7 @@ if (!tableMd) {
   console.warn("[passA] falling back to synthesized table from intake/defaults");
   tableMd = synthesizeBlueprintFromIntake(fullClient);
 }
+tableMd = sanitizeBlueprintTable(tableMd);
 
 
 // token accounting (if available)
@@ -1587,13 +1746,16 @@ if (resC?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) +
 modelUsed = resC?.modelUsed ?? modelUsed;
 
   // ---------- Stitch full Markdown in canonical user-facing order ----------
-let md = assembleCanonicalReport(restMd, tableMd, dosingMd);
+const currentNames = currentStackEntries(currentStackClient).map((item) => item.name);
+const currentItemsReferencedElsewhere = /\b(?:medication|supplement|hormone|metformin|zepbound|armour|testosterone|dhea|pregnenolone|glycine|creatine)\b/i.test(dosingMd);
+restMd = replaceOrAppendSection(restMd, buildCurrentStackSection(currentStackClient, currentItemsReferencedElsewhere));
+let md = assembleCanonicalReport(restMd, tableMd, dosingMd, currentNames);
 
 
   // Sanity: enforce headings and pad the Blueprint without exposing END.
   md = forceHeadings(md);
   md = hardenBlueprintSection(md, computeValidationTargets(mode, cap).minRows);
-  md = ensureReportDosingAlignment(md);
+  md = ensureReportDosingAlignment(md, currentNames);
 
   // ---------- Parse items / safety / enrichment ----------
   const TIMING_ARTIFACT_RE = /^(on\s+waking|am\b.*breakfast|evening\b.*dinner|before\s+bed|pre[- ]?exercise(?:.*)?|hold\/adjust|simplify\s+sleep\s+aids)$/i;
@@ -1604,7 +1766,12 @@ let md = assembleCanonicalReport(restMd, tableMd, dosingMd);
     return TIMING_ARTIFACT_RE.test(s);
   }
 
-  const parsedItemsRaw = parseMarkdownToItems(md) as any[];
+  const allowedItemNames = new Set(
+    [...blueprintNames(tableMd), ...currentNames].map((name) => normalizeSupplementName(name).toLowerCase())
+  );
+  const parsedItemsRaw = (parseMarkdownToItems(md) as any[]).filter((item) =>
+    allowedItemNames.has(normalizeSupplementName(String(item?.name ?? "")).toLowerCase())
+  );
   const rawCapped = typeof cap === "number" ? asArray(parsedItemsRaw).slice(0, cap) : asArray(parsedItemsRaw);
   const baseItems: StackItem[] = rawCapped.map((i: any) => ({ ...i, is_current: i?.is_current === true }));
   const filteredItems: StackItem[] = baseItems.filter((it) => {
