@@ -1,3 +1,5 @@
+import { isPreferenceFieldOrValue } from "@/lib/supplementEligibility";
+
 export type CurrentStackKind = "medication" | "supplement" | "hormone";
 
 export type NormalizedCurrentStackLedgerItem = {
@@ -145,7 +147,7 @@ export function parseTallyCurrentStackFields(
     if (!rawField || typeof rawField !== "object") return;
     const field = rawField as Record<string, any>;
     const label = fieldLabel(field);
-    if (!label) return;
+    if (!label || isPreferenceFieldOrValue(label)) return;
 
     if (DETAIL_LABEL_RE.test(label)) {
       if (!currentItems.length) return;
@@ -169,7 +171,7 @@ export function parseTallyCurrentStackFields(
     activeKind = kind;
     const names = fieldValues(field)
       .flatMap((value) => extractLedgerReadableNames(value))
-      .filter((name) => !YES_NO_RE.test(name) && !UUID_RE.test(name) && !INVALID_NAME_RE.test(name));
+      .filter((name) => !isPreferenceFieldOrValue(name) && !YES_NO_RE.test(name) && !UUID_RE.test(name) && !INVALID_NAME_RE.test(name));
     currentItems = [];
     for (const name of names) {
       const item: NormalizedCurrentStackLedgerItem = {
@@ -220,7 +222,7 @@ export function buildNormalizedCurrentStackLedger(submission: any): NormalizedCu
     for (const part of parts) {
       const names = extractLedgerReadableNames(part);
       for (const name of names) {
-        if (!name || YES_NO_RE.test(name) || UUID_RE.test(name) || INVALID_NAME_RE.test(name)) continue;
+        if (!name || isPreferenceFieldOrValue(rawLabel) || isPreferenceFieldOrValue(name) || YES_NO_RE.test(name) || UUID_RE.test(name) || INVALID_NAME_RE.test(name)) continue;
         const key = `${kind}:${name.toLowerCase()}`;
         const object = part && typeof part === "object" && !Array.isArray(part) ? part as Record<string, any> : {};
         const nextDose = detailFrom(object.dose ?? object.dosage ?? object.amount);
@@ -293,6 +295,7 @@ export function buildNormalizedCurrentStackLedger(submission: any): NormalizedCu
     const rawKey = object.key ?? object.field?.key ?? object.field?.id;
     const rawLabel = object.label ?? object.field?.label ?? object.title;
     const fieldDescriptor = `${rawKey ?? ""} ${rawLabel ?? ""}`;
+    if (isPreferenceFieldOrValue(fieldDescriptor)) return;
     const fieldKind = inferKind(fieldDescriptor);
     if (fieldKind && !DETAIL_LABEL_RE.test(fieldDescriptor)) {
       for (const answerValue of fieldValues(object)) addValue(fieldKind, answerValue, path, String(rawLabel ?? rawKey ?? ""));

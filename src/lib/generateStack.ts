@@ -19,6 +19,13 @@ import {
   findMissingRepeatedTallyItems,
   type NormalizedCurrentStackLedgerItem,
 } from "@/lib/normalizedCurrentStackLedger";
+import {
+  isEligibleSupplementName,
+  isMedicationOrHormoneName,
+  isPreferenceFieldOrValue,
+  preferenceValuesFound,
+  RECOMMENDABLE_SUPPLEMENT_CANDIDATES,
+} from "@/lib/supplementEligibility";
 
 // Curated evidence index (JSON)
 // If this path differs in your repo, update the import below.
@@ -259,10 +266,7 @@ function sectionChunk(md: string, header: string) {
 const CANONICAL_REPORT_HEADINGS = HEADINGS.slice(0, -1);
 const PLACEHOLDER_SECTION_RE = /\b(?:tbd|placeholder|content pending|evidence pending|will populate|to be completed|this section will be auto-completed)\b/i;
 const INVALID_ITEM_NAME_RE = /^(?:see\s+(?:dosing(?:\s*&\s*notes)?|notes)|tbd|none|null|n\/?a|blank)$/i;
-const DEFAULT_BLUEPRINT_ITEMS = [
-  "Omega-3", "Vitamin D", "Magnesium", "Soluble fiber", "Probiotic",
-  "Vitamin B12", "Curcumin", "Green tea extract (EGCG)", "CoQ10", "Collagen",
-];
+const DEFAULT_BLUEPRINT_ITEMS = RECOMMENDABLE_SUPPLEMENT_CANDIDATES;
 const OBJECT_STRING_RE = /^\[object Object\]$/i;
 type NormalizationStats = { rejectedObjectValues: number };
 
@@ -399,12 +403,17 @@ function blueprintNames(blueprintTable: string): string[] {
     .filter((name): name is string => Boolean(name));
 }
 
-function sanitizeBlueprintTable(blueprintTable: string, minRows = BLUEPRINT_MIN_ROWS): string {
+function sanitizeBlueprintTable(
+  blueprintTable: string,
+  minRows = BLUEPRINT_MIN_ROWS,
+  allowedNames: string[] = DEFAULT_BLUEPRINT_ITEMS
+): string {
   const rows = Array.from(blueprintTable.matchAll(/\|\s*\d+\s*\|\s*([^|]+)\|\s*([^|]*)\|/g));
   const seen = new Set<string>();
+  const allowed = new Set(allowedNames.map((name) => name.toLowerCase()));
   const items = rows.flatMap((match) => {
     const name = validItemName(match[1]);
-    if (!name || seen.has(name.toLowerCase())) return [];
+    if (!name || !isEligibleSupplementName(name) || !allowed.has(name.toLowerCase()) || seen.has(name.toLowerCase())) return [];
     seen.add(name.toLowerCase());
     return [{ name, why: cleanName(match[2] || "") || "Consider based on intake goals and clinician review" }];
   });
@@ -610,10 +619,10 @@ function stripCodeFences(s: string): string {
     .trim();
 }
 
-function hardenBlueprintSection(md: string, requiredRows: number) {
+function hardenBlueprintSection(md: string, requiredRows: number, allowedNames?: string[]) {
   const body = sectionChunk(md, "## Your Blueprint Recommendations");
   if (!body) return md;
-  const rebuilt = `## Your Blueprint Recommendations\n\n${sanitizeBlueprintTable(body, requiredRows)}\n`;
+  const rebuilt = `## Your Blueprint Recommendations\n\n${sanitizeBlueprintTable(body, requiredRows, allowedNames)}\n`;
   return md.replace(/## Your Blueprint Recommendations([\s\S]*?)(?=\n## |\n## END|$)/i, rebuilt);
 }
 
@@ -1126,11 +1135,16 @@ Rules:
 }
 
 
-function tableOnlyPrompt(compactClient: any) {
+function tableOnlyPrompt(compactClient: any, recommendableSupplementLedger: Array<{ name: string }>) {
   return `
 ### CLIENT (Compact)
 \`\`\`json
 ${JSON.stringify(compactClient, null, 2)}
+\`\`\`
+
+### RECOMMENDABLE SUPPLEMENT LEDGER
+\`\`\`json
+${JSON.stringify(recommendableSupplementLedger, null, 2)}
 \`\`\`
 
 ### TASK
@@ -1138,6 +1152,9 @@ Output ONLY the section "## Your Blueprint Recommendations" as a Markdown table 
 | Rank | Supplement | Why it Matters |
 
 - Provide exactly **10** data rows (Rank 1..10).
+- Recommend goal-aligned supplement options only. Never recommend medications, prescription drugs, or hormones.
+- Select from the recommendable supplement ledger. Do not simply copy the Current Stack unless a legitimate current supplement has a clear optimization reason.
+- Berberine requires explicit clinician-review language when medication context may affect safety.
 - Use short, plain-English rationales ("Why it Matters").
 - If dosing/timing is relevant, write "See Dosing & Notes".
 - Do NOT output any other text. Do NOT include END. Only the table.
@@ -1426,18 +1443,26 @@ const conditionsMerged = mergeReadableValues(normalizationStats,
 );
 const conditionsRaw = conditionsMerged.values;
 
-const normalizedCurrentStackLedger = buildNormalizedCurrentStackLedger(sub);
-const missingRepeatedTallyItems = findMissingRepeatedTallyItems(sub, normalizedCurrentStackLedger);
+const currentStackLedger = buildNormalizedCurrentStackLedger(sub).filter((item) =>
+  !isPreferenceFieldOrValue(item.name) && !item.raw_labels.some(isPreferenceFieldOrValue)
+);
+const recommendableSupplementLedger = Array.from(new Set([
+  ...RECOMMENDABLE_SUPPLEMENT_CANDIDATES,
+  ...currentStackLedger
+    .filter((item) => item.kind === "supplement" && isEligibleSupplementName(item.name))
+    .map((item) => item.name),
+])).map((name) => ({ name }));
+const missingRepeatedTallyItems = findMissingRepeatedTallyItems(sub, currentStackLedger);
 if (missingRepeatedTallyItems.length) {
   console.warn("[gen.intake] repeated Tally fields missing from ledger", missingRepeatedTallyItems);
   throw new Error(`Current stack ledger omitted repeated Tally items: ${missingRepeatedTallyItems.join(", ")}`);
 }
-if (normalizedCurrentStackLedger.some((item) =>
+if (currentStackLedger.some((item) =>
   !item.name.trim() || UUID_VALUE_RE.test(item.name) || OBJECT_STRING_RE.test(item.name)
 )) {
   throw new Error("Invalid current stack ledger item name");
 }
-const ledgerItems = (kind: NormalizedCurrentStackLedgerItem["kind"]) => normalizedCurrentStackLedger
+const ledgerItems = (kind: NormalizedCurrentStackLedgerItem["kind"]) => currentStackLedger
   .filter((item) => item.kind === kind)
   .map((item) => ({
     name: item.name,
@@ -1459,12 +1484,13 @@ const baseClient = {
   medications: medicationsRaw,
   supplements: supplementsRaw,
   hormones: hormonesRaw,
-  normalizedCurrentStackLedger,
+  normalizedCurrentStackLedger: currentStackLedger,
+  recommendableSupplementLedger,
 };
 
 const compactClient = summarizeForLLM(baseClient);
 const fullClient = { ...baseClient, age: age((baseClient as any).dob ?? null), today: TODAY };
-const currentNames = normalizedCurrentStackLedger.map((item) => item.name);
+const currentNames = currentStackLedger.map((item) => item.name);
 console.info("[gen.intake.check]", {
   normalized_goals: (baseClient as any).goals,
   normalized_conditions: (baseClient as any).conditions,
@@ -1475,18 +1501,18 @@ console.info("[gen.intake.check]", {
   supplements_normalized_count: supplementsRaw.length,
   hormones_normalized_count: hormonesRaw.length,
   rejected_object_values_count: normalizationStats.rejectedObjectValues,
-  ledger_total_count: normalizedCurrentStackLedger.length,
+  ledger_total_count: currentStackLedger.length,
   ledger_medication_count: medicationsRaw.length,
   ledger_supplement_count: supplementsRaw.length,
   ledger_hormone_count: hormonesRaw.length,
   ledger_item_names: currentNames,
-  ledger_source_paths_by_item: Object.fromEntries(normalizedCurrentStackLedger.map((item) => [`${item.kind}:${item.name}`, item.source_paths])),
-  current_stack_rendered_count: normalizedCurrentStackLedger.length,
-  current_stack_ledger_total: normalizedCurrentStackLedger.length,
+  ledger_source_paths_by_item: Object.fromEntries(currentStackLedger.map((item) => [`${item.kind}:${item.name}`, item.source_paths])),
+  current_stack_rendered_count: currentStackLedger.length,
+  current_stack_ledger_total: currentStackLedger.length,
   current_stack_medication_names: medicationsRaw.map((item) => item.name),
   current_stack_supplement_names: supplementsRaw.map((item) => item.name),
   current_stack_hormone_names: hormonesRaw.map((item) => item.name),
-  current_stack_source_fields: Object.fromEntries(normalizedCurrentStackLedger.map((item) => [
+  current_stack_source_fields: Object.fromEntries(currentStackLedger.map((item) => [
     `${item.kind}:${item.name}`,
     { labels: item.raw_labels, paths: item.source_paths },
   ])),
@@ -1496,7 +1522,7 @@ console.info("[gen.passA:start]", { candidates: candidateModels("mini") });
 
 const resA = await callChatWithRetry("mini", [
   { role: "system", content: systemPromptA_TableOnly() },
-  { role: "user", content: tableOnlyPrompt(compactClient) },
+  { role: "user", content: tableOnlyPrompt(compactClient, recommendableSupplementLedger) },
 ]);
 
 const rawA = stripCodeFences(String(resA?.text ?? "").trim());
@@ -1531,7 +1557,7 @@ if (!tableMd) {
   console.warn("[passA] falling back to synthesized table from intake/defaults");
   tableMd = synthesizeBlueprintFromIntake(fullClient);
 }
-tableMd = sanitizeBlueprintTable(tableMd);
+tableMd = sanitizeBlueprintTable(tableMd, BLUEPRINT_MIN_ROWS, recommendableSupplementLedger.map((item) => item.name));
 
 
 // token accounting (if available)
@@ -1883,14 +1909,14 @@ if (resC?.usage?.completion_tokens) completionTokens = (completionTokens ?? 0) +
 modelUsed = resC?.modelUsed ?? modelUsed;
 
   // ---------- Stitch full Markdown in canonical user-facing order ----------
-restMd = replaceOrAppendSection(restMd, buildCurrentStackSection(normalizedCurrentStackLedger));
-let md = assembleCanonicalReport(restMd, tableMd, dosingMd, normalizedCurrentStackLedger);
+restMd = replaceOrAppendSection(restMd, buildCurrentStackSection(currentStackLedger));
+let md = assembleCanonicalReport(restMd, tableMd, dosingMd, currentStackLedger);
 
 
   // Sanity: enforce headings and pad the Blueprint without exposing END.
   md = forceHeadings(md);
-  md = hardenBlueprintSection(md, computeValidationTargets(mode, cap).minRows);
-  md = ensureReportDosingAlignment(md, normalizedCurrentStackLedger);
+  md = hardenBlueprintSection(md, computeValidationTargets(mode, cap).minRows, recommendableSupplementLedger.map((item) => item.name));
+  md = ensureReportDosingAlignment(md, currentStackLedger);
 
   // ---------- Parse items / safety / enrichment ----------
   const TIMING_ARTIFACT_RE = /^(on\s+waking|am\b.*breakfast|evening\b.*dinner|before\s+bed|pre[- ]?exercise(?:.*)?|hold\/adjust|simplify\s+sleep\s+aids)$/i;
@@ -1945,30 +1971,71 @@ const safetyInput = {
     const st = (res as any)?.status; safetyStatus = st === "safe" ? "safe" : st === "error" ? "error" : "warning";
   } catch (e) { console.warn("applySafetyChecks failed; continuing with uncautioned items.", e); }
 
-  const normalizedForLinks: StackItem[] = cleanedItems.map((it) => ({ ...it, name: normalizeSupplementName(it.name ?? "") }));
-  const enriched: StackItem[] = await (async () => {
+  const itemKey = (name: string) => normalizeSupplementName(name).toLowerCase();
+  const currentKindByName = new Map(currentStackLedger.map((item) => [itemKey(item.name), item.kind]));
+  const blueprintShoppableNames = new Set(blueprintNames(tableMd).filter(isEligibleSupplementName).map(itemKey));
+  const shoppableNames = new Set([
+    ...blueprintNames(tableMd).filter(isEligibleSupplementName),
+    ...currentStackLedger.filter((item) => item.kind === "supplement" && isEligibleSupplementName(item.name)).map((item) => item.name),
+  ].map(itemKey));
+  const isShoppableItem = (item: StackItem) => {
+    const key = itemKey(item.name);
+    const currentKind = currentKindByName.get(key);
+    return shoppableNames.has(key) && isEligibleSupplementName(item.name) && (!currentKind || currentKind === "supplement");
+  };
+  const normalizedForLinks: StackItem[] = cleanedItems
+    .filter(isShoppableItem)
+    .map((it) => ({ ...it, name: normalizeSupplementName(it.name ?? "") }));
+  const enrichedShoppable: StackItem[] = await (async () => {
     try { const r = await enrichAffiliateLinks(normalizedForLinks as any); return asArray(r as any) as StackItem[]; }
     catch (e) { console.warn("enrichAffiliateLinks failed; skipping enrichment.", e); return normalizedForLinks; }
   })();
 
-  const finalStack: StackItem[] = applyLinkPolicy(enriched, baseClient, mode);
-  const withEvidence: StackItem[] = asArray(finalStack).map(attachEvidence);
+  const linkedShoppable = applyLinkPolicy(enrichedShoppable, baseClient, mode);
+  const linkedByName = new Map(linkedShoppable.map((item) => [itemKey(item.name), item]));
+  const clearShoppingLinks = (item: StackItem): StackItem => ({
+    ...item,
+    link_amazon: null,
+    link_fullscript: null,
+    link_thorne: null,
+    link_other: null,
+    link_budget: null,
+    link_trusted: null,
+    link_clean: null,
+    link_default: null,
+  });
+  const finalStack: StackItem[] = cleanedItems.map((item) =>
+    isShoppableItem(item) ? (linkedByName.get(itemKey(item.name)) ?? item) : clearShoppingLinks(item)
+  );
+  const shoppableSupplementLedger: StackItem[] = finalStack
+    .filter(isShoppableItem)
+    .sort((a, b) => Number(blueprintShoppableNames.has(itemKey(b.name))) - Number(blueprintShoppableNames.has(itemKey(a.name))));
+  const shoppableWithEvidence = shoppableSupplementLedger.map(attachEvidence);
+  const evidenceByName = new Map(shoppableWithEvidence.map((item) => [itemKey(item.name), item]));
+  const withEvidence: StackItem[] = finalStack.map((item) => evidenceByName.get(itemKey(item.name)) ?? item);
   const persistedItemsByName = new Map<string, StackItem>();
   for (const item of withEvidence) {
     const key = normalizeSupplementName(item.name).toLowerCase();
-    const ledgerItem = normalizedCurrentStackLedger.find((current) =>
+    const ledgerItem = currentStackLedger.find((current) =>
       normalizeSupplementName(current.name).toLowerCase() === key
     );
-    persistedItemsByName.set(key, { ...item, is_current: Boolean(ledgerItem) || item.is_current });
+    const persistedItem: StackItem = {
+      ...item,
+      is_current: Boolean(ledgerItem) || item.is_current,
+      notes: ledgerItem
+        ? `Current ${ledgerItem.kind} reported in intake.${ledgerItem.purpose ? ` Purpose: ${ledgerItem.purpose}` : ""}`
+        : item.notes,
+    };
+    persistedItemsByName.set(key, ledgerItem && ledgerItem.kind !== "supplement" ? clearShoppingLinks(persistedItem) : persistedItem);
   }
-  for (const item of normalizedCurrentStackLedger) {
+  for (const item of currentStackLedger) {
     const key = normalizeSupplementName(item.name).toLowerCase();
     if (!persistedItemsByName.has(key)) {
       persistedItemsByName.set(key, {
         name: item.name,
         dose: item.dose ?? null,
         timing: item.timing ?? null,
-        notes: item.purpose ?? `Current ${item.kind} reported in intake.`,
+        notes: `Current ${item.kind} reported in intake.${item.purpose ? ` Purpose: ${item.purpose}` : ""}`,
         is_current: true,
       });
     }
@@ -1985,11 +2052,11 @@ const safetyInput = {
   }
 
   // Evidence override
-  const { section: evidenceSection } = buildEvidenceSection(withEvidence, 8);
+  const { section: evidenceSection } = buildEvidenceSection(shoppableWithEvidence, 8);
   md = overrideEvidenceInMarkdown(md, evidenceSection);
 
   // Shopping links override
-  const shoppingSection = buildShoppingLinksSection(withEvidence);
+  const shoppingSection = buildShoppingLinksSection(shoppableWithEvidence);
   const shoppingRe = /## Shopping Links([\s\S]*?)(?=\n## |\n## END|$)/i;
   md = shoppingRe.test(md) ? md.replace(shoppingRe, shoppingSection) : md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
 
@@ -1997,13 +2064,36 @@ const safetyInput = {
     throw new Error("Invalid object string leaked into report");
   }
 
+  const preferenceLeaks = preferenceValuesFound(md);
+  const uuidLeaks = md
+    .split(/\r?\n/)
+    .flatMap((line) => line.split("|"))
+    .map((fragment) => fragment.replace(/^[\s>*_`]+|[\s*_`]+$/g, "").trim())
+    .filter((fragment) => UUID_VALUE_RE.test(fragment));
+  const blueprintEligibilityViolations = blueprintNames(sectionChunk(md, "## Your Blueprint Recommendations"))
+    .filter((name) => !isEligibleSupplementName(name));
+  const shoppingBody = sectionChunk(md, "## Shopping Links");
+  const shoppingEligibilityViolations = currentStackLedger
+    .filter((item) => item.kind !== "supplement" || isMedicationOrHormoneName(item.name))
+    .filter((item) => shoppingBody.toLowerCase().includes(item.name.toLowerCase()))
+    .map((item) => item.name);
+  if (preferenceLeaks.length || uuidLeaks.length || blueprintEligibilityViolations.length || shoppingEligibilityViolations.length) {
+    console.warn("[validation] recommendation/shopping eligibility", {
+      preferenceLeaks,
+      uuidLeaks,
+      blueprintEligibilityViolations,
+      shoppingEligibilityViolations,
+    });
+    throw new Error("Report recommendation or shopping eligibility validation failed");
+  }
+
   // ---------- Final validation ----------
   const targets = computeValidationTargets(mode, cap);
   const emptySections = emptyRequiredSections(md);
-  const parity = validateCurrentStackParity(md, normalizedCurrentStackLedger);
+  const parity = validateCurrentStackParity(md, currentStackLedger);
   if (!parity.valid) console.warn("[validation] contraindication_current_stack_mismatch", parity.mismatch);
   console.info("[validation] current stack parity", {
-    current_stack_rendered_count: normalizedCurrentStackLedger.filter((item) =>
+    current_stack_rendered_count: currentStackLedger.filter((item) =>
       sectionChunk(md, "## Current Stack").toLowerCase().includes(item.name.toLowerCase())
     ).length,
     contraindication_current_stack_mismatch: parity.mismatch,
