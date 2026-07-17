@@ -16,6 +16,7 @@ import { getTopCitationsFor } from "@/lib/evidence";
 import { callOpenAI } from "@/lib/openai";
 import {
   buildNormalizedCurrentStackLedger,
+  findMissingRepeatedTallyItems,
   type NormalizedCurrentStackLedgerItem,
 } from "@/lib/normalizedCurrentStackLedger";
 
@@ -339,7 +340,7 @@ function normalizedItemWithDetails(item: unknown, name: string): string | Record
 
 function buildCurrentStackSection(ledger: NormalizedCurrentStackLedgerItem[]): string {
   const body = ledger.length
-    ? `| Medication/Supplement/Hormone | Type | Dosage | Timing |\n| --- | --- | --- | --- |\n${ledger.map((item) => `| ${item.name} | ${item.kind} | ${item.dose ?? "Not provided"} | ${item.timing ?? "Not provided"} |`).join("\n")}`
+    ? `| Medication/Supplement/Hormone | Type | Purpose | Dosage | Timing |\n| --- | --- | --- | --- | --- |\n${ledger.map((item) => `| ${item.name} | ${item.kind} | ${item.purpose ?? "Not provided"} | ${item.dose ?? "Not provided"} | ${item.timing ?? "Not provided"} |`).join("\n")}`
     : "No current medications, supplements, or hormones were reported in the intake.";
   return `## Current Stack\n\n${body}\n\n**Analysis**\n\nThis section reflects the current medications, supplements, and hormones reported in the intake. Review it for accuracy and discuss changes or potential interactions with a qualified clinician.`;
 }
@@ -1426,6 +1427,11 @@ const conditionsMerged = mergeReadableValues(normalizationStats,
 const conditionsRaw = conditionsMerged.values;
 
 const normalizedCurrentStackLedger = buildNormalizedCurrentStackLedger(sub);
+const missingRepeatedTallyItems = findMissingRepeatedTallyItems(sub, normalizedCurrentStackLedger);
+if (missingRepeatedTallyItems.length) {
+  console.warn("[gen.intake] repeated Tally fields missing from ledger", missingRepeatedTallyItems);
+  throw new Error(`Current stack ledger omitted repeated Tally items: ${missingRepeatedTallyItems.join(", ")}`);
+}
 if (normalizedCurrentStackLedger.some((item) =>
   !item.name.trim() || UUID_VALUE_RE.test(item.name) || OBJECT_STRING_RE.test(item.name)
 )) {
@@ -1435,6 +1441,7 @@ const ledgerItems = (kind: NormalizedCurrentStackLedgerItem["kind"]) => normaliz
   .filter((item) => item.kind === kind)
   .map((item) => ({
     name: item.name,
+    purpose: item.purpose,
     dose: item.dose,
     timing: item.timing,
     source_paths: item.source_paths,
@@ -1475,6 +1482,14 @@ console.info("[gen.intake.check]", {
   ledger_item_names: currentNames,
   ledger_source_paths_by_item: Object.fromEntries(normalizedCurrentStackLedger.map((item) => [`${item.kind}:${item.name}`, item.source_paths])),
   current_stack_rendered_count: normalizedCurrentStackLedger.length,
+  current_stack_ledger_total: normalizedCurrentStackLedger.length,
+  current_stack_medication_names: medicationsRaw.map((item) => item.name),
+  current_stack_supplement_names: supplementsRaw.map((item) => item.name),
+  current_stack_hormone_names: hormonesRaw.map((item) => item.name),
+  current_stack_source_fields: Object.fromEntries(normalizedCurrentStackLedger.map((item) => [
+    `${item.kind}:${item.name}`,
+    { labels: item.raw_labels, paths: item.source_paths },
+  ])),
 });
 // PASS A: Blueprint Table (mini first)
 console.info("[gen.passA:start]", { candidates: candidateModels("mini") });
@@ -1953,7 +1968,7 @@ const safetyInput = {
         name: item.name,
         dose: item.dose ?? null,
         timing: item.timing ?? null,
-        notes: `Current ${item.kind} reported in intake.`,
+        notes: item.purpose ?? `Current ${item.kind} reported in intake.`,
         is_current: true,
       });
     }
