@@ -246,12 +246,36 @@ function classifyTimingBucket(text?: string | null): "AM" | "PM" | "AM/PM" | "An
 function escapeRe(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
 function sectionChunk(md: string, header: string) {
-  const re = new RegExp(`${escapeRe(header)}([\n\r\s\S]*?)(?=\n## |\n## END|$)`, "i");
+  const re = new RegExp(`${escapeRe(header)}([\\s\\S]*?)(?=\\n## |\\n## END|$)`, "i");
   const m = (md || "").match(re);
   return m ? m[1] : "";
 }
 
 const CANONICAL_REPORT_HEADINGS = HEADINGS.slice(0, -1);
+const PLACEHOLDER_SECTION_RE = /\b(?:tbd|placeholder|content pending|evidence pending|will populate|to be completed|this section will be auto-completed)\b/i;
+
+function sectionBodyMeaningful(md: string, heading: string): boolean {
+  const body = sectionChunk(md, heading).trim();
+  if (!body || PLACEHOLDER_SECTION_RE.test(body)) return false;
+  const meaningful = body
+    .replace(/^\*\*Analysis\*\*\s*$/gim, "")
+    .replace(/^\s*\|?(?:\s*:?-+:?\s*\|)+\s*$/gm, "")
+    .replace(/[*_`#|\-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return meaningful.length >= 12;
+}
+
+function emptyRequiredSections(md: string): string[] {
+  return CANONICAL_REPORT_HEADINGS.filter((heading) => !sectionBodyMeaningful(md, heading));
+}
+
+function replaceOrAppendSection(md: string, block: string): string {
+  const heading = block.match(/^## .+$/m)?.[0];
+  if (!heading) return md;
+  const re = new RegExp(`${escapeRe(heading)}[\\s\\S]*?(?=\\n## |$)`, "i");
+  return re.test(md) ? md.replace(re, block.trim()) : `${md.trim()}\n\n${block.trim()}`;
+}
 
 function blueprintNames(blueprintTable: string): string[] {
   return Array.from(blueprintTable.matchAll(/\|\s*\d+\s*\|\s*([^|]+)\|/g))
@@ -611,7 +635,7 @@ function normalizePassCHeadings(md: string) {
 
 function missingPassCHeadings(md: string) {
   const needed = PASSC_MAP.map(x => x.canon);
-  return needed.filter(h => !(md || "").includes(h));
+  return needed.filter(h => !sectionBodyMeaningful(md, h));
 }
 
 // One-shot reformat prompt to coerce headings/order for Pass C
@@ -1388,7 +1412,11 @@ Rules:
   hasDosing = _hasDosing(dosingMd);
 }
 
-if (!hasContra || !hasDosing) {
+const passBHasBodies = () =>
+  sectionBodyMeaningful(dosingMd, "## Contraindications & Med Interactions") &&
+  sectionBodyMeaningful(dosingMd, "## Dosing & Notes");
+
+if (!hasContra || !hasDosing || !passBHasBodies()) {
   console.warn("[passB] missing after repair — using local fallback");
   const local = synthesizePassBFromLocal(fullClient, tableMd || "");
   dosingMd = `${local.contraSection}\n\n${local.dosingSection}`;
@@ -1431,6 +1459,7 @@ let resC = await callChatWithRetry(
 // Parse result up front (so we don't reference undefined vars)
 let restMd = normalizePassCHeadings(stripCodeFences(String(resC?.text ?? "").trim()));
 let missing = missingPassCHeadings(restMd);
+if (missing.length) console.warn("[passC] empty or missing section bodies:", missing);
 let tooShort = restMd.replace(/\s+/g, " ").length < 80;
 
 // If missing, try a quick repair with mini
@@ -1503,7 +1532,7 @@ if (tooShort || missing.length >= 9) {
       `| Goal | Description |\n| --- | --- |\n| Primary | Improve energy, metabolic health, and sleep |\n| Secondary | Support cardiovascular and cognitive health |`,
       "defining clear targets"),
     synth("## Current Stack",
-      `| Medication/Supplement | Purpose | Dosage | Timing |\n| --- | --- | --- | --- |\n| (from intake) | As reported | As reported | As reported |`,
+      `No current medications or supplements were included in the intake. Review this section if your routine changes.`,
       "what you already take"),
     synth("## Evidence & References",
       `- Evidence pending. See curated citations attached to items.\n- We prioritize PubMed/PMC/DOI and major journals.`,
@@ -1541,7 +1570,7 @@ if (missing.length) {
   for (const h of missing) {
     if (h === "## Intro Summary") add.push(synth(h, `Hi ${userName}! Based on your intake, here’s a concise plan aligned to your goals.`, "your overall plan"));
     else if (h === "## Goals") add.push(synth(h, `| Goal | Description |\n| --- | --- |\n| Primary | Improve energy, metabolic health, and sleep quality |\n| Secondary | Support cardiovascular and cognitive health |`, "defining clear targets"));
-    else if (h === "## Current Stack") add.push(synth(h, `| Medication/Supplement | Purpose | Dosage | Timing |\n| --- | --- | --- | --- |\n| (from intake) | As reported | As reported | As reported |`, "what you already take"));
+    else if (h === "## Current Stack") add.push(synth(h, `No current medications or supplements were included in the intake. Review this section if your routine changes.`, "what you already take"));
     else if (h === "## Evidence & References") add.push(synth(h, `- Evidence pending. See curated citations attached to items.\n- We prioritize PubMed/PMC/DOI and major journals.`, "how we support claims"));
     else if (h === "## Shopping Links") add.push(synth(h, `Links are provided for convenience. Choose based on budget/trusted/clean preference.`, "practical purchasing"));
     else if (h === "## Follow-up Plan") add.push(synth(h, `- Re-check energy, sleep, and digestion in 2–3 weeks.\n- Review labs (lipids, A1C, vitamin D) in 8–12 weeks.\n- Adjust doses/timing if conflicts appear.`, "closing the feedback loop"));
@@ -1549,7 +1578,7 @@ if (missing.length) {
     else if (h === "## Longevity Levers") add.push(synth(h, `- Resistance training 2–3×/week; progressive overload.\n- Keep visceral fat low; monitor waist:height.\n- Periodic labs to personalize micronutrients.`, "long-term outcomes"));
     else if (h === "## This Week Try") add.push(synth(h, `- AM: 10-minute sunlight + water before caffeine.\n- Midday: 10-minute walk after lunch.\n- PM: Screens dimmed after 9pm; in bed by 10pm.`, "quick wins this week"));
   }
-  restMd = (restMd + "\n\n" + add.join("\n\n")).trim();
+  for (const block of add) restMd = replaceOrAppendSection(restMd, block);
 }
 
 // token accounting
@@ -1633,16 +1662,25 @@ const safetyInput = {
 
   // ---------- Final validation ----------
   const targets = computeValidationTargets(mode, cap);
+  const emptySections = emptyRequiredSections(md);
   const ok = {
     wordCountOK: wc(md) >= targets.minWords,
     headingsValid: headingsOK(md),
     blueprintValid: blueprintOK(md, targets.minRows),
     citationsValid: citationsOK(md),
     narrativesValid: narrativesOK(md, targets.minSent),
+    sectionBodiesValid: emptySections.length === 0,
     endValid: !/(^|\n)##\s*END\s*(?=\n|$)/i.test(md),
   };
+  if (emptySections.length) {
+    console.warn("[validation] empty required section bodies:", emptySections);
+  }
   console.info("validation.targets", targets);
   console.info("validation.debug", { ...ok, actualWordCount: wc(md) });
+
+  if (!ok.sectionBodiesValid) {
+    throw new Error(`Refusing to persist incomplete report sections: ${emptySections.join(", ")}`);
+  }
 
   // ----------------------------------------------------------------------------
   // Persist parent stack
@@ -1662,7 +1700,7 @@ const safetyInput = {
           tokens_used: (promptTokens ?? 0) + (completionTokens ?? 0),
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
-          safety_status: (ok.headingsValid && ok.blueprintValid && ok.citationsValid) ? "safe" : "warning",
+          safety_status: (ok.headingsValid && ok.blueprintValid && ok.citationsValid && ok.sectionBodiesValid) ? "safe" : "warning",
           summary: md,
           sections: { markdown: md, generated_at: new Date().toISOString(), mode, item_cap: cap ?? null },
           notes: null,
