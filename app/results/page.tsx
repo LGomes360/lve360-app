@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 
 import CTAButton from "@/components/CTAButton";
 import ResultsSidebar from "@/components/results/ResultsSidebar";
+import { parseBlueprintReport } from "@/lib/blueprintReport";
 
 /* ───────── helpers ───────── */
 function sanitizeMarkdown(md: string): string {
@@ -184,10 +185,12 @@ function LinksTable({ raw, type }: { raw: string; type: "evidence" | "shopping" 
 /* Section card wrapper */
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-      <h2 className="text-xl font-semibold text-[#06C1A0] mb-4">{title}</h2>
-      {children}
-    </div>
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md mb-8">
+      <div className={title.includes("Contraindications") ? "border-b border-amber-200 bg-amber-50 px-6 py-4" : "bg-gradient-to-r from-[#041B2D] to-[#0B4B57] px-6 py-4"}>
+        <h2 className={title.includes("Contraindications") ? "text-xl font-semibold text-amber-900" : "text-xl font-semibold text-white"}>{title}</h2>
+      </div>
+      <div className="p-6">{children}</div>
+    </section>
   );
 }
 
@@ -466,29 +469,22 @@ async function exportPDF() {
 
 
   const sec = useMemo(() => {
-    const md = markdown ?? "";
+    const report = parseBlueprintReport(markdown ?? "");
     return {
-      intro: extractSection(md, ["Intro Summary", "Summary"]),
-      goals: extractSection(md, ["Goals"]),
-      contra: extractSection(md, ["Contraindications & Med Interactions", "Contraindications"]),
-      current: extractSection(md, ["Current Stack"]),
-      blueprint: extractSection(md, [
-        "Your Blueprint Recommendations",
-        'High-Impact "Bang-for-Buck" Additions',
-        "High-Impact Bang-for-Buck Additions",
-      ]),
-      dosing: extractSection(md, ["Dosing & Notes", "Dosing"]),
-      evidence: extractSection(md, ["Evidence & References"]),
-      shopping: extractSection(md, ["Shopping Links"]),
-      follow: extractSection(md, ["Follow-up Plan"]),
-      lifestyle: extractSection(md, ["Lifestyle Prescriptions"]),
-      longevity: extractSection(md, ["Longevity Levers"]),
-      weekTry: extractSection(md, ["This Week Try", "Weekly Experiment"]),
+      intro: report.sections["Intro Summary"], goals: report.sections.Goals,
+      contra: report.sections["Contraindications & Med Interactions"], current: report.sections["Current Stack"],
+      blueprint: report.sections["Your Blueprint Recommendations"], dosing: report.sections["Dosing & Notes"],
+      evidence: report.sections["Evidence & References"], shopping: report.sections["Shopping Links"],
+      follow: report.sections["Follow-up Plan"], lifestyle: report.sections["Lifestyle Prescriptions"],
+      longevity: report.sections["Longevity Levers"], weekTry: report.sections["This Week Try"],
+      focusItems: report.focusItems,
+      contentHash: report.contentHash,
     };
   }, [markdown]);
 
   return (
     <motion.main
+      data-report-hash={sec.contentHash}
       className="relative isolate overflow-hidden min-h-screen bg-gradient-to-br from-[#F8F5FB] via-white to-[#EAFBF8]"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
@@ -553,6 +549,15 @@ async function exportPDF() {
             </SectionCard>
 
             {error && <div className="text-center text-red-600 mb-6">{error}</div>}
+
+            {sec.focusItems.length > 0 && (
+              <div className="mb-8 rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-50 to-teal-50 p-6 shadow-sm">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-700">This Week Focus</p>
+                <ol className="mt-3 grid gap-2 text-sm text-slate-800 sm:grid-cols-2">
+                  {sec.focusItems.map((item, index) => <li key={item} className="rounded-xl bg-white/80 px-4 py-3"><strong>{index + 1}.</strong> {item}</li>)}
+                </ol>
+              </div>
+            )}
 
             {/* sections */}
             {sec.intro && (
