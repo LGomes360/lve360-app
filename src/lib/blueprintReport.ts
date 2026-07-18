@@ -64,7 +64,11 @@ function hash(value: string): string {
 }
 
 export function parseBlueprintReport(markdown: string): BlueprintReport {
-  const cleaned = cleanText(markdown);
+  const cleaned = String(markdown ?? "")
+    .replace(/^```[a-z]*\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .replace(/(^|\n)##\s*END\s*(?=\n|$)/gi, "$1")
+    .trim();
   const sections = Object.fromEntries(REPORT_SECTION_NAMES.map((name) => [name, extract(cleaned, name)])) as Record<ReportSectionName, string>;
   const focusItems = sections["This Week Try"].split(/\r?\n/)
     .map((line) => cleanText(line.replace(/^\s*[-*]\s+/, "")))

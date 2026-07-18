@@ -1,5 +1,5 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb, type RGB } from "pdf-lib";
-import { parseBlueprintReport } from "@/lib/blueprintReport";
+import { parseBlueprintReport } from "./blueprintReport";
 
 const PAGE_WIDTH = 612;
 const PAGE_HEIGHT = 792;
@@ -197,26 +197,25 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
         : Array.from({ length: columnCount }, () => 1 / columnCount);
     const widths = proportions.map((part) => CONTENT_WIDTH * part);
 
-    rows.forEach((row, rowIndex) => {
-      const cellFont = rowIndex === 0 ? bold : regular;
-      const cellSize = rowIndex === 0 ? 8.2 : 8;
+    const drawRow = (row: string[], rowIndex: number, isHeader = false) => {
+      const cellFont = isHeader ? bold : regular;
+      const cellSize = isHeader ? 8.2 : 8;
       const wrapped = row.map((cell, index) => wrap(cell, cellFont, cellSize, Math.max(28, widths[index] - 12)));
       const rowHeight = Math.max(22, ...wrapped.map((lines) => lines.length * 10 + 8));
-      ensureSpace(rowHeight + 2);
       const y = cursorY - rowHeight;
       page.drawRectangle({
         x: MARGIN,
         y,
         width: CONTENT_WIDTH,
         height: rowHeight,
-        color: rowIndex === 0 ? NAVY : rowIndex % 2 === 0 ? PALE_BLUE : WHITE,
+        color: isHeader ? NAVY : rowIndex % 2 === 0 ? PALE_BLUE : WHITE,
         borderColor: BORDER,
         borderWidth: 0.45,
       });
       let x = MARGIN;
       row.forEach((cell, index) => {
         if (index > 0) page.drawLine({ start: { x, y }, end: { x, y: y + rowHeight }, color: BORDER, thickness: 0.4 });
-        if (isBlueprint && index === statusColumn && rowIndex > 0) {
+        if (isBlueprint && index === statusColumn && !isHeader) {
           drawStatusPill(cell, x + 3, y + rowHeight / 2 - 7, widths[index] - 6);
         } else {
           wrapped[index].forEach((line, lineIndex) => {
@@ -225,7 +224,7 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
               y: y + rowHeight - 11 - lineIndex * 10,
               size: cellSize,
               font: cellFont,
-              color: rowIndex === 0 ? WHITE : TEXT,
+              color: isHeader ? WHITE : TEXT,
               maxWidth: widths[index] - 12,
             });
           });
@@ -233,6 +232,20 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
         x += widths[index];
       });
       cursorY = y;
+    };
+
+    rows.forEach((row, rowIndex) => {
+      const isHeader = rowIndex === 0;
+      const previewFont = isHeader ? bold : regular;
+      const previewSize = isHeader ? 8.2 : 8;
+      const rowHeight = Math.max(22, ...row.map((cell, index) =>
+        wrap(cell, previewFont, previewSize, Math.max(28, widths[index] - 12)).length * 10 + 8
+      ));
+      if (cursorY - rowHeight < CONTENT_BOTTOM) {
+        addPage();
+        if (!isHeader) drawRow(header, 0, true);
+      }
+      drawRow(row, rowIndex, isHeader);
     });
     cursorY -= 9;
   };
