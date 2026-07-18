@@ -27,9 +27,20 @@ function cleanText(value: string): string {
 }
 
 function extract(markdown: string, heading: ReportSectionName): string {
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = markdown.match(new RegExp(`^##\\s+${escaped}\\s*$([\\s\\S]*?)(?=^##\\s+|$)`, "im"));
-  let body = match?.[1] ?? "";
+  const lines = markdown.split(/\r?\n/);
+  const headingPattern = /^##\s+(.+?)\s*$/;
+  const headingIndex = lines.findIndex((line) => headingPattern.exec(line)?.[1] === heading);
+  if (headingIndex === -1) return "";
+
+  let nextHeadingIndex = lines.length;
+  for (let index = headingIndex + 1; index < lines.length; index++) {
+    if (headingPattern.test(lines[index])) {
+      nextHeadingIndex = index;
+      break;
+    }
+  }
+
+  let body = lines.slice(headingIndex + 1, nextHeadingIndex).join("\n");
   if (["Intro Summary", "Goals", "Evidence & References", "Shopping Links", "Lifestyle Prescriptions", "Longevity Levers", "This Week Try"].includes(heading)) {
     body = body.split(/^\s*\*\*Analysis\*\*\s*:?\s*$/im)[0] ?? body;
   }
