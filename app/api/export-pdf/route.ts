@@ -10,6 +10,7 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { renderReportPdf } from "@/lib/reportPdf";
+import { parseBlueprintReport } from "@/lib/blueprintReport";
 
 function isUUID(id: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
@@ -61,12 +62,14 @@ export async function GET(req: NextRequest) {
       "No report content available."
     );
     const pdfBytes = await renderReportPdf(content, DISCLAIMER_TEXT);
+    const reportHash = parseBlueprintReport(content).contentHash;
 
     return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": 'inline; filename="LVE360_Blueprint.pdf"',
+        "X-LVE360-Report-Hash": reportHash,
       },
     });
   } catch (err: any) {

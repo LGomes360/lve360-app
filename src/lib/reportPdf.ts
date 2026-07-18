@@ -1,4 +1,5 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb, type RGB } from "pdf-lib";
+import { parseBlueprintReport } from "@/lib/blueprintReport";
 
 const PAGE_WIDTH = 612;
 const PAGE_HEIGHT = 792;
@@ -83,10 +84,13 @@ function focusItems(markdown: string): string[] {
 }
 
 export async function renderReportPdf(markdown: string, disclaimer: string): Promise<Uint8Array> {
+  const report = parseBlueprintReport(markdown);
+  markdown = report.canonicalMarkdown;
   const pdfDoc = await PDFDocument.create();
   pdfDoc.setTitle("LVE360 Blueprint");
   pdfDoc.setAuthor("LVE360");
   pdfDoc.setSubject("Personalized wellness blueprint");
+  pdfDoc.setKeywords(["LVE360", "wellness", `report-${report.contentHash}`]);
   const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
@@ -252,7 +256,7 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
   };
 
   addPage();
-  drawFocusCard(focusItems(markdown));
+  drawFocusCard(report.focusItems);
 
   const lines = markdown.split(/\r?\n/);
   for (let index = 0; index < lines.length; index++) {
@@ -297,11 +301,7 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
       drawParagraph(bullet, { indent: 13 });
       continue;
     }
-    if (/^\*\*Analysis\*\*/i.test(line)) {
-      ensureSpace(20);
-      drawParagraph("Analysis", { font: bold, size: 9.5, color: TEAL });
-      continue;
-    }
+    if (/^\*\*Analysis\*\*/i.test(line) || /^Analysis\s*:?$/i.test(line)) continue;
     drawParagraph(line);
   }
 

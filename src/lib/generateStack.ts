@@ -10,6 +10,8 @@
 import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import { supabaseAdmin } from "@/lib/supabase";
 import parseMarkdownToItems from "@/lib/parseMarkdownToItems";
+import { formatStartingGuidance } from "@/lib/supplementDosingRegistry";
+import { parseBlueprintReport, validateBlueprintReport } from "@/lib/blueprintReport";
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks, buildAmazonSearchLink } from "@/lib/affiliateLinks";
 import { getTopCitationsFor } from "@/lib/evidence";
@@ -577,6 +579,8 @@ function consistentDosingBody(
     if (berberineRequiresReview && /^berberine(?:\s+hcl)?$/i.test(name)) {
       return `- **${name}** -- Clinician review is required before considering use because glucose-lowering medication or blood-sugar context was reported. Do not start without coordinated review.`;
     }
+    const startingGuidance = formatStartingGuidance(name);
+    if (startingGuidance) return `- **${name}** -- ${startingGuidance}`;
     return modelLineByName.get(name.toLowerCase()) ??
       `- **${name}** -- Clinician review is recommended before use; a specific dose or timing is not provided.`;
   }).map(complianceSafeLanguage);
@@ -2267,6 +2271,13 @@ const safetyInput = {
   const shoppingRe = /## Shopping Links([\s\S]*?)(?=\n## |\n## END|$)/i;
   md = shoppingRe.test(md) ? md.replace(shoppingRe, shoppingSection) : md.replace(/\n## END/i, `\n\n${shoppingSection}\n\n## END`);
   md = complianceSafeLanguage(md);
+  const canonicalReport = parseBlueprintReport(md);
+  const canonicalIssues = validateBlueprintReport(canonicalReport);
+  if (canonicalIssues.length) {
+    console.warn("[validation] canonical report issues", canonicalIssues);
+    throw new Error(`Refusing to persist invalid canonical report: ${canonicalIssues.join(", ")}`);
+  }
+  md = canonicalReport.canonicalMarkdown;
 
   if (/\[object Object\]/i.test(md)) {
     throw new Error("Invalid object string leaked into report");
