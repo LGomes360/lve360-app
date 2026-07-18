@@ -1,4 +1,4 @@
-import { isPreferenceFieldOrValue } from "@/lib/supplementEligibility";
+import { isPreferenceFieldOrValue } from "./supplementEligibility";
 
 export type CurrentStackKind = "medication" | "supplement" | "hormone" | "endocrine_active_supplement";
 
@@ -42,6 +42,7 @@ function cleanParsedName(value: string): string {
   if (/^(?:alcar|acetyl[- ]l[- ]carnitine(?:\s*\(alcar\))?)$/i.test(cleaned)) {
     return "Acetyl-L-carnitine (ALCAR)";
   }
+  if (/^(?:omega(?:[- ]?3)?|fish oil)$/i.test(cleaned)) return "Omega-3";
   return cleaned;
 }
 
@@ -158,7 +159,12 @@ function inferKind(labelOrKey: string): CurrentStackKind | null {
 }
 
 function detailFrom(value: unknown): string | undefined {
-  return readableText(value) ?? extractLedgerReadableNames(value)[0];
+  const parsed = parseJson(value);
+  if (typeof parsed === "string" || typeof parsed === "number") {
+    const detail = normalizeNumericCommas(String(parsed)).replace(/\s+/g, " ").trim();
+    return detail && !UUID_RE.test(detail) && !INVALID_NAME_RE.test(detail) ? detail : undefined;
+  }
+  return extractLedgerReadableNames(parsed)[0];
 }
 
 function fieldValues(field: Record<string, any>): unknown[] {
@@ -211,6 +217,17 @@ function fieldDetail(field: Record<string, any>): string | undefined {
   return undefined;
 }
 
+type DetailRole = "purpose" | "dose" | "timing";
+
+function detailRoleForLabel(label: string): DetailRole | null {
+  const normalized = normalizeNumericCommas(label).replace(/\s+/g, " ").trim();
+  if (/\bpurpose\b/i.test(normalized) || /^e\.?g\.?,?\s*(?!\d)/i.test(normalized)) return "purpose";
+  if (/\b(?:dose|dosage|amount|strength)\b/i.test(normalized) || INLINE_DOSE_RE.test(normalized)) return "dose";
+  if (/\b(?:frequency|timing|how often|when taken|schedule)\b/i.test(normalized) ||
+      INLINE_FREQUENCY_RE.test(normalized) || /\b(?:am|pm|morning|evening|bedtime)\b/i.test(normalized)) return "timing";
+  return null;
+}
+
 export function parseTallyCurrentStackFields(
   fields: unknown,
   sourcePath = "fields"
@@ -226,14 +243,15 @@ export function parseTallyCurrentStackFields(
     const label = fieldLabel(field);
     if (!label || isPreferenceFieldOrValue(label)) return;
 
-    if (DETAIL_LABEL_RE.test(label)) {
+    const detailRole = detailRoleForLabel(label);
+    if (detailRole) {
       if (!currentItems.length) return;
       const detail = fieldDetail(field);
       if (!detail) return;
       for (const currentItem of currentItems) {
-        if (/\b(?:purpose)\b/i.test(label)) {
+        if (detailRole === "purpose") {
           currentItem.purpose = currentItem.purpose ?? detail;
-        } else if (/\b(?:dose|dosage)\b/i.test(label)) {
+        } else if (detailRole === "dose") {
           currentItem.dose = currentItem.dose ?? detail;
         } else {
           currentItem.timing = currentItem.timing ?? detail;
