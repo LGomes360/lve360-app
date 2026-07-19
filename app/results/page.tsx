@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { isValidElement, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
@@ -9,6 +9,7 @@ import remarkGfm from "remark-gfm";
 import CTAButton from "@/components/CTAButton";
 import ResultsSidebar from "@/components/results/ResultsSidebar";
 import { parseBlueprintReport } from "@/lib/blueprintReport";
+import { blueprintStatusTone, cleanReportDisplayText, reportSectionTitle } from "@/lib/reportPresentation";
 
 /* ───────── helpers ───────── */
 function sanitizeMarkdown(md: string): string {
@@ -70,27 +71,41 @@ async function fetchWithRetry(
 
 
 /* Markdown renderer */
+function textFromNode(value: ReactNode): string {
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (Array.isArray(value)) return value.map(textFromNode).join("");
+  if (isValidElement<{ children?: ReactNode }>(value)) return textFromNode(value.props.children);
+  return "";
+}
+
 function Prose({ children }: { children: string }) {
   return (
-    <div className="prose prose-gray max-w-none">
+    <div className="report-prose prose prose-gray max-w-none text-[#1F2937]">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           h2: ({ node, ...props }) => (
             <h2
-              className="text-2xl font-bold text-teal-600 mt-8 mb-4 border-b border-gray-200 pb-1"
+              className="mt-8 mb-4 border-b border-slate-200 pb-2 text-2xl font-bold text-[#122945]"
               {...props}
             />
           ),
-          table: ({ node, ...props }) => (
-            <table className="w-full border-collapse my-4 text-sm shadow-sm" {...props} />
-          ),
-          thead: ({ node, ...props }) => <thead className="bg-[#06C1A0] text-white" {...props} />,
-          th: ({ node, ...props }) => <th className="px-3 py-0.5 text-left font-semibold" {...props} />,
-          td: ({ node, ...props }) => (
-            <td className="px-3 py-0.5 border-t border-gray-200 align-middle" {...props} />
-          ),
-          tr: ({ node, ...props }) => <tr className="even:bg-gray-50" {...props} />,
+          table: ({ node, ...props }) => <table className="my-4 w-full border-collapse overflow-hidden text-sm" {...props} />,
+          thead: ({ node, ...props }) => <thead className="bg-[#122945] text-white" {...props} />,
+          th: ({ node, ...props }) => <th className="px-3 py-2 text-left font-semibold" {...props} />,
+          td: ({ node, children, ...props }) => {
+            const tone = blueprintStatusTone(textFromNode(children));
+            return (
+              <td className="border-t border-[#D1DBE0] px-3 py-2 align-top" {...props}>
+                {tone ? <span className={`report-status report-status-${tone}`}>{children}</span> : children}
+              </td>
+            );
+          },
+          tr: ({ node, ...props }) => <tr className="even:bg-[#EFF5FA]" {...props} />,
+          ul: ({ node, ...props }) => <ul className="my-3 list-disc space-y-2 pl-6 marker:text-[#06C1A0]" {...props} />,
+          ol: ({ node, ...props }) => <ol className="my-3 list-decimal space-y-2 pl-6 marker:font-semibold marker:text-[#122945]" {...props} />,
+          li: ({ node, ...props }) => <li className="pl-1 leading-6" {...props} />,
+          p: ({ node, ...props }) => <p className="leading-7" {...props} />,
           strong: ({ node, ...props }) => <strong className="font-semibold text-[#041B2D]" {...props} />,
         }}
       >
@@ -106,14 +121,12 @@ function LinksTable({ raw, type }: { raw: string; type: "evidence" | "shopping" 
 
   const lines = raw.split("\n").map((l) => l.trim());
   const bulletLines = lines.filter((l) => l.startsWith("-"));
-  const analysisIndex = lines.findIndex((l) => l.toLowerCase().startsWith("**analysis"));
-  const analysis = analysisIndex !== -1 ? lines.slice(analysisIndex).join(" ") : null;
 
   const rows = bulletLines
     .map((line) => {
       const matches = Array.from(line.matchAll(linkRe));
       if (matches.length === 0) return null;
-      const namePart = line.replace(/^-+\s*/, "").split(":")[0].trim();
+      const namePart = cleanReportDisplayText(line.replace(/^-+\s*/, "").split(":")[0]);
       if (namePart.toLowerCase().includes("evidence pending")) return null; // skip placeholders
       const links = matches.map((m) => ({ text: m[1], url: m[2] }));
       return { name: namePart, links };
@@ -140,8 +153,8 @@ function LinksTable({ raw, type }: { raw: string; type: "evidence" | "shopping" 
 
   return (
     <div>
-      <table className="w-full border-collapse my-2 text-sm shadow-sm">
-        <thead className="bg-[#06C1A0] text-white">
+      <table className="my-2 w-full border-collapse overflow-hidden text-sm">
+        <thead className="bg-[#122945] text-white">
           <tr>
             <th className="px-3 py-0.5 text-left">Item</th>
             <th className="px-3 py-0.5 text-left">Action</th>
@@ -149,9 +162,9 @@ function LinksTable({ raw, type }: { raw: string; type: "evidence" | "shopping" 
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={i} className="even:bg-gray-50 border-t">
-              <td className="px-3 py-0.5">{r.name}</td>
-              <td className="px-3 py-0.5 space-x-2">
+            <tr key={i} className="border-t border-[#D1DBE0] even:bg-[#EFF5FA]">
+              <td className="px-3 py-2">{r.name}</td>
+              <td className="space-x-2 px-3 py-2">
                 {r.links.map((link, j) => (
                   <CTAButton
                     key={j}
@@ -177,17 +190,17 @@ function LinksTable({ raw, type }: { raw: string; type: "evidence" | "shopping" 
         </div>
       )}
 
-      {analysis && <p className="mt-3 text-sm text-gray-700 leading-relaxed">{analysis}</p>}
     </div>
   );
 }
 
 /* Section card wrapper */
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+  const displayTitle = reportSectionTitle(title);
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md mb-8">
+    <section className="report-section mb-8 overflow-hidden rounded-2xl border border-[#D1DBE0] bg-white shadow-sm">
       <div className={title.includes("Contraindications") ? "border-b border-amber-200 bg-amber-50 px-6 py-4" : "bg-gradient-to-r from-[#041B2D] to-[#0B4B57] px-6 py-4"}>
-        <h2 className={title.includes("Contraindications") ? "text-xl font-semibold text-amber-900" : "text-xl font-semibold text-white"}>{title}</h2>
+        <h2 className={title.includes("Contraindications") ? "text-xl font-semibold text-amber-900" : "text-xl font-semibold text-white"}>{displayTitle}</h2>
       </div>
       <div className="p-6">{children}</div>
     </section>
@@ -485,7 +498,7 @@ async function exportPDF() {
   return (
     <motion.main
       data-report-hash={sec.contentHash}
-      className="relative isolate overflow-hidden min-h-screen bg-gradient-to-br from-[#F8F5FB] via-white to-[#EAFBF8]"
+      className="report-page relative isolate min-h-screen overflow-hidden bg-gradient-to-br from-[#EFF5FA] via-white to-[#E6F7F3]"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6 }}
@@ -496,17 +509,18 @@ async function exportPDF() {
         aria-hidden
       />
       <div
-        className="pointer-events-none absolute top-[20rem] -right-24 h-[28rem] w-[28rem] rounded-full bg-[#D9C2F0] opacity-30 blur-3xl animate-[float_10s_ease-in-out_infinite]"
+        className="pointer-events-none absolute top-[20rem] -right-24 h-[28rem] w-[28rem] rounded-full bg-[#D9F4EE] opacity-35 blur-3xl animate-[float_10s_ease-in-out_infinite]"
         aria-hidden
       />
 
       {/* Content */}
-      <div className="relative z-10 max-w-6xl mx-auto py-20 px-6 font-sans">
+      <div className="report-surface relative z-10 mx-auto max-w-6xl px-6 py-20">
         {/* Header */}
         <div className="text-center mb-10">
-          <h1 className="text-5xl sm:text-6xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent">
+          <h1 className="text-5xl font-extrabold tracking-tight text-[#122945] sm:text-6xl">
             Your LVE360 Blueprint
           </h1>
+          <div className="mx-auto mt-3 h-1 w-24 rounded-full bg-[#06C1A0]" />
           <p className="text-gray-600 mt-4 text-lg">Personalized insights for Longevity • Vitality • Energy</p>
           <p className="mt-2 text-gray-500 text-sm">$15/month Premium Access</p>
         </div>
@@ -514,9 +528,9 @@ async function exportPDF() {
         {/* two-column layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* LEFT */}
-          <div className="lg:col-span-8">
+          <div className="report-content lg:col-span-8">
             {/* actions */}
-            <SectionCard title="Actions">
+            <div className="report-no-print"><SectionCard title="Actions">
               <div className="flex flex-wrap gap-4 justify-center">
                 <CTAButton onClick={generateStack} variant="gradient" disabled={warmingUp || generating || !ready}>
                   {warmingUp ? "⏳ Warming up…" : generating ? "🤖 Generating..." : ready ? "✨ Generate Free Report" : "⏳ Preparing…"}
@@ -546,13 +560,13 @@ async function exportPDF() {
 
               {/* 2-minute countdown while generating */}
               <TwoMinuteCountdown running={generating} />
-            </SectionCard>
+            </SectionCard></div>
 
             {error && <div className="text-center text-red-600 mb-6">{error}</div>}
 
             {sec.focusItems.length > 0 && (
-              <div className="mb-8 rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-50 to-teal-50 p-6 shadow-sm">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-700">This Week Focus</p>
+              <div className="report-focus mb-8 rounded-2xl border border-[#9DCFC3] bg-gradient-to-r from-[#EFF5FA] to-[#E6F7F3] p-6 shadow-sm">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#122945]">This Week Focus</p>
                 <ol className="mt-3 grid gap-2 text-sm text-slate-800 sm:grid-cols-2">
                   {sec.focusItems.map((item, index) => <li key={item} className="rounded-xl bg-white/80 px-4 py-3"><strong>{index + 1}.</strong> {item}</li>)}
                 </ol>
@@ -615,7 +629,7 @@ async function exportPDF() {
                 <Prose>{sec.longevity}</Prose>
               </SectionCard>
             )}
-            {sec.weekTry && (
+            {sec.weekTry && sec.focusItems.length === 0 && (
               <SectionCard title="This Week Try">
                 <Prose>{sec.weekTry}</Prose>
               </SectionCard>
@@ -636,7 +650,7 @@ async function exportPDF() {
             </SectionCard>
 
             {/* export PDF */}
-            <div className="flex justify-center mt-8">
+            <div className="report-no-print mt-8 flex justify-center">
               <button
                 onClick={exportPDF}
                 disabled={exporting || generating || warmingUp || !stackId || !hasUsableSections(markdown)}
@@ -650,7 +664,7 @@ async function exportPDF() {
           </div>
 
           {/* RIGHT: sticky sidebar */}
-          <div className="lg:col-span-4">
+          <div className="report-sidebar lg:col-span-4">
             {stackId ? (
               <ResultsSidebar stackId={stackId} />
             ) : (

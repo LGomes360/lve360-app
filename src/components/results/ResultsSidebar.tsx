@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { bucketsFromRecord } from "@/src/lib/timing";
 import { isEligibleSupplementName, isMedicationOrHormoneName } from "@/lib/supplementEligibility";
+import { cleanReportDisplayText } from "@/lib/reportPresentation";
 
 type Item = {
   id: string;
@@ -109,13 +110,6 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
     return <aside className="rounded-xl border p-4 text-sm text-zinc-600">No supplement items are available for this report yet.</aside>;
   }
 
-  // affiliate helpers (unchanged)
-  const amazonTag = process.env.NEXT_PUBLIC_AMAZON_TAG || "";
-  const fallbackAmazon = (name: string) =>
-    `https://www.amazon.com/s?k=${encodeURIComponent(
-      `${name} supplement`
-    )}` + (amazonTag ? `&tag=${encodeURIComponent(amazonTag)}` : "");
-
   const track = (
     url: string,
     src: "amazon" | "fullscript",
@@ -127,26 +121,27 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
 
   // Row renderer (dose + “Current” badge + links)
   const ItemRow = (i: Item) => {
-    const amazonUrl = i.link_amazon || fallbackAmazon(i.name);
+    const displayName = cleanReportDisplayText(i.name);
+    const displayDose = i.dose ? cleanReportDisplayText(i.dose) : "";
     return (
       <li key={i.id} className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="text-sm truncate">
-            {i.name}
+            {displayName}
             {i.is_current ? (
               <span className="ml-1 align-middle text-[10px] px-1 py-0.5 rounded bg-emerald-100 text-emerald-700">
                 Current
               </span>
             ) : null}
           </div>
-          {i.dose ? (
-            <div className="text-xs text-zinc-500 truncate">{i.dose}</div>
+          {displayDose ? (
+            <div className="text-xs text-zinc-500 truncate">{displayDose}</div>
           ) : null}
         </div>
         <div className="flex gap-2 shrink-0">
           {i.link_fullscript ? (
             <a
-              href={track(i.link_fullscript, "fullscript", i.name)}
+              href={track(i.link_fullscript, "fullscript", displayName)}
               className="text-xs underline"
               target="_blank"
               rel="noopener noreferrer nofollow"
@@ -154,14 +149,16 @@ export default function ResultsSidebar({ stackId }: { stackId: string }) {
               Fullscript
             </a>
           ) : null}
-          <a
-            href={track(amazonUrl, "amazon", i.name)}
-            className="text-xs underline"
-            target="_blank"
-            rel="noopener noreferrer nofollow"
-          >
-            Amazon
-          </a>
+          {i.link_amazon ? (
+            <a
+              href={track(i.link_amazon, "amazon", displayName)}
+              className="text-xs underline"
+              target="_blank"
+              rel="noopener noreferrer nofollow"
+            >
+              Amazon
+            </a>
+          ) : null}
         </div>
       </li>
     );

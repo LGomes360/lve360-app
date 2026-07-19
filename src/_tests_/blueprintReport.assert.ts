@@ -9,7 +9,13 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 const representativeMarkdown = REPORT_SECTION_NAMES.map((name, index) => {
-  const analysis = index < 2 ? "\n\n**Analysis**\n\nThis must not survive." : "";
+  const analysis = index === 0
+    ? "\n\n**Analysis**: This inline analysis must not survive."
+    : index === 1
+      ? "\n\n**Analysis**\n\nThis must not survive."
+      : name === "Dosing & Notes"
+        ? "\n\nAnalysis: This dosing analysis must not survive."
+        : "";
   const body = name === "This Week Try"
     ? "- Take a ten-minute walk after lunch.\n- Keep a consistent bedtime.\n\n**Analysis**\n\nInternal reasoning must not become a focus item."
     : `Meaningful content for ${name}.${analysis}`;
@@ -31,6 +37,10 @@ assert(
 assert(
   !/^\s*(?:\*\*)?Analysis(?:\*\*)?\s*:?\s*$/im.test(report.canonicalMarkdown),
   "Expected empty Analysis headings to be removed",
+);
+assert(
+  !/inline analysis|dosing analysis|This must not survive/i.test(report.canonicalMarkdown),
+  "Expected internal analysis prose to be removed from presentation-only sections",
 );
 assert(validateBlueprintReport(report).length === 0, "Expected representative report to validate");
 

@@ -25,3 +25,38 @@
   body {
     @apply bg-background text-foreground; } }
 html { scroll-behavior: smooth; }
+
+.report-surface { font-family: Arial, Helvetica, sans-serif; }
+.report-status {
+  display: inline-block;
+  border-radius: 9999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.report-status-current { background: #c7eadf; color: #122945; }
+.report-status-new { background: #d1e5f7; color: #122945; }
+.report-status-review { background: #ffe0ad; color: #744210; }
+
+@media print {
+  @page { margin: 0.55in; }
+  header, nav, footer, .report-no-print, .report-sidebar { display: none !important; }
+  body { background: white !important; }
+  .report-page { min-height: auto !important; overflow: visible !important; background: white !important; }
+  .report-page > [aria-hidden] { display: none !important; }
+  .report-surface { max-width: none !important; padding: 0 !important; }
+  .report-surface > div:first-child { margin-bottom: 1.5rem !important; }
+  .report-content { width: 100% !important; }
+  .report-section, .report-focus {
+    box-shadow: none !important;
+    break-inside: auto;
+    margin-bottom: 1rem !important;
+  }
+  .report-section h2, .report-prose h2 { break-after: avoid-page; }
+  .report-prose table { break-inside: auto; }
+  .report-prose tr { break-inside: avoid-page; }
+  .report-prose thead { display: table-header-group; }
+  .report-prose a { color: #122945 !important; text-decoration: none !important; }
+}
