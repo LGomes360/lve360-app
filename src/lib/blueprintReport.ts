@@ -30,9 +30,29 @@ function cleanText(value: string): string {
 
 function extract(markdown: string, heading: ReportSectionName): string {
   const lines = markdown.split(/\r?\n/);
-  const headingPattern = /^##\s+(.+?)\s*$/;
-  const headingIndex = lines.findIndex((line) => headingPattern.exec(line)?.[1] === heading);
-  if (headingIndex === -1) return "";
+  const headingPattern = /^\s*##\s+(.+?)\s*$/;
+  const normalizeHeading = (value: string) => value
+    .replace(/^\d+[.)]\s*/, "")
+    .replace(/[*_`]/g, "")
+    .replace(/\s*:$/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  const expectedHeading = normalizeHeading(heading);
+  const headingIndex = lines.findIndex((line) => {
+    const match = headingPattern.exec(line);
+    return Boolean(match && normalizeHeading(match[1]) === expectedHeading);
+  });
+  if (headingIndex === -1) {
+    const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const fallbackHeading = new RegExp(`##\\s+(?:\\d+[.)]\\s*)?${escaped}\\s*:?\\s*(?:\\r?\\n|$)`, "i");
+    const match = fallbackHeading.exec(markdown);
+    if (!match) return "";
+    const bodyStart = match.index + match[0].length;
+    const remainder = markdown.slice(bodyStart);
+    const nextHeading = /(?:^|\r?\n)\s*##\s+/m.exec(remainder);
+    return cleanSectionBody(remainder.slice(0, nextHeading?.index ?? remainder.length), heading);
+  }
 
   let nextHeadingIndex = lines.length;
   for (let index = headingIndex + 1; index < lines.length; index++) {
@@ -42,7 +62,11 @@ function extract(markdown: string, heading: ReportSectionName): string {
     }
   }
 
-  let body = lines.slice(headingIndex + 1, nextHeadingIndex).join("\n");
+  return cleanSectionBody(lines.slice(headingIndex + 1, nextHeadingIndex).join("\n"), heading);
+}
+
+function cleanSectionBody(rawBody: string, heading: ReportSectionName): string {
+  let body = rawBody;
   const analysisLine = /^\s*(?:\*\*)?Analysis(?:\*\*)?\s*:?\s*(.*)$/im;
   if (["Intro Summary", "Goals", "Dosing & Notes", "Evidence & References", "Shopping Links", "Lifestyle Prescriptions", "Longevity Levers", "This Week Try"].includes(heading)) {
     body = body.split(analysisLine)[0] ?? body;

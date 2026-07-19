@@ -323,23 +323,16 @@ try {
   console.error("[generate-stack] generator soft-fail:", msg);
   await logFailure("generate-stack", msg, { submissionId, mode });
 
-  // Soft fallback: create/refresh an empty warning stack so UI can render
-  const fb = await ensureFallbackStack(submission, [
-    isTimeout
-      ? "Generation took too long. Please retry."
-      : "Generation temporarily failed. Please retry.",
-  ]);
-
   return NextResponse.json(
     {
-      ok: true,
+      ok: false,
       mode,
       user_tier: tier,
-      stack: fb,
-      itemsInserted: 0,
-      ai: { markdown: fb.markdown, raw: fb.raw },
+      error: isTimeout
+        ? "Generation took too long. Please retry."
+        : "Generation temporarily failed. Please retry.",
     },
-    { status: 200 }
+    { status: isTimeout ? 504 : 500 }
   );
 }
 // Validation is advisory (do NOT fail the request if generator succeeded)

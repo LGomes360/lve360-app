@@ -1287,20 +1287,30 @@ function buildActionableThisWeekSection(blueprintTable: string, client: any): st
     .filter((line) => /^\s*\|\s*\d+\s*\|/.test(line))
     .map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim()))
     .find((cells) => cells[2] === "New - consider")?.[1];
-  const goals = reportedGoals(client).join(" ").toLowerCase();
-  const goalHabit = /sleep/.test(goals)
-    ? "Keep the same bedtime and wake time on at least five days."
-    : /muscle|strength/.test(goals)
-      ? "Complete two resistance-training sessions and record the exercises used."
-      : "Take a 10-minute walk after your largest meal on at least four days.";
+  const goals = reportedGoals(client).map((goal) => goal.toLowerCase());
+  const goalActions: Array<{ matches: RegExp; action: string }> = [
+    { matches: /weight|body composition|fat loss/, action: "Take a 10-minute walk after your largest meal on at least four days and note completion." },
+    { matches: /sleep/, action: "Keep the same bedtime and wake time on at least five days and record morning energy." },
+    { matches: /muscle|strength/, action: "Complete two resistance-training sessions and record the exercises used." },
+    { matches: /cogn|focus|memory|brain/, action: "Schedule one 25-minute distraction-free focus block on at least four days and note your focus afterward." },
+    { matches: /inflam|joint/, action: "Record joint comfort or soreness on three days using the same 1-to-10 scale." },
+    { matches: /energy|fatigue/, action: "Record morning and afternoon energy on three days using the same 1-to-10 scale." },
+    { matches: /longevity|aging/, action: "Complete at least 150 minutes of total walking or other moderate activity this week." },
+  ];
+  const matchedGoalActions = goalActions
+    .filter(({ matches }) => goals.some((goal) => matches.test(goal)))
+    .map(({ action }) => action);
   const firstAction = newItem
     ? `If you choose to add ${newItem}, make it the only new supplement this week and use the starting guidance in this report.`
     : "Add no more than one new supplement this week.";
+  const actions = Array.from(new Set([
+    firstAction,
+    ...matchedGoalActions,
+    "Record one consistent outcome tied to your top goal on three days.",
+  ])).slice(0, 3);
   return `## This Week Try
 
-- ${firstAction}
-- Record sleep quality and morning energy on three days.
-- ${goalHabit}`;
+${actions.map((action) => `- ${action}`).join("\n")}`;
 }
 
 // ----------------------------------------------------------------------------

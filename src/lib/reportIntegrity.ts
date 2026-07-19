@@ -1,9 +1,3 @@
-const DEFAULT_FOCUS_ITEMS = [
-  "Add no more than one new supplement this week.",
-  "Record sleep quality and morning energy on three days.",
-  "Take a 10-minute walk after your largest meal.",
-];
-
 const NON_ACTIONABLE_FOCUS_RE = /^(?:this week[, ]+)?(?:try|experiment with|focus on|consider)(?: the following)?\s*:?[\s.]*$/i;
 
 function plainText(value: string): string {
@@ -14,7 +8,7 @@ function plainText(value: string): string {
     .trim();
 }
 
-export function normalizeFocusItems(raw: string, fallback = DEFAULT_FOCUS_ITEMS): string[] {
+export function normalizeFocusItems(raw: string): string[] {
   const candidates = String(raw ?? "")
     .split(/\r?\n/)
     .filter((line) => /^\s*(?:[-*]|\d+[.)])\s+/.test(line))
@@ -25,12 +19,7 @@ export function normalizeFocusItems(raw: string, fallback = DEFAULT_FOCUS_ITEMS)
       !NON_ACTIONABLE_FOCUS_RE.test(item) &&
       !/^analysis\b/i.test(item)
     );
-  const unique = Array.from(new Set(candidates));
-  for (const item of fallback) {
-    if (unique.length >= 3) break;
-    if (!unique.includes(item)) unique.push(item);
-  }
-  return unique.slice(0, 4);
+  return Array.from(new Set(candidates)).slice(0, 4);
 }
 
 export function recommendationRationale(name: string): string | null {
@@ -62,4 +51,3 @@ export function neutralGoalDescription(goal: string): string {
   if (/energy|fatigue/.test(value)) return "Support steadier daytime energy and recovery.";
   return "Make measurable, sustainable progress toward this stated wellness priority.";
 }
-
