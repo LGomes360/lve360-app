@@ -52,12 +52,12 @@ export default function Home() {
         <div className="absolute -left-28 top-8 -z-10 h-80 w-80 rounded-full bg-teal-200/50 blur-3xl" />
         <div className="absolute -right-24 top-24 -z-10 h-96 w-96 rounded-full bg-violet-200/40 blur-3xl" />
         <div className="mx-auto max-w-5xl text-center">
-          <p className="mb-5 text-sm font-bold uppercase tracking-[0.18em] text-teal-700">Longevity · Vitality · Energy</p>
+          <p className="mb-5 text-sm font-bold uppercase tracking-[0.18em] text-teal-700">Your personal operating system for better health</p>
           <h1 className="mx-auto max-w-4xl text-4xl font-extrabold tracking-tight text-[#041b2d] sm:text-6xl">
-            Know what to keep, change, and stop—then make the next week count.
+            Build a healthier, more energized life—one focused week at a time.
           </h1>
           <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-600 sm:text-xl">
-            LVE360 turns your health goals, supplements, medications, and routines into a clear Blueprint—then helps you build the small practices that support more energy, better sleep, movement, nutrition, and focus.
+            LVE360 reviews your goals, supplement stack, medications, and routines to create a personalized Blueprint—then helps you turn it into small, repeatable actions across sleep, nutrition, movement, focus, and relationships.
           </p>
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <button onClick={openIntake} className="rounded-xl bg-[#06a98e] px-6 py-3.5 font-semibold text-white shadow-lg shadow-teal-700/20 transition hover:bg-[#048b75]">Get your free Blueprint</button>
@@ -69,14 +69,14 @@ export default function Home() {
 
       <section className="mx-auto max-w-6xl px-6 py-20">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-bold text-[#041b2d] sm:text-4xl">A better system than another generic recommendation list</h2>
-          <p className="mt-4 text-lg text-slate-600">The free Blueprint creates clarity. Membership gives that clarity a place to live and a rhythm to follow.</p>
+          <h2 className="text-3xl font-bold text-[#041b2d] sm:text-4xl">From knowing what to do to becoming someone who does it</h2>
+          <p className="mt-4 text-lg text-slate-600">Big goals can inspire you, but lasting change is built through small actions you can repeat. LVE360 helps you choose the next useful action and build from there.</p>
         </div>
         <div className="mt-12 grid gap-6 md:grid-cols-3">
           {[
-            ["1", "See the full picture", "Share your goals, current stack, medications, and context. Get a personalized Blueprint with priorities, evidence notes, and clinician-review flags when needed."],
-            ["2", "Choose one weekly focus", "Turn a big goal—such as weight loss, sleep, strength, or better nutrition—into one small, specific practice for this week."],
-            ["3", "Build proof over time", "Use your dashboard to keep an active plan, check in briefly, and review what is working before adding more complexity."],
+            ["1", "Understand your starting point", "Share your goals, current stack, medications, and context. Get a personalized Blueprint with priorities, evidence notes, and clinician-review flags when needed."],
+            ["2", "Practice one meaningful change", "Turn a big goal—such as weight loss, sleep, strength, or better nutrition—into one small action that fits this week."],
+            ["3", "Become the person who follows through", "Each completed practice is evidence of the healthier identity you are building. Review what worked, adjust, and let small wins compound."],
           ].map(([number, title, description]) => (
             <article key={number} className="rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
               <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-teal-50 font-bold text-teal-700">{number}</span>
@@ -90,9 +90,9 @@ export default function Home() {
       <section className="bg-[#041b2d] px-6 py-20 text-white">
         <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[1fr_1.1fr]">
           <div>
-            <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-300">Built for the in-between</p>
-            <h2 className="mt-4 text-3xl font-bold sm:text-4xl">Your Blueprint is a starting point. Your life happens between reviews.</h2>
-            <p className="mt-5 text-lg leading-8 text-slate-300">LVE360 membership is designed for the moments when motivation fades: a short check-in, a visible next action, and a record of the small wins that compound.</p>
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-300">Where intention becomes action</p>
+            <h2 className="mt-4 text-3xl font-bold sm:text-4xl">Your Blueprint shows the direction. Your weekly practice moves you forward.</h2>
+            <p className="mt-5 text-lg leading-8 text-slate-300">LVE360 membership keeps change manageable when motivation fluctuates: one visible next action, a quick check-in, and a record of the small wins that compound over time.</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             {[
@@ -153,8 +153,8 @@ export default function Home() {
       </section>
 
       <section className="px-6 py-20 text-center">
-        <h2 className="text-3xl font-bold text-[#041b2d]">Better health is built in ordinary days.</h2>
-        <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">Start with a free, personalized Blueprint. Keep only the next useful action in view.</p>
+        <h2 className="text-3xl font-bold text-[#041b2d]">A healthier life is built from small choices repeated.</h2>
+        <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">Start with a free, personalized Blueprint. Choose one meaningful action. Build a week you can repeat.</p>
         <button onClick={openIntake} className="mt-8 rounded-xl bg-violet-600 px-6 py-3.5 font-semibold text-white shadow-lg shadow-violet-700/20 transition hover:bg-violet-700">Start your free Blueprint</button>
         <p className="mx-auto mt-5 max-w-xl text-xs leading-5 text-slate-500">LVE360 provides educational wellness information, not medical diagnosis or treatment. Consult a qualified clinician or pharmacist for medical decisions.</p>
       </section>

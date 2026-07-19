@@ -41,8 +41,8 @@ export default function Pricing() {
   return <main className="relative overflow-hidden bg-gradient-to-b from-[#eafbf8] via-white to-[#f8f5fb] px-6 pb-20 pt-28">
     <div className="mx-auto max-w-5xl text-center">
       <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-700">LVE360 membership</p>
-      <h1 className="mt-4 text-4xl font-extrabold tracking-tight text-[#041b2d] sm:text-5xl">A plan is useful when it helps you on Tuesday morning.</h1>
-      <p className="mx-auto mt-5 max-w-3xl text-lg leading-8 text-slate-600">Start with a free Blueprint. Join when you want a focused weekly rhythm for your supplement plan and the lifestyle practices that support your goals.</p>
+      <h1 className="mt-4 text-4xl font-extrabold tracking-tight text-[#041b2d] sm:text-5xl">Turn your Blueprint into a healthier way of living.</h1>
+      <p className="mx-auto mt-5 max-w-3xl text-lg leading-8 text-slate-600">Start free with clarity about your health and supplement plan. Join when you want a focused weekly system that helps small, meaningful actions become part of who you are.</p>
     </div>
 
     <div className="mx-auto mt-14 grid max-w-5xl gap-7 md:grid-cols-2">
