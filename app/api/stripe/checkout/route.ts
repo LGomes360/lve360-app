@@ -38,12 +38,9 @@ export async function POST(req: NextRequest) {
 
     const priceId = plan === "monthly" ? priceMonthly : priceAnnual;
 
-    // Instrumentation
     console.log("[checkout] creating session", {
       user_id: user.id,
-      email: user.email,
       plan,
-      priceId,
     });
 
     const session = await stripe.checkout.sessions.create({
@@ -55,11 +52,11 @@ export async function POST(req: NextRequest) {
       metadata: { plan, user_id: user.id },         // ← used by /confirm
       subscription_data: { metadata: { plan, user_id: user.id } },
       success_url: `${appUrl}/upgrade/success?session_id={CHECKOUT_SESSION_ID}&just=1`,
-      cancel_url: `${appUrl}/upgrade?canceled=1`,
+      cancel_url: `${appUrl}/upgrade?canceled=1&plan=${plan}`,
       allow_promotion_codes: true,
     });
 
-    console.log("[checkout] session created", { id: session.id, url: session.url });
+    console.log("[checkout] session created", { id: session.id, plan });
     return NextResponse.json({ ok: true, url: session.url });
   } catch (err: any) {
     console.error("❌ [checkout] error:", err);
