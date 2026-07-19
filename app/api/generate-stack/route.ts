@@ -16,6 +16,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generateStackForSubmission } from "@/lib/generateStack";
+import { sendGeneratedBlueprintEmail, type ReportEmailResult } from "@/lib/reportEmail";
 
 // Ensure long-running LLM work won’t time out on Vercel
 export const dynamic = "force-dynamic";
@@ -352,6 +353,16 @@ if (stackIdStr) {
   itemsInserted = await countItemsForStack(stackIdStr);
 }
 
+let email: ReportEmailResult = { status: "skipped", reason: "report-not-persisted" };
+if (stackIdStr && typeof result?.markdown === "string" && result.markdown.trim()) {
+  email = await sendGeneratedBlueprintEmail({
+    to: submission.user_email,
+    submissionId: submission.id,
+    stackId: stackIdStr,
+    markdown: result.markdown,
+  });
+}
+
 return NextResponse.json(
   {
     ok: true, // generation succeeded
@@ -361,6 +372,7 @@ return NextResponse.json(
     user_tier: tier,
     stack: result,
     itemsInserted,
+    email,
     ai: { markdown: result?.markdown ?? null, raw: result?.raw ?? null },
   },
   { status: 200 }

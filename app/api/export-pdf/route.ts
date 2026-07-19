@@ -11,22 +11,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { renderReportPdf } from "@/lib/reportPdf";
 import { parseBlueprintReport } from "@/lib/blueprintReport";
-import { AFFILIATE_DISCLOSURE_NEAR_LINKS, AFFILIATE_DISCLOSURE_SUPPORT } from "@/lib/reportDisclosures";
+import { REPORT_DISCLAIMER_TEXT, stripReportFences } from "@/lib/reportDocument";
 
 function isUUID(id: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
 }
-
-function stripFences(md: string) {
-  return md
-    .replace(/^```[a-z]*\n/i, "")
-    .replace(/```$/, "")
-    .replace(/\n?##\s*END\s*$/i, "")
-    .trim();
-}
-
-const DISCLAIMER_TEXT =
-  `This plan from LVE360 (Longevity | Vitality | Energy) is for educational purposes only and is not medical advice. It is not intended to diagnose, treat, cure, or prevent any disease. Always consult with your healthcare provider before starting new supplements or making significant lifestyle changes, especially if you are pregnant, nursing, managing a medical condition, or taking prescriptions. Supplements are regulated under the Dietary Supplement Health and Education Act (DSHEA); results vary and no outcomes are guaranteed. If you experience unexpected effects, discontinue use and seek professional care. By using this report, you agree that decisions about your health remain your responsibility and that LVE360 is not liable for how information is applied. Affiliate disclosure: ${AFFILIATE_DISCLOSURE_NEAR_LINKS} ${AFFILIATE_DISCLOSURE_SUPPORT}`;
 
 export async function GET(req: NextRequest) {
   try {
@@ -57,12 +46,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Stack not found" }, { status: 404 });
     }
 
-    const content = stripFences(
+    const content = stripReportFences(
       (stackRow?.sections?.markdown as string | undefined) ??
       (stackRow?.summary as string | undefined) ??
       "No report content available."
     );
-    const pdfBytes = await renderReportPdf(content, DISCLAIMER_TEXT);
+    const pdfBytes = await renderReportPdf(content, REPORT_DISCLAIMER_TEXT);
     const reportHash = parseBlueprintReport(content).contentHash;
 
     return new NextResponse(Buffer.from(pdfBytes), {
