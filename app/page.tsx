@@ -2,496 +2,164 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 
-/**
- * Home Page — LVE360
- * Palette:
- *  - Teal:    #06C1A0
- *  - Purple:  #7C3AED
- *  - Navy:    #041B2D
- * Background gradients use soft blends of #EAFBF8 (teal tint) and #F8F5FB (purple tint)
- * All primary CTAs open the embedded Tally quiz.
- */
+const intakeUrl = "https://tally.so/r/mOqRBk?hideTitle=1&transparentBackground=1&dynamicHeight=1";
 
-const fadeUp = {
-  initial: { opacity: 0, y: 18 },
-  animate: { opacity: 1, y: 0 },
-};
-
-const springy = {
-  whileHover: { scale: 1.04 },
-  transition: { type: "spring" as const, stiffness: 220, damping: 16 },
-};
-
-export default function Home() {
-  const [showQuiz, setShowQuiz] = useState(false);
+function IntakeModal({ onClose }: { onClose: () => void }) {
   const modalRef = useRef<HTMLDivElement | null>(null);
 
-  // Close on ESC and click-outside. Also lock scroll when modal is open.
   useEffect(() => {
-    if (!showQuiz) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowQuiz(false);
+    const onKeyDown = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    const onPointerDown = (event: MouseEvent) => {
+      if (modalRef.current && !modalRef.current.contains(event.target as Node)) onClose();
     };
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
-        setShowQuiz(false);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("mousedown", handleClickOutside);
-
-    const prevOverflow = document.body.style.overflow;
+    const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-
+    window.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousedown", onPointerDown);
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.body.style.overflow = prevOverflow;
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousedown", onPointerDown);
     };
-  }, [showQuiz]);
+  }, [onClose]);
 
-  // -----------------------------------------------------------------------
   return (
-    <main className="relative isolate overflow-hidden">
-      {/* ---------- Ambient Background (subtle, non-distracting) ---------- */}
-      <div
-        className="pointer-events-none absolute -top-24 -left-24 h-96 w-96 rounded-full
-                   bg-[#A8F0E4] opacity-30 blur-3xl animate-[float_8s_ease-in-out_infinite]"
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none absolute top-[18rem] -right-24 h-[28rem] w-[28rem] rounded-full
-                   bg-[#D9C2F0] opacity-30 blur-3xl animate-[float_10s_ease-in-out_infinite]"
-        aria-hidden
-      />
-
-      {/* ================================================================== */}
-      {/* 1) HERO                                                            */}
-      {/* ================================================================== */}
-      <motion.section
-        className="max-w-6xl mx-auto px-6 pt-20 sm:pt-28 pb-16 text-center"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
+    <motion.div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm sm:p-8"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="dialog" aria-modal="true"
+    >
+      <motion.div
+        ref={modalRef}
+        className="relative flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl"
+        initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
       >
-        <h1 className="text-5xl sm:text-6xl font-extrabold bg-gradient-to-r from-[#041B2D] via-[#06C1A0] to-purple-600 bg-clip-text text-transparent">
-          Welcome to LVE360
-        </h1>
+        <button onClick={onClose} className="absolute right-4 top-3 z-10 rounded-full px-3 py-1 text-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900" aria-label="Close intake">×</button>
+        <iframe src={intakeUrl} title="LVE360 intake" className="min-h-[84vh] w-full bg-white" />
+      </motion.div>
+    </motion.div>
+  );
+}
 
-        <p className="mx-auto mt-5 max-w-2xl text-lg text-gray-600">
-          Your personalized health optimization platform — assessed with AI,
-          organized in plain English, and ready to act on.
-        </p>
+export default function Home() {
+  const [showIntake, setShowIntake] = useState(false);
+  const openIntake = () => setShowIntake(true);
 
-        <div className="mt-10 flex justify-center">
-          <button
-            onClick={() => setShowQuiz(true)}
-            className="inline-flex items-center gap-2 rounded-2xl bg-purple-600 text-white px-7 py-3 font-semibold
-                       shadow-[0_10px_25px_rgba(124,58,237,0.35)] transition-all hover:shadow-[0_14px_34px_rgba(124,58,237,0.45)]
-                       focus-visible:ring-4 focus-visible:ring-purple-500/30 relative overflow-hidden"
-          >
-            <span className="text-lg">🚀</span>
-            <span>Start Free Quiz</span>
-          </button>
-        </div>
-      </motion.section>
-
-        {/* ================================================================== */}
-        {/* MODAL OVERLAY (shared for all buttons)                             */}
-        {/* ================================================================== */}
-        <AnimatePresence>
-          {showQuiz && (
-            <motion.div
-              key="quiz-modal"
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 sm:p-8"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              aria-modal
-              role="dialog"
-            >
-              <motion.div
-                ref={modalRef}
-                className="relative w-full max-w-6xl mx-auto bg-white rounded-2xl shadow-2xl ring-2 ring-purple-500/30 overflow-hidden flex flex-col"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{
-                  opacity: 1,
-                  scale: 1,
-                  transition: { type: 'spring', stiffness: 200, damping: 20 },
-                }}
-                exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
-              >
-              {/* Close button */}
-              <button
-                onClick={() => setShowQuiz(false)}
-                className="absolute top-3 right-3 text-gray-500 hover:text-gray-800 text-xl font-bold z-10"
-                aria-label="Close quiz"
-              >
-                ✕
-              </button>
-            
-              {/* Quiz Embed — styled with balanced margins + footer mask */}
-              <div className="relative w-full flex justify-center px-6 sm:px-10 pb-10">
-                <div className="w-full max-w-5xl rounded-2xl overflow-hidden shadow-lg bg-white relative">
-                  {/* Stronger fade overlay (fully covers Tally badge) */}
-                  <div
-                    className="absolute bottom-0 left-0 w-full h-20 sm:h-24 
-                               bg-gradient-to-t from-white via-white to-transparent
-                               z-10 pointer-events-none"
-                  />
-              
-                  <iframe
-                    src="https://tally.so/r/mOqRBk?hideTitle=1&transparentBackground=1&dynamicHeight=1"
-                    width="100%"
-                    frameBorder="0"
-                    title="LVE360 Intake Quiz"
-                    className="w-full min-h-[92vh] bg-transparent px-4 sm:px-6 md:px-10"
-                    style={{
-                      display: "block",
-                      margin: "0 auto",
-                      borderRadius: "1rem",
-                    }}
-                  />
-                </div>
-              </div>
-            </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-
-      {/* ================================================================== */}
-      {/* 2) HOW IT WORKS                                                    */}
-      {/* ================================================================== */}
-      <motion.section
-        className="max-w-6xl mx-auto px-6 py-16 text-center"
-        initial="initial"
-        whileInView="animate"
-        viewport={{ once: true }}
-        variants={fadeUp}
-        transition={{ duration: 0.55 }}
-      >
-        <h2 className="text-3xl sm:text-4xl font-bold text-[#041B2D] mb-12">
-          How It Works
-        </h2>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
-          {[
-            {
-              step: "1",
-              title: "Take the Quiz",
-              desc: "5 minutes to share your health goals and background.",
-              accent: "text-purple-600",
-            },
-            {
-              step: "2",
-              title: "Get Your Free Report",
-              desc: "Receive your supplement & lifestyle blueprint.",
-              accent: "text-[#06C1A0]",
-            },
-            {
-              step: "3",
-              title: "Optional: Upgrade",
-              desc: "Premium unlocks weekly tweaks & your dashboard.",
-              accent: "text-yellow-500",
-            },
-          ].map((s) => (
-            <motion.div
-              key={s.step}
-              {...springy}
-              className="rounded-2xl bg-white shadow p-6"
-            >
-              <div className={`text-2xl font-bold ${s.accent} mb-2`}>
-                Step {s.step}
-              </div>
-              <h3 className="font-semibold text-lg mb-2">{s.title}</h3>
-              <p className="text-gray-600">{s.desc}</p>
-            </motion.div>
-          ))}
-        </div>
-      </motion.section>
-
-      {/* ================================================================== */}
-      {/* 3) SOCIAL PROOF                                                    */}
-      {/* ================================================================== */}
-      <motion.section
-        className="bg-gradient-to-br from-white via-[#F8F5FB] to-[#EAFBF8] py-16"
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.55 }}
-      >
-        <div className="max-w-4xl mx-auto px-6 text-center">
-          <h2 className="text-3xl font-bold text-[#041B2D] mb-8">
-            What People Are Saying
-          </h2>
-          <div className="space-y-6">
-            {[
-              "“This made supplements finally make sense.” — Early Beta Tester",
-              "“I stopped wasting money on random pills and actually feel a difference.”",
-              "“Finally, a plan that adapts to me instead of a one-size-fits-all.”",
-            ].map((t, i) => (
-              <p key={i} className="italic text-gray-700">
-                ⭐ {t}
-              </p>
-            ))}
-          </div>
-        </div>
-      </motion.section>
-
-      {/* ================================================================== */}
-      {/* 4) WHO IT'S FOR                                                    */}
-      {/* ================================================================== */}
-      <motion.section
-        className="max-w-6xl mx-auto px-6 py-16 text-center"
-        initial="initial"
-        whileInView="animate"
-        viewport={{ once: true }}
-        variants={fadeUp}
-        transition={{ duration: 0.55 }}
-      >
-        <h2 className="text-3xl font-bold text-[#041B2D] mb-10">
-          Who It’s For
-        </h2>
-        <div className="grid sm:grid-cols-3 gap-6">
-          {[
-            {
-              icon: "🧬",
-              title: "Longevity Enthusiasts",
-              accent: "text-[#06C1A0]",
-            },
-            {
-              icon: "⏱️",
-              title: "Busy Professionals",
-              accent: "text-purple-600",
-            },
-            {
-              icon: "🎯",
-              title: "Goal-Driven Optimizers",
-              accent: "text-yellow-500",
-            },
-          ].map((p) => (
-            <motion.div
-              key={p.title}
-              {...springy}
-              className="rounded-xl bg-white p-6 shadow hover:shadow-md transition"
-            >
-              <div className={`text-3xl mb-3 ${p.accent}`}>{p.icon}</div>
-              <h3 className="font-semibold">{p.title}</h3>
-            </motion.div>
-          ))}
-        </div>
-      </motion.section>
-
-      {/* ================================================================== */}
-      {/* 5) FREE vs PREMIUM                                                 */}
-      {/* ================================================================== */}
-      <motion.section
-        className="py-16 bg-gradient-to-br from-[#F8F5FB] via-white to-[#EAFBF8]"
-        initial="initial"
-        whileInView="animate"
-        viewport={{ once: true }}
-        variants={fadeUp}
-        transition={{ duration: 0.55 }}
-      >
-        <div className="max-w-5xl mx-auto px-6 text-center">
-          <h2 className="text-3xl font-bold text-[#041B2D] mb-8">
-            Free vs Premium
-          </h2>
-          <div className="grid sm:grid-cols-2 gap-8">
-            {/* Free */}
-            <div className="rounded-xl border border-gray-200 bg-white/85 backdrop-blur p-6 shadow-sm hover:shadow-md transition">
-              <h3 className="font-semibold mb-3 text-gray-700">Free</h3>
-              <ul className="text-left text-gray-600 space-y-2">
-                <li>✓ Personalized Report</li>
-                <li>✓ Contraindications</li>
-                <li>✓ Bang-for-Buck Picks</li>
-                <li className="text-gray-400">✗ Weekly Tweaks</li>
-                <li className="text-gray-400">✗ Dashboard</li>
-              </ul>
-            </div>
-
-            {/* Premium */}
-            <div className="rounded-xl border-2 border-purple-600 bg-white/90 backdrop-blur p-6 shadow-lg hover:shadow-xl transition">
-              <h3 className="font-semibold mb-3 text-purple-600">Premium</h3>
-              <ul className="text-left text-gray-700 space-y-2">
-                <li>✓ Everything in Free</li>
-                <li>✓ Weekly Tweaks</li>
-                <li>✓ Lifestyle Notes</li>
-                <li>✓ Dashboard Access</li>
-              </ul>
-              <div className="text-left mt-4">
-                <Link
-                  href="/pricing"
-                  className="inline-flex items-center gap-2 text-purple-600 font-medium hover:underline"
-                >
-                  Learn about Premium →
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
-      </motion.section>
-
-        {/* ================================================================== */}
-        {/* 6) TRUSTED & SECURE (badges with icons)                            */}
-        {/* ================================================================== */}
-        <motion.section
-          className="max-w-6xl mx-auto px-6 py-16 text-center"
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.55 }}
-        >
-          <h2 className="text-3xl font-bold text-[#041B2D] mb-6">Trusted & Secure</h2>
-          <p className="max-w-2xl mx-auto text-gray-600 mb-8">
-            We use well-supported infrastructure for auth, payments, data, and secure quiz delivery.
+  return (
+    <main className="overflow-hidden bg-white text-slate-900">
+      <section className="relative isolate bg-gradient-to-b from-[#eafbf8] via-white to-[#f8f5fb] px-6 pb-20 pt-28 sm:pb-28 sm:pt-36">
+        <div className="absolute -left-28 top-8 -z-10 h-80 w-80 rounded-full bg-teal-200/50 blur-3xl" />
+        <div className="absolute -right-24 top-24 -z-10 h-96 w-96 rounded-full bg-violet-200/40 blur-3xl" />
+        <div className="mx-auto max-w-5xl text-center">
+          <p className="mb-5 text-sm font-bold uppercase tracking-[0.18em] text-teal-700">Longevity · Vitality · Energy</p>
+          <h1 className="mx-auto max-w-4xl text-4xl font-extrabold tracking-tight text-[#041b2d] sm:text-6xl">
+            Know what to keep, change, and stop—then make the next week count.
+          </h1>
+          <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-600 sm:text-xl">
+            LVE360 turns your health goals, supplements, medications, and routines into a clear Blueprint—then helps you build the small practices that support more energy, better sleep, movement, nutrition, and focus.
           </p>
-                  
-          <div className="flex flex-wrap justify-center gap-8 opacity-95">
-            {[
-              { name: "Stripe", color: "text-[#635BFF]", icon: "/icons/stripe.svg", url: "https://stripe.com" },
-              { name: "Supabase", color: "text-[#3ECF8E]", icon: "/icons/supabase.svg", url: "https://supabase.com" },
-              { name: "DSHEA", color: "text-gray-700", icon: "/icons/dshea.svg", url: "https://ods.od.nih.gov/About/DSHEA_Wording.aspx" },
-              { name: "Amazon", color: "text-[#FF9900]", icon: "/icons/amazon.svg", url: "https://www.amazon.com" },
-              { name: "GitHub", color: "text-gray-700", icon: "/icons/github.svg", url: "https://github.com/LGomes360/lve360-app" },
-              { name: "Tally.so", color: "text-[#06C1A0]", icon: "/icons/tally.svg", url: "https://tally.so" },
-            ].map((p) => (
-              <a
-                key={p.name}
-                href={p.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg shadow-sm ring-1 ring-gray-200 font-semibold hover:shadow-md hover:-translate-y-0.5 transition-all"
-              >
-                <img src={p.icon} alt={p.name} className="h-5 w-5" />
-                <span className={p.color}>{p.name}</span>
-              </a>
-            ))}
+          <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <button onClick={openIntake} className="rounded-xl bg-[#06a98e] px-6 py-3.5 font-semibold text-white shadow-lg shadow-teal-700/20 transition hover:bg-[#048b75]">Get your free Blueprint</button>
+            <Link href="/pricing" className="rounded-xl px-6 py-3.5 font-semibold text-[#041b2d] transition hover:bg-white/80">See how membership works</Link>
           </div>
-
-        </motion.section>
-
-
-      {/* ================================================================== */}
-      {/* 7) DASHBOARD PREVIEW (placeholders for now)                        */}
-      {/* ================================================================== */}
-      <motion.section
-        className="bg-gradient-to-br from-white via-[#EAFBF8] to-[#F8F5FB] py-16 text-center"
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.55 }}
-      >
-        <h2 className="text-3xl font-bold text-[#041B2D] mb-6">See Your Dashboard</h2>
-        <p className="text-gray-600 max-w-2xl mx-auto mb-8">
-          A simple snapshot of your progress, weekly tweaks, and curated stack.
-        </p>
-        <div className="flex flex-col sm:flex-row justify-center gap-8">
-          <div className="h-64 w-40 bg-white/80 ring-1 ring-gray-200 rounded-lg shadow-inner backdrop-blur" />
-          <div className="h-64 w-96 bg-white/80 ring-1 ring-gray-200 rounded-lg shadow-inner backdrop-blur" />
+          <p className="mt-4 text-sm text-slate-500">Start free. No purchase required for your Blueprint.</p>
         </div>
-      </motion.section>
+      </section>
 
-      {/* ================================================================== */}
-      {/* 8) WHAT MAKES US DIFFERENT                                         */}
-      {/* ================================================================== */}
-      <motion.section
-        className="max-w-6xl mx-auto px-6 py-16 text-center"
-        initial="initial"
-        whileInView="animate"
-        viewport={{ once: true }}
-        variants={fadeUp}
-        transition={{ duration: 0.55 }}
-      >
-        <h2 className="text-3xl font-bold text-[#041B2D] mb-6">What Makes Us Different</h2>
-        <div className="grid sm:grid-cols-3 gap-6">
+      <section className="mx-auto max-w-6xl px-6 py-20">
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="text-3xl font-bold text-[#041b2d] sm:text-4xl">A better system than another generic recommendation list</h2>
+          <p className="mt-4 text-lg text-slate-600">The free Blueprint creates clarity. Membership gives that clarity a place to live and a rhythm to follow.</p>
+        </div>
+        <div className="mt-12 grid gap-6 md:grid-cols-3">
           {[
-            { icon: "📖", text: "Transparent Evidence", accent: "text-purple-600" },
-            { icon: "🧬", text: "Personalized to You", accent: "text-[#06C1A0]" },
-            { icon: "✨", text: "Concierge-feel (MVP)", accent: "text-yellow-500" },
-          ].map((d) => (
-            <motion.div
-              key={d.text}
-              {...springy}
-              className="rounded-xl bg-white/90 backdrop-blur p-6 shadow hover:shadow-md transition"
-            >
-              <div className={`text-3xl mb-2 ${d.accent}`}>{d.icon}</div>
-              <p className="text-gray-700">{d.text}</p>
-            </motion.div>
+            ["1", "See the full picture", "Share your goals, current stack, medications, and context. Get a personalized Blueprint with priorities, evidence notes, and clinician-review flags when needed."],
+            ["2", "Choose one weekly focus", "Turn a big goal—such as weight loss, sleep, strength, or better nutrition—into one small, specific practice for this week."],
+            ["3", "Build proof over time", "Use your dashboard to keep an active plan, check in briefly, and review what is working before adding more complexity."],
+          ].map(([number, title, description]) => (
+            <article key={number} className="rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-teal-50 font-bold text-teal-700">{number}</span>
+              <h3 className="mt-5 text-xl font-bold text-[#041b2d]">{title}</h3>
+              <p className="mt-3 leading-7 text-slate-600">{description}</p>
+            </article>
           ))}
         </div>
-      </motion.section>
+      </section>
 
-      {/* ================================================================== */}
-      {/* 9) FAQ                                                             */}
-      {/* ================================================================== */}
-      <motion.section
-        className="bg-gradient-to-br from-[#F8F5FB] via-white to-[#EAFBF8] py-16"
-        initial="initial"
-        whileInView="animate"
-        viewport={{ once: true }}
-        variants={fadeUp}
-        transition={{ duration: 0.55 }}
-      >
-        <div className="max-w-4xl mx-auto px-6">
-          <h2 className="text-3xl font-bold text-[#041B2D] mb-8 text-center">FAQ</h2>
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="rounded-xl bg-white/90 backdrop-blur p-6 ring-1 ring-gray-200 shadow-sm">
-              <h3 className="font-semibold text-[#041B2D] mb-2">Is the quiz really free?</h3>
-              <p className="text-gray-600">
-                Yep. You’ll get a personalized report at no cost. Premium is optional.
-              </p>
+      <section className="bg-[#041b2d] px-6 py-20 text-white">
+        <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[1fr_1.1fr]">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-300">Built for the in-between</p>
+            <h2 className="mt-4 text-3xl font-bold sm:text-4xl">Your Blueprint is a starting point. Your life happens between reviews.</h2>
+            <p className="mt-5 text-lg leading-8 text-slate-300">LVE360 membership is designed for the moments when motivation fades: a short check-in, a visible next action, and a record of the small wins that compound.</p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {[
+              ["This week", "One practice connected to your priority—not an overwhelming reset."],
+              ["Today’s plan", "Keep your active supplement and lifestyle actions in one practical view."],
+              ["Daily check-in", "Log a quick signal such as sleep or energy, only when it is useful."],
+              ["Progress review", "See consistency over time and decide what deserves adjustment."],
+            ].map(([title, description]) => (
+              <div key={title} className="rounded-2xl border border-white/15 bg-white/10 p-5">
+                <h3 className="font-bold text-teal-200">{title}</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-300">{description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-6xl px-6 py-20">
+        <div className="grid gap-10 lg:grid-cols-2">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-violet-700">A more credible kind of optimization</p>
+            <h2 className="mt-4 text-3xl font-bold text-[#041b2d]">Sometimes the best next move is to simplify.</h2>
+            <p className="mt-5 text-lg leading-8 text-slate-600">LVE360 is not built to sell you more pills. It helps you organize what you already use, surface potential duplication or questions to discuss with a clinician, and concentrate on the few changes worth your attention.</p>
+          </div>
+          <ul className="grid content-start gap-4">
+            {[
+              "A structured record of your current stack and priorities",
+              "Evidence-aware recommendations with clear limits and safety context",
+              "One focused weekly practice instead of a sprawling protocol",
+              "A practical dashboard for momentum, not perfection",
+            ].map((item) => <li key={item} className="rounded-xl bg-slate-50 px-5 py-4 font-medium text-slate-700">✓ {item}</li>)}
+          </ul>
+        </div>
+      </section>
+
+      <section className="bg-gradient-to-br from-violet-50 via-white to-teal-50 px-6 py-20">
+        <div className="mx-auto max-w-5xl">
+          <div className="text-center">
+            <h2 className="text-3xl font-bold text-[#041b2d] sm:text-4xl">Start with the decision you need today</h2>
+            <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">Free gives you the Blueprint. Membership helps you return to it, act on it, and adapt as your life changes.</p>
+          </div>
+          <div className="mt-10 grid gap-6 md:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
+              <h3 className="text-xl font-bold text-[#041b2d]">Free Blueprint</h3>
+              <p className="mt-2 text-slate-600">A clear first look at your stack and the priorities that deserve attention.</p>
+              <ul className="mt-6 space-y-3 text-slate-700"><li>✓ Current stack review</li><li>✓ Prioritized Blueprint recommendations</li><li>✓ Evidence and safety context</li><li>✓ Lifestyle foundations to discuss or try</li></ul>
+              <button onClick={openIntake} className="mt-7 font-semibold text-teal-700 hover:text-teal-900">Get your free Blueprint →</button>
             </div>
-            <div className="rounded-xl bg-white/90 backdrop-blur p-6 ring-1 ring-gray-200 shadow-sm">
-              <h3 className="font-semibold text-[#041B2D] mb-2">What’s included in Premium?</h3>
-              <p className="text-gray-600">
-                Weekly tweaks, lifestyle notes, and dashboard access to track your progress.
-              </p>
-            </div>
-            <div className="rounded-xl bg-white/90 backdrop-blur p-6 ring-1 ring-gray-200 shadow-sm">
-              <h3 className="font-semibold text-[#041B2D] mb-2">Do you store medical records?</h3>
-              <p className="text-gray-600">
-                No medical records; we keep things focused on supplements & lifestyle.
-              </p>
-            </div>
-            <div className="rounded-xl bg-white/90 backdrop-blur p-6 ring-1 ring-gray-200 shadow-sm">
-              <h3 className="font-semibold text-[#041B2D] mb-2">Can I cancel anytime?</h3>
-              <p className="text-gray-600">
-                Yes. You can manage or cancel your subscription in the Stripe customer portal.
-              </p>
+            <div className="rounded-2xl border-2 border-[#06a98e] bg-white p-7 shadow-lg">
+              <p className="text-sm font-bold uppercase tracking-wider text-teal-700">Membership</p>
+              <h3 className="mt-1 text-xl font-bold text-[#041b2d]">Make insight easier to repeat</h3>
+              <p className="mt-2 text-slate-600">A home for the focused practices and reviews that make your plan usable week after week.</p>
+              <ul className="mt-6 space-y-3 text-slate-700"><li>✓ Everything in Free</li><li>✓ Weekly focus and action plan</li><li>✓ Daily plan and optional check-ins</li><li>✓ Progress view and ongoing updates</li></ul>
+              <Link href="/pricing" className="mt-7 inline-block font-semibold text-teal-700 hover:text-teal-900">Explore membership →</Link>
             </div>
           </div>
         </div>
-      </motion.section>
+      </section>
 
-      {/* ================================================================== */}
-      {/* 10) STICKY CTA                                                     */}
-      {/* ================================================================== */}
-      <motion.section
-        className="bg-purple-600 text-white py-16 text-center"
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.55 }}
-      >
-        <h2 className="text-3xl font-bold mb-4">Ready to Start?</h2>
-        <p className="mb-6">
-          Take the quiz now and get your free personalized report in minutes.
-        </p>
-        <button
-          onClick={() => setShowQuiz(true)}
-          className="inline-flex items-center gap-2 bg-white text-purple-600 px-6 py-3 rounded-lg font-semibold hover:bg-gray-50"
-        >
-          <span>Start Free Quiz</span> <span>→</span>
-        </button>
-      </motion.section>
+      <section className="px-6 py-20 text-center">
+        <h2 className="text-3xl font-bold text-[#041b2d]">Better health is built in ordinary days.</h2>
+        <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">Start with a free, personalized Blueprint. Keep only the next useful action in view.</p>
+        <button onClick={openIntake} className="mt-8 rounded-xl bg-violet-600 px-6 py-3.5 font-semibold text-white shadow-lg shadow-violet-700/20 transition hover:bg-violet-700">Start your free Blueprint</button>
+        <p className="mx-auto mt-5 max-w-xl text-xs leading-5 text-slate-500">LVE360 provides educational wellness information, not medical diagnosis or treatment. Consult a qualified clinician or pharmacist for medical decisions.</p>
+      </section>
+
+      <AnimatePresence>{showIntake && <IntakeModal onClose={() => setShowIntake(false)} />}</AnimatePresence>
     </main>
   );
 }
