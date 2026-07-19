@@ -82,7 +82,9 @@ export function buildAmazonSearchLink(name: string, dose?: string | null): strin
   // Helpful generic keyword
   parts.push("supplement");
 
-  const q = encodeURIComponent(parts.join(" ").replace(/\s+/g, " ").trim());
+  const q = encodeURIComponent(parts.join(" ").replace(/\s+/g, " ").trim())
+    .replace(/\(/g, "%28")
+    .replace(/\)/g, "%29");
   return `https://www.amazon.com/s?k=${q}&i=hpc&tag=${encodeURIComponent(AMAZON_TAG)}`;
 }
 

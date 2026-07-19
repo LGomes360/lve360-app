@@ -389,5 +389,7 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
     });
   });
 
-  return pdfDoc.save();
+  // Disable compressed object streams for maximum compatibility across browser,
+  // desktop, and server-side PDF renderers.
+  return pdfDoc.save({ useObjectStreams: false });
 }
