@@ -169,10 +169,10 @@ export function getTopCitationsFor(name: string, limit = 2): string[] {
   return sanitizeCitations(arr.slice(0, limit).map((e) => e.url));
 }
 
-/** Enforce PubMed/DOI only */
+/** Keep the same curated-source policy used by report generation. */
 export function sanitizeCitations(urls: string[]): string[] {
   const re =
-    /(https?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/|pmc\.ncbi\.nlm\.nih\.gov\/articles\/PMC\d+|doi\.org\/\S+))/i;
+    /(https?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/?|pmc\.ncbi\.nlm\.nih\.gov\/articles\/\S+|doi\.org\/\S+|jamanetwork\.com\/\S+|(?:[a-z0-9-]+\.)?biomedcentral\.com\/\S+|journals\.plos\.org\/\S+|nature\.com\/\S+|sciencedirect\.com\/\S+|amjmed\.com\/\S+|koreascience\.kr\/\S+|researchmgt\.monash\.edu\/\S+))/i;
   return (urls || [])
     .map((u) => (u || "").trim())
     .filter((u) => re.test(u));
