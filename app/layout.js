@@ -3,9 +3,30 @@ import Link from "next/link";
 import { SpeedInsights } from "@vercel/speed-insights/next"; // ✅ Added import
 import { Analytics } from "@vercel/analytics/react";
 
+const canonicalUrl = "https://app.lve360.com";
+
 export const metadata = {
-  title: "LVE360",
+  metadataBase: new URL(canonicalUrl),
+  title: {
+    default: "LVE360",
+    template: "%s | LVE360",
+  },
   description: "Longevity | Vitality | Energy",
+  alternates: {
+    canonical: "./",
+  },
+  openGraph: {
+    type: "website",
+    url: canonicalUrl,
+    siteName: "LVE360",
+    title: "LVE360",
+    description: "Longevity | Vitality | Energy",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "LVE360",
+    description: "Longevity | Vitality | Energy",
+  },
 };
 
 export default function RootLayout({ children }) {
