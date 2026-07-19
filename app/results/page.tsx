@@ -10,6 +10,7 @@ import CTAButton from "@/components/CTAButton";
 import ResultsSidebar from "@/components/results/ResultsSidebar";
 import { parseBlueprintReport } from "@/lib/blueprintReport";
 import { blueprintStatusTone, cleanReportDisplayText, reportSectionTitle } from "@/lib/reportPresentation";
+import { AFFILIATE_DISCLOSURE_NEAR_LINKS, AFFILIATE_DISCLOSURE_SUPPORT } from "@/lib/reportDisclosures";
 
 /* ───────── helpers ───────── */
 function sanitizeMarkdown(md: string): string {
@@ -153,6 +154,11 @@ function LinksTable({ raw, type }: { raw: string; type: "evidence" | "shopping" 
 
   return (
     <div>
+      {type === "shopping" && (
+        <div className="mb-4 rounded-xl border border-[#9DCFC3] bg-[#E6F7F3] px-4 py-3 text-sm leading-6 text-[#173B43]">
+          <strong>Affiliate disclosure:</strong> {AFFILIATE_DISCLOSURE_NEAR_LINKS}
+        </div>
+      )}
       <table className="my-2 w-full border-collapse overflow-hidden text-sm">
         <thead className="bg-[#122945] text-white">
           <tr>
@@ -586,6 +592,9 @@ async function exportPDF() {
             )}
             {sec.contra && (
               <SectionCard title="Contraindications & Med Interactions">
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+                  <strong>Safety review:</strong> Only material cautions are highlighted below. Items without a specific flag are omitted.
+                </div>
                 <Prose>{sec.contra}</Prose>
               </SectionCard>
             )}
@@ -646,6 +655,9 @@ async function exportPDF() {
                 and no outcomes are guaranteed. If you experience unexpected effects, discontinue use and seek
                 professional care. By using this report, you agree that decisions about your health remain your
                 responsibility and that LVE360 is not liable for how information is applied.
+              </p>
+              <p className="mt-4 border-t border-slate-200 pt-4 text-sm leading-relaxed text-gray-700">
+                <strong>Affiliate disclosure:</strong> {AFFILIATE_DISCLOSURE_NEAR_LINKS} {AFFILIATE_DISCLOSURE_SUPPORT}
               </p>
             </SectionCard>
 

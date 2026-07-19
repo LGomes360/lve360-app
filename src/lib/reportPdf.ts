@@ -162,7 +162,7 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
       ensureSpace(42);
       page.drawRectangle({ x: MARGIN, y: cursorY - 32, width: CONTENT_WIDTH, height: 34, color: PALE_AMBER, borderColor: rgb(0.88, 0.7, 0.32), borderWidth: 0.8 });
       page.drawText("SAFETY REVIEW", { x: MARGIN + 10, y: cursorY - 12, size: 8, font: bold, color: NAVY });
-      page.drawText("Review the combined Current Stack with a qualified clinician or pharmacist before making changes.", {
+      page.drawText("Only material cautions are highlighted; items without a specific flag are omitted.", {
         x: MARGIN + 10, y: cursorY - 25, size: 8.5, font: regular, color: TEXT,
       });
       cursorY -= 43;
@@ -339,7 +339,7 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
   pages.forEach((pdfPage, index) => {
     drawBrandHeader(pdfPage);
     pdfPage.drawLine({ start: { x: MARGIN, y: 41 }, end: { x: PAGE_WIDTH - MARGIN, y: 41 }, color: BORDER, thickness: 0.5 });
-    pdfPage.drawText("Educational wellness information - review changes with a qualified clinician.", {
+    pdfPage.drawText("Educational wellness guidance.", {
       x: MARGIN, y: FOOTER_Y, size: 7.2, font: regular, color: MUTED,
     });
     const pageLabel = `Page ${index + 1} of ${pages.length}`;

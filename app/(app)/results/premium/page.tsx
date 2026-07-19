@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CTAButton from "@/components/CTAButton";
+import { AFFILIATE_DISCLOSURE_NEAR_LINKS, AFFILIATE_DISCLOSURE_SUPPORT } from "@/lib/reportDisclosures";
 
 /* ───────── helpers ───────── */
 function sanitizeMarkdown(md: string): string {
@@ -134,6 +135,11 @@ function LinksTable({
 
   return (
     <div>
+      {type === "shopping" && (
+        <div className="mb-4 rounded-xl border border-[#9DCFC3] bg-[#E6F7F3] px-4 py-3 text-sm leading-6 text-[#173B43]">
+          <strong>Affiliate disclosure:</strong> {AFFILIATE_DISCLOSURE_NEAR_LINKS}
+        </div>
+      )}
       <table className="w-full border-collapse my-2 text-sm shadow-sm">
         <thead className="bg-[#06C1A0] text-white">
           <tr>
@@ -510,6 +516,9 @@ return (
           seek professional care. By using this report, you agree that decisions
           about your health remain your responsibility and that LVE360 is not
           liable for how information is applied.
+        </p>
+        <p className="mt-4 border-t border-slate-200 pt-4 text-sm leading-relaxed text-gray-700">
+          <strong>Affiliate disclosure:</strong> {AFFILIATE_DISCLOSURE_NEAR_LINKS} {AFFILIATE_DISCLOSURE_SUPPORT}
         </p>
       </SectionCard>
 

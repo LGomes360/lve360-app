@@ -51,6 +51,5 @@ export function formatStartingGuidance(name: string): string | null {
     entry.adjustment ? `Adjustment: ${entry.adjustment}.` : null,
     entry.guardrail ? `Guardrail: ${entry.guardrail}.` : null,
     entry.caution ? `Safety note: ${entry.caution}.` : null,
-    "This is general wellness guidance, not a prescription.",
   ].filter(Boolean).join(" ");
 }

@@ -54,6 +54,12 @@ html { scroll-behavior: smooth; }
     break-inside: auto;
     margin-bottom: 1rem !important;
   }
+  .report-section { margin-bottom: 0.65rem !important; }
+  .report-section > div:first-child { padding: 0.45rem 0.75rem !important; }
+  .report-section > div:last-child { padding: 0.7rem !important; }
+  .report-focus { margin-bottom: 0.65rem !important; padding: 0.75rem !important; }
+  .report-prose { font-size: 9.5pt !important; line-height: 1.35 !important; }
+  .report-prose p, .report-prose li { line-height: 1.35 !important; }
   .report-section h2, .report-prose h2 { break-after: avoid-page; }
   .report-prose table { break-inside: auto; }
   .report-prose tr { break-inside: avoid-page; }

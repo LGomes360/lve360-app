@@ -11,6 +11,7 @@ import getSubmissionWithChildren from "@/lib/getSubmissionWithChildren";
 import { supabaseAdmin } from "@/lib/supabase";
 import parseMarkdownToItems from "@/lib/parseMarkdownToItems";
 import { formatStartingGuidance } from "@/lib/supplementDosingRegistry";
+import { AFFILIATE_DISCLOSURE_NEAR_LINKS } from "@/lib/reportDisclosures";
 import { parseBlueprintReport, validateBlueprintReport } from "@/lib/blueprintReport";
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks, buildAmazonSearchLink } from "@/lib/affiliateLinks";
@@ -350,7 +351,7 @@ function buildCurrentStackSection(ledger: NormalizedCurrentStackLedgerItem[]): s
   const body = ledger.length
     ? `| Current Item | Type | Purpose | Dosage | Timing |\n| --- | --- | --- | --- | --- |\n${ledger.map((item) => `| ${item.name} | ${currentStackKindLabel(item.kind)} | ${item.purpose ?? "Not provided"} | ${item.dose ?? "Not provided"} | ${item.timing ?? "Not provided"} |`).join("\n")}`
     : "No current medications, supplements, or hormones were reported in the intake.";
-  return `## Current Stack\n\n${body}\n\n**Analysis**\n\nThis section reflects the current medications, supplements, and hormones reported in the intake. Review it for accuracy and discuss changes or potential interactions with a qualified clinician.`;
+  return `## Current Stack\n\n${body}\n\n**Analysis**\n\nConfirm these entries match your intake. Prescribed medication and hormone instructions are shown for context and are not changed by this report.`;
 }
 
 const FORBIDDEN_COMPLIANCE_RE = /\b(?:therapeutically|therapeutic|alleviate symptoms?|safe|no significant interactions?)\b/i;
@@ -363,7 +364,9 @@ function complianceSafeLanguage(text: string): string {
     .replace(/\bsafe to use\b/gi, "appropriate to consider only after clinician review")
     .replace(/\bsafe\b/gi, "appropriate")
     .replace(/\bno significant interactions?\b/gi, "No specific interaction was flagged by this report")
-    .replace(/\bno specific conflicts? (?:were )?detected(?: from your intake)?\b/gi, "No specific interaction was flagged by this report");
+    .replace(/\bno specific conflicts? (?:were )?detected(?: from your intake)?\b/gi, "No specific interaction was flagged by this report")
+    .replace(/\bcaloric restriction\b/gi, "a sustainable calorie pattern")
+    .replace(/\bintermittent fasting\b/gi, "consistent meal timing that supports adequate nutrition");
 }
 
 function ensureContraCurrentStackCoverage(
@@ -376,50 +379,41 @@ function ensureContraCurrentStackCoverage(
   if (!body || !ledger.length) return complianceSafeLanguage(passB);
   const beforeAnalysis = body.split(/^\*\*Analysis\*\*/im)[0] ?? "";
   const sourceBullets = beforeAnalysis.split(/\r?\n/).filter((line) => /^\s*[-*]\s+/.test(line));
-  const sourceByLabel = new Map(sourceBullets.flatMap((line) => {
-    const bold = line.match(/^\s*[-*]\s+\*\*([^*]+)\*\*/)?.[1];
-    const plain = line.match(/^\s*[-*]\s+([^:]+):/)?.[1];
-    const label = (bold ?? plain ?? "").replace(/:+$/g, "").trim().toLowerCase();
-    return label ? [[label, line] as const] : [];
-  }));
   const sedationContext = /\b(?:lunesta|eszopiclone|xanax|zanax|alprazolam|melatonin|glycine)\b/i;
-  const bullets = ledger.map((item) => {
-    const existing = sourceByLabel.get(item.name.toLowerCase());
-    let detail = existing
-      ? existing
-          .replace(/^\s*[-*]\s+/, "")
-          .replace(/^\*\*[^*]+\*\*\s*(?::|--|\u2014|-)?\s*/, "")
-          .trim()
-      : "No specific interaction was flagged by this report.";
-    detail = detail.replace(new RegExp(`^(?:\\*\\*)?${escapeRe(item.name)}(?:\\*\\*)?\\s*:?\\s*`, "i"), "").trim();
-    if (sedationContext.test(item.name)) {
-      detail = "This item may add to drowsiness when combined with other sleep-supporting or sedating items. Review the combined routine with a qualified clinician or pharmacist.";
-    } else if (berberineRequiresReview && /^berberine(?:\s+hcl)?$/i.test(item.name)) {
-      detail = "Glucose-lowering medication or blood-sugar context was reported. Coordinate review with a qualified clinician or pharmacist before changing use.";
-    }
-    const review = /qualified clinician|pharmacist/i.test(detail)
-      ? detail
-      : `${detail.replace(/[.\s]+$/, "")}. Review with a qualified clinician or pharmacist before changing use.`;
-    return `- **${item.name}:** ${complianceSafeLanguage(review)}`;
-  });
-  const analysisSource = body.match(/^\*\*Analysis\*\*\s*([\s\S]*)$/im)?.[1]
-    ?.split(/\r?\n/)
-    .filter((line) => !/^\s*[-*]\s+/.test(line) && !/^\s*\*\*Analysis\*\*/i.test(line))
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const analysis = complianceSafeLanguage(analysisSource ||
-    "This report highlights potential considerations from the Current Stack but does not establish that any combination is appropriate for an individual. Review medications, hormones, hormone-active supplements, and other supplements with a qualified clinician or pharmacist. Seek individualized guidance before starting, stopping, or changing any item.");
+  const materialBullets = sourceBullets.filter((line) => {
+    if (/no specific interaction|no significant interaction|no specific conflict/i.test(line)) return false;
+    if (sedationContext.test(line)) return false;
+    return /interaction|caution|monitor|spacing|separat|avoid|risk|drows|sedat|bleed|glucose|blood sugar|thyroid|kidney|liver|anticoagul|procedure/i.test(line);
+  }).map((line) => complianceSafeLanguage(line
+    .replace(/review with a qualified clinician or pharmacist before changing use\.?/gi, "")
+    .replace(/\s+([.,])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim()));
+  const bullets: string[] = Array.from(new Set(materialBullets));
+  const sedatingItems = ledger.filter((item) => sedationContext.test(item.name)).map((item) => item.name);
+  if (sedatingItems.length >= 2) {
+    bullets.unshift(`- **Monitor — Sedating routine:** ${sedatingItems.join(", ")} may have additive drowsiness. Avoid driving if drowsy and keep prescribed instructions unchanged.`);
+  }
+  const thyroidItem = ledger.find((item) => /\b(?:armour thyroid|levothyroxine|synthroid|thyroid)\b/i.test(item.name));
+  const spacingItems = ledger.filter((item) => /\b(?:magnesium|psyllium|fiber|calcium|iron)\b/i.test(item.name)).map((item) => item.name);
+  if (thyroidItem && spacingItems.length) {
+    bullets.push(`- **Monitor — Thyroid medication spacing:** Keep ${spacingItems.join(", ")} separated from ${thyroidItem.name} according to its prescription or label instructions; ask a pharmacist if the timing is unclear.`);
+  }
+  if (berberineRequiresReview && ledger.some((item) => /^berberine(?:\s+hcl)?$/i.test(item.name))) {
+    bullets.push("- **Clinician review — Berberine:** Glucose-lowering medication or blood-sugar context was reported. Do not add or change Berberine without coordinated review.");
+  }
+  if (!bullets.length) {
+    bullets.push("- **No material flags identified:** No specific interaction requiring action was identified from the reported stack. Recheck safety whenever medications or supplements change.");
+  }
+  const analysis = "Only material cautions are highlighted here. Keep prescription instructions unchanged and recheck this section whenever your stack changes.";
   const repaired = `${header}\n\n${bullets.join("\n")}\n\n**Analysis**\n\n${analysis}`;
   return complianceSafeLanguage(passB.replace(`${header}${body}`, repaired));
 }
 
 function validateCurrentStackParity(md: string, ledger: NormalizedCurrentStackLedgerItem[]) {
   const currentBody = sectionChunk(md, "## Current Stack").toLowerCase();
-  const contraBody = sectionChunk(md, "## Contraindications & Med Interactions").toLowerCase();
   const currentMissing = ledger.filter((item) => !currentBody.includes(item.name.toLowerCase()));
-  const contraMissing = ledger.filter((item) => !contraBody.includes(item.name.toLowerCase()));
-  const mismatch = Array.from(new Set([...currentMissing, ...contraMissing].map((item) => item.name)));
+  const mismatch = Array.from(new Set(currentMissing.map((item) => item.name)));
   return { valid: mismatch.length === 0, mismatch };
 }
 
@@ -469,12 +463,15 @@ function sanitizeBlueprintTable(
     const name = validItemName(cells[1]);
     if (!name || isMalformedCurrentStackName(name) || !isEligibleSupplementName(name) || !allowed.has(name.toLowerCase())) return [];
     const whyCell = cells.length >= 4 ? cells[3] : cells[2];
-    return [{ name, why: cleanName(whyCell || "") || "Consider based on intake goals and clinician review", explicit: true }];
+    return [{ name, why: cleanName(whyCell || "") || "Selected to complement the reported goals and current routine", explicit: true }];
   });
-  const candidates = [...parsedItems];
+  const candidates = parsedItems.filter((item) =>
+    !(berberineRequiresReview && /^berberine(?:\s+hcl)?$/i.test(item.name))
+  );
   for (const name of DEFAULT_BLUEPRINT_ITEMS) {
     if (!allowed.has(name.toLowerCase())) continue;
-    candidates.push({ name, why: "Consider based on intake goals and clinician review", explicit: false });
+    if (berberineRequiresReview && /^berberine(?:\s+hcl)?$/i.test(name)) continue;
+    candidates.push({ name, why: "Selected to complement the reported goals and current routine", explicit: false });
   }
   const candidateNames = new Set<string>();
   const deduped = candidates.filter((item) => {
@@ -485,14 +482,12 @@ function sanitizeBlueprintTable(
   });
   const classified = deduped.map((item) => ({
     ...item,
-    status: berberineRequiresReview && /^berberine(?:\s+hcl)?$/i.test(item.name)
-      ? "Clinician review" as const
-      : currentSupplements.has(normalizeSupplementName(item.name).toLowerCase())
+    status: currentSupplements.has(normalizeSupplementName(item.name).toLowerCase())
         ? "Current - optimize" as const
         : "New - consider" as const,
   }));
   const currentPool = classified.filter((item) => item.status === "Current - optimize").slice(0, 5);
-  const clinicianPool = classified.filter((item) => item.status === "Clinician review" && item.explicit).slice(0, 1);
+  const clinicianPool: typeof classified = [];
   const newPool = classified.filter((item) => item.status === "New - consider");
   const selected = [...currentPool];
   const reservedClinician = clinicianPool.length;
@@ -507,9 +502,7 @@ function sanitizeBlueprintTable(
   const header = "| Rank | Supplement | Status | Why it Matters |\n| --- | --- | --- | --- |";
   return `${header}\n${items.map((item, index) => {
     const status = item.status;
-    const why = status === "Clinician review"
-      ? `${item.why.replace(/[.\s]+$/, "")}. Coordinate with a qualified clinician before considering use.`
-      : item.why;
+    const why = item.why;
     return `| ${index + 1} | ${item.name} | ${status} | ${complianceSafeLanguage(why)} |`;
   }).join("\n")}`;
 }
@@ -575,9 +568,9 @@ function consistentDosingBody(
     const current = ledger.find((item) => item.kind === "supplement" &&
       normalizeSupplementName(item.name).toLowerCase() === normalizeSupplementName(name).toLowerCase());
     const reported = [current?.dose, current?.timing].filter(Boolean).join(", ");
-    if (current && reported) return `- **${name}** -- Currently reported: ${reported}. Review before changing.`;
+    if (current && reported) return `- **${name}** -- Your reported routine: ${reported}.`;
     if (berberineRequiresReview && /^berberine(?:\s+hcl)?$/i.test(name)) {
-      return `- **${name}** -- Clinician review is required before considering use because glucose-lowering medication or blood-sugar context was reported. Do not start without coordinated review.`;
+      return `- **${name}** -- Not included as a starting recommendation because glucose-lowering medication or blood-sugar context was reported.`;
     }
     const startingGuidance = formatStartingGuidance(name);
     if (startingGuidance) return `- **${name}** -- ${startingGuidance}`;
@@ -594,17 +587,18 @@ function consistentDosingBody(
     .filter((item) => !blueprintSet.has(normalizeSupplementName(item.name).toLowerCase()) && !coveredCurrent.has(normalizeSupplementName(item.name).toLowerCase()))
     .map((item) => {
       const details = [item.dose ? `dose: ${item.dose}` : null, item.timing ? `timing: ${item.timing}` : null].filter(Boolean).join("; ");
-      return `- **${item.name}** -- Current ${currentStackKindLabel(item.kind).toLowerCase()} reported${details ? ` (${details})` : ""}. Review interactions and any changes with a qualified clinician or pharmacist.`;
+      const instruction = item.kind === "supplement"
+        ? "Shown for context; no change is suggested by this report."
+        : "Keep the prescribed instructions unchanged.";
+      return `- **${item.name}** -- Current ${currentStackKindLabel(item.kind).toLowerCase()} reported${details ? ` (${details})` : ""}. ${instruction}`;
     });
   const currentNotes = [...uniqueCurrentLines, ...missingCurrentLines];
   const currentBlock = currentNotes.length
     ? `\n\n### Current Stack Notes\n\n${currentNotes.join("\n")}`
     : "";
-  const analysisIndex = body.search(/^\*\*Analysis\*\*/im);
-  const analysis = analysisIndex >= 0
-    ? body.slice(analysisIndex).trim()
-    : "**Analysis**\n\nThese notes cover every Blueprint recommendation. Specific dosing should be reviewed with a clinician when it cannot be provided safely from the intake alone.";
-  return complianceSafeLanguage(`${blueprintLines.join("\n")}${currentBlock}\n\n${analysis}`.trim());
+  const sectionGuidance = "Starting points below are general educational guidance for eligible supplements. Keep prescribed medication and hormone instructions exactly as directed by the prescriber, and introduce only one new supplement at a time.";
+  const analysis = "**Analysis**\n\nUse the lowest practical starting point, track how you respond, and change only one variable at a time. Item-specific cautions and spacing instructions take priority over general timing guidance.";
+  return complianceSafeLanguage(`${sectionGuidance}\n\n${blueprintLines.join("\n")}${currentBlock}\n\n${analysis}`.trim());
 }
 
 function assembleCanonicalReport(
@@ -1226,7 +1220,7 @@ function overrideEvidenceInMarkdown(md: string, section: string): string {
 
 function buildShoppingLinksSection(items: StackItem[]): string {
   if (!items || items.length === 0) {
-    return "## Shopping Links\n\n- No links available yet.\n\n**Analysis**\n\nLinks will be provided once products are mapped.";
+    return `## Shopping Links\n\n**Affiliate disclosure:** ${AFFILIATE_DISCLOSURE_NEAR_LINKS}\n\n- No links available yet.\n\n**Analysis**\n\nLinks will be provided once eligible products are mapped.`;
   }
   const bullets = items.map((it) => {
     const name = `${cleanName(it.name)}${it.is_current ? " (Current Stack)" : ""}`;
@@ -1237,7 +1231,20 @@ function buildShoppingLinksSection(items: StackItem[]): string {
     if (it.link_other) links.push(`[Other](${it.link_other})`);
     return `- **${name}**: ${links.join(" • ")}`;
   });
-  return `## Shopping Links\n\n${bullets.join("\n")}\n\n**Analysis**\n\nThese links are provided for convenience. Premium users may see Fullscript options when available; Amazon links are shown for everyone.`;
+  return `## Shopping Links\n\n**Affiliate disclosure:** ${AFFILIATE_DISCLOSURE_NEAR_LINKS}\n\n${bullets.join("\n")}\n\n**Analysis**\n\nThese links are optional conveniences. Product eligibility follows the same safety and recommendation rules used throughout this report.`;
+}
+
+function buildPracticalFollowUpSection(): string {
+  return `## Follow-up Plan
+
+- **Week 1:** Add no more than one new supplement. Keep the rest of the routine stable so any change is easier to interpret.
+- **Week 2:** Record energy, sleep, digestion, and adherence two or three times during the week.
+- **Weeks 4-6:** Compare the same measures with your starting point and keep only changes that are useful and well tolerated.
+- **Recheck sooner:** Regenerate the Blueprint if a medication, supplement, health condition, or major goal changes.
+
+**Analysis**
+
+Use the smallest change that can be measured. Stop a newly added item if unexpected effects occur and seek appropriate care for urgent or severe symptoms.`;
 }
 
 // ----------------------------------------------------------------------------
@@ -1330,7 +1337,7 @@ Output ONLY the section "## Your Blueprint Recommendations" as a Markdown table 
 - Never recommend endocrine-active supplements such as DHEA or Pregnenolone by default.
 - Select from the recommendable supplement ledger. Do not simply copy the Current Stack unless a legitimate current supplement has a clear optimization reason.
 - Status must be exactly "Current - optimize" for a reported current supplement, "New - consider" for a new option, or "Clinician review" when coordinated review is needed.
-- ${berberineRequiresReview ? "Berberine must use Clinician review status and explicit coordinated clinician-review language because glucose-lowering context is present." : "Berberine still requires conservative clinician-review language."}
+- ${berberineRequiresReview ? "Do not include Berberine because glucose-lowering medication or blood-sugar context is present; choose another eligible lower-risk option." : "Include Berberine only when it is otherwise eligible and relevant."}
 - Use short, plain-English rationales ("Why it Matters").
 - If dosing/timing is relevant, write "See Dosing & Notes".
 - Do NOT output any other text. Do NOT include END. Only the table.
@@ -1367,16 +1374,16 @@ Generate ONLY these two sections, in this order:
 
 ## Contraindications & Med Interactions
 - Identify potential conflicts among medications, hormones, and supplements.
-- Review every normalized Current Stack item shown in CLIENT; do not silently omit an item.
-- Use exactly one bullet per Current Stack item and put every bullet before Analysis.
-- If no specific interaction is identified for an item, write "No specific interaction was flagged by this report" and recommend review with a qualified clinician or pharmacist.
+- Highlight only material conflicts, spacing issues, or monitoring considerations; omit routine items with no specific flag.
+- Group overlapping cautions, such as multiple sedating items, into one clear bullet.
+- Prefix material bullets with "Monitor" or "Clinician review" according to severity.
 - Call out classes (e.g., MAO-B risk, serotonin, anticoagulants).
 - Avoid definitive safety statements and disease-treatment wording. Analysis must be last.
 - Use plain English. End with **Analysis** (≥3 sentences).
 
 ## Dosing & Notes
 - Bullet each recommended supplement with dose + timing (AM/PM/with meals) and short note.
-- For a current Blueprint supplement with known dose or timing, write "Currently reported: [dose], [timing]. Review before changing."
+- For a current Blueprint supplement with known dose or timing, write "Your reported routine: [dose], [timing]."
 - Put non-Blueprint current items only under a separate "### Current Stack Notes" subsection.
 - For Berberine with Metformin, Zepbound, diabetes, glucose, or blood-sugar context, require coordinated clinician review and do not imply it is appropriate to start.
 - Reference meds/hormones when timing matters.
@@ -2107,6 +2114,7 @@ modelUsed = resC?.modelUsed ?? modelUsed;
   // ---------- Stitch full Markdown in canonical user-facing order ----------
 restMd = replaceOrAppendSection(restMd, buildCurrentStackSection(currentStackLedger));
 let md = assembleCanonicalReport(restMd, tableMd, dosingMd, currentStackLedger, berberineRequiresReview);
+md = replaceOrAppendSection(md, buildPracticalFollowUpSection());
 
 
   // Sanity: enforce headings and pad the Blueprint without exposing END.
