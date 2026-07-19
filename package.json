@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "qa:env": "node scripts/check-env.mjs",
     "qa:build": "npm run typecheck && npm run build",
+    "qa:canonical-host": "node src/_tests_/canonicalHost.assert.mjs",
     "qa:all": "npm run qa:env && npm run qa:build"
   },
   "dependencies": {
