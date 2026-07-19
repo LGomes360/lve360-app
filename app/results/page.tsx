@@ -570,7 +570,7 @@ async function exportPDF() {
 
             {error && <div className="text-center text-red-600 mb-6">{error}</div>}
 
-            {sec.focusItems.length > 0 && (
+            {!warmingUp && !generating && flow !== "error" && sec.focusItems.length > 0 && (
               <div className="report-focus mb-8 rounded-2xl border border-[#9DCFC3] bg-gradient-to-r from-[#EFF5FA] to-[#E6F7F3] p-6 shadow-sm">
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#122945]">This Week Focus</p>
                 <ol className="mt-3 grid gap-2 text-sm text-slate-800 sm:grid-cols-2">
