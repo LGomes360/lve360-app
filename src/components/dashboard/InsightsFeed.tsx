@@ -8,7 +8,7 @@ import { Loader2, Sparkles, RefreshCw } from "lucide-react";
  * InsightsFeed.tsx
  * - Shows latest AI insights (ai_summaries)
  * - POST /api/ai-insights → regenerate then refetch
- * - Adds per-card actions (UI-only): Apply tweak, Add reminder
+ * - Expands/collapses longer coaching summaries
  */
 
 type InsightRow = {
@@ -27,9 +27,6 @@ export default function InsightsFeed() {
   // UI niceties
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<string | null>(null);
-  const [reminderFor, setReminderFor] = useState<InsightRow | null>(null);
-  const [remindTime, setRemindTime] = useState<string>("22:00"); // default 10:00pm
-  const [applyFor, setApplyFor] = useState<InsightRow | null>(null);
 
   useEffect(() => {
     if (!toast) return;
@@ -99,11 +96,11 @@ export default function InsightsFeed() {
   }, [insights, expanded]);
 
   return (
-    <div id="insights" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm" aria-label="AI insights">
+    <div id="insights" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" aria-label="AI insights">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-2xl font-bold text-[#041B2D] flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-[#7C3AED]" />
-          AI Insights
+          <Sparkles className="w-5 h-5 text-[#047F6D]" />
+          Coaching Insights
         </h2>
         <button
           onClick={regenerate}
@@ -128,7 +125,7 @@ export default function InsightsFeed() {
       ) : error ? (
         <div className="text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">{error}</div>
       ) : formatted.length === 0 ? (
-        <div className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4 text-gray-700">
+        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-gray-700">
           No insights yet. Log your day or click{" "}
           <button onClick={regenerate} disabled={busy} className="underline underline-offset-2">
             Generate now
@@ -140,9 +137,9 @@ export default function InsightsFeed() {
           {formatted.map((it) => (
             <li
               key={it.id}
-              className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4"
+              className="rounded-xl border border-slate-200 bg-slate-50 p-4"
             >
-              <div className="text-xs uppercase tracking-wide text-purple-600 mb-1">
+              <div className="text-xs uppercase tracking-wide text-[#047F6D] mb-1">
                 {new Date(it.created_at).toLocaleString()}
               </div>
 
@@ -161,89 +158,9 @@ export default function InsightsFeed() {
                 )}
               </div>
 
-              {/* Action row */}
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  onClick={() => setApplyFor(it)}
-                  className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
-                  aria-label="Apply this tweak"
-                  title="Apply this tweak"
-                >
-                  Apply tweak
-                </button>
-                <button
-                  onClick={() => {
-                    setReminderFor(it);
-                    setRemindTime("22:00");
-                  }}
-                  className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
-                  aria-label="Add a reminder related to this insight"
-                  title="Add reminder"
-                >
-                  Add reminder
-                </button>
-              </div>
             </li>
           ))}
         </ul>
-      )}
-
-      {/* Apply Tweak Modal (UI only, placeholder for future rules endpoint) */}
-      {applyFor && (
-        <Modal onClose={() => setApplyFor(null)} title="Apply this tweak">
-          <p className="text-sm text-gray-700">
-            We’ll remember this tweak and use it to personalize your suggestions. (This is a visual
-            confirmation for now.)
-          </p>
-          <div className="mt-4 flex justify-end gap-2">
-            <button onClick={() => setApplyFor(null)} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white">
-              Cancel
-            </button>
-            <button
-              onClick={() => {
-                setApplyFor(null);
-                setToast("Tweak applied");
-              }}
-              className="rounded-lg bg-[#7C3AED] text-white px-3 py-1.5 text-sm"
-            >
-              Confirm
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {/* Reminder Modal (UI only, placeholder for reminders table/automation) */}
-      {reminderFor && (
-        <Modal onClose={() => setReminderFor(null)} title="Add reminder">
-          <div className="space-y-3">
-            <p className="text-sm text-gray-700">
-              Pick a daily time to nudge you about this insight. (UI-only for now.)
-            </p>
-            <div>
-              <label className="text-xs uppercase tracking-wide text-purple-600">Time</label>
-              <input
-                type="time"
-                value={remindTime}
-                onChange={(e) => setRemindTime(e.target.value)}
-                className="mt-1 rounded-lg border px-3 py-2"
-              />
-            </div>
-          </div>
-          <div className="mt-4 flex justify-end gap-2">
-            <button onClick={() => setReminderFor(null)} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white">
-              Cancel
-            </button>
-            <button
-              onClick={() => {
-                setReminderFor(null);
-                setToast("Reminder added");
-              }}
-              className="rounded-lg bg-[#06C1A0] text-white px-3 py-1.5 text-sm"
-            >
-              Save
-            </button>
-          </div>
-        </Modal>
       )}
 
       {/* Toast */}
@@ -254,31 +171,6 @@ export default function InsightsFeed() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-/* ---------- Small modal ---------- */
-function Modal({
-  title,
-  children,
-  onClose,
-}: {
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-[#041B2D]">{title}</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700" aria-label="Close">
-            ✕
-          </button>
-        </div>
-        <div className="mt-3">{children}</div>
-      </div>
     </div>
   );
 }

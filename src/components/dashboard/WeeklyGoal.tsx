@@ -94,14 +94,14 @@ export default function WeeklyGoal() {
 
   const changed = focus !== initialFocus;
   return (
-    <div className="rounded-2xl bg-white/70 p-6 shadow-sm" aria-label="Weekly focus">
+    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" aria-label="Weekly focus">
       <h2 className="flex items-center gap-2 text-2xl font-bold text-[#041B2D]">
-        <Target className="h-5 w-5 text-[#7C3AED]" /> Weekly Focus
+        <Target className="h-5 w-5 text-[#047F6D]" /> Weekly Focus
       </h2>
       <p className="mt-1 text-gray-600">Choose one practical experiment for this week.</p>
 
       <div className="mt-4">
-        <label className="text-xs uppercase tracking-wide text-purple-600" htmlFor="weekly-focus">This week I will</label>
+        <label className="text-xs uppercase tracking-wide text-[#047F6D]" htmlFor="weekly-focus">This week I will</label>
         <div className="relative">
           <input id="weekly-focus" value={focus} onChange={(event) => setFocus(event.target.value.slice(0, MAX_CHARS))}
             placeholder="e.g., Keep caffeine before noon" className="mt-1 w-full rounded-lg border px-3 py-2 pr-16" />
@@ -110,11 +110,11 @@ export default function WeeklyGoal() {
       </div>
 
       <div className="mt-3">
-        <div className="text-xs uppercase tracking-wide text-purple-600">Choose one starter focus</div>
+        <div className="text-xs uppercase tracking-wide text-[#047F6D]">Choose one starter focus</div>
         <div className="mt-1 flex flex-wrap gap-2">
           {PRESETS.map((preset) => (
             <button key={preset.label} onClick={() => setFocus(preset.focus)} aria-pressed={focus === preset.focus}
-              className={`rounded-full border px-3 py-1 text-sm ${focus === preset.focus ? "border-purple-600 bg-purple-600 text-white" : "hover:bg-white"}`}>
+              className={`rounded-full border px-3 py-1 text-sm ${focus === preset.focus ? "border-[#047F6D] bg-[#047F6D] text-white" : "border-slate-200 hover:bg-slate-50"}`}>
               {preset.label}
             </button>
           ))}
@@ -133,7 +133,7 @@ export default function WeeklyGoal() {
       <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-xs text-gray-500">{initialFocus ? `Current focus: “${initialFocus}”` : "Choose a focus to begin."}</div>
         <button onClick={() => save(false)} disabled={saving || !changed}
-          className="inline-flex items-center rounded-xl bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] px-4 py-2 font-semibold text-white shadow-md disabled:opacity-60">
+          className="inline-flex items-center rounded-xl bg-[#047F6D] px-4 py-2 font-semibold text-white shadow-md hover:bg-[#036957] disabled:opacity-60">
           {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {changed ? (focus.trim() ? "Save focus" : "Clear focus") : (focus ? "Saved" : "Choose a focus")}
           <ChevronRight className="ml-1 h-4 w-4" />

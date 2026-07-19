@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import {
-  Rocket, Target, CalendarPlus, Repeat, PackageOpen, Sparkles,
+  Rocket, Target, CalendarPlus, Repeat, PackageOpen,
   TrendingUp
 } from "lucide-react";
 
@@ -31,7 +31,7 @@ type UserRow = { id: string; email: string; tier: string | null };
 type GoalsRow = { id: string } | null;
 type LowStockItem = { id: string; name: string; refill_days_left: number | null };
 
-const SHOP_ROUTE = "/shop"; // change if your Fullscript entry differs
+const SHOP_ROUTE = "#todays-plan";
 
 export default function NextSteps() {
   const supabase = createClientComponentClient();
@@ -43,7 +43,6 @@ export default function NextSteps() {
   const [adherence7, setAdherence7] = useState<number | null>(null);
   const [lowStock, setLowStock] = useState<LowStockItem[]>([]);
   const [hasStack, setHasStack] = useState<boolean>(false);
-  const [hasAiRecent, setHasAiRecent] = useState<boolean>(false);
 
   useEffect(() => {
     (async () => {
@@ -57,7 +56,6 @@ export default function NextSteps() {
         const since48Str = since48.toISOString().slice(0, 10);
         const since7 = new Date(); since7.setDate(since7.getDate() - 6);
         const since7Str = since7.toISOString().slice(0, 10);
-        const cutoffAI = new Date(); cutoffAI.setDate(cutoffAI.getDate() - 7);
 
         // Fetch in parallel (each limited to needed cols)
         const [
@@ -65,13 +63,11 @@ export default function NextSteps() {
           goalsQ,
           recentLogsQ,
           stacksQ,
-          aiQ,
         ] = await Promise.all([
           supabase.from("users").select("id, email, tier").eq("id", uid).maybeSingle(),
           supabase.from("goals").select("id").eq("user_id", uid).maybeSingle(),
           supabase.from("logs").select("id, log_date").eq("user_id", uid).gte("log_date", since48Str).limit(1),
           supabase.from("stacks").select("id").eq("user_id", uid).order("created_at", { ascending: false }).limit(1),
-          supabase.from("ai_summaries").select("id, created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(1),
         ]);
 
         setUser((userQ.data ?? null) as UserRow | null);
@@ -80,12 +76,6 @@ export default function NextSteps() {
 
         const stackId = stacksQ.data?.[0]?.id ?? null;
         setHasStack(!!stackId);
-
-        if (aiQ.data?.[0]?.created_at) {
-          setHasAiRecent(new Date(aiQ.data[0].created_at) >= cutoffAI);
-        } else {
-          setHasAiRecent(false);
-        }
 
         // Adherence 7d (defensive in case intake_events absent/empty)
         try {
@@ -164,7 +154,7 @@ export default function NextSteps() {
         icon: PackageOpen,
         title: "Refill supplements",
         desc: `${names}${lowStock.length > 2 ? "…" : ""} are running low. Avoid gaps in your routine.`,
-        actionLabel: "Reorder now",
+        actionLabel: "Review refills",
         href: SHOP_ROUTE,
         variant: "warning",
       });
@@ -196,24 +186,7 @@ export default function NextSteps() {
       });
     }
 
-    // 6) Generate insights (if none in last week)
-    if (!hasAiRecent) {
-      list.push({
-        key: "ai-refresh",
-        icon: Sparkles,
-        title: "Get fresh insights",
-        desc: "Quick tip from your latest logs and adherence data.",
-        actionLabel: "Refresh insights",
-        href: "#insights",
-        onClick: () => {
-          // Proxy-click a button with id="ai-refresh-proxy" inside InsightsFeed if present
-          try { (document.getElementById("ai-refresh-proxy") as HTMLButtonElement | null)?.click(); } catch {}
-        },
-        variant: "ghost",
-      });
-    }
-
-    // 7) Upsell if on free tier
+    // 6) Upsell if on free tier
     if ((user?.tier ?? "free").toLowerCase() === "free") {
       list.push({
         key: "upgrade",
@@ -239,8 +212,8 @@ export default function NextSteps() {
       });
     }
 
-    return list.slice(0, 4);
-  }, [hasRecentLog, adherence7, lowStock, goals, hasStack, hasAiRecent, user?.tier]);
+    return list.slice(0, 3);
+  }, [hasRecentLog, adherence7, lowStock, goals, hasStack, user?.tier]);
 
   if (loading) {
     return (
@@ -251,11 +224,14 @@ export default function NextSteps() {
   }
 
   return (
-    <section className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm" id="next-steps" aria-label="Next steps">
-      <h2 className="text-2xl font-bold text-[#041B2D] mb-4">➡️ Next Steps</h2>
+    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" id="next-steps" aria-label="Recommended next actions">
+      <div className="mb-4">
+        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#047F6D]">Recommended next actions</div>
+        <h2 className="mt-1 text-2xl font-bold text-[#041B2D]">What to do next</h2>
+      </div>
 
       {ctas.length === 0 ? (
-        <div className="rounded-2xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4 text-gray-700">
+        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-gray-700">
           You’re all set for now. Keep up the momentum!
         </div>
       ) : (

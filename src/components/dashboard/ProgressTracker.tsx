@@ -236,19 +236,19 @@ export default function ProgressTracker() {
   }
 
   return (
-    <div id="progress" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
+    <div id="progress" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-2xl font-bold text-[#041B2D] flex items-center gap-2">
-          <span role="img" aria-label="chart">📊</span> Progress Tracker
+          Progress
         </h2>
 
         {/* Range tabs */}
-        <div className="inline-flex rounded-xl border border-purple-200 bg-white overflow-hidden">
+        <div className="inline-flex rounded-xl border border-slate-200 bg-white overflow-hidden">
           {(["7", "30", "90"] as RangeKey[]).map((k) => (
             <button
               key={k}
               onClick={() => setRange(k)}
-              className={`px-3 py-1.5 text-sm ${range === k ? "bg-purple-50 text-[#7C3AED]" : "hover:bg-gray-50 text-gray-700"}`}
+              className={`px-3 py-1.5 text-sm ${range === k ? "bg-[#EAFBF8] text-[#047F6D]" : "hover:bg-gray-50 text-gray-700"}`}
               aria-pressed={range === k}
             >
               {k}d
@@ -257,7 +257,13 @@ export default function ProgressTracker() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {logs.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+          <div className="font-semibold text-[#041B2D]">Your trends will appear after your first check-in</div>
+          <p className="mt-1 text-sm text-gray-600">Log sleep, energy, or weight above to establish a starting point.</p>
+          <a href="#daily-log" className="mt-3 inline-flex rounded-lg bg-[#047F6D] px-3 py-2 text-sm font-semibold text-white">Complete today’s check-in</a>
+        </div>
+      ) : <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Weight */}
         <Card>
           <Header
@@ -311,7 +317,7 @@ export default function ProgressTracker() {
           />
 
           <div className="flex items-center gap-4" title="Ring shows your 7-day average vs. a max of 5.">
-            <ProgressRing value={sleep7 ?? 0} max={5} size={72} />
+            <ProgressRing value={sleep7} max={5} size={72} />
             <div>
               <div className="text-sm text-gray-600">7-day avg</div>
               <div className="text-xl font-semibold text-[#041B2D]">
@@ -352,7 +358,7 @@ export default function ProgressTracker() {
           />
 
           <div className="flex items-center gap-4" title="Ring shows your 7-day average vs. a max of 10.">
-            <ProgressRing value={energy7 ?? 0} max={10} size={72} />
+            <ProgressRing value={energy7} max={10} size={72} />
             <div>
               <div className="text-sm text-gray-600">7-day avg</div>
               <div className="text-xl font-semibold text-[#041B2D]">
@@ -383,7 +389,7 @@ export default function ProgressTracker() {
             showConfetti={confetti.energy}
           />
         </Card>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -394,7 +400,7 @@ export default function ProgressTracker() {
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4 shadow-sm overflow-hidden relative">
+    <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-4">
       {children}
     </div>
   );
@@ -527,7 +533,7 @@ function MetricSpark({
     <div>
       <div className="text-xs text-gray-600 mb-1 flex items-center gap-1">
         {label}
-        <span className="inline-block w-4 h-4 rounded-full bg-gray-100 text-gray-600 text-[10px] leading-4 text-center" title="Hover to see exact values">?</span>
+        <span className="text-xs text-gray-500">Hover for details</span>
       </div>
 
       <div className="relative">
@@ -675,8 +681,9 @@ function ConfettiBurst() {
    Small components/utils
 ------------------------ */
 
-function ProgressRing({ value, max, size = 72 }: { value: number; max: number; size?: number }) {
-  const v = Math.max(0, Math.min(max, Number.isFinite(value) ? value : 0));
+function ProgressRing({ value, max, size = 72 }: { value: number | null; max: number; size?: number }) {
+  const hasValue = typeof value === "number" && Number.isFinite(value);
+  const v = Math.max(0, Math.min(max, hasValue ? value : 0));
   const pct = Math.max(0, Math.min(1, max ? v / max : 0));
   const stroke = 8;
   const r = (size - stroke) / 2;
@@ -685,8 +692,8 @@ function ProgressRing({ value, max, size = 72 }: { value: number; max: number; s
   const rest = c - dash;
 
   return (
-    <svg width={size} height={size} role="img" aria-label={`Progress ${Math.round(pct * 100)}%`}>
-      <title>{`Progress: ${Math.round(pct * 100)}% of maximum`}</title>
+    <svg width={size} height={size} role="img" aria-label={hasValue ? `Progress ${Math.round(pct * 100)}%` : "No progress data yet"}>
+      <title>{hasValue ? `Progress: ${Math.round(pct * 100)}% of maximum` : "No data yet"}</title>
       <circle cx={size / 2} cy={size / 2} r={r} stroke="#E5E7EB" strokeWidth={stroke} fill="none" />
       <circle
         cx={size / 2}
@@ -700,7 +707,7 @@ function ProgressRing({ value, max, size = 72 }: { value: number; max: number; s
         transform={`rotate(-90 ${size / 2} ${size / 2})`}
       />
       <text x="50%" y="50%" dominantBaseline="middle" textAnchor="middle" fontSize="12" fill="#041B2D">
-        {Math.round(pct * 100)}%
+        {hasValue ? `${Math.round(pct * 100)}%` : "—"}
       </text>
     </svg>
   );
