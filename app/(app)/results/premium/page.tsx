@@ -158,7 +158,7 @@ function LinksTable({
                     href={link.url}
                     variant={type === "shopping" ? "primary" : "secondary"}
                     size="sm"
-                    className="px-2 py-0.5 text-xs min-w-0"
+                    className="report-link-action px-2 py-0.5 text-xs min-w-0"
                   >
                     {type === "shopping"
                       ? `Buy on ${link.text}`
@@ -172,7 +172,7 @@ function LinksTable({
       </table>
 
       {allCartUrl && (
-        <div className="mt-3">
+        <div className="report-add-all mt-3">
           <CTAButton
             href={allCartUrl}
             variant="premium"

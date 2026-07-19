@@ -1,4 +1,4 @@
-import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb, type RGB } from "pdf-lib";
+import { PDFArray, PDFDocument, PDFFont, PDFName, PDFPage, PDFString, StandardFonts, rgb, type RGB } from "pdf-lib";
 import { parseBlueprintReport } from "./blueprintReport";
 import { cleanReportDisplayText, REPORT_THEME_RGB, reportSectionTitle } from "./reportPresentation";
 
@@ -29,7 +29,7 @@ function pdfText(value: string): string {
     .replace(/[\u201c\u201d]/g, '"')
     .replace(/\u2026/g, "...")
     .replace(/\u00a0/g, " ")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, "$1: $2")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, "$1")
     .replace(/[*_`]/g, "")
     .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "")
     .replace(/\s+/g, " ")
@@ -98,6 +98,22 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
   let page!: PDFPage;
   let cursorY = 0;
 
+  const addLinkAnnotation = (targetPage: PDFPage, x: number, y: number, width: number, height: number, url: string) => {
+    const annotation = pdfDoc.context.register(pdfDoc.context.obj({
+      Type: "Annot",
+      Subtype: "Link",
+      Rect: [x, y, x + width, y + height],
+      Border: [0, 0, 0],
+      A: { Type: "Action", S: "URI", URI: PDFString.of(url) },
+    }));
+    let annotations = targetPage.node.lookupMaybe(PDFName.of("Annots"), PDFArray);
+    if (!annotations) {
+      annotations = pdfDoc.context.obj([]);
+      targetPage.node.set(PDFName.of("Annots"), annotations);
+    }
+    annotations.push(annotation);
+  };
+
   const drawBrandHeader = (targetPage: PDFPage = page) => {
     targetPage.drawRectangle({ x: 0, y: PAGE_HEIGHT - 62, width: PAGE_WIDTH, height: 62, color: NAVY });
     targetPage.drawText("LVE360", { x: MARGIN, y: PAGE_HEIGHT - 34, size: 19, font: bold, color: WHITE });
@@ -144,8 +160,23 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
     cursorY -= 4;
   };
 
+  const drawLinkedBullet = (raw: string) => {
+    const links = Array.from(raw.matchAll(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g));
+    const display = raw.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, "$1");
+    const lines = wrap(display, regular, 10.5, CONTENT_WIDTH - 13);
+    ensureSpace(lines.length * 13.7 + 4);
+    page.drawCircle({ x: MARGIN + 4, y: cursorY + 3, size: 2.2, color: TEAL });
+    const link = links[0]?.[2];
+    for (const line of lines) {
+      page.drawText(line, { x: MARGIN + 13, y: cursorY, size: 10.5, font: regular, color: link ? NAVY : TEXT });
+      if (link) addLinkAnnotation(page, MARGIN + 11, cursorY - 2, Math.min(regular.widthOfTextAtSize(line, 10.5) + 5, CONTENT_WIDTH - 11), 13, link);
+      cursorY -= 13.7;
+    }
+    cursorY -= 4;
+  };
+
   const drawSectionHeader = (title: string) => {
-    ensureSpace(38);
+    ensureSpace(/Follow-up Plan/i.test(title) ? 165 : 38);
     const safety = /Contraindications/i.test(title);
     page.drawRectangle({
       x: MARGIN,
@@ -273,6 +304,7 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
   drawFocusCard(report.focusItems);
 
   const lines = markdown.split(/\r?\n/);
+  let currentSection = "";
   for (let index = 0; index < lines.length; index++) {
     const raw = lines[index];
     const line = raw.trim();
@@ -292,6 +324,7 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
     }
     if (/^##\s+/.test(line)) {
       const heading = line.replace(/^##\s+/, "");
+      currentSection = heading;
       if (/^Important Wellness Disclaimer$/i.test(heading)) {
         while (index + 1 < lines.length && !/^##\s+/.test(lines[index + 1].trim())) index++;
         continue;
@@ -315,6 +348,10 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
     }
     if (/^[-*]\s+/.test(line)) {
       const bullet = line.replace(/^[-*]\s+/, "");
+      if (/^(?:Evidence & References|Shopping Links)$/i.test(currentSection) && /\[[^\]]+\]\(https?:\/\//.test(bullet)) {
+        drawLinkedBullet(bullet);
+        continue;
+      }
       ensureSpace(18);
       page.drawCircle({ x: MARGIN + 4, y: cursorY + 3, size: 2.2, color: TEAL });
       drawParagraph(bullet, { indent: 13 });

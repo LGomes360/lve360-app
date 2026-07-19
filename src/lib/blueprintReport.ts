@@ -1,3 +1,5 @@
+import { normalizeFocusItems } from "./reportIntegrity";
+
 export const REPORT_SECTION_NAMES = [
   "Intro Summary", "Goals", "Contraindications & Med Interactions", "Current Stack",
   "Your Blueprint Recommendations", "Dosing & Notes", "Evidence & References", "Shopping Links",
@@ -49,7 +51,7 @@ function extract(markdown: string, heading: ReportSectionName): string {
     "Contraindications & Med Interactions": "Safety Takeaway",
     "Current Stack": "What We Noticed",
     "Your Blueprint Recommendations": "Why These Recommendations",
-    "Follow-up Plan": "Follow-up Priorities",
+    "Follow-up Plan": "How to Measure Progress",
   };
   if (labels[heading]) {
     body = body.replace(analysisLine, (_match, inline: string) =>
@@ -75,10 +77,7 @@ export function parseBlueprintReport(markdown: string): BlueprintReport {
     .replace(/(^|\n)##\s*END\s*(?=\n|$)/gi, "$1")
     .trim();
   const sections = Object.fromEntries(REPORT_SECTION_NAMES.map((name) => [name, extract(cleaned, name)])) as Record<ReportSectionName, string>;
-  const focusItems = sections["This Week Try"].split(/\r?\n/)
-    .map((line) => cleanText(line.replace(/^\s*[-*]\s+/, "")))
-    .filter(Boolean)
-    .slice(0, 5);
+  const focusItems = normalizeFocusItems(sections["This Week Try"]);
   const canonicalMarkdown = REPORT_SECTION_NAMES
     .filter((name) => sections[name])
     .map((name) => `## ${name}\n\n${sections[name]}`)
@@ -92,6 +91,7 @@ export function validateBlueprintReport(report: BlueprintReport): string[] {
     if (!report.sections[name].trim()) issues.push(`empty:${name}`);
   }
   if (/^\s*(?:Analysis)?\s*:\s*$/m.test(report.canonicalMarkdown)) issues.push("hanging-colon");
+  if (report.focusItems.length < 3 || report.focusItems.some((item) => item.endsWith(":"))) issues.push("invalid-focus-items");
   if (/\[object Object\]|##\s*END/i.test(report.canonicalMarkdown)) issues.push("invalid-marker");
   return issues;
 }
