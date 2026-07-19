@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { Loader2, Sparkles } from "lucide-react";
 import GoalsTargetsEditor from "./GoalsTargetsEditor";
+import { getFriendlyFirstName } from "@/src/lib/displayName";
 
 /**
  * DashboardSnapshot — Greeting & Daily Snapshot
@@ -52,9 +53,7 @@ export default function DashboardSnapshot() {
 
         // 1) Auth + friendly display name
         const { data: auth } = await supabase.auth.getUser();
-        const email = auth?.user?.email ?? "optimizer@lve360.com";
-        const base = email.split("@")[0];
-        setUsername(base.charAt(0).toUpperCase() + base.slice(1));
+        setUsername(getFriendlyFirstName(auth?.user));
 
         if (!auth?.user?.id) {
           setLoading(false);

@@ -16,7 +16,7 @@ export async function GET() {
   // 1) Current items explicitly marked as current
   const { data: current, error: currErr } = await supabase
     .from("stacks_items")
-    .select("id, stack_id, user_id, name, brand, dose, timing, timing_bucket, notes, link_amazon, link_fullscript, refill_days_left, last_refilled_at, supplement_id, created_at")
+    .select("id, stack_id, user_id, name, brand, dose, timing, timing_text, timing_bucket, notes, is_current, link_amazon, link_fullscript, refill_days_left, last_refilled_at, supplement_id, created_at")
     .eq("user_id", user.id)
     .eq("is_current", true);
 
@@ -35,7 +35,7 @@ export async function GET() {
   if (latestStack?.id) {
     const { data: bp, error: bpErr } = await supabase
       .from("stacks_items")
-      .select("id, stack_id, user_id, name, brand, dose, timing, timing_bucket, notes, link_amazon, link_fullscript, refill_days_left, last_refilled_at, supplement_id, created_at")
+      .select("id, stack_id, user_id, name, brand, dose, timing, timing_text, timing_bucket, notes, is_current, link_amazon, link_fullscript, refill_days_left, last_refilled_at, supplement_id, created_at")
       .eq("stack_id", latestStack.id);
     if (bpErr) return NextResponse.json({ ok: false, error: bpErr.message }, { status: 400 });
     blueprint = bp ?? [];

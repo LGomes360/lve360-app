@@ -194,12 +194,13 @@ export function parseMarkdownToItems(md: string): ParsedItem[] {
       if (!/^\s*[-*]\s+/.test(raw)) continue;
 
       const line = raw.replace(/^\s*[-*]\s*/, "");
-      // Split only on the FIRST ":" or "—"
-      const parts = line.split(/[:—-]/);
-      if (!parts || parts.length < 2) continue;
+      // Split only on a deliberate item delimiter. Plain hyphens inside
+      // "evidence-informed", "label-directed", or "3-5 g" are content.
+      const split = line.match(/^(.+?)(?:\s+[—–-]\s+|:\s+)(.+)$/);
+      if (!split) continue;
 
-      const nameRaw = parts.shift()!.trim();
-      const remainder = parts.join(":").trim();
+      const nameRaw = split[1].trim();
+      const remainder = split[2].trim();
 
       const cleaned = cleanName(nameRaw);
       if (!cleaned || SEE_DN.test(cleaned)) continue;

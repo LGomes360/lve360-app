@@ -12,6 +12,7 @@ import WeeklyGoal from "@/components/dashboard/WeeklyGoal";
 import TodaysPlan from "@/components/dashboard/TodaysPlan";
 import ProgressTracker from "@/components/dashboard/ProgressTracker";
 import InsightsFeed from "@/components/dashboard/InsightsFeed";
+import { getFriendlyFirstName } from "@/src/lib/displayName";
 
 export default function DashboardClient() {
   const supabase = createClientComponentClient();
@@ -55,9 +56,7 @@ export default function DashboardClient() {
     return null;
   }
 
-  const username =
-    user.email?.split("@")[0]?.charAt(0).toUpperCase() +
-      user.email?.split("@")[0]?.slice(1) || "Optimizer";
+  const username = getFriendlyFirstName(user);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB]">
