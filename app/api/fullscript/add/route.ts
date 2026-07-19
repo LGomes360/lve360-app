@@ -90,8 +90,7 @@ export async function POST(req: Request) {
       source,                        // (leave as-is if your DB has this column)
       sku,                           // (leave as-is if your DB has this column)
       is_custom: source === "custom",
-      // Optional (recommended): make it appear in "Today’s Plan" immediately
-      // is_current: true,
+      is_current: true,
     });
 
     if (itemErr) throw itemErr;

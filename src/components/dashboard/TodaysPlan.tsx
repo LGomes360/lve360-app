@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { CheckCircle2, Circle, TriangleAlert, PackageOpen, Pill, Search,} from "lucide-react";
-import { bucketsFromRecord } from "@/src/lib/timing"; // <- path to the file you created
+import {
+  cleanDashboardDose,
+  getDashboardItemKind,
+  getDashboardSchedule,
+  isBatchTrackable,
+  isPendingRecommendation,
+} from "@/src/lib/dashboardPlan";
 
 /* =========================
    Types
@@ -18,6 +24,8 @@ type StackItem = {
   timing: "AM" | "PM" | "AM/PM" | (string & {}) | null;
   /** ADD THIS: enables the normalizer to use either field */
   timing_bucket?: string | null;
+  timing_text?: string | null;
+  is_current?: boolean | null;
   notes: string | null;
   link_amazon: string | null;
   link_fullscript: string | null;
@@ -161,7 +169,7 @@ useEffect(() => {
 
   // Mark all in current view (All/AM/PM) as taken (true) or not (false)
   async function markAllInView(taken: boolean) {
-    const scoped = visibleItems.map((i) => i.id);
+    const scoped = visibleItems.filter(isBatchTrackable).map((i) => i.id);
     if (scoped.length === 0) return;
 
     await Promise.allSettled(
@@ -181,6 +189,21 @@ useEffect(() => {
       return next;
     });
     setToast(taken ? "Marked all visible items taken" : "Cleared all visible items");
+  }
+
+  async function activateRecommendation(itemId: string) {
+    const res = await fetch("/api/stack-items/activate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ item_id: itemId }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.ok) {
+      setToast("Unable to add that recommendation");
+      return;
+    }
+    setItems((prev) => prev.map((item) => item.id === itemId ? { ...item, is_current: true } : item));
+    setToast("Added to your active plan");
   }
 
   // Reload items (after adding new in modal)
@@ -208,38 +231,34 @@ useEffect(() => {
   /* -------------------------
      Derived (AM/PM bucketing via normalizer)
   ------------------------- */
+  const pendingItems = useMemo(() => items.filter(isPendingRecommendation), [items]);
+  const activeItems = useMemo(() => items.filter((item) => !isPendingRecommendation(item)), [items]);
   const { itemsAM, itemsPM, itemsOther } = useMemo(() => {
-    const groups: { AM: StackItem[]; PM: StackItem[]; OTHER: StackItem[] } = {
-      AM: [], PM: [], OTHER: []
-    };
-    for (const it of items) {
-      // bucketsFromRecord looks at it.timing_bucket ?? it.timing
-      for (const b of bucketsFromRecord({ timing: it.timing, timing_bucket: it.timing_bucket })) {
-        groups[b].push(it);
-      }
+    const groups: { AM: StackItem[]; PM: StackItem[]; OTHER: StackItem[] } = { AM: [], PM: [], OTHER: [] };
+    for (const it of activeItems) {
+      const schedule = getDashboardSchedule(it);
+      if (schedule === "AM/PM") {
+        groups.AM.push(it);
+        groups.PM.push(it);
+      } else if (schedule === "AM") groups.AM.push(it);
+      else if (schedule === "PM") groups.PM.push(it);
+      else groups.OTHER.push(it);
     }
     return {
       itemsAM: groups.AM,
       itemsPM: groups.PM,
       itemsOther: groups.OTHER,
     };
-  }, [items]);
+  }, [activeItems]);
 
   // Items visible under current tab
   const visibleItems = useMemo<StackItem[]>(() => {
-    if (view === "All") return items;
+    if (view === "All") return activeItems;
     if (view === "AM") return itemsAM;
     return itemsPM;
-  }, [view, items, itemsAM, itemsPM]);
+  }, [view, activeItems, itemsAM, itemsPM]);
 
   // Completion overall + scoped
-  const completionOverall = useMemo(() => {
-    const ids = items.map((i) => i.id);
-    const total = ids.length || 1;
-    const done = ids.reduce((acc, id) => acc + (takenMap[id] ? 1 : 0), 0);
-    return Math.round((done / total) * 100);
-  }, [items, takenMap]);
-
   const completionScoped = useMemo(() => {
     const ids = visibleItems.map((i) => i.id);
     const total = ids.length || 1;
@@ -293,14 +312,16 @@ useEffect(() => {
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
-                const allDone = visibleItems.length > 0 && visibleItems.every((i) => takenMap[i.id]);
+                const batchItems = visibleItems.filter(isBatchTrackable);
+                const allDone = batchItems.length > 0 && batchItems.every((i) => takenMap[i.id]);
                 markAllInView(!allDone);
               }}
               className="text-sm font-semibold text-[#06C1A0] underline underline-offset-2"
               title="Toggle all items in current tab"
               aria-label="Toggle all items in current tab"
             >
-              {visibleItems.length > 0 && visibleItems.every((i) => takenMap[i.id]) ? "Clear all" : "Mark all taken"}
+              {visibleItems.filter(isBatchTrackable).length > 0 &&
+              visibleItems.filter(isBatchTrackable).every((i) => takenMap[i.id]) ? "Clear routine" : "Mark routine taken"}
             </button>
 
             <button
@@ -330,14 +351,18 @@ useEffect(() => {
             <TimingBlock title="AM Routine" items={itemsAM} takenMap={takenMap} onToggle={toggleTaken} />
             <TimingBlock title="PM Routine" items={itemsPM} takenMap={takenMap} onToggle={toggleTaken} />
             {itemsOther.length > 0 && (
-              <TimingBlock title="Other / Unspecified" items={itemsOther} takenMap={takenMap} onToggle={toggleTaken} />
+              <TimingBlock title="Anytime, weekly, or as needed" items={itemsOther} takenMap={takenMap} onToggle={toggleTaken} />
             )}
           </>
         )}
 
+        {pendingItems.length > 0 && (
+          <RecommendationBlock items={pendingItems} onActivate={activateRecommendation} />
+        )}
+
         {/* Manage & Refill row */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <LowStockBanner items={items} />
+          <LowStockBanner items={activeItems} />
           {/* spacer to keep layout balanced; Manage sits in sticky header now */}
           <div className="h-0" />
         </div>
@@ -507,6 +532,32 @@ function LowStockBanner({ items }: { items: StackItem[] }) {
   );
 }
 
+function RecommendationBlock({ items, onActivate }: { items: StackItem[]; onActivate: (id: string) => void }) {
+  return (
+    <section aria-label="Recommendations to consider">
+      <div className="text-xs uppercase tracking-wide text-purple-600 mb-2">Recommendations to consider</div>
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+        <p className="mb-3 text-sm text-amber-900">
+          These Blueprint ideas are not part of your daily checklist until you choose to add them.
+        </p>
+        <ul className="space-y-2">
+          {items.map((item) => (
+            <li key={item.id} className="flex flex-col gap-3 rounded-lg bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="font-semibold text-[#041B2D]">{item.name}</div>
+                <div className="text-sm text-gray-700">{cleanDashboardDose(item.dose) ?? "Starting guidance is in your Blueprint"}</div>
+              </div>
+              <button onClick={() => onActivate(item.id)} className="rounded-lg border border-[#06C1A0] px-3 py-1.5 text-sm font-semibold text-[#047F6D] hover:bg-[#EAFBF8]">
+                Add to my plan
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
 function TimingBlock({
   title,
   items,
@@ -529,7 +580,9 @@ function TimingBlock({
         <ul className="space-y-2">
           {items.map((it) => {
             const taken = !!takenMap[it.id];
-            const link = it.link_fullscript || it.link_amazon || null;
+            const kind = getDashboardItemKind(it.name);
+            const schedule = getDashboardSchedule(it);
+            const link = kind === "supplement" ? it.link_fullscript || it.link_amazon || null : null;
             const low = (it.refill_days_left ?? Infinity) <= 10;
             return (
               <li
@@ -552,8 +605,18 @@ function TimingBlock({
                         {it.brand ? ` — ${it.brand}` : ""}
                       </div>
                       <div className="text-sm text-gray-700">
-                        {(it.dose || "Dose not set").replace(/\*\*/g, "")}
+                        {cleanDashboardDose(it.dose) || "Reported dose not set"}
                         {it.timing && !["AM", "PM", "AM/PM"].includes(it.timing) ? ` • ${it.timing}` : ""}
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {kind !== "supplement" && (
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+                            {kind === "endocrine_active_supplement" ? "Hormone-active" : "Medication / hormone"}
+                          </span>
+                        )}
+                        {schedule === "WEEKLY" && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">Weekly</span>}
+                        {schedule === "AS_NEEDED" && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">As needed</span>}
+                        {schedule === "UNSCHEDULED" && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">Schedule not set</span>}
                       </div>
                       {it.notes && (
                         <div className="text-xs text-gray-600 mt-0.5 line-clamp-2" title={it.notes}>
@@ -580,9 +643,7 @@ function TimingBlock({
                         <PackageOpen className="w-4 h-4 mr-1" />
                         Reorder
                       </a>
-                    ) : (
-                      <span className="text-xs text-gray-500">No link</span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </li>
