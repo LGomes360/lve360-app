@@ -281,9 +281,9 @@ useEffect(() => {
   }
 
   return (
-    <div id="todays-plan" className="bg-white/70 backdrop-blur-md rounded-2xl p-0 shadow-sm">
+    <div id="todays-plan" className="rounded-2xl border border-slate-200 bg-white p-0 shadow-sm">
       {/* Sticky Header */}
-      <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-md rounded-t-2xl border-b border-purple-100">
+      <div className="sticky top-0 z-10 rounded-t-2xl border-b border-slate-200 bg-white/95 backdrop-blur-md">
         <div className="px-6 pt-5 pb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-2xl font-bold text-[#041B2D]">🗓️ Today’s Plan</h2>
@@ -326,7 +326,7 @@ useEffect(() => {
 
             <button
               onClick={() => setShowManager(true)}
-              className="inline-flex items-center rounded-xl bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] px-3 py-1.5 text-white text-sm font-semibold shadow-md"
+              className="inline-flex items-center rounded-xl bg-[#047F6D] px-3 py-1.5 text-white text-sm font-semibold shadow-md hover:bg-[#036957]"
               aria-label="Manage stack"
             >
               <Search className="w-4 h-4 mr-1" />
@@ -535,7 +535,7 @@ function LowStockBanner({ items }: { items: StackItem[] }) {
 function RecommendationBlock({ items, onActivate }: { items: StackItem[]; onActivate: (id: string) => void }) {
   return (
     <section aria-label="Recommendations to consider">
-      <div className="text-xs uppercase tracking-wide text-purple-600 mb-2">Recommendations to consider</div>
+      <div className="text-xs uppercase tracking-wide text-[#047F6D] mb-2">Recommendations to consider</div>
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
         <p className="mb-3 text-sm text-amber-900">
           These Blueprint ideas are not part of your daily checklist until you choose to add them.
@@ -571,9 +571,9 @@ function TimingBlock({
 }) {
   return (
     <section aria-label={title}>
-      <div className="text-xs uppercase tracking-wide text-purple-600 mb-2">{title}</div>
+      <div className="text-xs uppercase tracking-wide text-[#047F6D] mb-2">{title}</div>
       {items.length === 0 ? (
-        <div className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4 text-gray-600">
+        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-gray-600">
           No items in this timing.
         </div>
       ) : (
@@ -587,7 +587,7 @@ function TimingBlock({
             return (
               <li
                 key={it.id}
-                className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-3"
+                className="rounded-xl border border-slate-200 bg-slate-50 p-3"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
@@ -663,7 +663,7 @@ function Tab({ label, active, onClick }: { label: ViewTab; active: boolean; onCl
     <button
       onClick={onClick}
       className={`rounded-full px-3 py-1 text-sm border ${
-        active ? "bg-[#7C3AED] text-white border-transparent" : "bg-white text-[#041B2D] border-purple-200"
+        active ? "bg-[#047F6D] text-white border-transparent" : "bg-white text-[#041B2D] border-slate-200"
       }`}
       aria-pressed={active}
       aria-label={`Show ${label} items`}

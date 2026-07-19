@@ -235,7 +235,7 @@ export default function DashboardSnapshot() {
   const hasAnyData = logs.length > 0 || goals != null || adherence7 != null;
 
   return (
-    <div className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
+    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       {/* Greeting + chips + quick actions */}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-3">
         <div>
@@ -274,23 +274,6 @@ export default function DashboardSnapshot() {
               Adherence (7d): <strong className="text-[#7C3AED]">{adherence7}%</strong>
             </span>
           )}
-          {/* Quick actions */}
-          <a
-            href="#daily-log"
-            className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
-            aria-label="Log today"
-            title="Log today"
-          >
-            Log today
-          </a>
-          <a
-            href="#todays-plan"
-            className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
-            aria-label="Open Today’s Plan"
-            title="Open Today’s Plan"
-          >
-            Today’s plan
-          </a>
           {/* Edit targets toggle */}
           <button
             onClick={() => setShowTargets(true)}
@@ -305,10 +288,10 @@ export default function DashboardSnapshot() {
 
       {/* Coaching blurb from latest AI summary */}
       {latestAi?.summary && (
-        <div className="mb-4 text-[15px] text-[#041B2D] bg-gradient-to-br from-purple-50 to-yellow-50 border border-purple-100 rounded-xl p-3 flex items-start gap-2">
-          <Sparkles className="w-4 h-4 mt-0.5 text-[#7C3AED]" />
+        <div className="mb-4 flex items-start gap-2 rounded-xl border border-teal-200 bg-[#EAFBF8] p-3 text-[15px] text-[#041B2D]">
+          <Sparkles className="w-4 h-4 mt-0.5 text-[#047F6D]" />
           <div>
-            <div className="text-xs uppercase tracking-wide text-purple-600">
+            <div className="text-xs uppercase tracking-wide text-[#047F6D]">
               Coaching tip · {new Date(latestAi.created_at).toLocaleDateString()}
             </div>
             <div className="mt-0.5">{latestAi.summary}</div>
@@ -318,7 +301,7 @@ export default function DashboardSnapshot() {
 
       {/* Main conditional: empty state vs KPI grid */}
       {!hasAnyData ? (
-        <div className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4 text-gray-700">
+        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-gray-700">
           No data yet — log your first day and set goals to see your snapshot come alive.
         </div>
       ) : (
@@ -452,8 +435,8 @@ function MetricCard({
   hint?: string;
 }) {
   return (
-    <div className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4 shadow-sm">
-      <div className="text-xs uppercase tracking-wide text-purple-600">{title}</div>
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="text-xs uppercase tracking-wide text-[#047F6D]">{title}</div>
       <div className="text-xl font-bold text-[#041B2D] mt-1">{primary}</div>
       <div className="text-sm text-gray-600 mt-0.5">{delta}</div>
       {hint && <div className="text-xs text-gray-500 mt-1">{hint}</div>}

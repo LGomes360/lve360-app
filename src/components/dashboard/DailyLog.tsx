@@ -36,6 +36,8 @@ export default function DailyLog() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [prefilled, setPrefilled] = useState(false);
+  const [hasSleepValue, setHasSleepValue] = useState(false);
+  const [hasEnergyValue, setHasEnergyValue] = useState(false);
 
   const userIdRef = useRef<string | null>(null);
   const loadedRef = useRef(false);
@@ -68,12 +70,12 @@ export default function DailyLog() {
 
       if (!error && data) {
         const row = data as TodayRow;
-        if (row.sleep != null) setSleep(clamp(row.sleep, 1, 5));
-        if (row.energy != null) setEnergy(clamp(row.energy, 1, 10));
+        if (row.sleep != null) { setSleep(clamp(row.sleep, 1, 5)); setHasSleepValue(true); }
+        if (row.energy != null) { setEnergy(clamp(row.energy, 1, 10)); setHasEnergyValue(true); }
         if (row.weight != null) setWeight(String(row.weight));
         if (row.notes != null) setNotes(row.notes);
         setPrefilled(true);
-        lastSavedHash.current = hashState(row.sleep ?? 3, row.energy ?? 5, row.weight ?? null, row.notes ?? "");
+        lastSavedHash.current = hashState(row.sleep ?? null, row.energy ?? null, row.weight ?? null, row.notes ?? "");
       } else {
         // initialize baseline hash from defaults
         lastSavedHash.current = hashState(3, 5, null, "");
@@ -89,10 +91,8 @@ export default function DailyLog() {
 
     // Build current hash (notes excluded from autosave hash)
     const numericWeight = weight.trim() === "" ? null : Number(weight);
-    const hashed = hashState(sleep, energy, Number.isFinite(numericWeight) ? numericWeight : null, notes);
-
     // If only notes changed, do not autosave (manual Save handles notes)
-    const hashWithoutNotes = hashState(sleep, energy, Number.isFinite(numericWeight) ? numericWeight : null);
+    const hashWithoutNotes = hashState(hasSleepValue ? sleep : null, hasEnergyValue ? energy : null, Number.isFinite(numericWeight) ? numericWeight : null);
 
     const lastWithoutNotes = lastSavedHash.current.split("|NOTES:")[0];
     if (hashWithoutNotes === lastWithoutNotes) return;
@@ -106,12 +106,14 @@ export default function DailyLog() {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sleep, energy, weight]);
+  }, [sleep, energy, weight, hasSleepValue, hasEnergyValue]);
 
   function onSleepChange(v: number) {
+    setHasSleepValue(true);
     setSleep(clamp(v, 1, 5));
   }
   function onEnergyChange(v: number) {
+    setHasEnergyValue(true);
     setEnergy(clamp(v, 1, 10));
   }
 
@@ -130,11 +132,9 @@ export default function DailyLog() {
       if (!isAutosave) setMsg(null);
 
       const w = weight.trim() === "" ? null : Number(weight);
-      const body: Record<string, any> = {
-        sleep,
-        energy,
-        notes: (notes || "").trim() || null,
-      };
+      const body: Record<string, any> = { notes: (notes || "").trim() || null };
+      if (hasSleepValue) body.sleep = sleep;
+      if (hasEnergyValue) body.energy = energy;
       if (w != null && Number.isFinite(w)) body.weight = w;
 
       const res = await fetch("/api/logs", {
@@ -146,7 +146,7 @@ export default function DailyLog() {
       if (!res.ok || !json?.ok) throw new Error(json?.error || "save_failed");
 
       // Update last saved signature
-      lastSavedHash.current = hashState(sleep, energy, w, notes);
+      lastSavedHash.current = hashState(hasSleepValue ? sleep : null, hasEnergyValue ? energy : null, w, notes);
 
       if (!isAutosave) setMsg({ kind: "ok", text: prefilled ? "Updated ✓" : "Saved ✓" });
       setPrefilled(true);
@@ -165,18 +165,18 @@ export default function DailyLog() {
   }
 
   return (
-    <div id="daily-log" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
+    <div id="daily-log" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex items-end justify-between mb-1">
-        <h2 className="text-2xl font-bold text-[#041B2D]">📝 Daily Log</h2>
+        <h2 className="text-2xl font-bold text-[#041B2D]">Daily Check-in</h2>
         {prefilled && <span className="text-xs text-gray-600">Today’s values loaded</span>}
       </div>
-      <p className="text-gray-600 mb-4">Two sliders, an optional weight, and a quick note. 20 seconds, tops.</p>
+      <p className="text-gray-600 mb-4">A quick check-in keeps your trends and coaching grounded in how you actually feel.</p>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Sleep (1–5) */}
-        <div className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4">
-          <div className="text-xs uppercase tracking-wide text-purple-600">Sleep quality</div>
-          <div className="text-xl font-bold text-[#041B2D] mt-1">{sleep} / 5</div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="text-xs uppercase tracking-wide text-[#047F6D]">Sleep quality</div>
+          <div className="text-xl font-bold text-[#041B2D] mt-1">{hasSleepValue ? `${sleep} / 5` : "Not logged yet"}</div>
           <input
             type="range"
             min={1}
@@ -190,9 +190,9 @@ export default function DailyLog() {
         </div>
 
         {/* Energy (1–10) */}
-        <div className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4">
-          <div className="text-xs uppercase tracking-wide text-purple-600">Energy</div>
-          <div className="text-xl font-bold text-[#041B2D] mt-1">{energy} / 10</div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="text-xs uppercase tracking-wide text-[#047F6D]">Energy</div>
+          <div className="text-xl font-bold text-[#041B2D] mt-1">{hasEnergyValue ? `${energy} / 10` : "Not logged yet"}</div>
           <input
             type="range"
             min={1}
@@ -206,8 +206,8 @@ export default function DailyLog() {
         </div>
 
         {/* Weight (optional) */}
-        <div className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4">
-          <div className="text-xs uppercase tracking-wide text-purple-600">Weight (optional)</div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="text-xs uppercase tracking-wide text-[#047F6D]">Weight (optional)</div>
           <input
             inputMode="decimal"
             value={weight}
@@ -237,7 +237,7 @@ export default function DailyLog() {
         <button
           onClick={() => submit(false)}
           disabled={saving}
-          className="inline-flex items-center rounded-xl bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] px-4 py-2 text-white font-semibold shadow-md disabled:opacity-60"
+          className="inline-flex items-center rounded-xl bg-[#047F6D] px-4 py-2 text-white font-semibold shadow-md hover:bg-[#036957] disabled:opacity-60"
           aria-disabled={saving}
         >
           {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />} Save today’s log
