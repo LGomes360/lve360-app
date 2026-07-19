@@ -1255,16 +1255,53 @@ function reportedGoals(client: any): string[] {
   return Array.from(new Set(goals.map((goal) => cleanName(goal)).filter(Boolean))).slice(0, 8);
 }
 
+function reportedConditions(client: any): string[] {
+  const conditions = extractReadableNames(client?.conditions ?? client?.health_conditions ?? []);
+  return Array.from(new Set(conditions.map((condition) => cleanName(condition)).filter(Boolean))).slice(0, 8);
+}
+
+function naturalList(values: string[], limit = 4): string {
+  const items = values.filter(Boolean).slice(0, limit);
+  if (items.length <= 1) return items[0] ?? "your stated priorities";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+function blueprintNamesByStatus(blueprintTable: string, status: string): string[] {
+  return blueprintTable
+    .split(/\r?\n/)
+    .filter((line) => /^\s*\|\s*\d+\s*\|/.test(line))
+    .map((line) => line.split("|").slice(1, -1).map((cell) => cleanName(cell)))
+    .filter((cells) => cells[2] === status)
+    .map((cells) => cells[1])
+    .filter(Boolean);
+}
+
 function markdownCell(value: string): string {
   return value.replace(/\|/g, "/").replace(/\s+/g, " ").trim();
 }
 
-function buildNeutralIntroSection(client: any): string {
+function buildPersonalizedIntroSection(
+  client: any,
+  ledger: NormalizedCurrentStackLedgerItem[],
+  blueprintTable: string
+): string {
   const firstName = cleanName(client?.name ?? client?.full_name ?? "").split(/\s+/)[0];
   const greeting = firstName ? `Welcome, ${firstName}.` : "Welcome.";
+  const goals = reportedGoals(client);
+  const conditions = reportedConditions(client);
+  const currentSupplements = ledger.filter((item) => item.kind === "supplement").map((item) => item.name);
+  const newRecommendations = blueprintNamesByStatus(blueprintTable, "New - consider");
+  const currentFoundation = currentSupplements.length ? naturalList(currentSupplements, 5) : "no supplements reported in the intake";
+  const firstAdditions = newRecommendations.length ? naturalList(newRecommendations, 3) : "the eligible additions listed in your Blueprint";
+  const contextSentence = conditions.length
+    ? `Your reported ${naturalList(conditions, 3)} are treated as planning and safety context, not as conditions this report is attempting to treat.`
+    : "Your reported routine and preferences are used as practical planning context.";
   return `## Intro Summary
 
-${greeting} This Blueprint organizes the goals and current routine reported in your intake into a practical starting plan. It separates what you already use from eligible additions, provides conservative starting guidance, and highlights only safety considerations that call for action.`;
+${greeting} Your Blueprint is organized around ${naturalList(goals)}. Your current supplement foundation includes ${currentFoundation}, so the plan emphasizes useful gaps and timing improvements rather than simply adding more products.
+
+The first additions to evaluate are ${firstAdditions}. ${contextSentence} Introduce no more than one new supplement at a time, follow the starting guidance, and use the Weekly Focus measures to decide whether the change is actually helping.`;
 }
 
 function buildNeutralGoalsSection(client: any): string {
@@ -1279,6 +1316,51 @@ function buildNeutralGoalsSection(client: any): string {
 ${rows}
 
 These priorities come directly from the intake. Recommendations and follow-up steps are evaluated separately rather than being presented as part of the goals themselves.`;
+}
+
+function buildPersonalizedLifestyleSection(client: any): string {
+  const context = `${reportedGoals(client).join(" ")} ${reportedConditions(client).join(" ")}`.toLowerCase();
+  const actions: string[] = [];
+  if (/weight|blood sugar|diabetes|metabolic/.test(context)) {
+    actions.push("- **After-meal movement:** Take a 10-minute walk after your largest meal on at least four days this week; this is the same behavior tracked in Weekly Focus.");
+  }
+  if (/high blood pressure|cholesterol|cardiovascular|longevity/.test(context)) {
+    actions.push("- **Cardiovascular base:** Build toward 150 minutes per week of moderate activity, using short sessions when needed, while keeping prescribed care unchanged.");
+  }
+  if (/sleep apnea|sleep/.test(context)) {
+    actions.push("- **Sleep consistency:** Keep a regular sleep and wake window and continue any prescribed sleep-apnea plan; track morning energy rather than adding several sleep products at once.");
+  }
+  if (/muscle|strength/.test(context)) {
+    actions.push("- **Strength foundation:** Complete two full-body resistance sessions each week and progress gradually while maintaining adequate protein and recovery.");
+  }
+  if (/cogn|focus|energy|fatigue/.test(context)) {
+    actions.push("- **Daytime rhythm:** Get outdoor light early, protect one distraction-free focus block, and keep caffeine early enough that it does not compete with sleep.");
+  }
+  actions.push("- **Food foundation:** Center meals on protein, fiber-rich plants, minimally processed foods, and adequate fluids; supplements should complement this base rather than replace it.");
+  return `## Lifestyle Prescriptions
+
+${Array.from(new Set(actions)).slice(0, 5).join("\n")}`;
+}
+
+function buildPersonalizedLongevitySection(client: any): string {
+  const context = `${reportedGoals(client).join(" ")} ${reportedConditions(client).join(" ")}`.toLowerCase();
+  const levers = [
+    "- **Preserve capability:** Combine aerobic movement, resistance training, balance, and mobility so the plan supports both lifespan and day-to-day function.",
+    "- **Simplify and measure:** Add only one new supplement at a time, track the outcome for several weeks, and remove additions that do not produce a clear benefit.",
+  ];
+  if (/high blood pressure|cholesterol|blood sugar|diabetes|weight/.test(context)) {
+    levers.push("- **Track cardiometabolic direction:** Follow blood pressure, weight or waist trend, glucose markers, and lipids at sensible intervals so lifestyle and supplement choices can be judged against real data.");
+  }
+  if (/sleep apnea|sleep/.test(context)) {
+    levers.push("- **Protect restorative sleep:** Treat sleep regularity and adherence to prescribed sleep-apnea care as core longevity work, not an optional recovery extra.");
+  }
+  if (/cogn|focus|memory/.test(context)) {
+    levers.push("- **Maintain cognitive reserve:** Pair focused learning with regular movement, social connection, and consistent sleep rather than relying on supplements alone.");
+  }
+  levers.push("- **Reassess when the inputs change:** Regenerate the Blueprint after meaningful medication, laboratory, symptom, or goal changes so recommendations do not become stale.");
+  return `## Longevity Levers
+
+${levers.slice(0, 5).join("\n")}`;
 }
 
 function buildActionableThisWeekSection(blueprintTable: string, client: any): string {
@@ -2198,8 +2280,10 @@ md = replaceOrAppendSection(md, buildPracticalFollowUpSection());
     berberineRequiresReview
   );
   md = ensureReportDosingAlignment(md, currentStackLedger, berberineRequiresReview);
-  md = replaceOrAppendSection(md, buildNeutralIntroSection(baseClient));
+  md = replaceOrAppendSection(md, buildPersonalizedIntroSection(baseClient, currentStackLedger, tableMd));
   md = replaceOrAppendSection(md, buildNeutralGoalsSection(baseClient));
+  md = replaceOrAppendSection(md, buildPersonalizedLifestyleSection(baseClient));
+  md = replaceOrAppendSection(md, buildPersonalizedLongevitySection(baseClient));
   md = replaceOrAppendSection(md, buildActionableThisWeekSection(tableMd, baseClient));
 
   // ---------- Parse items / safety / enrichment ----------
