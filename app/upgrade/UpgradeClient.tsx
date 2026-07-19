@@ -3,6 +3,7 @@
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
+import { track } from "@vercel/analytics/react";
 import CTAButton from "@/components/CTAButton";
 
 /** REAL error boundary: catches render-time errors and shows fallback UI */
@@ -47,6 +48,7 @@ function Inner() {
   const router = useRouter();
   const sp = useSearchParams(); // safe inside Suspense
   const justUpgraded = sp?.get("just") === "1";
+  const checkoutCanceled = sp?.get("canceled") === "1";
   const requestedPlan: Plan | null =
     sp?.get("plan") === "monthly" || sp?.get("plan") === "annual"
       ? (sp.get("plan") as Plan)
@@ -100,7 +102,9 @@ function Inner() {
           return;
         }
 
-        if (requestedPlan && data?.user_id) {
+        if (checkoutCanceled) {
+          setBanner("Checkout was canceled. Nothing was charged, and your selected plan is still ready below.");
+        } else if (requestedPlan && data?.user_id) {
           const label = requestedPlan === "annual" ? "Annual" : "Monthly";
           setBanner(`You're signed in. Continue with ${label} Checkout below.`);
         }
@@ -146,11 +150,12 @@ function Inner() {
     })();
 
     return () => { cancelled = true; };
-  }, [router, justUpgraded, requestedPlan]);
+  }, [router, justUpgraded, requestedPlan, checkoutCanceled]);
 
   async function handleUpgrade(plan: Plan) {
     setLoadingPlan(plan);
     setBanner(null);
+    track("Checkout Started", { plan, source: "upgrade" });
     try {
       console.log("[/upgrade] starting checkout:", plan);
       const res = await fetch("/api/stripe/checkout", {
@@ -195,9 +200,9 @@ function Inner() {
         transition={{ duration: 0.45 }}
         className="relative z-10 max-w-xl w-full bg-white/90 backdrop-blur-lg rounded-2xl shadow-2xl ring-1 ring-purple-100 p-10 text-center"
       >
-        <h1 className="text-4xl font-extrabold text-[#041B2D] mb-3">Unlock LVE360 Premium</h1>
+        <h1 className="text-4xl font-extrabold text-[#041B2D] mb-3">Turn your Blueprint into a weekly practice</h1>
         <p className="text-gray-600 mb-6 text-lg">
-          Go beyond your free report with weekly personalized tweaks, AI guidance, and your private dashboard.
+          Keep your next action visible, learn from short check-ins, and build healthier routines one focused week at a time.
         </p>
 
         {(checking || banner) && (
@@ -223,7 +228,7 @@ function Inner() {
           <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-2xl p-6 shadow-lg border border-yellow-200">
             <p className="text-5xl font-bold text-yellow-600 mb-2">$100</p>
             <p className="text-gray-600 mb-1">per year</p>
-            <p className="text-sm text-gray-500 mb-4">(Save 45%)</p>
+            <p className="text-sm text-gray-500 mb-4">Save $80 each year</p>
             <CTAButton
               onClick={() => handleUpgrade("annual")}
               variant="secondary"
@@ -235,14 +240,15 @@ function Inner() {
           </div>
         </div>
 
-        <p className="mt-4 text-sm text-gray-500">100% secure checkout via Stripe • Cancel anytime</p>
+        <p className="mt-4 text-sm text-gray-500">Secure checkout through Stripe. Cancel anytime from Account &gt; Manage Billing.</p>
+        <p className="mt-2 text-xs leading-5 text-gray-500">Stripe receives your account email and billing details, not your supplement, medication, or health-profile answers.</p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-10 text-left">
           {[
-            "✓ Full access to AI-generated reports",
-            "✓ Weekly personalized tweaks",
-            "✓ Advanced stack tracking dashboard",
-            "✓ Lifetime discount on affiliate partners",
+            "✓ Everything in your free Blueprint",
+            "✓ One focused weekly practice",
+            "✓ Today's active plan and optional check-ins",
+            "✓ Progress review and ongoing updates",
           ].map((f, i) => (
             <p key={i} className="text-gray-700 text-sm">{f}</p>
           ))}
