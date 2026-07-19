@@ -338,7 +338,20 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
       continue;
     }
     if (/^###\s+/.test(line)) {
-      ensureSpace(24);
+      // Keep subsection headings with the first line of content that follows.
+      // Without this reservation, headings can be orphaned at the foot of a page.
+      let nextContent = "";
+      for (let lookahead = index + 1; lookahead < lines.length; lookahead++) {
+        const candidate = lines[lookahead].trim();
+        if (!candidate) continue;
+        if (/^#{1,3}\s+/.test(candidate)) break;
+        nextContent = candidate.replace(/^[-*]\s+/, "");
+        break;
+      }
+      const nextContentHeight = nextContent
+        ? wrap(pdfText(nextContent), regular, 9.5, CONTENT_WIDTH).length * 12 + 8
+        : 16;
+      ensureSpace(24 + Math.min(nextContentHeight, 72));
       drawParagraph(line.replace(/^###\s+/, ""), { font: bold, size: 10.5, color: NAVY });
       continue;
     }
