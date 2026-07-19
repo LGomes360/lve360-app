@@ -177,7 +177,7 @@ function LinksTable({ raw, type }: { raw: string; type: "evidence" | "shopping" 
                     href={link.url}
                     variant={type === "shopping" ? "primary" : "secondary"}
                     size="sm"
-                    className="px-2 py-0.5 text-xs min-w-0"
+                    className="report-link-action px-2 py-0.5 text-xs min-w-0"
                   >
                     {type === "shopping" ? `Buy on ${link.text}` : link.text}
                   </CTAButton>
@@ -189,7 +189,7 @@ function LinksTable({ raw, type }: { raw: string; type: "evidence" | "shopping" 
       </table>
 
       {allCartUrl && (
-        <div className="mt-3">
+        <div className="report-add-all mt-3">
           <CTAButton href={allCartUrl} variant="premium" size="md" className="px-4 py-2 text-sm">
             🛒 Add All to Cart
           </CTAButton>

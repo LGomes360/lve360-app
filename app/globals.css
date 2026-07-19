@@ -65,4 +65,14 @@ html { scroll-behavior: smooth; }
   .report-prose tr { break-inside: avoid-page; }
   .report-prose thead { display: table-header-group; }
   .report-prose a { color: #122945 !important; text-decoration: none !important; }
+  .report-add-all { display: none !important; }
+  .report-link-action {
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    color: #122945 !important;
+    font-weight: 600 !important;
+    padding: 0 !important;
+    text-decoration: none !important;
+  }
 }

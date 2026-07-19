@@ -12,6 +12,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import parseMarkdownToItems from "@/lib/parseMarkdownToItems";
 import { formatStartingGuidance } from "@/lib/supplementDosingRegistry";
 import { AFFILIATE_DISCLOSURE_NEAR_LINKS } from "@/lib/reportDisclosures";
+import { neutralGoalDescription, recommendationRationale } from "@/lib/reportIntegrity";
 import { parseBlueprintReport, validateBlueprintReport } from "@/lib/blueprintReport";
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks, buildAmazonSearchLink } from "@/lib/affiliateLinks";
@@ -372,7 +373,8 @@ function complianceSafeLanguage(text: string): string {
 function ensureContraCurrentStackCoverage(
   passB: string,
   ledger: NormalizedCurrentStackLedgerItem[],
-  berberineRequiresReview = false
+  berberineRequiresReview = false,
+  recommendationNames: string[] = []
 ): string {
   const header = "## Contraindications & Med Interactions";
   const body = sectionChunk(passB, header);
@@ -380,8 +382,19 @@ function ensureContraCurrentStackCoverage(
   const beforeAnalysis = body.split(/^\*\*Analysis\*\*/im)[0] ?? "";
   const sourceBullets = beforeAnalysis.split(/\r?\n/).filter((line) => /^\s*[-*]\s+/.test(line));
   const sedationContext = /\b(?:lunesta|eszopiclone|xanax|zanax|alprazolam|melatonin|glycine)\b/i;
+  const activeNames = [...ledger.map((item) => item.name), ...recommendationNames];
+  const safetyKey = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const mentionsActiveItem = (line: string) => {
+    const lineKey = safetyKey(line);
+    return activeNames.some((name) => lineKey.includes(safetyKey(name)));
+  };
+  const berberineIsActive = activeNames.some((name) => /^berberine(?:\s+hcl)?$/i.test(name));
   const materialBullets = sourceBullets.filter((line) => {
     if (/no specific interaction|no significant interaction|no specific conflict/i.test(line)) return false;
+    if (/blood pressure considerations/i.test(line)) return false;
+    if (/potential thyroid medication interactions/i.test(line)) return false;
+    if (/berberine/i.test(line) && !berberineIsActive) return false;
+    if (!mentionsActiveItem(line)) return false;
     if (sedationContext.test(line)) return false;
     return /interaction|caution|monitor|spacing|separat|avoid|risk|drows|sedat|bleed|glucose|blood sugar|thyroid|kidney|liver|anticoagul|procedure/i.test(line);
   }).map((line) => complianceSafeLanguage(line
@@ -399,7 +412,7 @@ function ensureContraCurrentStackCoverage(
   if (thyroidItem && spacingItems.length) {
     bullets.push(`- **Monitor — Thyroid medication spacing:** Keep ${spacingItems.join(", ")} separated from ${thyroidItem.name} according to its prescription or label instructions; ask a pharmacist if the timing is unclear.`);
   }
-  if (berberineRequiresReview && ledger.some((item) => /^berberine(?:\s+hcl)?$/i.test(item.name))) {
+  if (berberineRequiresReview && berberineIsActive) {
     bullets.push("- **Clinician review — Berberine:** Glucose-lowering medication or blood-sugar context was reported. Do not add or change Berberine without coordinated review.");
   }
   if (!bullets.length) {
@@ -463,7 +476,7 @@ function sanitizeBlueprintTable(
     const name = validItemName(cells[1]);
     if (!name || isMalformedCurrentStackName(name) || !isEligibleSupplementName(name) || !allowed.has(name.toLowerCase())) return [];
     const whyCell = cells.length >= 4 ? cells[3] : cells[2];
-    return [{ name, why: cleanName(whyCell || "") || "Selected to complement the reported goals and current routine", explicit: true }];
+    return [{ name, why: recommendationRationale(name) ?? (cleanName(whyCell || "") || "Selected to complement the reported goals and current routine"), explicit: true }];
   });
   const candidates = parsedItems.filter((item) =>
     !(berberineRequiresReview && /^berberine(?:\s+hcl)?$/i.test(item.name))
@@ -471,7 +484,7 @@ function sanitizeBlueprintTable(
   for (const name of DEFAULT_BLUEPRINT_ITEMS) {
     if (!allowed.has(name.toLowerCase())) continue;
     if (berberineRequiresReview && /^berberine(?:\s+hcl)?$/i.test(name)) continue;
-    candidates.push({ name, why: "Selected to complement the reported goals and current routine", explicit: false });
+    candidates.push({ name, why: recommendationRationale(name) ?? "Selected to complement the reported goals and current routine", explicit: false });
   }
   const candidateNames = new Set<string>();
   const deduped = candidates.filter((item) => {
@@ -1143,13 +1156,15 @@ function lookupCuratedForCandidates(candidates: string[], limit = 3): string[] {
 }
 
 function attachEvidence(item: StackItem): StackItem {
+  const displayName = cleanName(item.name);
   const normName = normalizeSupplementName(item.name);
   const candidates = buildEvidenceCandidates(normName);
-  const curatedUrls = lookupCuratedForCandidates(candidates, 3);
+  const directUrls = getTopCitationsFor(displayName, 3);
+  const curatedUrls = directUrls.length ? directUrls : lookupCuratedForCandidates(candidates, 3);
   const modelValid = sanitizeCitationsModel(item.citations ?? []);
   const final = curatedUrls.length ? curatedUrls : modelValid;
   try { console.log("evidence.lookup", { rawName: item.name, normName, curatedCount: curatedUrls.length, keptFromModel: modelValid.length }); } catch {}
-  return { ...item, name: normName, citations: final.length ? final : null };
+  return { ...item, name: displayName, citations: final.length ? final : null };
 }
 
 function hostOf(u: string): string { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } }
@@ -1169,45 +1184,33 @@ function labelForUrl(u: string): string {
   return h || "Source";
 }
 
-function topUpCitations(minCount: number, have: Array<{ name: string; url: string }>) {
-  const seen = new Set(have.map(h => h.url));
-  const extras: Array<{ name: string; url: string }> = [];
-  outer: for (const [key, arr] of Object.entries(EVIDENCE || {})) {
-    const list = Array.isArray(arr) ? arr : [];
-    for (const e of list) {
-      const url = String(e?.url || "").trim();
-      if (!url) continue;
-      if (!(CURATED_CITE_RE.test(url) || MODEL_CITE_RE.test(url))) continue;
-      if (seen.has(url)) continue;
-      extras.push({ name: cleanName(key), url });
-      seen.add(url);
-      if (have.length + extras.length >= minCount) break outer;
-    }
-  }
-  return extras;
-}
-
-function buildEvidenceSection(items: StackItem[], minCount = 8): {
+function buildEvidenceSection(items: StackItem[]): {
   section: string; bullets: Array<{ name: string; url: string }>;
 } {
   const bullets: Array<{ name: string; url: string }> = [];
   for (const it of asArray(items)) {
-    for (const rawUrl of asArray(it.citations)) {
-      const url = (rawUrl || "").trim();
+    const rawUrl = asArray(it.citations).find((candidate) => {
+      const url = String(candidate ?? "").trim();
+      return CURATED_CITE_RE.test(url) || MODEL_CITE_RE.test(url);
+    });
+    if (rawUrl) {
+      const url = String(rawUrl).trim();
       const normalized = url.endsWith("/") ? url : url + "/";
-      if (CURATED_CITE_RE.test(normalized) || MODEL_CITE_RE.test(normalized)) {
-        const label = `${cleanName(it.name)}${it.is_current ? " (Current Stack)" : ""}`;
-        bullets.push({ name: label, url: normalized });
-      }
+      const label = `${cleanName(it.name)}${it.is_current ? " (Current Stack)" : ""}`;
+      bullets.push({ name: label, url: normalized });
     }
   }
-  const seen = new Set<string>();
-  let unique = bullets.filter(b => (seen.has(b.url) ? false : (seen.add(b.url), true)));
-
+  const seenItems = new Set<string>();
+  const unique = bullets.filter((bullet) => {
+    const key = normalizeSupplementName(bullet.name.replace(/\s*\(Current Stack\)$/, "")).toLowerCase();
+    if (seenItems.has(key)) return false;
+    seenItems.add(key);
+    return true;
+  });
   const bulletsText = unique.map(b => `- ${b.name}: [${labelForUrl(b.url)}](${b.url})`).join("\n");
   const section =
     `## Evidence & References\n\n${bulletsText}\n\n` +
-    `**Analysis**\n\nLinks prioritize PubMed/PMC/DOI and major journals and are limited to Blueprint recommendations plus clearly identified current-stack items. Sources are deduplicated; reports with fewer than ${minCount} aligned citations remain flagged for review rather than adding unrelated items.`;
+    `**Analysis**\n\nEach Blueprint recommendation is paired with an aligned source. Links prioritize PubMed, PMC, DOI, and major journals rather than padding the list with unrelated references.`;
   return { section, bullets: unique };
 }
 
@@ -1245,6 +1248,59 @@ function buildPracticalFollowUpSection(): string {
 **Analysis**
 
 Use the smallest change that can be measured. Stop a newly added item if unexpected effects occur and seek appropriate care for urgent or severe symptoms.`;
+}
+
+function reportedGoals(client: any): string[] {
+  const goals = extractReadableNames(client?.goals ?? client?.goal ?? client?.health_goals ?? []);
+  return Array.from(new Set(goals.map((goal) => cleanName(goal)).filter(Boolean))).slice(0, 8);
+}
+
+function markdownCell(value: string): string {
+  return value.replace(/\|/g, "/").replace(/\s+/g, " ").trim();
+}
+
+function buildNeutralIntroSection(client: any): string {
+  const firstName = cleanName(client?.name ?? client?.full_name ?? "").split(/\s+/)[0];
+  const greeting = firstName ? `Welcome, ${firstName}.` : "Welcome.";
+  return `## Intro Summary
+
+${greeting} This Blueprint organizes the goals and current routine reported in your intake into a practical starting plan. It separates what you already use from eligible additions, provides conservative starting guidance, and highlights only safety considerations that call for action.`;
+}
+
+function buildNeutralGoalsSection(client: any): string {
+  const goals = reportedGoals(client);
+  const rows = (goals.length ? goals : ["Steady energy", "Sleep quality", "Long-term wellness"])
+    .map((goal) => `| ${markdownCell(goal)} | ${markdownCell(neutralGoalDescription(goal))} |`)
+    .join("\n");
+  return `## Goals
+
+| Goal | What Progress Looks Like |
+| --- | --- |
+${rows}
+
+These priorities come directly from the intake. Recommendations and follow-up steps are evaluated separately rather than being presented as part of the goals themselves.`;
+}
+
+function buildActionableThisWeekSection(blueprintTable: string, client: any): string {
+  const newItem = blueprintTable
+    .split(/\r?\n/)
+    .filter((line) => /^\s*\|\s*\d+\s*\|/.test(line))
+    .map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim()))
+    .find((cells) => cells[2] === "New - consider")?.[1];
+  const goals = reportedGoals(client).join(" ").toLowerCase();
+  const goalHabit = /sleep/.test(goals)
+    ? "Keep the same bedtime and wake time on at least five days."
+    : /muscle|strength/.test(goals)
+      ? "Complete two resistance-training sessions and record the exercises used."
+      : "Take a 10-minute walk after your largest meal on at least four days.";
+  const firstAction = newItem
+    ? `If you choose to add ${newItem}, make it the only new supplement this week and use the starting guidance in this report.`
+    : "Add no more than one new supplement this week.";
+  return `## This Week Try
+
+- ${firstAction}
+- Record sleep quality and morning energy on three days.
+- ${goalHabit}`;
 }
 
 // ----------------------------------------------------------------------------
@@ -1948,7 +2004,12 @@ if (!hasContra || !hasDosing || !passBHasBodies()) {
   hasContra = _hasContra(dosingMd);
   hasDosing = _hasDosing(dosingMd);
 }
-dosingMd = ensureContraCurrentStackCoverage(dosingMd, currentStackLedger, berberineRequiresReview);
+dosingMd = ensureContraCurrentStackCoverage(
+  dosingMd,
+  currentStackLedger,
+  berberineRequiresReview,
+  blueprintNames(tableMd)
+);
 
 
 // token accounting (wrapper exposes usage.*)
@@ -2127,6 +2188,9 @@ md = replaceOrAppendSection(md, buildPracticalFollowUpSection());
     berberineRequiresReview
   );
   md = ensureReportDosingAlignment(md, currentStackLedger, berberineRequiresReview);
+  md = replaceOrAppendSection(md, buildNeutralIntroSection(baseClient));
+  md = replaceOrAppendSection(md, buildNeutralGoalsSection(baseClient));
+  md = replaceOrAppendSection(md, buildActionableThisWeekSection(tableMd, baseClient));
 
   // ---------- Parse items / safety / enrichment ----------
   const TIMING_ARTIFACT_RE = /^(on\s+waking|am\b.*breakfast|evening\b.*dinner|before\s+bed|pre[- ]?exercise(?:.*)?|hold\/adjust|simplify\s+sleep\s+aids)$/i;
@@ -2194,11 +2258,6 @@ const safetyInput = {
     if (berberineRequiresReview && /^berberine(?:\s+hcl)?$/i.test(item.name)) return false;
     return shoppableNames.has(key) && isEligibleSupplementName(item.name) && (!currentKind || currentKind === "supplement");
   };
-  const isEvidenceItem = (item: StackItem) => {
-    const key = itemKey(item.name);
-    const currentKind = currentKindByName.get(key);
-    return shoppableNames.has(key) && isEligibleSupplementName(item.name) && (!currentKind || currentKind === "supplement");
-  };
   const normalizedForLinks: StackItem[] = cleanedItems
     .filter(isShoppableItem)
     .map((it) => ({ ...it, name: normalizeSupplementName(it.name ?? "") }));
@@ -2220,16 +2279,38 @@ const safetyInput = {
     link_clean: null,
     link_default: null,
   });
+  const mergeShoppingLinks = (item: StackItem, linked?: StackItem): StackItem => linked ? ({
+    ...item,
+    link_amazon: linked.link_amazon ?? null,
+    link_fullscript: linked.link_fullscript ?? null,
+    link_thorne: linked.link_thorne ?? null,
+    link_other: linked.link_other ?? null,
+    link_budget: linked.link_budget ?? null,
+    link_trusted: linked.link_trusted ?? null,
+    link_clean: linked.link_clean ?? null,
+    link_default: linked.link_default ?? null,
+  }) : item;
   const finalStack: StackItem[] = cleanedItems.map((item) =>
-    isShoppableItem(item) ? (linkedByName.get(itemKey(item.name)) ?? item) : clearShoppingLinks(item)
+    isShoppableItem(item) ? mergeShoppingLinks(item, linkedByName.get(itemKey(item.name))) : clearShoppingLinks(item)
   );
   const shoppableSupplementLedger: StackItem[] = finalStack
     .filter(isShoppableItem)
     .sort((a, b) => Number(blueprintShoppableNames.has(itemKey(b.name))) - Number(blueprintShoppableNames.has(itemKey(a.name))));
-  const evidenceSupplementLedger: StackItem[] = finalStack
-    .filter(isEvidenceItem)
-    .sort((a, b) => Number(blueprintShoppableNames.has(itemKey(b.name))) - Number(blueprintShoppableNames.has(itemKey(a.name))));
-  const evidenceAlignedItems = evidenceSupplementLedger.map(attachEvidence);
+  const finalByName = new Map(finalStack.map((item) => [itemKey(item.name), item]));
+  const evidenceAlignedItems = blueprintNames(tableMd).map((name) => {
+    const source = finalByName.get(itemKey(name)) ?? ({ name } as StackItem);
+    return attachEvidence({
+      ...source,
+      name,
+      is_current: currentStackLedger.some((item) => item.kind === "supplement" && itemKey(item.name) === itemKey(name)),
+    });
+  });
+  const missingBlueprintEvidence = evidenceAlignedItems
+    .filter((item) => !asArray(item.citations).some((url) => CURATED_CITE_RE.test(String(url)) || MODEL_CITE_RE.test(String(url))))
+    .map((item) => item.name);
+  if (missingBlueprintEvidence.length) {
+    throw new Error(`Missing aligned evidence for Blueprint recommendations: ${missingBlueprintEvidence.join(", ")}`);
+  }
   const evidenceByName = new Map(evidenceAlignedItems.map((item) => [itemKey(item.name), item]));
   const withEvidence: StackItem[] = finalStack.map((item) => evidenceByName.get(itemKey(item.name)) ?? item);
   const persistedItemsByName = new Map<string, StackItem>();
@@ -2271,7 +2352,7 @@ const safetyInput = {
   }
 
   // Evidence override
-  const { section: evidenceSection } = buildEvidenceSection(evidenceAlignedItems, 8);
+  const { section: evidenceSection } = buildEvidenceSection(evidenceAlignedItems);
   md = overrideEvidenceInMarkdown(md, evidenceSection);
 
   // Shopping links override
