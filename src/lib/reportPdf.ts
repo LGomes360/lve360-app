@@ -1,5 +1,6 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb, type RGB } from "pdf-lib";
 import { parseBlueprintReport } from "./blueprintReport";
+import { cleanReportDisplayText, REPORT_THEME_RGB, reportSectionTitle } from "./reportPresentation";
 
 const PAGE_WIDTH = 612;
 const PAGE_HEIGHT = 792;
@@ -8,19 +9,19 @@ const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 const FOOTER_Y = 25;
 const CONTENT_BOTTOM = 48;
 
-const NAVY = rgb(0.07, 0.16, 0.27);
-const TEAL = rgb(0.03, 0.62, 0.53);
-const PALE_TEAL = rgb(0.9, 0.97, 0.95);
-const PALE_BLUE = rgb(0.94, 0.96, 0.98);
-const PALE_AMBER = rgb(1, 0.96, 0.86);
+const NAVY = rgb(...REPORT_THEME_RGB.navy);
+const TEAL = rgb(...REPORT_THEME_RGB.teal);
+const PALE_TEAL = rgb(...REPORT_THEME_RGB.paleTeal);
+const PALE_BLUE = rgb(...REPORT_THEME_RGB.paleBlue);
+const PALE_AMBER = rgb(...REPORT_THEME_RGB.paleAmber);
 const PALE_RED = rgb(1, 0.93, 0.91);
-const TEXT = rgb(0.14, 0.17, 0.2);
-const MUTED = rgb(0.38, 0.43, 0.48);
-const BORDER = rgb(0.82, 0.86, 0.88);
+const TEXT = rgb(...REPORT_THEME_RGB.slate);
+const MUTED = rgb(...REPORT_THEME_RGB.muted);
+const BORDER = rgb(...REPORT_THEME_RGB.border);
 const WHITE = rgb(1, 1, 1);
 
 function pdfText(value: string): string {
-  return String(value ?? "")
+  return cleanReportDisplayText(String(value ?? ""))
     .replace(/â€”|â€“|\u2014|\u2013/g, "-")
     .replace(/â€¢|\u2022/g, "-")
     .replace(/â‰¥|\u2265/g, ">=")
@@ -155,7 +156,7 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
       borderColor: safety ? rgb(0.86, 0.48, 0.42) : rgb(0.58, 0.82, 0.77),
       borderWidth: 0.7,
     });
-    page.drawText(pdfText(title), { x: MARGIN + 11, y: cursorY - 13, size: 12.5, font: bold, color: NAVY });
+    page.drawText(pdfText(reportSectionTitle(title)), { x: MARGIN + 11, y: cursorY - 13, size: 12.5, font: bold, color: NAVY });
     cursorY -= 37;
     if (safety) {
       ensureSpace(42);
@@ -295,6 +296,11 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
         while (index + 1 < lines.length && !/^##\s+/.test(lines[index + 1].trim())) index++;
         continue;
       }
+      // This content is already promoted into the opening focus card.
+      if (/^This Week Try$/i.test(heading) && report.focusItems.length) {
+        while (index + 1 < lines.length && !/^##\s+/.test(lines[index + 1].trim())) index++;
+        continue;
+      }
       drawSectionHeader(heading);
       continue;
     }
@@ -318,14 +324,14 @@ export async function renderReportPdf(markdown: string, disclaimer: string): Pro
     drawParagraph(line);
   }
 
-  const disclaimerLines = wrap(disclaimer, regular, 8.5, CONTENT_WIDTH - 20);
-  const disclaimerHeight = disclaimerLines.length * 11 + 18;
-  ensureSpace(disclaimerHeight + 53);
-  cursorY -= 8;
-  drawSectionHeader("Important Wellness Disclaimer");
+  const disclaimerLines = wrap(disclaimer, regular, 8.2, CONTENT_WIDTH - 20);
+  const disclaimerHeight = disclaimerLines.length * 10 + 34;
+  ensureSpace(disclaimerHeight + 10);
+  cursorY -= 6;
   page.drawRectangle({ x: MARGIN, y: cursorY - disclaimerHeight, width: CONTENT_WIDTH, height: disclaimerHeight, color: PALE_BLUE, borderColor: BORDER, borderWidth: 0.7 });
+  page.drawText("IMPORTANT WELLNESS DISCLAIMER", { x: MARGIN + 10, y: cursorY - 15, size: 8.6, font: bold, color: NAVY });
   disclaimerLines.forEach((line, index) => {
-    page.drawText(line, { x: MARGIN + 10, y: cursorY - 14 - index * 11, size: 8.5, font: regular, color: MUTED });
+    page.drawText(line, { x: MARGIN + 10, y: cursorY - 29 - index * 10, size: 8.2, font: regular, color: MUTED });
   });
   cursorY -= disclaimerHeight;
 

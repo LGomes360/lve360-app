@@ -41,8 +41,9 @@ function extract(markdown: string, heading: ReportSectionName): string {
   }
 
   let body = lines.slice(headingIndex + 1, nextHeadingIndex).join("\n");
-  if (["Intro Summary", "Goals", "Evidence & References", "Shopping Links", "Lifestyle Prescriptions", "Longevity Levers", "This Week Try"].includes(heading)) {
-    body = body.split(/^\s*\*\*Analysis\*\*\s*:?\s*$/im)[0] ?? body;
+  const analysisLine = /^\s*(?:\*\*)?Analysis(?:\*\*)?\s*:?\s*(.*)$/im;
+  if (["Intro Summary", "Goals", "Dosing & Notes", "Evidence & References", "Shopping Links", "Lifestyle Prescriptions", "Longevity Levers", "This Week Try"].includes(heading)) {
+    body = body.split(analysisLine)[0] ?? body;
   }
   const labels: Partial<Record<ReportSectionName, string>> = {
     "Contraindications & Med Interactions": "Safety Takeaway",
@@ -50,7 +51,11 @@ function extract(markdown: string, heading: ReportSectionName): string {
     "Your Blueprint Recommendations": "Why These Recommendations",
     "Follow-up Plan": "Follow-up Priorities",
   };
-  if (labels[heading]) body = body.replace(/^\s*\*\*Analysis\*\*\s*:?\s*$/im, `### ${labels[heading]}`);
+  if (labels[heading]) {
+    body = body.replace(analysisLine, (_match, inline: string) =>
+      `### ${labels[heading]}${inline?.trim() ? `\n\n${inline.trim()}` : ""}`
+    );
+  }
   return cleanText(body);
 }
 
