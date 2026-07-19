@@ -54,10 +54,10 @@ export default function Home() {
         <div className="mx-auto max-w-5xl text-center">
           <p className="mb-5 text-sm font-bold uppercase tracking-[0.18em] text-teal-700">Your personal operating system for better health</p>
           <h1 className="mx-auto max-w-4xl text-4xl font-extrabold tracking-tight text-[#041b2d] sm:text-6xl">
-            Build a healthier, more energized life—one focused week at a time.
+            Build a healthier, more energized life, one focused week at a time.
           </h1>
           <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-600 sm:text-xl">
-            LVE360 reviews your goals, supplement stack, medications, and routines to create a personalized Blueprint—then helps you turn it into small, repeatable actions across sleep, nutrition, movement, focus, and relationships.
+            LVE360 reviews your goals, supplement stack, medications, and routines to create a personalized Blueprint. Then it helps you turn that plan into small, repeatable actions across sleep, nutrition, movement, focus, and relationships.
           </p>
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <button onClick={openIntake} className="rounded-xl bg-[#06a98e] px-6 py-3.5 font-semibold text-white shadow-lg shadow-teal-700/20 transition hover:bg-[#048b75]">Get your free Blueprint</button>
@@ -75,7 +75,7 @@ export default function Home() {
         <div className="mt-12 grid gap-6 md:grid-cols-3">
           {[
             ["1", "Understand your starting point", "Share your goals, current stack, medications, and context. Get a personalized Blueprint with priorities, evidence notes, and clinician-review flags when needed."],
-            ["2", "Practice one meaningful change", "Turn a big goal—such as weight loss, sleep, strength, or better nutrition—into one small action that fits this week."],
+            ["2", "Practice one meaningful change", "Turn a big goal, such as weight loss, sleep, strength, or better nutrition, into one small action that fits this week."],
             ["3", "Become the person who follows through", "Each completed practice is evidence of the healthier identity you are building. Review what worked, adjust, and let small wins compound."],
           ].map(([number, title, description]) => (
             <article key={number} className="rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
@@ -96,7 +96,7 @@ export default function Home() {
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             {[
-              ["This week", "One practice connected to your priority—not an overwhelming reset."],
+              ["This week", "One practice connected to your priority, without an overwhelming reset."],
               ["Today’s plan", "Keep your active supplement and lifestyle actions in one practical view."],
               ["Daily check-in", "Log a quick signal such as sleep or energy, only when it is useful."],
               ["Progress review", "See consistency over time and decide what deserves adjustment."],

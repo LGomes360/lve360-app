@@ -70,10 +70,10 @@ export default function Pricing() {
     </div>
 
     <section className="mx-auto mt-20 max-w-5xl">
-      <h2 className="text-center text-3xl font-bold text-[#041b2d]">What membership is—and is not</h2>
+      <h2 className="text-center text-3xl font-bold text-[#041b2d]">What membership is and is not</h2>
       <div className="mt-8 grid gap-5 md:grid-cols-3">
         {[
-          ["A focused loop", "A clear weekly practice, a lightweight check-in, and a review of progress—not an endless list of tasks."],
+          ["A focused loop", "A clear weekly practice, a lightweight check-in, and a review of progress. It is not an endless list of tasks."],
           ["A grounded second look", "Organize your stack and questions so you can make better-informed decisions and know when to involve a clinician."],
           ["Not medical care", "LVE360 is educational wellness guidance. It does not diagnose, treat, or replace a clinician or pharmacist."],
         ].map(([title, description]) => <article key={title} className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200"><h3 className="font-bold text-[#041b2d]">{title}</h3><p className="mt-3 leading-7 text-slate-600">{description}</p></article>)}
