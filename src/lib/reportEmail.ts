@@ -13,9 +13,14 @@ type SendReportEmailInput = {
   submissionId: string;
   stackId: string;
   markdown: string;
+  generationSource: string;
 };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function blueprintEmailIdempotencyKey(submissionId: string): string {
+  return `blueprint-email-${submissionId}`;
+}
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -79,7 +84,14 @@ export async function sendGeneratedBlueprintEmail(input: SendReportEmailInput): 
     const pdf = await renderReportPdf(report.canonicalMarkdown, REPORT_DISCLAIMER_TEXT);
     const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://app.lve360.com").replace(/\/$/, "");
     const reportUrl = `${appUrl}/results?submission_id=${encodeURIComponent(input.submissionId)}`;
+    const idempotencyKey = blueprintEmailIdempotencyKey(input.submissionId);
     const resend = new Resend(apiKey);
+    console.info("[report-email] send attempt", {
+      submissionId: input.submissionId,
+      stackId: input.stackId,
+      generationSource: input.generationSource,
+      idempotencyKey,
+    });
     const { data, error } = await resend.emails.send(
       {
         from: process.env.REPORT_EMAIL_FROM?.trim() || "LVE360 <reports@lve360.com>",
@@ -94,14 +106,20 @@ export async function sendGeneratedBlueprintEmail(input: SendReportEmailInput): 
           contentType: "application/pdf",
         }],
       },
-      { idempotencyKey: `blueprint-${input.stackId}-${report.contentHash}` }
+      { idempotencyKey }
     );
 
     if (error || !data?.id) {
       console.error("[report-email] Resend rejected message", { stackId: input.stackId, error });
       return { status: "failed", reason: "provider-rejected" };
     }
-    console.info("[report-email] sent", { stackId: input.stackId, emailId: data.id });
+    console.info("[report-email] send completed", {
+      submissionId: input.submissionId,
+      stackId: input.stackId,
+      generationSource: input.generationSource,
+      idempotencyKey,
+      emailId: data.id,
+    });
     return { status: "sent", id: data.id };
   } catch (error) {
     console.error("[report-email] send failed", { stackId: input.stackId, error });

@@ -430,7 +430,10 @@ const submissionRow = {
       fetch(`${appUrl}/api/generate-stack`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ submission_id: submissionId }),
+        body: JSON.stringify({
+          submission_id: submissionId,
+          generation_source: "tally-webhook",
+        }),
       }).catch((err) => console.error("Background generate-stack failed:", err));
     } catch (e) {
       console.error("Failed to trigger generate-stack:", e);

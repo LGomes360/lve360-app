@@ -315,6 +315,7 @@ function ResultsContent() {
 
       const data = await api("/api/generate-stack", {
         tally_submission_id: tallyId,
+        generation_source: "premium-results-page",
       });
 
       const raw =

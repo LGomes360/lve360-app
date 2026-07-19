@@ -417,9 +417,9 @@ async function generateStack() {
     setGenerating(true);
 
     // Kick off generation with whichever id we have
-    const payload: { tally_submission_id?: string; submission_id?: string } = tallyId
-      ? { tally_submission_id: tallyId as string }
-      : { submission_id: anyId as string };
+    const payload: { tally_submission_id?: string; submission_id?: string; generation_source: string } = tallyId
+      ? { tally_submission_id: tallyId as string, generation_source: "results-page" }
+      : { submission_id: anyId as string, generation_source: "results-page" };
 
     const data = await api("/api/generate-stack", payload);
     setStackId(

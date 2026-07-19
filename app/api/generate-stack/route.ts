@@ -268,7 +268,12 @@ export async function POST(req: NextRequest) {
       (body["tally_submission_id"] ?? body["tallyId"] ?? body["tally"] ?? "")?.toString().trim() ||
       null;
 
-    console.info("[API] /api/generate-stack received:", { submissionId, tallyShort });
+    const requestedSource = String(body["generation_source"] ?? "unknown").trim().toLowerCase();
+    const generationSource = /^[a-z0-9-]{1,40}$/.test(requestedSource)
+      ? requestedSource
+      : "unknown";
+
+    console.info("[API] /api/generate-stack received:", { submissionId, tallyShort, generationSource });
 
     // Resolve tally → UUID if needed (tolerate webhook lag)
     if (!submissionId && tallyShort) {
@@ -360,6 +365,13 @@ if (stackIdStr && typeof result?.markdown === "string" && result.markdown.trim()
     submissionId: submission.id,
     stackId: stackIdStr,
     markdown: result.markdown,
+    generationSource,
+  });
+  console.info("[generate-stack] report email result", {
+    submissionId: submission.id,
+    stackId: stackIdStr,
+    generationSource,
+    emailStatus: email.status,
   });
 }
 
