@@ -50,13 +50,13 @@ async function activeExperiment(userId: string): Promise<WeeklyExperiment | null
   return (data as WeeklyExperiment | null) ?? null;
 }
 
-async function loadWeek(userId: string, experimentId: string, localDate: string) {
-  const bounds = weekBounds(localDate);
+async function loadWeek(userId: string, experiment: WeeklyExperiment) {
+  const bounds = weekBounds(experiment.week_start);
   const { data, error } = await getSupabaseAdmin()
     .from("daily_practice_completions")
     .select("completion_date, completion_kind")
     .eq("user_id", userId)
-    .eq("experiment_id", experimentId)
+    .eq("experiment_id", experiment.id)
     .gte("completion_date", bounds.start)
     .lte("completion_date", bounds.end)
     .order("completion_date", { ascending: true });
@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
 
     const experiment = await activeExperiment(auth.user.id);
     if (!experiment) return NextResponse.json({ ok: true, experiment: null, completions: [], completed: 0 });
-    const week = await loadWeek(auth.user.id, experiment.id, localDate);
+    const week = await loadWeek(auth.user.id, experiment);
     return NextResponse.json({ ok: true, experiment, ...week });
   } catch (error) {
     console.error("[today] load failed", error);
@@ -96,6 +96,10 @@ export async function PUT(req: NextRequest) {
 
     const experiment = await activeExperiment(auth.user.id);
     if (!experiment) return NextResponse.json({ ok: false, error: "activation_required" }, { status: 409 });
+    const experimentWeek = weekBounds(experiment.week_start);
+    if (localDate < experimentWeek.start || localDate > experimentWeek.end) {
+      return NextResponse.json({ ok: false, error: "date_outside_active_week" }, { status: 409 });
+    }
 
     const admin = getSupabaseAdmin();
     const { error } = await admin.from("daily_practice_completions").upsert({
@@ -107,7 +111,7 @@ export async function PUT(req: NextRequest) {
     }, { onConflict: "user_id,experiment_id,completion_date" });
     if (error) throw error;
 
-    const week = await loadWeek(auth.user.id, experiment.id, localDate);
+    const week = await loadWeek(auth.user.id, experiment);
     return NextResponse.json({ ok: true, experiment, ...week });
   } catch (error) {
     console.error("[today] save failed", error);
@@ -125,6 +129,10 @@ export async function DELETE(req: NextRequest) {
 
     const experiment = await activeExperiment(auth.user.id);
     if (!experiment) return NextResponse.json({ ok: false, error: "activation_required" }, { status: 409 });
+    const experimentWeek = weekBounds(experiment.week_start);
+    if (localDate < experimentWeek.start || localDate > experimentWeek.end) {
+      return NextResponse.json({ ok: false, error: "date_outside_active_week" }, { status: 409 });
+    }
 
     const { error } = await getSupabaseAdmin()
       .from("daily_practice_completions")
@@ -134,7 +142,7 @@ export async function DELETE(req: NextRequest) {
       .eq("completion_date", localDate);
     if (error) throw error;
 
-    const week = await loadWeek(auth.user.id, experiment.id, localDate);
+    const week = await loadWeek(auth.user.id, experiment);
     return NextResponse.json({ ok: true, experiment, ...week });
   } catch (error) {
     console.error("[today] undo failed", error);

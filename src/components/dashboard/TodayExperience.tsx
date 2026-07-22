@@ -14,6 +14,7 @@ import {
 
 import { identityLabel, type WeeklyExperiment } from "@/lib/activation";
 import type { CompletionKind, DailyPracticeCompletion } from "@/lib/today";
+import { isReviewDue, reviewDueDate } from "@/lib/weeklyReview";
 
 type TodayResponse = {
   ok: boolean;
@@ -137,6 +138,9 @@ export default function TodayExperience({
 
   const target = experiment.frequency_per_week ?? 1;
   const targetMet = completedCount >= target;
+  const reviewDue = !!localDate && isReviewDue(experiment.week_start, localDate);
+  const weekEnded = !!localDate && localDate > reviewDueDate(experiment.week_start);
+  const weekNotStarted = !!localDate && localDate < experiment.week_start;
 
   return (
     <section className="overflow-hidden rounded-3xl border border-[#9DCFC3] bg-white shadow-sm" aria-labelledby="today-heading">
@@ -161,6 +165,14 @@ export default function TodayExperience({
         </a>
       ) : null}
 
+      {reviewDue ? (
+        <a href={`/review?experiment=${encodeURIComponent(experiment.id)}`} className="flex items-start gap-3 border-b border-[#9DCFC3] bg-[#EAFBF8] px-6 py-4 text-[#041B2D] hover:bg-[#DDF7F1] sm:px-8">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#087F72]" />
+          <span className="text-sm leading-6"><strong>Your weekly review is ready.</strong> Notice what worked and shape your next focused week.</span>
+          <ArrowRight className="ml-auto mt-1 h-4 w-4 shrink-0" />
+        </a>
+      ) : null}
+
       <div className="p-6 sm:p-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
@@ -181,7 +193,17 @@ export default function TodayExperience({
         </div>
 
         <div className="mt-7" aria-live="polite">
-          {todayCompletion ? (
+          {weekEnded ? (
+            <div className="rounded-2xl bg-[#EAFBF8] p-5">
+              <p className="font-bold text-[#041B2D]">Review this week before recording another repetition.</p>
+              <a href={`/review?experiment=${encodeURIComponent(experiment.id)}`} className="mt-3 inline-flex items-center text-sm font-bold text-[#087F72] hover:underline">Open weekly review <ArrowRight className="ml-2 h-4 w-4" /></a>
+            </div>
+          ) : weekNotStarted ? (
+            <div className="rounded-2xl bg-[#EAFBF8] p-5">
+              <p className="font-bold text-[#041B2D]">Your next focused week is ready.</p>
+              <p className="mt-1 text-sm text-slate-600">Come back when the new week begins to record your first repetition.</p>
+            </div>
+          ) : todayCompletion ? (
             <div className="flex flex-col gap-4 rounded-2xl bg-[#EAFBF8] p-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
                 <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-[#087F72]" />
