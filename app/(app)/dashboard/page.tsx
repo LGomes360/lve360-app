@@ -4,6 +4,8 @@ import { cookies } from "next/headers";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import GoalsTargetsEditor from "@/src/components/dashboard/GoalsTargetsEditor";
 import DashboardClient from "./DashboardClient";
+import { getFriendlyFirstName } from "@/src/lib/displayName";
+import type { WeeklyExperiment } from "@/lib/activation";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -23,20 +25,35 @@ export default async function Page() {
     return null;
   }
 
-  const { data: goals } = await supabase
-    .from("goals")
-    .select("*")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const [{ data: goals }, { data: experiment }, { data: latestStack }] = await Promise.all([
+    supabase.from("goals").select("*").eq("user_id", user.id).maybeSingle(),
+    supabase
+      .from("weekly_experiments")
+      .select("*")
+      .eq("user_id", user.id)
+      .in("status", ["draft", "active"])
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("stacks")
+      .select("id")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
 
-  const { data: experiment } = await supabase
-    .from("weekly_experiments")
-    .select("status")
-    .eq("user_id", user.id)
-    .in("status", ["draft", "active"])
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  let safetyReviewCount = 0;
+  if (latestStack?.id) {
+    const { data: safetyItems } = await supabase
+      .from("stacks_items")
+      .select("notes")
+      .eq("stack_id", latestStack.id);
+    safetyReviewCount = (safetyItems ?? []).filter((item) =>
+      /clinician review|interaction|contraindicat|avoid|safety flag|use caution/i.test(item.notes ?? "")
+    ).length;
+  }
 
   const targetWeight = goals?.target_weight ?? null;
   const targetSleep = goals?.target_sleep ?? null;
@@ -44,9 +61,14 @@ export default async function Page() {
 
   return (
     <>
-      {/* Show the editor only if no targets set yet */}
+      <DashboardClient
+        username={getFriendlyFirstName(user)}
+        experiment={(experiment as WeeklyExperiment | null) ?? null}
+        safetyReviewCount={safetyReviewCount}
+      />
+
       {(targetWeight == null && targetSleep == null && targetEnergy == null) ? (
-        <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="mx-auto w-full max-w-5xl px-4 pb-8 sm:px-6">
           <GoalsTargetsEditor
             targetWeight={targetWeight}
             targetSleep={targetSleep}
@@ -55,8 +77,6 @@ export default async function Page() {
         </div>
       ) : null}
 
-      {/* Your existing dashboard app stays untouched */}
-      <DashboardClient activationStatus={experiment?.status === "active" ? "active" : experiment?.status === "draft" ? "draft" : "missing"} />
     </>
   );
 }
