@@ -19,10 +19,7 @@ function Inner() {
 
     (async () => {
       try {
-        const handoff = await fetch("/api/blueprint-action", { cache: "no-store" })
-          .then((response) => response.ok ? response.json() : null)
-          .catch(() => null);
-        const premiumDestination = handoff?.selected ? "/onboarding" : "/dashboard";
+        const premiumDestination = "/onboarding";
 
         // 1) Confirm with Stripe (cookie not required)
         const res = await fetch(`/api/stripe/confirm?session_id=${sessionId}`, {
@@ -69,14 +66,14 @@ function Inner() {
           }
 
           if (isPremium) {
-            setMsg(handoff?.selected ? "Welcome to Premium! Opening your first-week setup..." : "Welcome to Premium! Redirecting...");
+            setMsg("Welcome to Premium! Opening your first-week setup...");
             setTimeout(() => router.replace(premiumDestination), 600);
             return;
           }
         }
 
         // 4) Default success route
-        setMsg(handoff?.selected ? "Welcome to Premium! Opening your first-week setup..." : "Welcome to Premium! Redirecting...");
+        setMsg("Welcome to Premium! Opening your first-week setup...");
         setTimeout(() => router.replace(premiumDestination), 600);
       } catch {
         setMsg("Network hiccup. Taking you back…");

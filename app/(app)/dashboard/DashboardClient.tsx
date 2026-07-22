@@ -13,7 +13,7 @@ import ProgressTracker from "@/components/dashboard/ProgressTracker";
 import InsightsFeed from "@/components/dashboard/InsightsFeed";
 import { getFriendlyFirstName } from "@/src/lib/displayName";
 
-export default function DashboardClient() {
+export default function DashboardClient({ activationStatus }: { activationStatus: "missing" | "draft" | "active" }) {
   const supabase = createClientComponentClient();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -68,6 +68,21 @@ export default function DashboardClient() {
             </a>
           </nav>
         </header>
+
+        {activationStatus !== "active" ? (
+          <section className="rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5 shadow-sm" aria-label="First-week setup">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Make your membership useful this week</p>
+                <h2 className="mt-1 text-xl font-bold text-[#041B2D]">{activationStatus === "draft" ? "Finish setting up your first practice" : "Build your first focused week"}</h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">Choose one repeatable lifestyle action, give it a cue, and define the version that counts on a hard day.</p>
+              </div>
+              <a href="/onboarding" className="inline-flex shrink-0 items-center justify-center rounded-xl bg-[#08A88A] px-5 py-3 font-bold text-white hover:bg-[#078B74]">
+                {activationStatus === "draft" ? "Continue setup" : "Set up my week"}
+              </a>
+            </div>
+          </section>
+        ) : null}
 
         {/* 1) Greeting & Snapshot */}
         <section aria-label="Snapshot and quick deltas">

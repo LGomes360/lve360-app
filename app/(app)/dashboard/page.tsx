@@ -29,6 +29,15 @@ export default async function Page() {
     .eq("user_id", user.id)
     .maybeSingle();
 
+  const { data: experiment } = await supabase
+    .from("weekly_experiments")
+    .select("status")
+    .eq("user_id", user.id)
+    .in("status", ["draft", "active"])
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   const targetWeight = goals?.target_weight ?? null;
   const targetSleep = goals?.target_sleep ?? null;
   const targetEnergy = goals?.target_energy ?? null;
@@ -47,7 +56,7 @@ export default async function Page() {
       ) : null}
 
       {/* Your existing dashboard app stays untouched */}
-      <DashboardClient />
+      <DashboardClient activationStatus={experiment?.status === "active" ? "active" : experiment?.status === "draft" ? "draft" : "missing"} />
     </>
   );
 }
