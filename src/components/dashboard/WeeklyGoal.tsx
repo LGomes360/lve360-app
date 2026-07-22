@@ -1,163 +1,64 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import { ChevronRight, Loader2, Target } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowRight, CheckCircle2, Loader2, Target } from "lucide-react";
 
-type GoalsGetResponse = { goals: string[]; custom_goal: string | null };
-
-const PRESETS = [
-  { label: "Sleep quality", focus: "Keep a consistent bedtime and wake time this week" },
-  { label: "Morning energy", focus: "Record morning energy on three days this week" },
-  { label: "Body weight", focus: "Take a 10-minute walk after the largest meal each day" },
-  { label: "Stress", focus: "Practice five minutes of slow breathing each day" },
-  { label: "Focus", focus: "Complete one distraction-free focus block each day" },
-  { label: "Gut comfort", focus: "Track meals and gut comfort on three days this week" },
-] as const;
-
-const MAX_CHARS = 100;
-const AUTOSAVE_MS = 800;
+import { identityLabel, type WeeklyExperiment } from "@/lib/activation";
 
 export default function WeeklyGoal() {
-  const supabase = createClientComponentClient();
+  const [experiment, setExperiment] = useState<WeeklyExperiment | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [focus, setFocus] = useState("");
-  const [initialFocus, setInitialFocus] = useState("");
-  const [priorities, setPriorities] = useState<string[]>([]);
-  const [toast, setToast] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const { data } = await supabase.auth.getUser();
-        const id = data?.user?.id ?? null;
-        setUserId(id);
-        if (!id) throw new Error("Not signed in.");
-        const res = await fetch(`/api/goals?userId=${encodeURIComponent(id)}`, { cache: "no-store" });
-        const json = (await safeJson(res)) as GoalsGetResponse | null;
-        if (!res.ok) throw new Error((json as any)?.error || "Unable to load weekly focus.");
-        const loadedFocus = (json?.custom_goal ?? "").slice(0, MAX_CHARS);
-        setPriorities(normalizePriorities(json?.goals ?? []));
-        setFocus(loadedFocus);
-        setInitialFocus(loadedFocus);
-      } catch (error: any) {
-        setErrorMsg(error?.message ?? "Unable to load weekly focus.");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [supabase]);
+    let cancelled = false;
+    fetch("/api/activation", { cache: "no-store" })
+      .then(async (response) => {
+        const json = await response.json().catch(() => null);
+        if (!response.ok || !json?.experiment) throw new Error("load failed");
+        return json.experiment as WeeklyExperiment;
+      })
+      .then((loaded) => { if (!cancelled) setExperiment(loaded); })
+      .catch(() => { if (!cancelled) setError(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
 
-  useEffect(() => {
-    if (loading || !userId || focus === initialFocus) return;
-    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
-    autosaveTimer.current = setTimeout(() => save(true).catch(() => {}), AUTOSAVE_MS);
-    return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus, loading, userId]);
-
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 2000);
-    return () => clearTimeout(timer);
-  }, [toast]);
-
-  async function save(isAutosave = false) {
-    if (!userId) return;
-    setSaving(true);
-    setErrorMsg(null);
-    try {
-      const normalizedFocus = focus.trim();
-      const res = await fetch("/api/goals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, goals: priorities, custom_goal: normalizedFocus || null }),
-      });
-      const json = await safeJson(res);
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Save failed");
-      setFocus(normalizedFocus);
-      setInitialFocus(normalizedFocus);
-      if (!isAutosave) setToast(normalizedFocus ? "Weekly focus saved" : "Weekly focus cleared");
-    } catch (error: any) {
-      setErrorMsg(error?.message ?? "Save failed");
-    } finally {
-      setSaving(false);
-    }
+  if (loading) return <Card><Loader2 className="mr-2 h-5 w-5 animate-spin text-[#087F72]" /> Loading your weekly practice...</Card>;
+  if (error) return <Card>We could not load your weekly practice. Refresh the page to try again.</Card>;
+  if (!experiment || experiment.status !== "active") {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="flex items-center gap-2 text-2xl font-bold text-[#041B2D]"><Target className="h-5 w-5 text-[#087F72]" /> Your Weekly Practice</h2>
+        <p className="mt-2 text-slate-600">Turn one Blueprint insight into a small action you can repeat this week.</p>
+        <a href="/onboarding" className="mt-5 inline-flex items-center rounded-xl bg-[#087F72] px-5 py-3 font-bold text-white hover:bg-[#06695F]">{experiment?.status === "draft" ? "Continue setup" : "Build my first week"}<ArrowRight className="ml-2 h-4 w-4" /></a>
+      </div>
+    );
   }
 
-  if (loading) return <Card><Loader2 className="mr-2 h-5 w-5 animate-spin text-purple-600" /> Loading weekly focus…</Card>;
-  if (errorMsg) return <Card>{errorMsg}</Card>;
-
-  const changed = focus !== initialFocus;
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" aria-label="Weekly focus">
-      <h2 className="flex items-center gap-2 text-2xl font-bold text-[#041B2D]">
-        <Target className="h-5 w-5 text-[#047F6D]" /> Weekly Focus
-      </h2>
-      <p className="mt-1 text-gray-600">Choose one practical experiment for this week.</p>
-
-      <div className="mt-4">
-        <label className="text-xs uppercase tracking-wide text-[#047F6D]" htmlFor="weekly-focus">This week I will</label>
-        <div className="relative">
-          <input id="weekly-focus" value={focus} onChange={(event) => setFocus(event.target.value.slice(0, MAX_CHARS))}
-            placeholder="e.g., Keep caffeine before noon" className="mt-1 w-full rounded-lg border px-3 py-2 pr-16" />
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">{focus.length}/{MAX_CHARS}</span>
+    <div className="rounded-2xl border border-[#9DCFC3] bg-white p-6 shadow-sm" aria-label="Active weekly practice">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Active this week</p>
+          <h2 className="mt-1 flex items-center gap-2 text-2xl font-bold text-[#041B2D]"><CheckCircle2 className="h-6 w-6 text-[#08A88A]" /> {experiment.action_label}</h2>
         </div>
+        <a href="/onboarding" className="text-sm font-semibold text-[#087F72] hover:underline">Review</a>
       </div>
-
-      <div className="mt-3">
-        <div className="text-xs uppercase tracking-wide text-[#047F6D]">Choose one starter focus</div>
-        <div className="mt-1 flex flex-wrap gap-2">
-          {PRESETS.map((preset) => (
-            <button key={preset.label} onClick={() => setFocus(preset.focus)} aria-pressed={focus === preset.focus}
-              className={`rounded-full border px-3 py-1 text-sm ${focus === preset.focus ? "border-[#047F6D] bg-[#047F6D] text-white" : "border-slate-200 hover:bg-slate-50"}`}>
-              {preset.label}
-            </button>
-          ))}
-        </div>
+      <p className="mt-3 text-sm text-slate-600">{identityLabel(experiment.identity_direction)}</p>
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <Detail label="Cue" value={`After I ${experiment.cue}`} />
+        <Detail label="Target" value={`${experiment.frequency_per_week} ${experiment.frequency_per_week === 1 ? "day" : "days"}`} />
+        <Detail label="Minimum version" value={experiment.minimum_version ?? "Take the first small step"} />
       </div>
-
-      {priorities.length > 0 && (
-        <div className="mt-4">
-          <div className="text-xs uppercase tracking-wide text-gray-500">Your long-term priorities</div>
-          <div className="mt-1 flex flex-wrap gap-2">
-            {priorities.map((priority) => <span key={priority} className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">{priority}</span>)}
-          </div>
-        </div>
-      )}
-
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-xs text-gray-500">{initialFocus ? `Current focus: “${initialFocus}”` : "Choose a focus to begin."}</div>
-        <button onClick={() => save(false)} disabled={saving || !changed}
-          className="inline-flex items-center rounded-xl bg-[#047F6D] px-4 py-2 font-semibold text-white shadow-md hover:bg-[#036957] disabled:opacity-60">
-          {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {changed ? (focus.trim() ? "Save focus" : "Clear focus") : (focus ? "Saved" : "Choose a focus")}
-          <ChevronRight className="ml-1 h-4 w-4" />
-        </button>
-      </div>
-      {toast && <div className="fixed inset-x-0 bottom-6 z-[60] flex justify-center px-4" aria-live="polite"><div className="rounded-xl border border-purple-200 bg-white/90 px-4 py-2 text-sm shadow-lg">{toast}</div></div>}
     </div>
   );
 }
 
+function Detail({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-xl bg-[#F4FAF8] p-4"><p className="text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">{label}</p><p className="mt-1 text-sm font-semibold leading-6 text-[#041B2D]">{value}</p></div>;
+}
+
 function Card({ children }: { children: React.ReactNode }) {
-  return <div className="flex items-center rounded-2xl bg-white/70 p-6 text-gray-700 shadow-sm">{children}</div>;
-}
-
-function normalizePriorities(values: string[]) {
-  const seen = new Set<string>();
-  return values.map((value) => String(value).trim().replace(/\s+/g, " ")).filter((value) => {
-    const key = value.toLowerCase();
-    if (!value || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).slice(0, 8);
-}
-
-async function safeJson(res: Response) {
-  try { return await res.json(); } catch { return null; }
+  return <div className="flex items-center rounded-2xl bg-white p-6 text-slate-700 shadow-sm">{children}</div>;
 }
