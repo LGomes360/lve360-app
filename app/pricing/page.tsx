@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { track } from "@vercel/analytics/react";
 import CTAButton from "@/components/CTAButton";
+import { trackProductEvent } from "@/lib/productAnalyticsClient";
 
 const intakeUrl = "https://tally.so/r/mOqRBk?hideTitle=1&transparentBackground=1&dynamicHeight=1";
 
@@ -42,6 +43,13 @@ export default function Pricing() {
   const router = useRouter();
   const [showIntake, setShowIntake] = useState(false);
 
+  useEffect(() => trackProductEvent({ event_name: "pricing_viewed", source: "pricing" }), []);
+
+  function openIntake() {
+    trackProductEvent({ event_name: "intake_started", source: "pricing" });
+    setShowIntake(true);
+  }
+
   function selectPlan(plan: "monthly" | "annual") {
     track("Plan Selected", { plan, source: "pricing" });
     router.push(`/upgrade?plan=${plan}`);
@@ -66,7 +74,7 @@ export default function Pricing() {
             <li>✓ Evidence and safety context</li>
             <li>✓ Lifestyle foundations and next-step ideas</li>
           </ul>
-          <CTAButton onClick={() => setShowIntake(true)} variant="secondary" fullWidth className="mt-8">Get your free Blueprint</CTAButton>
+          <CTAButton onClick={openIntake} variant="secondary" fullWidth className="mt-8">Get your free Blueprint</CTAButton>
         </section>
 
         <section className="relative flex flex-col rounded-3xl border-2 border-[#06a98e] bg-white p-8 shadow-xl shadow-teal-900/10">

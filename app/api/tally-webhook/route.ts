@@ -11,6 +11,7 @@ import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
 import { TALLY_KEYS, NormalizedSubmissionSchema } from "@/types/tally-normalized";
 import { parseList, parseSupplements } from "@/lib/parseLists";
 import crypto from "crypto";
+import { recordProductEventSafely } from "@/lib/productAnalytics";
 
 // ---------- Config ----------
 const TALLY_HMAC_SECRET = process.env.TALLY_WEBHOOK_SECRET || ""; // optional
@@ -420,6 +421,14 @@ const submissionRow = {
 
 
     const submissionId = subRow.id;
+    if (userId) {
+      await recordProductEventSafely({
+        event_name: "intake_completed",
+        source: "tally",
+        user_id: userId,
+        event_key: `tally:completed:${String(tally_submission_id ?? submissionId).slice(0, 150)}`,
+      });
+    }
     const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://app.lve360.com").replace(/\/+$/, "");
     const resultsUrl = `${appUrl}/results?submission_id=${submissionId}&email=${encodeURIComponent(
       userEmail ?? ""

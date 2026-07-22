@@ -11,6 +11,7 @@ import {
   type DailyPracticeCompletion,
 } from "@/lib/today";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { recordProductEventSafely } from "@/lib/productAnalytics";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -110,6 +111,14 @@ export async function PUT(req: NextRequest) {
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,experiment_id,completion_date" });
     if (error) throw error;
+
+    await recordProductEventSafely({
+      event_name: "practice_completed",
+      source: "today",
+      user_id: auth.user.id,
+      experiment_id: experiment.id,
+      event_key: `practice:${experiment.id}:${localDate}`,
+    });
 
     const week = await loadWeek(auth.user.id, experiment);
     return NextResponse.json({ ok: true, experiment, ...week });

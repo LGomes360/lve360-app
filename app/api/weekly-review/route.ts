@@ -5,6 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { WeeklyExperiment } from "@/lib/activation";
 import { isReviewDecision, isReviewDue, validateNextPlan } from "@/lib/weeklyReview";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { recordProductEventSafely } from "@/lib/productAnalytics";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -69,6 +70,13 @@ export async function GET(req: NextRequest) {
       updated_at: new Date().toISOString(),
     }, { onConflict: "experiment_id", ignoreDuplicates: true });
     if (error) throw error;
+    await recordProductEventSafely({
+      event_name: "weekly_review_opened",
+      source: "weekly_review",
+      user_id: auth.user.id,
+      experiment_id: experiment.id,
+      event_key: `review:opened:${experiment.id}`,
+    });
     return NextResponse.json({ ok: true, experiment, completed, target: experiment.frequency_per_week ?? 1 });
   } catch (error) {
     console.error("[weekly-review] load failed", error);
@@ -109,6 +117,13 @@ export async function POST(req: NextRequest) {
       if (/already_completed/i.test(error.message)) return NextResponse.json({ ok: false, error: "review_already_completed" }, { status: 409 });
       throw error;
     }
+    await recordProductEventSafely({
+      event_name: "weekly_review_completed",
+      source: "weekly_review",
+      user_id: auth.user.id,
+      experiment_id: experiment.id,
+      event_key: `review:completed:${experiment.id}`,
+    });
     return NextResponse.json({ ok: true, next_experiment_id: data ?? null });
   } catch (error) {
     console.error("[weekly-review] save failed", error);

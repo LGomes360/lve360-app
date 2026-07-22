@@ -1,6 +1,6 @@
 "use client";
 
-import { isValidElement, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import { isValidElement, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
@@ -12,6 +12,7 @@ import { buildBlueprintActionCandidates } from "@/lib/blueprintActions";
 import { parseBlueprintReport } from "@/lib/blueprintReport";
 import { blueprintStatusTone, cleanReportDisplayText, reportSectionTitle } from "@/lib/reportPresentation";
 import { AFFILIATE_DISCLOSURE_NEAR_LINKS, AFFILIATE_DISCLOSURE_SUPPORT } from "@/lib/reportDisclosures";
+import { trackProductEvent } from "@/lib/productAnalyticsClient";
 
 /* ───────── helpers ───────── */
 function sanitizeMarkdown(md: string): string {
@@ -321,6 +322,7 @@ function ResultsContent() {
   const [handoffActionId, setHandoffActionId] = useState<string | null>(null);
   const [handoffError, setHandoffError] = useState<string | null>(null);
   const [flow, setFlow] = useState<"idle" | "warmup" | "generating" | "done" | "error">("idle");
+  const blueprintTracked = useRef(false);
 
   const searchParams = useSearchParams();
   // accept either ?tally_submission_id=... OR ?submissionId=/submission_id=
@@ -505,6 +507,12 @@ async function exportPDF() {
     };
   }, [markdown]);
 
+  useEffect(() => {
+    if (blueprintTracked.current || !stackId || !hasUsableSections(markdown)) return;
+    trackProductEvent({ event_name: "blueprint_viewed", source: "results" });
+    blueprintTracked.current = true;
+  }, [markdown, stackId]);
+
   async function buildFirstWeek(actionId: string) {
     if (!stackId) {
       setHandoffError("Generate your Blueprint before choosing a first-week action.");
@@ -524,6 +532,7 @@ async function exportPDF() {
           ? "This item needs professional review and cannot become an automatic habit."
           : "We could not save that action. Please try again.");
       }
+      trackProductEvent({ event_name: "blueprint_action_selected", source: "results" });
       window.location.assign("/upgrade");
     } catch (error) {
       setHandoffError(error instanceof Error ? error.message : "We could not save that action. Please try again.");
