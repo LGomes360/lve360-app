@@ -58,12 +58,20 @@ function Inner() {
   const [tier, setTier] = useState<Tier>("free");
   const [checking, setChecking] = useState(true);
   const [banner, setBanner] = useState<string | null>(null);
+  const [selectedAction, setSelectedAction] = useState<{ label: string; category: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
+        const handoff = await fetch("/api/blueprint-action", { cache: "no-store" })
+          .then((response) => response.ok ? response.json() : null)
+          .catch(() => null);
+        const action = handoff?.selected ?? null;
+        if (!cancelled) setSelectedAction(action);
+        const premiumDestination = action ? "/onboarding" : "/dashboard";
+
         console.log("[/upgrade] start check");
         let res = await fetch("/api/users/tier", { cache: "no-store" });
         console.log("[/upgrade] tier status:", res.status);
@@ -96,9 +104,9 @@ function Inner() {
         setTier(t);
 
         if (t === "premium") {
-          setBanner("Welcome back! Redirecting to your dashboard…");
-          console.log("[/upgrade] is premium → /dashboard");
-          setTimeout(() => router.replace("/dashboard"), 400);
+          setBanner(action ? "Your first-week action is ready. Opening onboarding..." : "Welcome back! Redirecting to your dashboard...");
+          console.log("[/upgrade] premium destination", premiumDestination);
+          setTimeout(() => router.replace(premiumDestination), 400);
           return;
         }
 
@@ -128,9 +136,9 @@ function Inner() {
             }
             const j = await rr.json().catch(() => null);
             if (j?.tier === "premium") {
-              console.log("[/upgrade] flip detected → /dashboard");
-              setBanner("All set! Taking you to your dashboard…");
-              setTimeout(() => router.replace("/dashboard"), 400);
+              console.log("[/upgrade] premium flip destination", premiumDestination);
+              setBanner(action ? "All set! Opening your first-week setup..." : "All set! Taking you to your dashboard...");
+              setTimeout(() => router.replace(premiumDestination), 400);
               return;
             }
             await new Promise((s) => setTimeout(s, 500));
@@ -209,6 +217,14 @@ function Inner() {
           <p className="mb-6 text-sm text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-md px-3 py-2">
             {banner || "Checking your account…"}
           </p>
+        )}
+
+        {selectedAction && (
+          <div className="mb-7 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-4 text-left">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">Coming with you from your Blueprint</p>
+            <p className="mt-2 font-semibold leading-6 text-[#041B2D]">{selectedAction.label}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">After checkout, we will use this to start your first week.</p>
+          </div>
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">

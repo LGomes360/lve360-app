@@ -19,6 +19,11 @@ function Inner() {
 
     (async () => {
       try {
+        const handoff = await fetch("/api/blueprint-action", { cache: "no-store" })
+          .then((response) => response.ok ? response.json() : null)
+          .catch(() => null);
+        const premiumDestination = handoff?.selected ? "/onboarding" : "/dashboard";
+
         // 1) Confirm with Stripe (cookie not required)
         const res = await fetch(`/api/stripe/confirm?session_id=${sessionId}`, {
           method: "GET",
@@ -40,8 +45,8 @@ function Inner() {
         //    If this 401s, the cookie isn't available yet → go to login with next=/dashboard.
         const tierRes = await fetch("/api/users/tier", { cache: "no-store" });
         if (tierRes.status === 401) {
-          setMsg("Almost done — please confirm login…");
-          router.replace("/login?next=/dashboard");
+          setMsg("Almost done. Please confirm login...");
+          router.replace(`/login?next=${encodeURIComponent(premiumDestination)}`);
           return;
         }
 
@@ -64,15 +69,15 @@ function Inner() {
           }
 
           if (isPremium) {
-            setMsg("Welcome to Premium! Redirecting…");
-            setTimeout(() => router.replace("/dashboard"), 600);
+            setMsg(handoff?.selected ? "Welcome to Premium! Opening your first-week setup..." : "Welcome to Premium! Redirecting...");
+            setTimeout(() => router.replace(premiumDestination), 600);
             return;
           }
         }
 
         // 4) Default success route
-        setMsg("Welcome to Premium! Redirecting…");
-        setTimeout(() => router.replace("/dashboard"), 600);
+        setMsg(handoff?.selected ? "Welcome to Premium! Opening your first-week setup..." : "Welcome to Premium! Redirecting...");
+        setTimeout(() => router.replace(premiumDestination), 600);
       } catch {
         setMsg("Network hiccup. Taking you back…");
         setTimeout(() => router.replace("/upgrade"), 1200);

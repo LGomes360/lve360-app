@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 
 import CTAButton from "@/components/CTAButton";
 import ResultsSidebar from "@/components/results/ResultsSidebar";
+import { buildBlueprintActionCandidates } from "@/lib/blueprintActions";
 import { parseBlueprintReport } from "@/lib/blueprintReport";
 import { blueprintStatusTone, cleanReportDisplayText, reportSectionTitle } from "@/lib/reportPresentation";
 import { AFFILIATE_DISCLOSURE_NEAR_LINKS, AFFILIATE_DISCLOSURE_SUPPORT } from "@/lib/reportDisclosures";
@@ -317,6 +318,8 @@ function ResultsContent() {
   const [stackId, setStackId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [handoffActionId, setHandoffActionId] = useState<string | null>(null);
+  const [handoffError, setHandoffError] = useState<string | null>(null);
   const [flow, setFlow] = useState<"idle" | "warmup" | "generating" | "done" | "error">("idle");
 
   const searchParams = useSearchParams();
@@ -497,9 +500,36 @@ async function exportPDF() {
       follow: report.sections["Follow-up Plan"], lifestyle: report.sections["Lifestyle Prescriptions"],
       longevity: report.sections["Longevity Levers"], weekTry: report.sections["This Week Try"],
       focusItems: report.focusItems,
+      focusActions: buildBlueprintActionCandidates(report),
       contentHash: report.contentHash,
     };
   }, [markdown]);
+
+  async function buildFirstWeek(actionId: string) {
+    if (!stackId) {
+      setHandoffError("Generate your Blueprint before choosing a first-week action.");
+      return;
+    }
+    setHandoffActionId(actionId);
+    setHandoffError(null);
+    try {
+      const response = await fetch("/api/blueprint-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stack_id: stackId, action_id: actionId }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error === "action_requires_review"
+          ? "This item needs professional review and cannot become an automatic habit."
+          : "We could not save that action. Please try again.");
+      }
+      window.location.assign("/upgrade");
+    } catch (error) {
+      setHandoffError(error instanceof Error ? error.message : "We could not save that action. Please try again.");
+      setHandoffActionId(null);
+    }
+  }
 
   return (
     <motion.main
@@ -570,12 +600,30 @@ async function exportPDF() {
 
             {error && <div className="text-center text-red-600 mb-6">{error}</div>}
 
-            {!warmingUp && !generating && flow !== "error" && sec.focusItems.length > 0 && (
+            {!warmingUp && !generating && flow !== "error" && Boolean(markdown) && Boolean(stackId) && sec.focusActions.length > 0 && (
               <div className="report-focus mb-8 rounded-2xl border border-[#9DCFC3] bg-gradient-to-r from-[#EFF5FA] to-[#E6F7F3] p-6 shadow-sm">
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#122945]">This Week Focus</p>
-                <ol className="mt-3 grid gap-2 text-sm text-slate-800 sm:grid-cols-2">
-                  {sec.focusItems.map((item, index) => <li key={item} className="rounded-xl bg-white/80 px-4 py-3"><strong>{index + 1}.</strong> {item}</li>)}
+                <p className="mt-2 text-sm text-slate-600">Choose one lifestyle action to carry into your first week. Supplement and medication changes stay in the Blueprint for review.</p>
+                <ol className="mt-4 grid gap-3 text-sm text-slate-800 sm:grid-cols-2">
+                  {sec.focusActions.map((action, index) => (
+                    <li key={action.id} className="flex flex-col rounded-xl bg-white/90 px-4 py-4 shadow-sm">
+                      <p className="leading-6"><strong>{index + 1}.</strong> {action.label}</p>
+                      {action.kind === "lifestyle" ? (
+                        <button
+                          type="button"
+                          onClick={() => buildFirstWeek(action.id)}
+                          disabled={handoffActionId !== null || !stackId}
+                          className="mt-auto pt-4 text-left text-sm font-bold text-[#087F72] hover:text-[#05675D] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {handoffActionId === action.id ? "Saving your choice..." : "Build my first week"}
+                        </button>
+                      ) : (
+                        <p className="mt-auto pt-4 text-xs font-semibold uppercase tracking-wide text-amber-700">Keep in Blueprint for review</p>
+                      )}
+                    </li>
+                  ))}
                 </ol>
+                {handoffError && <p className="mt-3 text-sm font-medium text-red-700">{handoffError}</p>}
               </div>
             )}
 
