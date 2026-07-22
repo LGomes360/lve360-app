@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
+import { recordProductEventSafely } from "@/lib/productAnalytics";
 
 // ------------------- CONFIG -------------------
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
@@ -47,6 +48,13 @@ async function syncUserProfile(
   if (!email) throw new Error("Stripe event could not be matched to a user");
   const fallback = await supa.from("users").upsert(payload, { onConflict: "email" });
   if (fallback.error) throw fallback.error;
+}
+
+async function resolveProductUserId(userId: string | null, email: string | null): Promise<string | null> {
+  if (userId) return userId;
+  if (!email) return null;
+  const { data } = await supa.from("users").select("id").eq("email", email).maybeSingle();
+  return data?.id ?? null;
 }
 
 // ------------------- MAIN HANDLER -------------------
@@ -114,6 +122,17 @@ export async function POST(req: NextRequest) {
           subscription_end_date: endDate ? endDate.toISOString() : null,
         });
 
+        const productUserId = await resolveProductUserId(userId, email);
+        if (productUserId) {
+          await recordProductEventSafely({
+            event_name: "checkout_completed",
+            source: "stripe",
+            user_id: productUserId,
+            plan: interval,
+            event_key: `stripe:${event.id}:checkout`,
+          });
+        }
+
         console.log(`💎 Upgraded ${email} → premium (${interval})`);
         return NextResponse.json({ received: true }, { status: 200 });
       }
@@ -144,10 +163,25 @@ export async function POST(req: NextRequest) {
 
         await syncUserProfile(userId, email, {
           stripe_customer_id: customerId,
-          tier: sub.status === "active" || sub.status === "trialing" ? "premium" : "free",
+          tier:
+            sub.status === "active" || sub.status === "trialing"
+              ? "premium"
+              : "free",
           billing_interval: interval,
           subscription_end_date: endDate ? endDate.toISOString() : null,
         });
+
+        if (sub.cancel_at_period_end) {
+          const productUserId = await resolveProductUserId(userId, email);
+          if (productUserId) {
+            await recordProductEventSafely({
+              event_name: "subscription_cancelled",
+              source: "stripe",
+              user_id: productUserId,
+              event_key: `stripe:subscription:${sub.id}:cancelled`,
+            });
+          }
+        }
 
         console.log(`🔄 Synced subscription for ${email}`);
         return NextResponse.json({ received: true }, { status: 200 });
@@ -173,6 +207,16 @@ export async function POST(req: NextRequest) {
           stripe_customer_id: customerId,
           tier: "free",
         });
+
+        const productUserId = await resolveProductUserId(userId, email);
+        if (productUserId) {
+          await recordProductEventSafely({
+            event_name: "subscription_cancelled",
+            source: "stripe",
+            user_id: productUserId,
+            event_key: `stripe:subscription:${sub.id}:cancelled`,
+          });
+        }
 
         console.log(`⬇️ Downgraded ${email} → free`);
         return NextResponse.json({ received: true }, { status: 200 });

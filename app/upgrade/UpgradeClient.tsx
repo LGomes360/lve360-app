@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { track } from "@vercel/analytics/react";
 import CTAButton from "@/components/CTAButton";
+import { trackProductEvent } from "@/lib/productAnalyticsClient";
 
 /** REAL error boundary: catches render-time errors and shows fallback UI */
 class PageErrorBoundary extends React.Component<
@@ -164,6 +165,7 @@ function Inner() {
     setLoadingPlan(plan);
     setBanner(null);
     track("Checkout Started", { plan, source: "upgrade" });
+    trackProductEvent({ event_name: "checkout_started", source: "upgrade", plan });
     try {
       console.log("[/upgrade] starting checkout:", plan);
       const res = await fetch("/api/stripe/checkout", {

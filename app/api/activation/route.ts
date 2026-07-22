@@ -12,6 +12,7 @@ import {
 } from "@/lib/activation";
 import { resolveBlueprintActionFromRequest } from "@/lib/blueprintActionHandoff";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { recordProductEventSafely } from "@/lib/productAnalytics";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -86,6 +87,14 @@ async function createDraft(req: NextRequest, userId: string): Promise<WeeklyExpe
     event_name: "activation_started",
     step: 0,
     metadata: { source: hasSpecificAction ? "blueprint" : "dashboard" },
+  });
+  await recordProductEventSafely({
+    event_name: "activation_started",
+    source: "onboarding",
+    user_id: userId,
+    experiment_id: data.id,
+    step: 0,
+    event_key: `activation:started:${data.id}`,
   });
   return data as WeeklyExperiment;
 }
@@ -207,6 +216,17 @@ export async function PUT(req: NextRequest) {
       step,
       metadata: {},
     });
+
+    if (step === 6) {
+      await recordProductEventSafely({
+        event_name: "activation_completed",
+        source: "onboarding",
+        user_id: auth.user.id,
+        experiment_id: experiment.id,
+        step: 6,
+        event_key: `activation:completed:${experiment.id}`,
+      });
+    }
 
     return NextResponse.json({ ok: true, experiment: data });
   } catch (error) {

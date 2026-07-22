@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { recordProductEventSafely } from "@/lib/productAnalytics";
 
 export async function GET() {
   const supabase = createRouteHandlerClient({ cookies });
@@ -117,6 +118,14 @@ export async function POST(req: Request) {
   // --- end gamification block ---
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  const logDate = typeof body?.log_date === "string" ? body.log_date.slice(0, 10) : "unknown";
+  await recordProductEventSafely({
+    event_name: "check_in_completed",
+    source: "daily_log",
+    user_id: publicUser.id,
+    event_key: `checkin:${publicUser.id}:${logDate}`,
+  });
 
   return NextResponse.json({ ok: true });
 }

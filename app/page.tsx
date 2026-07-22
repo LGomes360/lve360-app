@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
+import { trackProductEvent } from "@/lib/productAnalyticsClient";
 
 const intakeUrl = "https://tally.so/r/mOqRBk?hideTitle=1&transparentBackground=1&dynamicHeight=1";
 
@@ -44,7 +45,11 @@ function IntakeModal({ onClose }: { onClose: () => void }) {
 
 export default function Home() {
   const [showIntake, setShowIntake] = useState(false);
-  const openIntake = () => setShowIntake(true);
+  useEffect(() => trackProductEvent({ event_name: "homepage_viewed", source: "homepage" }), []);
+  const openIntake = () => {
+    trackProductEvent({ event_name: "intake_started", source: "homepage" });
+    setShowIntake(true);
+  };
 
   return (
     <main className="overflow-hidden bg-white text-slate-900">
