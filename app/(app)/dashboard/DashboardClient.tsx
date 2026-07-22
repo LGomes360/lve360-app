@@ -1,124 +1,86 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import { FileText, History, Loader2 } from "lucide-react";
+import { useEffect } from "react";
+import { ChevronDown, FileText, History } from "lucide-react";
 
-import DashboardSnapshot from "@/components/dashboard/DashboardSnapshot";
-import NextSteps from "@/components/dashboard/NextSteps";
 import DailyLog from "@/components/dashboard/DailyLog";
-import WeeklyGoal from "@/components/dashboard/WeeklyGoal";
-import TodaysPlan from "@/components/dashboard/TodaysPlan";
-import ProgressTracker from "@/components/dashboard/ProgressTracker";
 import InsightsFeed from "@/components/dashboard/InsightsFeed";
-import { getFriendlyFirstName } from "@/src/lib/displayName";
+import ProgressTracker from "@/components/dashboard/ProgressTracker";
+import TodayExperience from "@/components/dashboard/TodayExperience";
+import TodaysPlan from "@/components/dashboard/TodaysPlan";
+import type { WeeklyExperiment } from "@/lib/activation";
 
-export default function DashboardClient({ activationStatus }: { activationStatus: "missing" | "draft" | "active" }) {
-  const supabase = createClientComponentClient();
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
-  // Get authed user
+export default function DashboardClient({
+  username,
+  experiment,
+  safetyReviewCount,
+}: {
+  username: string;
+  experiment: WeeklyExperiment | null;
+  safetyReviewCount: number;
+}) {
   useEffect(() => {
-    (async () => {
-      const { data, error } = await supabase.auth.getUser();
-      if (error) console.error("Auth fetch failed:", error.message);
-      setUser(data?.user ?? null);
-      setLoading(false);
-    })();
-  }, [supabase]);
-
-  // Ensure user exists in public.users
-  useEffect(() => {
-    fetch("/api/provision-user", { method: "POST" }).catch((err) =>
-      console.error("Provision user failed:", err)
-    );
+    fetch("/api/provision-user", { method: "POST" }).catch((error) => {
+      console.error("Provision user failed:", error);
+    });
   }, []);
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
-      </div>
-    );
-  }
-
-  if (!user) {
-    if (typeof window !== "undefined") window.location.href = "/login";
-    return null;
-  }
-
-  const username = getFriendlyFirstName(user);
-
   return (
-    <main className="min-h-screen bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB]">
-      <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-5">
-        <header className="flex flex-col gap-4 rounded-2xl bg-[#041B2D] p-5 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8DE5D5]">LVE360 Agent Dashboard</div>
-            <h1 className="mt-1 text-3xl font-bold">Welcome back, {username}</h1>
-            <p className="mt-1 text-sm text-white/75">Your plan, progress, and next best action in one place.</p>
-          </div>
-          <nav className="flex flex-wrap gap-2" aria-label="Report actions">
-            <a href="/results" className="inline-flex items-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-[#041B2D] hover:bg-[#EAFBF8]">
-              <FileText className="mr-2 h-4 w-4" /> View Blueprint
-            </a>
-            <a href="/dashboard/my-quiz" className="inline-flex items-center rounded-lg border border-white/30 px-3 py-2 text-sm font-semibold text-white hover:bg-white/10">
-              <History className="mr-2 h-4 w-4" /> Reports & PDF
-            </a>
-          </nav>
-        </header>
+    <div className="min-h-screen bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB]">
+      <div className="mx-auto max-w-5xl space-y-5 p-4 sm:p-6">
+        <nav className="flex flex-wrap justify-end gap-2" aria-label="Blueprint and report actions">
+          <a href="/results" className="inline-flex items-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-[#041B2D] shadow-sm hover:bg-[#EAFBF8]">
+            <FileText className="mr-2 h-4 w-4" /> View Blueprint
+          </a>
+          <a href="/dashboard/my-quiz" className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-[#041B2D] hover:bg-slate-50">
+            <History className="mr-2 h-4 w-4" /> Reports and PDF
+          </a>
+        </nav>
 
-        {activationStatus !== "active" ? (
-          <section className="rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5 shadow-sm" aria-label="First-week setup">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Make your membership useful this week</p>
-                <h2 className="mt-1 text-xl font-bold text-[#041B2D]">{activationStatus === "draft" ? "Finish setting up your first practice" : "Build your first focused week"}</h2>
-                <p className="mt-1 text-sm leading-6 text-slate-600">Choose one repeatable lifestyle action, give it a cue, and define the version that counts on a hard day.</p>
-              </div>
-              <a href="/onboarding" className="inline-flex shrink-0 items-center justify-center rounded-xl bg-[#08A88A] px-5 py-3 font-bold text-white hover:bg-[#078B74]">
-                {activationStatus === "draft" ? "Continue setup" : "Set up my week"}
-              </a>
-            </div>
-          </section>
-        ) : null}
+        <TodayExperience
+          username={username}
+          initialExperiment={experiment}
+          safetyReviewCount={safetyReviewCount}
+        />
 
-        {/* 1) Greeting & Snapshot */}
-        <section aria-label="Snapshot and quick deltas">
-          <DashboardSnapshot />
-        </section>
-
-        {/* 2) Coach-first: Next Steps (smart CTAs) */}
-        <section id="next-steps" aria-label="Next steps">
-          <NextSteps />
-        </section>
-
-        {/* 3) Weekly focus */}
-        <section id="weekly-goal" aria-label="Weekly goal">
-          <WeeklyGoal />
-        </section>
-
-        {/* 4) Today’s Plan */}
-        <section id="todays-plan" aria-label="Today’s plan">
-          <TodaysPlan />
-        </section>
-
-        {/* 5) Daily Check-in */}
-        <section id="daily-log" aria-label="Daily check-in">
+        <section id="daily-log" aria-label="Quick check-in">
           <DailyLog />
         </section>
 
-        {/* 6) Progress Tracker (mini charts) */}
-        <section id="progress" aria-label="Progress tracker">
-          <ProgressTracker />
-        </section>
+        <Disclosure title="Your supplement routine" description="Track your current stack, review timing, and manage refills when you need it.">
+          <TodaysPlan />
+        </Disclosure>
 
-        {/* 7) Insights & Tweaks (AI summaries) */}
-        <section id="insights" aria-label="AI insights">
-          <InsightsFeed />
-        </section>
+        <Disclosure title="Progress and coaching" description="Explore trends and refresh your coaching insights.">
+          <div className="space-y-5">
+            <ProgressTracker />
+            <InsightsFeed />
+          </div>
+        </Disclosure>
       </div>
-    </main>
+    </div>
+  );
+}
+
+function Disclosure({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <summary className="flex cursor-pointer list-none items-center gap-4 p-5 marker:content-none sm:p-6">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-xl font-bold text-[#041B2D]">{title}</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
+        </div>
+        <ChevronDown className="h-5 w-5 shrink-0 text-[#087F72] transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="border-t border-slate-200 p-4 sm:p-6">{children}</div>
+    </details>
   );
 }
