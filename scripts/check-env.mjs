@@ -26,6 +26,7 @@ const requiredForLaunch = [
   "STRIPE_PRICE_PREMIUM",
   "STRIPE_PRICE_ANNUAL",
   "STRIPE_WEBHOOK_SECRET",
+  "CRON_SECRET",
 ];
 
 const recommended = [

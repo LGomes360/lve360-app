@@ -14,6 +14,9 @@ export const PRODUCT_EVENT_NAMES = [
   "check_in_completed",
   "weekly_review_opened",
   "weekly_review_completed",
+  "reminder_sent",
+  "reminder_failed",
+  "reminder_opted_out",
   "subscription_cancelled",
 ] as const;
 
@@ -28,6 +31,8 @@ export const PRODUCT_EVENT_SOURCES = [
   "today",
   "daily_log",
   "weekly_review",
+  "reminders",
+  "settings",
 ] as const;
 
 export type ProductEventName = (typeof PRODUCT_EVENT_NAMES)[number];

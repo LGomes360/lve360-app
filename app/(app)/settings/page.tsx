@@ -48,7 +48,11 @@ export default function SettingsPage() {
       }
       const body = (await response.json()) as AccountResponse;
       if (!response.ok || !body.account) throw new Error(body.error ?? "account_unavailable");
-      setAccount(body.account);
+      const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      setAccount({
+        ...body.account,
+        timezone: body.account.timezone === "UTC" && detectedTimezone ? detectedTimezone : body.account.timezone,
+      });
     } catch {
       setNotice({ tone: "error", message: "We could not load your settings. Please refresh and try again." });
     } finally {
@@ -68,6 +72,10 @@ export default function SettingsPage() {
           preferred_name: account.preferred_name,
           weight_unit: account.weight_unit,
           reminder_preference: account.reminder_preference,
+          timezone: account.timezone,
+          cue_hour: account.cue_hour,
+          quiet_start_hour: account.quiet_start_hour,
+          quiet_end_hour: account.quiet_end_hour,
         }),
       });
       const body = await response.json();
@@ -151,7 +159,7 @@ export default function SettingsPage() {
         <p className="text-sm font-bold uppercase tracking-[0.16em] text-[#047F6D]">Your account</p>
         <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-[#041B2D] sm:text-4xl">Settings</h1>
         <p className="mt-2 max-w-2xl text-slate-600">
-          Keep LVE360 useful for your real life. Choose how we address you, how progress appears, and whether you want weekly email cues.
+          Keep LVE360 useful for your real life. Choose how we address you, how progress appears, and whether you want helpful email cues.
         </p>
       </div>
 
@@ -197,16 +205,45 @@ export default function SettingsPage() {
               <option value="kg">Kilograms (kg)</option>
             </select>
           </Field>
-          <Field label="Weekly email cue" hint="A simple prompt to return to your current practice.">
+          <Field label="Email reminders" hint="Opt in to practice, recovery, and weekly review cues.">
             <select
               value={account.reminder_preference}
               onChange={(event) => setAccount({ ...account, reminder_preference: event.target.value as "none" | "email" })}
               className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-[#041B2D] shadow-sm focus:border-[#047F6D] focus:ring-2 focus:ring-teal-100"
             >
-              <option value="email">Send a weekly email cue</option>
-              <option value="none">No email cue</option>
+              <option value="email">Send helpful email reminders</option>
+              <option value="none">No email reminders</option>
             </select>
           </Field>
+          {account.reminder_preference === "email" && (
+            <>
+              <Field label="My timezone" hint="Reminders follow your local time.">
+                <input
+                  value={account.timezone}
+                  onChange={(event) => setAccount({ ...account, timezone: event.target.value })}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-[#041B2D] shadow-sm focus:border-[#047F6D] focus:ring-2 focus:ring-teal-100"
+                />
+              </Field>
+              <Field label="Cue time" hint="When a short reminder is most useful.">
+                <HourSelect
+                  value={account.cue_hour}
+                  onChange={(cue_hour) => setAccount({ ...account, cue_hour })}
+                />
+              </Field>
+              <Field label="Quiet hours begin" hint="We will not send cues during quiet hours.">
+                <HourSelect
+                  value={account.quiet_start_hour}
+                  onChange={(quiet_start_hour) => setAccount({ ...account, quiet_start_hour })}
+                />
+              </Field>
+              <Field label="Quiet hours end" hint="Reminders can resume after this time.">
+                <HourSelect
+                  value={account.quiet_end_hour}
+                  onChange={(quiet_end_hour) => setAccount({ ...account, quiet_end_hour })}
+                />
+              </Field>
+            </>
+          )}
         </div>
         <div className="mt-6 flex justify-end">
           <button
@@ -377,6 +414,22 @@ function Field({ label, hint, children }: { label: string; hint: string; childre
       <span className="mb-2 mt-0.5 block text-xs text-slate-500">{hint}</span>
       {children}
     </label>
+  );
+}
+
+function HourSelect({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  return (
+    <select
+      value={value}
+      onChange={(event) => onChange(Number(event.target.value))}
+      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-[#041B2D] shadow-sm focus:border-[#047F6D] focus:ring-2 focus:ring-teal-100"
+    >
+      {Array.from({ length: 24 }, (_, hour) => (
+        <option key={hour} value={hour}>
+          {new Intl.DateTimeFormat("en-US", { hour: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 1, hour)))}
+        </option>
+      ))}
+    </select>
   );
 }
 

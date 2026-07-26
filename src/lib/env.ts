@@ -16,6 +16,7 @@ const required = [
   "STRIPE_WEBHOOK_SECRET",
   "OPENAI_API_KEY",
   "TALLY_WEBHOOK_SECRET",
+  "CRON_SECRET",
 ] as const;
 
 const optional = [

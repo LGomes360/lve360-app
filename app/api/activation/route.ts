@@ -11,6 +11,7 @@ import {
   type WeeklyExperiment,
 } from "@/lib/activation";
 import { resolveBlueprintActionFromRequest } from "@/lib/blueprintActionHandoff";
+import { isHour, isIanaTimeZone } from "@/lib/accountSettings";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 
@@ -26,6 +27,8 @@ type ActivationBody = {
   frequency_per_week?: unknown;
   minimum_version?: unknown;
   reminder_preference?: unknown;
+  timezone?: unknown;
+  cue_hour?: unknown;
 };
 
 function identityFromCategory(category: string): IdentityDirection {
@@ -188,6 +191,9 @@ export async function PUT(req: NextRequest) {
       if (body?.reminder_preference !== "none" && body?.reminder_preference !== "email") {
         return NextResponse.json({ ok: false, error: "choose_reminder_preference" }, { status: 400 });
       }
+      if (body.reminder_preference === "email" && (!isIanaTimeZone(body.timezone) || !isHour(body.cue_hour))) {
+        return NextResponse.json({ ok: false, error: "choose_reminder_time" }, { status: 400 });
+      }
       changes.reminder_preference = body.reminder_preference;
     }
 
@@ -233,6 +239,10 @@ export async function PUT(req: NextRequest) {
         {
           user_id: auth.user.id,
           reminder_preference: body?.reminder_preference,
+          ...(body?.reminder_preference === "email" ? {
+            timezone: body.timezone,
+            cue_hour: body.cue_hour,
+          } : {}),
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" }
