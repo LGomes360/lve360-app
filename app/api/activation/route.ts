@@ -228,6 +228,18 @@ export async function PUT(req: NextRequest) {
       });
     }
 
+    if (step === 5) {
+      const { error: preferenceError } = await admin.from("user_preferences").upsert(
+        {
+          user_id: auth.user.id,
+          reminder_preference: body?.reminder_preference,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" }
+      );
+      if (preferenceError) throw preferenceError;
+    }
+
     return NextResponse.json({ ok: true, experiment: data });
   } catch (error) {
     console.error("[activation] save failed", error);
