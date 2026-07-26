@@ -22,6 +22,15 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           test -n "$CRON_SECRET"
-          curl --fail-with-body --retry 2 \
-            --header "Authorization: Bearer $CRON_SECRET" \
-            https://lve360.com/api/cron/reminders
+          response="$(
+            curl --fail-with-body --retry 2 \
+              --header "Authorization: Bearer $CRON_SECRET" \
+              https://app.lve360.com/api/cron/reminders
+          )"
+          echo "$response"
+          echo "$response" | jq -e '
+            .ok == true
+            and (.sent | type == "number")
+            and (.skipped | type == "number")
+            and (.failed | type == "number")
+          ' > /dev/null
