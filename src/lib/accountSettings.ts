@@ -9,6 +9,10 @@ export type AccountSettings = {
   preferred_name: string;
   weight_unit: WeightUnit;
   reminder_preference: ReminderPreference;
+  timezone: string;
+  cue_hour: number;
+  quiet_start_hour: number;
+  quiet_end_hour: number;
 };
 
 export function normalizePreferredName(value: unknown): string | null | undefined {
@@ -25,4 +29,18 @@ export function isWeightUnit(value: unknown): value is WeightUnit {
 
 export function isReminderPreference(value: unknown): value is ReminderPreference {
   return value === "none" || value === "email";
+}
+
+export function isHour(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 23;
+}
+
+export function isIanaTimeZone(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 80) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+    return true;
+  } catch {
+    return false;
+  }
 }

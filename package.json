@@ -12,6 +12,7 @@
     "qa:canonical-host": "node src/_tests_/canonicalHost.assert.mjs",
     "qa:settings": "node src/_tests_/settingsPrivacy.assert.mjs",
     "qa:intake": "node src/_tests_/intakeClarity.assert.mjs",
+    "qa:reminders": "node src/_tests_/reminders.assert.mjs",
     "qa:all": "npm run qa:env && npm run qa:build"
   },
   "dependencies": {

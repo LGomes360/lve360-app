@@ -20,6 +20,8 @@ type FormState = {
   frequency_per_week: number;
   minimum_version: string;
   reminder_preference: ReminderPreference;
+  timezone: string;
+  cue_hour: number;
 };
 
 const EMPTY_FORM: FormState = {
@@ -29,6 +31,8 @@ const EMPTY_FORM: FormState = {
   frequency_per_week: 3,
   minimum_version: "",
   reminder_preference: "none",
+  timezone: "UTC",
+  cue_hour: 18,
 };
 
 export default function OnboardingHandoffClient() {
@@ -50,7 +54,8 @@ export default function OnboardingHandoffClient() {
       .then((loaded) => {
         if (cancelled) return;
         setExperiment(loaded);
-        setForm(formFromExperiment(loaded));
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        setForm({ ...formFromExperiment(loaded), timezone: timezone || "UTC" });
         setStep(nextOnboardingStep(loaded));
       })
       .catch((loadError) => { if (!cancelled) setError(loadError?.message ?? "Setup is unavailable."); })
@@ -74,7 +79,7 @@ export default function OnboardingHandoffClient() {
       if (!response.ok || !json?.experiment) throw new Error(errorMessage(json?.error));
       const updated = json.experiment as WeeklyExperiment;
       setExperiment(updated);
-      setForm(formFromExperiment(updated));
+      setForm({ ...formFromExperiment(updated), timezone: form.timezone, cue_hour: form.cue_hour });
       if (step < 6) setStep(step + 1);
     } catch (saveError: any) {
       setError(saveError?.message ?? "We could not save that step. Please try again.");
@@ -112,7 +117,14 @@ export default function OnboardingHandoffClient() {
       {step === 2 && <ActionStep form={form} starterActions={starterActions} fromBlueprint={!!experiment.source_action_id} onChange={(action_label) => setForm({ ...form, action_label })} />}
       {step === 3 && <CueStep form={form} onChange={(changes) => setForm({ ...form, ...changes })} />}
       {step === 4 && <MinimumStep value={form.minimum_version} action={form.action_label} onChange={(minimum_version) => setForm({ ...form, minimum_version })} />}
-      {step === 5 && <ReminderStep value={form.reminder_preference} onChange={(reminder_preference) => setForm({ ...form, reminder_preference })} />}
+      {step === 5 && (
+        <ReminderStep
+          value={form.reminder_preference}
+          cueHour={form.cue_hour}
+          timezone={form.timezone}
+          onChange={(changes) => setForm({ ...form, ...changes })}
+        />
+      )}
       {step === 6 && <ConfirmationStep form={form} active={active} />}
 
       {error && <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{error}</p>}
@@ -160,8 +172,46 @@ function MinimumStep({ value, action, onChange }: { value: string; action: strin
   return <section><h1 className="text-3xl font-extrabold tracking-tight text-[#041B2D]">Make it work on a hard day</h1><p className="mt-3 leading-7 text-slate-600">Define the smallest version that still counts. You can always do more.</p><div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600"><span className="font-bold text-[#041B2D]">Your practice:</span> {action}</div><label className="mt-5 block text-sm font-bold text-[#041B2D]" htmlFor="minimum-version">My minimum version is...</label><input id="minimum-version" maxLength={160} value={value} onChange={(event) => onChange(event.target.value)} placeholder="Walk for two minutes" className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-[#08A88A] focus:ring-2 focus:ring-[#08A88A]/20" /><div className="mt-4 flex flex-wrap gap-2">{["Do it for two minutes", "Complete one repetition", "Take the first small step"].map((minimum) => <button key={minimum} type="button" onClick={() => onChange(minimum)} className="rounded-full border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:border-[#9DCFC3] hover:bg-[#EAFBF8]">{minimum}</button>)}</div></section>;
 }
 
-function ReminderStep({ value, onChange }: { value: ReminderPreference; onChange: (value: ReminderPreference) => void }) {
-  return <section><Mail className="h-8 w-8 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">How should we support you?</h1><p className="mt-3 leading-7 text-slate-600">Choose your reminder preference. You can change this later.</p><div className="mt-6 grid gap-3">{[{ value: "email" as const, title: "Email support", copy: "Use email for weekly practice support when reminders launch." }, { value: "none" as const, title: "No reminders", copy: "I will use my own cue and dashboard." }].map((option) => <button key={option.value} type="button" onClick={() => onChange(option.value)} aria-pressed={value === option.value} className={`flex items-center justify-between rounded-2xl border p-5 text-left ${value === option.value ? "border-[#08A88A] bg-[#EAFBF8]" : "border-slate-200 hover:border-[#9DCFC3]"}`}><span><span className="block font-bold text-[#041B2D]">{option.title}</span><span className="mt-1 block text-sm text-slate-600">{option.copy}</span></span>{value === option.value ? <Check className="h-5 w-5 text-[#087F72]" /> : null}</button>)}</div></section>;
+function ReminderStep({
+  value,
+  cueHour,
+  timezone,
+  onChange,
+}: {
+  value: ReminderPreference;
+  cueHour: number;
+  timezone: string;
+  onChange: (changes: Partial<Pick<FormState, "reminder_preference" | "cue_hour">>) => void;
+}) {
+  return (
+    <section>
+      <Mail className="h-8 w-8 text-[#08A88A]" />
+      <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">How should we support you?</h1>
+      <p className="mt-3 leading-7 text-slate-600">Choose whether a small email cue would help. You can change or turn it off anytime.</p>
+      <div className="mt-6 grid gap-3">
+        {[
+          { value: "email" as const, title: "Helpful email cues", copy: "Practice, gentle restart, and weekly review reminders." },
+          { value: "none" as const, title: "No reminders", copy: "I will use my own cue and dashboard." },
+        ].map((option) => (
+          <button key={option.value} type="button" onClick={() => onChange({ reminder_preference: option.value })} aria-pressed={value === option.value} className={`flex items-center justify-between rounded-2xl border p-5 text-left ${value === option.value ? "border-[#08A88A] bg-[#EAFBF8]" : "border-slate-200 hover:border-[#9DCFC3]"}`}>
+            <span><span className="block font-bold text-[#041B2D]">{option.title}</span><span className="mt-1 block text-sm text-slate-600">{option.copy}</span></span>
+            {value === option.value ? <Check className="h-5 w-5 text-[#087F72]" /> : null}
+          </button>
+        ))}
+      </div>
+      {value === "email" && (
+        <label className="mt-5 block text-sm font-bold text-[#041B2D]">
+          Send around
+          <select value={cueHour} onChange={(event) => onChange({ cue_hour: Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal">
+            {Array.from({ length: 15 }, (_, index) => index + 7).map((hour) => (
+              <option key={hour} value={hour}>{new Intl.DateTimeFormat("en-US", { hour: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 1, hour)))}</option>
+            ))}
+          </select>
+          <span className="mt-2 block font-normal text-slate-500">Local time in {timezone}. Quiet hours default to 9 PM through 7 AM.</span>
+        </label>
+      )}
+    </section>
+  );
 }
 
 function ConfirmationStep({ form, active }: { form: FormState; active: boolean }) {
@@ -180,6 +230,8 @@ function formFromExperiment(experiment: WeeklyExperiment): FormState {
     frequency_per_week: experiment.frequency_per_week ?? 3,
     minimum_version: experiment.minimum_version ?? "",
     reminder_preference: experiment.reminder_preference ?? "none",
+    timezone: "UTC",
+    cue_hour: 18,
   };
 }
 
@@ -188,7 +240,12 @@ function payloadForStep(step: number, form: FormState) {
   if (step === 2) return { step, action_label: form.action_label };
   if (step === 3) return { step, cue: form.cue, frequency_per_week: form.frequency_per_week };
   if (step === 4) return { step, minimum_version: form.minimum_version };
-  if (step === 5) return { step, reminder_preference: form.reminder_preference };
+  if (step === 5) return {
+    step,
+    reminder_preference: form.reminder_preference,
+    timezone: form.timezone,
+    cue_hour: form.cue_hour,
+  };
   return { step: 6 };
 }
 
@@ -197,6 +254,7 @@ function errorMessage(code: string | undefined) {
   if (code === "choose_safe_lifestyle_action") return "Choose a lifestyle action. Supplement and medication changes stay in your Blueprint for professional review.";
   if (code === "add_cue_and_frequency") return "Add a clear cue and choose how many days you want to practice.";
   if (code === "add_safe_minimum_version") return "Add a small lifestyle version that can count on a hard day.";
+  if (code === "choose_reminder_time") return "Choose a valid local reminder time.";
   if (code === "complete_required_steps") return "One of the earlier steps is incomplete. Go back and review your plan.";
   return "We could not save that step. Please try again.";
 }
