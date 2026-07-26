@@ -72,7 +72,7 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
       });
       const json = await response.json().catch(() => null) as ReviewResponse | null;
       if (!response.ok || !json?.ok) throw new Error(reviewError(json?.error));
-      window.location.assign("/dashboard");
+      window.location.assign("/today");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Your review was not saved.");
       setSaving(false);
@@ -84,7 +84,7 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
 
   return (
     <ReviewShell>
-      <a href="/dashboard" className="inline-flex items-center text-sm font-semibold text-[#087F72] hover:underline"><ArrowLeft className="mr-2 h-4 w-4" /> Back to Today</a>
+      <a href="/today" className="inline-flex items-center text-sm font-semibold text-[#087F72] hover:underline"><ArrowLeft className="mr-2 h-4 w-4" /> Back to Today</a>
       <p className="mt-8 text-xs font-bold uppercase tracking-[0.18em] text-[#087F72]">Your weekly review</p>
       <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#041B2D] sm:text-4xl">Notice what worked. Shape the next week.</h1>
       <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">This is a short experiment review, not a health outcome assessment. Use it to make your practice easier to repeat.</p>

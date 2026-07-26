@@ -76,7 +76,7 @@ export async function POST() {
     // Create a portal session
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: stripeCustomerId,
-      return_url: `${appUrl}/account`,
+      return_url: `${appUrl}/settings`,
     });
 
     console.log(`✅ Created Stripe portal session for ${email}`);

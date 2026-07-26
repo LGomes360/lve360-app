@@ -18,7 +18,7 @@ function LoginInner() {
     const n = searchParams?.get("next");
     // only allow same-site, safe paths
     if (n && n.startsWith("/")) return n;
-    return "/dashboard";
+    return "/today";
   }, [searchParams]);
 
   // Build a robust base URL: env first, then runtime origin

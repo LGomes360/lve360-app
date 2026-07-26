@@ -1,21 +1,17 @@
 "use client";
 
 import { useEffect } from "react";
-import { ChevronDown, FileText, History } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 import DailyLog from "@/components/dashboard/DailyLog";
-import InsightsFeed from "@/components/dashboard/InsightsFeed";
-import ProgressTracker from "@/components/dashboard/ProgressTracker";
 import TodayExperience from "@/components/dashboard/TodayExperience";
 import TodaysPlan from "@/components/dashboard/TodaysPlan";
 import type { WeeklyExperiment } from "@/lib/activation";
 
-export default function DashboardClient({
-  username,
+export default function TodayClient({
   experiment,
   safetyReviewCount,
 }: {
-  username: string;
   experiment: WeeklyExperiment | null;
   safetyReviewCount: number;
 }) {
@@ -28,17 +24,7 @@ export default function DashboardClient({
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB]">
       <div className="mx-auto max-w-5xl space-y-5 p-4 sm:p-6">
-        <nav className="flex flex-wrap justify-end gap-2" aria-label="Blueprint and report actions">
-          <a href="/results" className="inline-flex items-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-[#041B2D] shadow-sm hover:bg-[#EAFBF8]">
-            <FileText className="mr-2 h-4 w-4" /> View Blueprint
-          </a>
-          <a href="/dashboard/my-quiz" className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-[#041B2D] hover:bg-slate-50">
-            <History className="mr-2 h-4 w-4" /> Reports and PDF
-          </a>
-        </nav>
-
         <TodayExperience
-          username={username}
           initialExperiment={experiment}
           safetyReviewCount={safetyReviewCount}
         />
@@ -51,12 +37,6 @@ export default function DashboardClient({
           <TodaysPlan />
         </Disclosure>
 
-        <Disclosure title="Progress and coaching" description="Explore trends and refresh your coaching insights.">
-          <div className="space-y-5">
-            <ProgressTracker />
-            <InsightsFeed />
-          </div>
-        </Disclosure>
       </div>
     </div>
   );

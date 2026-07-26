@@ -8,6 +8,6 @@ export const revalidate = 0;
 
 export default async function WeeklyReviewPage({ searchParams }: { searchParams: { experiment?: string } }) {
   await requireTier(["premium", "trial"], { next: "/review" });
-  if (!searchParams.experiment) redirect("/dashboard");
+  if (!searchParams.experiment) redirect("/today");
   return <WeeklyReviewClient experimentId={searchParams.experiment} />;
 }

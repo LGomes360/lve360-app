@@ -7,6 +7,10 @@ export const dynamic = "force-dynamic";
 
 // Only allow safe next values to avoid open redirects
 const ALLOW_NEXT_PATHS = new Set<string>([
+  "/today",
+  "/journey",
+  "/blueprints",
+  "/settings",
   "/dashboard",
   "/results",
   "/account",
@@ -16,9 +20,9 @@ const ALLOW_NEXT_PATHS = new Set<string>([
 ]);
 
 function safeNext(raw: string): string {
-  if (!raw.startsWith("/") || raw.startsWith("//")) return "/dashboard";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/today";
   const target = new URL(raw, "https://app.lve360.com");
-  if (!ALLOW_NEXT_PATHS.has(target.pathname)) return "/dashboard";
+  if (!ALLOW_NEXT_PATHS.has(target.pathname)) return "/today";
   if (target.pathname !== "/upgrade") return target.pathname;
   const plan = target.searchParams.get("plan");
   return plan === "monthly" || plan === "annual"
@@ -29,7 +33,7 @@ function safeNext(raw: string): string {
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
-  const next = url.searchParams.get("next") || "/dashboard";
+  const next = url.searchParams.get("next") || "/today";
   const errDesc = url.searchParams.get("error_description");
 
   const supabase = createRouteHandlerClient({ cookies });

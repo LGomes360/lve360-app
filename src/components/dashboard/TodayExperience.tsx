@@ -26,11 +26,9 @@ type TodayResponse = {
 };
 
 export default function TodayExperience({
-  username,
   initialExperiment,
   safetyReviewCount,
 }: {
-  username: string;
   initialExperiment: WeeklyExperiment | null;
   safetyReviewCount: number;
 }) {
@@ -124,7 +122,7 @@ export default function TodayExperience({
       <section className="rounded-3xl border border-[#9DCFC3] bg-white p-6 shadow-sm sm:p-8" aria-labelledby="today-heading">
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#087F72]">Today</p>
         <h1 id="today-heading" className="mt-2 text-3xl font-bold tracking-tight text-[#041B2D] sm:text-4xl">
-          Good to see you, {username}.
+          Choose one practice for this week.
         </h1>
         <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
           Set up one focused practice so LVE360 can help you turn your Blueprint into a week you can actually follow.
@@ -148,7 +146,7 @@ export default function TodayExperience({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8DE5D5]">Today</p>
-            <h1 id="today-heading" className="mt-1 text-2xl font-bold sm:text-3xl">Good to see you, {username}.</h1>
+            <h1 id="today-heading" className="mt-1 text-2xl font-bold sm:text-3xl">Your focused action</h1>
           </div>
           <p className="max-w-md text-sm leading-6 text-white/75">One useful action is enough to move this week forward.</p>
         </div>

@@ -71,7 +71,7 @@ function Inner() {
           .catch(() => null);
         const action = handoff?.selected ?? null;
         if (!cancelled) setSelectedAction(action);
-        const premiumDestination = action ? "/onboarding" : "/dashboard";
+        const premiumDestination = action ? "/onboarding" : "/today";
 
         console.log("[/upgrade] start check");
         let res = await fetch("/api/users/tier", { cache: "no-store" });
@@ -132,7 +132,7 @@ function Inner() {
             }
             if (rr.status === 401) {
               console.log("[/upgrade] lost session during poll → to login");
-              router.replace("/login?next=/dashboard");
+              router.replace("/login?next=/today");
               return;
             }
             const j = await rr.json().catch(() => null);
@@ -258,7 +258,7 @@ function Inner() {
           </div>
         </div>
 
-        <p className="mt-4 text-sm text-gray-500">Secure checkout through Stripe. Cancel anytime from Account &gt; Manage Billing.</p>
+        <p className="mt-4 text-sm text-gray-500">Secure checkout through Stripe. Cancel anytime from Settings &gt; Manage Billing.</p>
         <p className="mt-2 text-xs leading-5 text-gray-500">Stripe receives your account email and billing details, not your supplement, medication, or health-profile answers.</p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-10 text-left">
@@ -275,13 +275,13 @@ function Inner() {
         {/* last-resort manual actions so you NEVER look stuck */}
         <div className="mt-8 flex items-center justify-center gap-4 text-sm">
           <button
-            onClick={() => router.replace("/dashboard")}
+            onClick={() => router.replace("/today")}
             className="underline text-indigo-700"
           >
-            Go to Dashboard
+            Open Today
           </button>
           <span className="text-gray-400">•</span>
-          <a href="/login?next=/dashboard" className="underline text-indigo-700">
+          <a href="/login?next=/today" className="underline text-indigo-700">
             Log in again
           </a>
         </div>

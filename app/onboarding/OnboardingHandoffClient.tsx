@@ -88,7 +88,7 @@ export default function OnboardingHandoffClient() {
   }
 
   if (!experiment) {
-    return <Shell><div className="py-16 text-center"><h1 className="text-2xl font-bold text-[#041B2D]">Setup is temporarily unavailable</h1><p className="mt-3 text-slate-600">Refresh the page or return to your dashboard and try again.</p><a href="/dashboard" className="mt-6 inline-flex rounded-xl bg-[#087F72] px-5 py-3 font-bold text-white">Return to dashboard</a></div></Shell>;
+    return <Shell><div className="py-16 text-center"><h1 className="text-2xl font-bold text-[#041B2D]">Setup is temporarily unavailable</h1><p className="mt-3 text-slate-600">Refresh the page or return to Today and try again.</p><a href="/today" className="mt-6 inline-flex rounded-xl bg-[#087F72] px-5 py-3 font-bold text-white">Return to Today</a></div></Shell>;
   }
 
   const active = experiment.status === "active";
@@ -124,7 +124,7 @@ export default function OnboardingHandoffClient() {
           </button>
         ) : <span />}
         {active ? (
-          <a href="/dashboard" className="inline-flex items-center justify-center rounded-xl bg-[#08A88A] px-6 py-3 font-bold text-white shadow-sm hover:bg-[#078B74]">Open my dashboard <ArrowRight className="ml-2 h-5 w-5" /></a>
+          <a href="/today" className="inline-flex items-center justify-center rounded-xl bg-[#08A88A] px-6 py-3 font-bold text-white shadow-sm hover:bg-[#078B74]">Open Today <ArrowRight className="ml-2 h-5 w-5" /></a>
         ) : (
           <button type="button" onClick={saveStep} disabled={saving} className="inline-flex items-center justify-center rounded-xl bg-[#08A88A] px-6 py-3 font-bold text-white shadow-sm hover:bg-[#078B74] disabled:opacity-60">
             {saving ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : null}
