@@ -22,5 +22,7 @@ assert.match(migration, /enable row level security/i, "Reminder ledger must enab
 assert.match(migration, /idempotency_key text not null unique/i, "Reminder ledger must prevent duplicates");
 assert.match(workflow, /cron: "5 \* \* \* \*"/, "Reminder workflow must run hourly");
 assert.match(workflow, /secrets\.CRON_SECRET/, "Reminder workflow must authenticate with a repository secret");
+assert.match(workflow, /https:\/\/app\.lve360\.com\/api\/cron\/reminders/, "Reminder workflow must call the canonical production host directly");
+assert.match(workflow, /jq -e[\s\S]*\.ok == true/, "Reminder workflow must reject redirects and invalid dispatcher responses");
 
 console.log("reminder assertions passed");
