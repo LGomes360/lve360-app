@@ -1,6 +1,5 @@
 import { requireTier } from "@/app/_auth/requireTier";
-import InsightsFeed from "@/components/dashboard/InsightsFeed";
-import ProgressTracker from "@/components/dashboard/ProgressTracker";
+import JourneyDashboard from "@/components/journey/JourneyDashboard";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -16,12 +15,11 @@ export default async function JourneyPage() {
           Notice what is changing over time.
         </h1>
         <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
-          Review your check-in trends and coaching insights without losing sight of this week&apos;s focused practice.
+          See the weeks you tried, the repetitions you completed, and the patterns worth noticing without turning your life into a score.
         </p>
       </header>
 
-      <ProgressTracker />
-      <InsightsFeed />
+      <JourneyDashboard />
     </div>
   );
 }
