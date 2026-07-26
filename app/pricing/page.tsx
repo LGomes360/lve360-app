@@ -1,43 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { track } from "@vercel/analytics/react";
 import CTAButton from "@/components/CTAButton";
+import IntakeModal from "@/components/intake/IntakeModal";
 import { trackProductEvent } from "@/lib/productAnalyticsClient";
-
-const intakeUrl = "https://tally.so/r/mOqRBk?hideTitle=1&transparentBackground=1&dynamicHeight=1";
-
-function IntakeModal({ onClose }: { onClose: () => void }) {
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    const onMouseDown = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) onClose();
-    };
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", onKeyDown);
-    document.addEventListener("mousedown", onMouseDown);
-    return () => {
-      document.body.style.overflow = overflow;
-      window.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("mousedown", onMouseDown);
-    };
-  }, [onClose]);
-
-  return (
-    <motion.div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="dialog" aria-modal="true">
-      <motion.div ref={ref} className="relative w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-2xl" initial={{ scale: 0.96 }} animate={{ scale: 1 }} exit={{ scale: 0.96 }}>
-        <button onClick={onClose} className="absolute right-4 top-3 z-10 rounded-full px-3 py-1 text-xl text-slate-500 hover:bg-slate-100" aria-label="Close intake">×</button>
-        <iframe src={intakeUrl} title="LVE360 intake" className="min-h-[84vh] w-full" />
-      </motion.div>
-    </motion.div>
-  );
-}
 
 export default function Pricing() {
   const router = useRouter();

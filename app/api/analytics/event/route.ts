@@ -10,6 +10,7 @@ const CLIENT_EVENTS = new Set([
   "homepage_viewed",
   "pricing_viewed",
   "intake_started",
+  "intake_page_viewed",
   "blueprint_viewed",
   "blueprint_action_selected",
   "checkout_started",

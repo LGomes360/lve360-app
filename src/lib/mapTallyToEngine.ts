@@ -1,4 +1,5 @@
 // src/lib/mapTallyToEngine.ts
+import { normalizeHeight, normalizeWeightPounds } from "@/lib/intakeNormalization";
 
 // ---------- Public types ----------
 export type EngineInput = {
@@ -166,13 +167,13 @@ export function mapTallyToEngine(
   // Profile basics
   const dob = getValue(fields, ['Date of Birth (used . to . . calculate age)', 'Date of Birth']) as string | undefined;
   const heightRaw = getValue(fields, ['Height']) as string | undefined;
-  const weightLb = getValue(fields, ['Weight (lbs)']) as number | undefined;
+  const weightLb = normalizeWeightPounds(getValue(fields, ['Weight (lbs)']));
 
   // Sex at birth
   const sexText = getSingleOptionText(fields, 'Sex at Birth');
   const sexAtBirth =
-    sexText?.toLowerCase().includes('male') ? 'M'
-    : sexText?.toLowerCase().includes('female') ? 'F'
+    sexText?.toLowerCase().includes('female') ? 'F'
+    : sexText?.toLowerCase().includes('male') ? 'M'
     : undefined;
 
   // Gender identity
@@ -225,7 +226,9 @@ export function mapTallyToEngine(
   pushMed(med2Name,  med2Purpose,  med2Dose,  med2Freq);
 
   // Height parsing + derived metrics
-  const { ft: height_ft, in: height_in } = parseHeightUS(heightRaw);
+  const normalizedHeight = normalizeHeight(heightRaw);
+  const height_ft = normalizedHeight?.feet;
+  const height_in = normalizedHeight?.inches;
   const profile: EngineInput['profile'] = {
     dob,
     sexAtBirth,

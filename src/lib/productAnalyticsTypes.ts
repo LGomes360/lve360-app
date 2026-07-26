@@ -2,6 +2,7 @@ export const PRODUCT_EVENT_NAMES = [
   "homepage_viewed",
   "pricing_viewed",
   "intake_started",
+  "intake_page_viewed",
   "intake_completed",
   "blueprint_viewed",
   "blueprint_action_selected",

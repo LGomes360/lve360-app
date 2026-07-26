@@ -3,22 +3,10 @@
 
 "use client";
 
-import { useEffect } from "react";
 import { motion } from "framer-motion";
+import IntakeEmbed from "@/components/intake/IntakeEmbed";
 
 export default function QuizPage() {
-  useEffect(() => {
-    // Dynamically adjust iframe height from Tally
-    function handleTallyMessage(event: MessageEvent) {
-      if (event.origin.includes("tally.so") && event.data?.height) {
-        const iframe = document.querySelector<HTMLIFrameElement>("#tally-embed");
-        if (iframe) iframe.style.height = `${event.data.height}px`;
-      }
-    }
-    window.addEventListener("message", handleTallyMessage);
-    return () => window.removeEventListener("message", handleTallyMessage);
-  }, []);
-
   return (
     <main
       className="relative min-h-screen flex flex-col items-center justify-start
@@ -57,20 +45,9 @@ export default function QuizPage() {
         className="relative z-10 w-full max-w-5xl rounded-3xl overflow-hidden
                    shadow-xl ring-1 ring-gray-200 bg-white/95 backdrop-blur"
       >
-      {/* Quiz Embed — with subtle mask to hide bottom badge */}
+      {/* Shared intake embed */}
       <div className="relative w-full overflow-hidden rounded-3xl">
-        <div className="absolute bottom-0 left-0 w-full h-10 bg-gradient-to-t from-white/95 via-white/60 to-transparent z-10 pointer-events-none" />
-        <iframe
-          id="tally-embed"
-          src="https://tally.so/embed/mOqRBk?alignLeft=1&hideTitle=1&transparentBackground=1"
-          title="LVE360 Quiz"
-          width="100%"
-          height="1200"
-          frameBorder="0"
-          marginHeight={0}
-          marginWidth={0}
-          className="w-full min-h-[900px] sm:min-h-[1200px]"
-        />
+        <IntakeEmbed className="min-h-[640px] w-full bg-white" />
       </div>
       </motion.div>
     </main>
