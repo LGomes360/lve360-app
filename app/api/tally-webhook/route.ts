@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
 import { TALLY_KEYS, NormalizedSubmissionSchema } from "@/types/tally-normalized";
 import { parseList, parseSupplements } from "@/lib/parseLists";
+import { normalizeHeight, normalizeWeightPounds } from "@/lib/intakeNormalization";
 import crypto from "crypto";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 
@@ -177,12 +178,13 @@ export async function POST(req: NextRequest) {
       user_email: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.user_email, ["email"])),
       name: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.name, ["name", "nickname"])),
       dob: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.dob, ["dob", "date of birth"])),
-      height: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.height, ["height"])),
+      height: normalizeHeight(
+        getByKeyOrLabel(src, TALLY_KEYS.height, ["height"])
+      )?.display,
       weight: (() => {
-        const val = getByKeyOrLabel(src, TALLY_KEYS.weight, ["weight"]);
-        if (typeof val === "number") return val;
-        if (typeof val === "string") return val.replace(/[^0-9.]/g, "");
-        return undefined;
+        return normalizeWeightPounds(
+          getByKeyOrLabel(src, TALLY_KEYS.weight, ["weight", "weight (lbs)"])
+        );
       })(),
       sex: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.sex, ["sex"])),
       gender: cleanSingle(getByKeyOrLabel(src, TALLY_KEYS.gender, ["gender"])),
@@ -353,6 +355,10 @@ const submissionRow = {
           "07b6d212-c844-47f2-96bf-6ea906c933b9": "Longevity",
           "d284f391-71a1-49b0-bddc-467ae8de7cee": "Increase Energy",
           "d1ae4ecf-eb17-4308-93ff-b78bed426f0b": "Better Skin/Nails/Hair",
+          "fe7acb91-78e0-4472-8413-0f682e03ebb6": "Emotional health and relationships",
+          "fbb243b9-3b5b-40d4-93ec-d5ad18287e5e": "Healthy eating and nutrition",
+          "1ef089e2-3bce-4f45-aaac-009a23b3d348": "Career focus and performance",
+          "63f72695-b77b-4f4f-a454-63894d59254c": "Overall wellbeing and happiness",
           "7894b6c9-c199-4108-bb2f-c998c7265164": "Other",
         };
     
