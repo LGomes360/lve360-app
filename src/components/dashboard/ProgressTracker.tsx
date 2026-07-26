@@ -106,6 +106,15 @@ export default function ProgressTracker() {
         .maybeSingle();
       setTier((u?.tier || "free") as string);
 
+      const { data: preferences } = await supabase
+        .from("user_preferences")
+        .select("weight_unit")
+        .eq("user_id", uid)
+        .maybeSingle();
+      if (preferences?.weight_unit === "lb" || preferences?.weight_unit === "kg") {
+        setWeightUnit(preferences.weight_unit);
+      }
+
       setLoading(false);
       // reset confetti on range switch
       setConfetti({ weight: false, sleep: false, energy: false });
@@ -272,7 +281,15 @@ export default function ProgressTracker() {
             rightEl={
               <button
                 className="text-xs rounded-full border px-2 py-0.5 hover:bg-white"
-                onClick={() => setWeightUnit((u) => (u === "lb" ? "kg" : "lb"))}
+                onClick={() => {
+                  const nextUnit = weightUnit === "lb" ? "kg" : "lb";
+                  setWeightUnit(nextUnit);
+                  if (userId) {
+                    void supabase
+                      .from("user_preferences")
+                      .upsert({ user_id: userId, weight_unit: nextUnit }, { onConflict: "user_id" });
+                  }
+                }}
                 aria-label="Toggle weight units"
                 title={`Switch to ${weightUnit === "lb" ? "kg" : "lb"}`}
               >
