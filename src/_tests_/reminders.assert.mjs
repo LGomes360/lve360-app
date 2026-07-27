@@ -11,6 +11,8 @@ const workflow = fs.readFileSync(".github/workflows/reminders.yml", "utf8");
 assert.match(cron, /authorization.*Bearer/si, "Cron route must require CRON_SECRET authorization");
 assert.match(cron, /reminderIdempotencyKey/, "Cron route must deduplicate reminder sends");
 assert.match(cron, /weekly_review/, "Cron route must support the exact review path");
+assert.match(cron, /skipReasons/, "Cron route must report non-sensitive skip reasons");
+assert.match(reminders, /evaluateReminder/, "Reminder decisions must expose a testable reason");
 assert.match(reminders, /Missing a day is information, not failure/, "Recovery language must be nonjudgmental");
 assert.match(reminders, /isQuietHour/, "Dispatcher must respect quiet hours");
 assert.match(reminders, /weekly_review[\s\S]*:due/, "A weekly review cue must only send once per experiment");

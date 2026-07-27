@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 import {
   addDays,
-  decideReminder,
+  evaluateReminder,
   reminderIdempotencyKey,
   sendReminderEmail,
 } from "@/lib/reminders";
@@ -40,6 +40,11 @@ export async function GET(req: NextRequest) {
   let sent = 0;
   let skipped = 0;
   let failed = 0;
+  const skipReasons: Record<string, number> = {};
+  const countSkip = (reason: string) => {
+    skipped += 1;
+    skipReasons[reason] = (skipReasons[reason] ?? 0) + 1;
+  };
 
   for (const experiment of (experiments ?? []) as ExperimentRow[]) {
     try {
@@ -56,7 +61,13 @@ export async function GET(req: NextRequest) {
         || !profile?.email
         || (profile.tier !== "premium" && profile.tier !== "trial")
       ) {
-        skipped += 1;
+        countSkip(
+          preference?.reminder_preference !== "email"
+            ? "account_opted_out"
+            : !profile?.email
+              ? "missing_email"
+              : "ineligible_tier",
+        );
         continue;
       }
 
@@ -77,7 +88,7 @@ export async function GET(req: NextRequest) {
           .maybeSingle(),
       ]);
 
-      const decision = decideReminder({
+      const evaluation = evaluateReminder({
         now,
         timezone: preference.timezone,
         cueHour: preference.cue_hour,
@@ -87,10 +98,11 @@ export async function GET(req: NextRequest) {
         completedDates: (completions ?? []).map((item) => item.completion_date),
         reviewCompleted: review?.status === "completed",
       });
-      if (!decision) {
-        skipped += 1;
+      if (!evaluation.decision) {
+        countSkip(evaluation.reason);
         continue;
       }
+      const decision = evaluation.decision;
 
       const key = reminderIdempotencyKey(decision.kind, experiment.id, decision.localDate);
       const { data: delivery, error: claimError } = await admin
@@ -105,7 +117,7 @@ export async function GET(req: NextRequest) {
         .select("id")
         .single();
       if (claimError?.code === "23505") {
-        skipped += 1;
+        countSkip("already_delivered");
         continue;
       }
       if (claimError || !delivery) throw claimError ?? new Error("delivery_claim_failed");
@@ -142,5 +154,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, sent, skipped, failed });
+  return NextResponse.json({ ok: true, sent, skipped, failed, skipReasons });
 }
