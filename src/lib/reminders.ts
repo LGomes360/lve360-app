@@ -3,6 +3,12 @@ import "server-only";
 import { Resend } from "resend";
 
 export type ReminderKind = "practice" | "recovery" | "weekly_review";
+export type ReminderSkipReason =
+  | "wrong_hour"
+  | "quiet_hours"
+  | "before_week"
+  | "review_complete"
+  | "completed_today";
 
 type LocalClock = {
   date: string;
@@ -47,20 +53,34 @@ export function addDays(date: string, amount: number): string {
   return value.toISOString().slice(0, 10);
 }
 
-export function decideReminder(input: ReminderDecisionInput): { kind: ReminderKind; localDate: string } | null {
+export function evaluateReminder(input: ReminderDecisionInput):
+  | { decision: { kind: ReminderKind; localDate: string }; reason: null }
+  | { decision: null; reason: ReminderSkipReason } {
   const clock = localClock(input.now, input.timezone);
-  if (clock.hour !== input.cueHour || isQuietHour(clock.hour, input.quietStartHour, input.quietEndHour)) return null;
+  if (clock.hour !== input.cueHour) return { decision: null, reason: "wrong_hour" };
+  if (isQuietHour(clock.hour, input.quietStartHour, input.quietEndHour)) {
+    return { decision: null, reason: "quiet_hours" };
+  }
 
   const weekEnd = addDays(input.weekStart, 6);
-  if (clock.date < input.weekStart) return null;
+  if (clock.date < input.weekStart) return { decision: null, reason: "before_week" };
   if (clock.date >= weekEnd) {
-    return input.reviewCompleted ? null : { kind: "weekly_review", localDate: clock.date };
+    return input.reviewCompleted
+      ? { decision: null, reason: "review_complete" }
+      : { decision: { kind: "weekly_review", localDate: clock.date }, reason: null };
   }
-  if (input.completedDates.includes(clock.date)) return null;
+  if (input.completedDates.includes(clock.date)) return { decision: null, reason: "completed_today" };
 
   const yesterday = addDays(clock.date, -1);
   const missedYesterday = yesterday >= input.weekStart && !input.completedDates.includes(yesterday);
-  return { kind: missedYesterday ? "recovery" : "practice", localDate: clock.date };
+  return {
+    decision: { kind: missedYesterday ? "recovery" : "practice", localDate: clock.date },
+    reason: null,
+  };
+}
+
+export function decideReminder(input: ReminderDecisionInput): { kind: ReminderKind; localDate: string } | null {
+  return evaluateReminder(input).decision;
 }
 
 export function reminderIdempotencyKey(kind: ReminderKind, experimentId: string, localDate: string): string {
