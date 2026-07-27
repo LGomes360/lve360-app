@@ -1,0 +1,93 @@
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
+
+import type {
+  JourneyCheckIn,
+  JourneyCompletion,
+  JourneyExperiment,
+  JourneyReview,
+} from "@/lib/journey";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
+
+async function requirePaidUser() {
+  const supabase = createRouteHandlerClient({ cookies });
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user?.id) return { error: "unauthorized" as const, user: null };
+
+  const { data: profile } = await getSupabaseAdmin()
+    .from("users")
+    .select("tier")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (profile?.tier !== "premium" && profile?.tier !== "trial") {
+    return { error: "premium_required" as const, user: null };
+  }
+  return { error: null, user };
+}
+
+export async function GET() {
+  try {
+    const auth = await requirePaidUser();
+    if (auth.error || !auth.user) {
+      return NextResponse.json(
+        { ok: false, error: auth.error ?? "unauthorized" },
+        { status: auth.error === "premium_required" ? 403 : 401 },
+      );
+    }
+
+    const admin = getSupabaseAdmin();
+    const [{ data: experiments, error: experimentError }, { data: reviews, error: reviewError }, { data: checkIns, error: checkInError }] = await Promise.all([
+      admin
+        .from("weekly_experiments")
+        .select("id, identity_direction, action_label, cue, frequency_per_week, minimum_version, status, week_start, activated_at, completed_at")
+        .eq("user_id", auth.user.id)
+        .order("week_start", { ascending: false })
+        .limit(52),
+      admin
+        .from("weekly_experiment_reviews")
+        .select("experiment_id, completion_count, target_count, difficulty, value_rating, decision, status, completed_at")
+        .eq("user_id", auth.user.id)
+        .order("completed_at", { ascending: false })
+        .limit(52),
+      admin
+        .from("logs")
+        .select("log_date, weight, sleep, energy")
+        .eq("user_id", auth.user.id)
+        .order("log_date", { ascending: true })
+        .limit(90),
+    ]);
+    if (experimentError || reviewError || checkInError) {
+      throw experimentError ?? reviewError ?? checkInError;
+    }
+
+    const experimentRows = (experiments ?? []) as JourneyExperiment[];
+    const experimentIds = experimentRows.map((item) => item.id);
+    let completions: JourneyCompletion[] = [];
+    if (experimentIds.length) {
+      const { data, error } = await admin
+        .from("daily_practice_completions")
+        .select("experiment_id, completion_date, completion_kind")
+        .eq("user_id", auth.user.id)
+        .in("experiment_id", experimentIds)
+        .order("completion_date", { ascending: true });
+      if (error) throw error;
+      completions = (data ?? []) as JourneyCompletion[];
+    }
+
+    return NextResponse.json({
+      ok: true,
+      experiments: experimentRows,
+      reviews: (reviews ?? []) as JourneyReview[],
+      completions,
+      check_ins: (checkIns ?? []) as JourneyCheckIn[],
+    });
+  } catch (error) {
+    console.error("[journey] load failed", error);
+    return NextResponse.json({ ok: false, error: "journey_unavailable" }, { status: 500 });
+  }
+}
