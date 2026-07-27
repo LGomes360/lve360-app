@@ -41,23 +41,46 @@ export async function GET(req: NextRequest) {
   let skipped = 0;
   let failed = 0;
   const skipReasons: Record<string, number> = {};
+  const failureReasons: Record<string, number> = {};
   const countSkip = (reason: string) => {
     skipped += 1;
     skipReasons[reason] = (skipReasons[reason] ?? 0) + 1;
   };
+  const countFailure = (reason: string) => {
+    failed += 1;
+    failureReasons[reason] = (failureReasons[reason] ?? 0) + 1;
+  };
 
   for (const experiment of (experiments ?? []) as ExperimentRow[]) {
     try {
-      const [{ data: preference }, { data: profile }] = await Promise.all([
+      const [
+        { data: preferences, error: preferenceError },
+        { data: profiles, error: profileError },
+      ] = await Promise.all([
         admin
           .from("user_preferences")
           .select("reminder_preference, timezone, cue_hour, quiet_start_hour, quiet_end_hour")
           .eq("user_id", experiment.user_id)
-          .maybeSingle(),
-        admin.from("users").select("email, tier").eq("id", experiment.user_id).maybeSingle(),
+          .limit(1),
+        admin.from("users").select("email, tier").eq("id", experiment.user_id).limit(1),
       ]);
+      if (preferenceError || profileError) {
+        countFailure(preferenceError ? "preference_lookup_failed" : "profile_lookup_failed");
+        console.error("[reminders] member context load failed", {
+          experimentId: experiment.id,
+          preferenceCode: preferenceError?.code,
+          profileCode: profileError?.code,
+        });
+        continue;
+      }
+      const preference = preferences?.[0];
+      const profile = profiles?.[0];
+      if (!preference) {
+        countSkip("missing_preference");
+        continue;
+      }
       if (
-        preference?.reminder_preference !== "email"
+        preference.reminder_preference !== "email"
         || !profile?.email
         || (profile.tier !== "premium" && profile.tier !== "trial")
       ) {
@@ -72,7 +95,10 @@ export async function GET(req: NextRequest) {
       }
 
       const weekEnd = addDays(experiment.week_start, 6);
-      const [{ data: completions }, { data: review }] = await Promise.all([
+      const [
+        { data: completions, error: completionsError },
+        { data: review, error: reviewError },
+      ] = await Promise.all([
         admin
           .from("daily_practice_completions")
           .select("completion_date")
@@ -87,6 +113,9 @@ export async function GET(req: NextRequest) {
           .eq("status", "completed")
           .maybeSingle(),
       ]);
+      if (completionsError || reviewError) {
+        throw completionsError ?? reviewError;
+      }
 
       const evaluation = evaluateReminder({
         now,
@@ -147,12 +176,12 @@ export async function GET(req: NextRequest) {
         event_key: `${key}:${result.status}`,
       });
       if (result.status === "sent") sent += 1;
-      else failed += 1;
+      else countFailure(`email_${result.reason}`);
     } catch (dispatchError) {
-      failed += 1;
+      countFailure("dispatch_error");
       console.error("[reminders] dispatch failed", { experimentId: experiment.id, dispatchError });
     }
   }
 
-  return NextResponse.json({ ok: true, sent, skipped, failed, skipReasons });
+  return NextResponse.json({ ok: true, sent, skipped, failed, skipReasons, failureReasons });
 }

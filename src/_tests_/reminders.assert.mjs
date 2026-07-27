@@ -12,6 +12,9 @@ assert.match(cron, /authorization.*Bearer/si, "Cron route must require CRON_SECR
 assert.match(cron, /reminderIdempotencyKey/, "Cron route must deduplicate reminder sends");
 assert.match(cron, /weekly_review/, "Cron route must support the exact review path");
 assert.match(cron, /skipReasons/, "Cron route must report non-sensitive skip reasons");
+assert.match(cron, /failureReasons/, "Cron route must distinguish lookup failures from opt-outs");
+assert.match(cron, /preference_lookup_failed/, "Preference query failures must not be treated as opt-outs");
+assert.match(cron, /user_preferences[\s\S]*limit\(1\)/, "Preference lookup must use a bounded collection result");
 assert.match(reminders, /evaluateReminder/, "Reminder decisions must expose a testable reason");
 assert.match(reminders, /Missing a day is information, not failure/, "Recovery language must be nonjudgmental");
 assert.match(reminders, /isQuietHour/, "Dispatcher must respect quiet hours");
