@@ -6,6 +6,7 @@ export const fetchCache = "force-no-store"; // disable caching
 
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { authorizeStackPayload } from "@/lib/serverEntitlements";
 
 // Wait briefly for the submission row (webhook lag)
 async function waitForSubmissionByTally(
@@ -70,7 +71,7 @@ export async function GET(req: NextRequest) {
     const { data: stack, error } = await supabaseAdmin
       .from("stacks")
       .select(
-        "id, submission_id, user_id, user_email, safety_status, sections, tokens_used, prompt_tokens, completion_tokens, total_monthly_cost"
+        "id, submission_id, user_id, safety_status, summary, sections"
       )
       .eq("submission_id", submissionId)
       .maybeSingle();
@@ -94,6 +95,9 @@ export async function GET(req: NextRequest) {
       return res;
     }
 
+    const authorization = await authorizeStackPayload(stack);
+    if (!authorization.ok) return authorization.response;
+
     // Optionally count items
     let itemsCount = 0;
     try {
@@ -106,8 +110,15 @@ export async function GET(req: NextRequest) {
       // ignore count failure
     }
 
+    const publicStack = {
+      id: stack.id,
+      submission_id: stack.submission_id,
+      safety_status: stack.safety_status,
+      summary: stack.summary,
+      sections: stack.sections,
+    };
     const res = NextResponse.json(
-      { ok: true, exists: true, submission_id: submissionId, stack, itemsCount },
+      { ok: true, exists: true, submission_id: submissionId, stack: publicStack, itemsCount },
       { status: 200 }
     );
     res.headers.set("Cache-Control", "no-store, max-age=0");

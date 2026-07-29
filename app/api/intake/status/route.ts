@@ -2,11 +2,15 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { requirePaidApi } from "@/lib/serverEntitlements";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
 export async function GET(req: Request) {
+  const entitlement = await requirePaidApi();
+  if (!entitlement.ok) return entitlement.response;
+
   const supabase = createRouteHandlerClient({ cookies });
   const url = new URL(req.url);
 

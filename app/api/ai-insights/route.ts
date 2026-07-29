@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { OpenAI } from "openai";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { requirePaidApi } from "@/lib/serverEntitlements";
 
 // If you already have a helper in src/lib/openai.ts, you can import it instead.
 // import { openai } from "@/lib/openai";
@@ -17,6 +18,9 @@ function pct(numerator: number, denominator: number) {
 }
 
 export async function POST() {
+  const entitlement = await requirePaidApi();
+  if (!entitlement.ok) return entitlement.response;
+
   const cookieStore = cookies();
   const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
   const admin = getSupabaseAdmin();

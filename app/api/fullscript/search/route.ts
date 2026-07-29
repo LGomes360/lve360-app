@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { requirePaidApi } from "@/lib/serverEntitlements";
 
 // --- Env ---
 const FULLSCRIPT_BASE = process.env.FULLSCRIPT_BASE_URL || "https://api.fullscript.com";
@@ -59,6 +60,9 @@ async function fullscriptSearch(q: string) {
 
 export async function GET(req: Request) {
   try {
+    const entitlement = await requirePaidApi();
+    if (!entitlement.ok) return entitlement.response;
+
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") || "").trim();
     if (!q) return NextResponse.json({ ok: true, items: [] });

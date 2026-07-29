@@ -1,9 +1,16 @@
 // app/api/stacks/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { requirePaidApi } from "@/lib/serverEntitlements";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET() {
   try {
+    const entitlement = await requirePaidApi();
+    if (!entitlement.ok) return entitlement.response;
+
     const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
     if (!supabaseUrl || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
       console.error("[API] Supabase env vars missing");
@@ -12,7 +19,8 @@ export async function GET() {
 
     const { data, error } = await supabaseAdmin
       .from("stacks")
-      .select("*")
+      .select("id, submission_id, created_at, safety_status, summary, sections")
+      .eq("user_id", entitlement.user.id)
       .order("created_at", { ascending: false })
       .limit(50);
 

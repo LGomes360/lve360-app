@@ -17,6 +17,7 @@ import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generateStackForSubmission } from "@/lib/generateStack";
 import { sendGeneratedBlueprintEmail, type ReportEmailResult } from "@/lib/reportEmail";
+import { getRequestEntitlement, isPaidTier } from "@/lib/serverEntitlements";
 
 // Ensure long-running LLM work won’t time out on Vercel
 export const dynamic = "force-dynamic";
@@ -26,7 +27,7 @@ export const fetchCache = "force-no-store";
 export const revalidate = 0;
 
 // ---- local types ------------------------------------------------------------
-type Tier = "free" | "premium" | "unknown";
+type Tier = "free" | "trial" | "premium" | "unknown";
 type Mode = "free" | "premium";
 
 interface SubmissionRow {
@@ -303,9 +304,18 @@ export async function POST(req: NextRequest) {
     let tier: Tier = "free";
     if (submission.user_id) {
       const user = await fetchUserTierById(submission.user_id);
-      tier = user?.tier === "premium" ? "premium" : "free";
+      tier = user?.tier === "premium" || user?.tier === "trial" ? user.tier : "free";
     }
-    const mode: Mode = tier === "premium" ? "premium" : "free";
+    if (isPaidTier(tier)) {
+      const entitlement = await getRequestEntitlement();
+      if (!entitlement.user) {
+        return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+      }
+      if (!entitlement.paid || entitlement.user.id !== submission.user_id) {
+        return NextResponse.json({ ok: false, error: "premium_required" }, { status: 403 });
+      }
+    }
+    const mode: Mode = isPaidTier(tier) ? "premium" : "free";
 
     // Generate & persist (single source of truth in the generator)
     // Hint: cap Free stacks; Premium uncapped (or higher cap).

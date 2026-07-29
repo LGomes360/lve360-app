@@ -10,6 +10,10 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 export async function GET() {
   try {
+    if (process.env.NODE_ENV === "production") {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
+
     const supabase = createRouteHandlerClient({ cookies });
     const { data: { user }, error: authErr } = await supabase.auth.getUser();
 

@@ -17,6 +17,10 @@ const DEFAULT_KEYS = [
 ];
 
 export async function GET(req: Request) {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
   const url = new URL(req.url);
   const showAll = url.searchParams.get('all') === '1';
 

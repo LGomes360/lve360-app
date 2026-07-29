@@ -28,14 +28,18 @@ function Inner() {
         });
         const json = await res.json();
 
+        if (res.status === 401) {
+          setMsg("Almost done. Please confirm your login...");
+          router.replace(`/login?next=${encodeURIComponent(premiumDestination)}`);
+          return;
+        }
+
         if (!json?.ok) {
           setMsg("We couldn’t verify your subscription. Taking you back…");
           setTimeout(() => router.replace("/upgrade"), 1000);
           return;
         }
 
-        // Data we’ll use for polling when cookie is late
-        const targetUserId: string | null = json.user_id ?? null;
         const premium: boolean = !!json.premium;
 
         // 2) Quick cookie check: can we read tier for *current* session?
@@ -47,16 +51,15 @@ function Inner() {
           return;
         }
 
-        // 3) If server session exists but still not premium (replication lag),
-        //    poll /api/users/tier for the *target* userId for a few seconds.
-        if (!premium && targetUserId) {
+        // 3) If the webhook is still settling, poll only the signed-in account.
+        if (!premium) {
           setMsg("Finalizing your Premium access…");
           const deadline = Date.now() + 6000; // up to 6s
           let isPremium = false;
 
           while (Date.now() < deadline) {
             // use explicit userId so we don't depend on cookie yet
-            const r = await fetch(`/api/users/tier?userId=${targetUserId}`, { cache: "no-store" });
+            const r = await fetch("/api/users/tier", { cache: "no-store" });
             const j = await r.json().catch(() => null);
             if (j?.tier === "premium") {
               isPremium = true;

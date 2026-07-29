@@ -3,10 +3,10 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
-import { callOpenAI } from "@/lib/openai";
-import { resolvedModels, askAny } from "@/lib/models";
 
-async function pingModel(model: string) {
+type CallOpenAI = typeof import("@/lib/openai").callOpenAI;
+
+async function pingModel(model: string, callOpenAI: CallOpenAI) {
   try {
     // Single-string input works for both families via our wrapper.
     const res = await callOpenAI(model, "Reply exactly: ok", {
@@ -37,15 +37,23 @@ async function pingModel(model: string) {
 }
 
 export async function GET() {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
+  const [{ callOpenAI }, { resolvedModels }] = await Promise.all([
+    import("@/lib/openai"),
+    import("@/lib/models"),
+  ]);
   const key_present = Boolean(process.env.OPENAI_API_KEY);
   const resolved = resolvedModels();
 
   // Try 5* first, then 4o fallbacks — but report each explicitly.
   const [mini, main, fallbackMini, fallbackMain] = await Promise.all([
-    pingModel(resolved.MINI),
-    pingModel(resolved.MAIN),
-    pingModel(resolved.FALLBACK_MINI),
-    pingModel(resolved.FALLBACK_MAIN),
+    pingModel(resolved.MINI, callOpenAI),
+    pingModel(resolved.MAIN, callOpenAI),
+    pingModel(resolved.FALLBACK_MINI, callOpenAI),
+    pingModel(resolved.FALLBACK_MAIN, callOpenAI),
   ]);
 
   const ok = (mini.ok || main.ok || fallbackMini.ok || fallbackMain.ok) && key_present;

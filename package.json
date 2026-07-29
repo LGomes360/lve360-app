@@ -14,6 +14,7 @@
     "qa:intake": "node src/_tests_/intakeClarity.assert.mjs",
     "qa:reminders": "node src/_tests_/reminders.assert.mjs",
     "qa:journey": "node src/_tests_/journey.assert.mjs",
+    "qa:gating": "node src/_tests_/premiumGating.assert.mjs",
     "qa:all": "npm run qa:env && npm run qa:build"
   },
   "dependencies": {

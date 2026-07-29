@@ -3,9 +3,13 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { requirePaidApi } from "@/lib/serverEntitlements";
 
 // Upsert today's intake event for (user, item)
 export async function POST(req: Request) {
+  const entitlement = await requirePaidApi();
+  if (!entitlement.ok) return entitlement.response;
+
   const cookieStore = cookies();
   const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
   const admin = getSupabaseAdmin();
