@@ -3,6 +3,11 @@ import type { NextRequest } from "next/server";
 import Stripe from "stripe";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
+import {
+  isMembershipPlan,
+  MEMBERSHIP_PLANS,
+  validateStripePrice,
+} from "@/lib/stripePlanCatalog";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -25,7 +30,7 @@ export async function POST(req: NextRequest) {
     const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
 
     const { plan } = await req.json().catch(() => ({}));
-    if (!plan || !["monthly", "annual"].includes(plan)) {
+    if (!isMembershipPlan(plan)) {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
     }
 
@@ -37,10 +42,26 @@ export async function POST(req: NextRequest) {
     }
 
     const priceId = plan === "monthly" ? priceMonthly : priceAnnual;
+    const configuredPrice = await stripe.prices.retrieve(priceId);
+    const priceFailures = validateStripePrice(plan, configuredPrice);
+
+    if (priceFailures.length > 0) {
+      console.error("[checkout] configured Stripe price does not match membership plan", {
+        plan,
+        price_id: priceId,
+        expected: MEMBERSHIP_PLANS[plan].label,
+        failures: priceFailures,
+      });
+      return NextResponse.json(
+        { error: "Checkout is temporarily unavailable. Please contact support." },
+        { status: 503 }
+      );
+    }
 
     console.log("[checkout] creating session", {
       user_id: user.id,
       plan,
+      price_id: priceId,
     });
 
     const session = await stripe.checkout.sessions.create({
