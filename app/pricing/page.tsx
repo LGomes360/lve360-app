@@ -119,7 +119,12 @@ export default function Pricing() {
         </div>
         <div className="mt-9 rounded-2xl bg-white/10 p-5 text-sm leading-6 text-slate-200">
           <p><strong className="text-white">Your health information stays out of checkout.</strong> Stripe receives the account and billing details needed to process payment. Your supplement, medication, and health-profile answers are not sent to Stripe.</p>
-          <p className="mt-3">You can cancel from <strong className="text-white">Settings &gt; Manage Billing</strong>. Read our <Link href="/privacy" className="font-semibold text-teal-300 underline decoration-teal-300/50 underline-offset-4">Privacy Policy</Link>.</p>
+          <p className="mt-3">
+            You can cancel from <strong className="text-white">Settings &gt; Manage Billing</strong>. Before joining,
+            review our <Link href="/terms" className="font-semibold text-teal-300 underline decoration-teal-300/50 underline-offset-4">Terms</Link>,{" "}
+            <Link href="/privacy" className="font-semibold text-teal-300 underline decoration-teal-300/50 underline-offset-4">Privacy Policy</Link>, and{" "}
+            <Link href="/medical-disclaimer" className="font-semibold text-teal-300 underline decoration-teal-300/50 underline-offset-4">Medical Disclaimer</Link>.
+          </p>
         </div>
       </section>
 

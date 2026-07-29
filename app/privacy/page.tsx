@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "How LVE360 collects, uses, stores, exports, and deletes account and wellness information.",
 };
 
-const updated = "July 26, 2026";
+const updated = "July 29, 2026";
 
 export default function PrivacyPage() {
   return (
@@ -27,7 +27,8 @@ export default function PrivacyPage() {
             <li>Intake answers about your goals, routines, supplements, medications, and relevant health context.</li>
             <li>Your generated Blueprint, supplement stack, weekly practices, goals, check-ins, and review history.</li>
             <li>Membership and transaction references. Stripe processes your payment card details.</li>
-            <li>Basic technical and product-use information used for security, delivery, and product improvement.</li>
+            <li>Messages and support information you choose to send to us.</li>
+            <li>Basic device, browser, referral, security, and product-use information used for delivery and improvement.</li>
           </ul>
         </PolicySection>
 
@@ -51,6 +52,19 @@ export default function PrivacyPage() {
             and email delivery providers for reports and account communications. They receive information only
             as needed to provide their services to LVE360.
           </p>
+          <p>
+            LVE360 does not sell your health information or use it for targeted advertising. We may disclose
+            information when required by law, to protect users or the service, or as part of a business transaction
+            subject to appropriate safeguards and notice.
+          </p>
+        </PolicySection>
+
+        <PolicySection title="Generation and analytics">
+          <p>
+            Information needed to generate or refresh your Blueprint may be processed by supported generation
+            providers. Product analytics are designed to record events such as whether a flow started or completed,
+            not the names of your supplements, medications, conditions, or other health answers.
+          </p>
         </PolicySection>
 
         <PolicySection title="Retention and deletion">
@@ -59,6 +73,10 @@ export default function PrivacyPage() {
             a copy or permanently delete your account from Settings. Account deletion also cancels an active LVE360
             subscription. Limited records may be retained when required for fraud prevention, security, tax,
             accounting, dispute resolution, or other legal obligations.
+          </p>
+          <p>
+            Backup copies and provider records may take additional time to expire after a deletion request. We keep
+            information only as long as reasonably needed for the purposes described here.
           </p>
         </PolicySection>
 
@@ -69,6 +87,10 @@ export default function PrivacyPage() {
             <li>Permanently delete your account after explicit email confirmation.</li>
             <li>Ask us to correct a report or help with a privacy request.</li>
           </ul>
+          <p>
+            Depending on where you live, applicable law may provide additional access, correction, deletion,
+            portability, or appeal rights. We may need to verify your identity before completing a request.
+          </p>
         </PolicySection>
 
         <PolicySection title="Security and children">
@@ -78,16 +100,28 @@ export default function PrivacyPage() {
           </p>
         </PolicySection>
 
+        <PolicySection title="International processing and policy changes">
+          <p>
+            LVE360 and its service providers may process information in the United States and other locations where
+            they operate. We may update this policy as the product or legal requirements change. The revised date
+            will appear at the top, and we will provide additional notice when required.
+          </p>
+        </PolicySection>
+
         <PolicySection title="Contact us">
           <p>
             Email <a className="font-semibold text-[#047F6D] underline" href="mailto:support@lve360.com">support@lve360.com</a> for
             privacy questions, access requests, corrections, or deletion help.
           </p>
+          <p>
+            Also review the <Link className="font-semibold text-[#047F6D] underline" href="/terms">Terms of Use</Link> and{" "}
+            <Link className="font-semibold text-[#047F6D] underline" href="/medical-disclaimer">Medical Disclaimer</Link>.
+          </p>
         </PolicySection>
 
         <div className="mt-10 border-t border-slate-200 pt-6">
-          <Link href="/settings" className="font-semibold text-[#047F6D] hover:underline">
-            Return to Settings
+          <Link href="/" className="font-semibold text-[#047F6D] hover:underline">
+            Return to LVE360
           </Link>
         </div>
       </article>

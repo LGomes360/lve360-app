@@ -1,6 +1,7 @@
 "use client";
 
 import React, { Suspense, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { track } from "@vercel/analytics/react";
@@ -244,6 +245,12 @@ function Inner() {
 
         <p className="mt-4 text-sm text-gray-500">Secure checkout through Stripe. Cancel anytime from Settings &gt; Manage Billing.</p>
         <p className="mt-2 text-xs leading-5 text-gray-500">Stripe receives your account email and billing details, not your supplement, medication, or health-profile answers.</p>
+        <p className="mt-2 text-xs leading-5 text-gray-500">
+          By continuing to checkout, you agree to the{" "}
+          <Link href="/terms" className="font-semibold text-indigo-700 underline">Terms</Link> and acknowledge the{" "}
+          <Link href="/privacy" className="font-semibold text-indigo-700 underline">Privacy Policy</Link> and{" "}
+          <Link href="/medical-disclaimer" className="font-semibold text-indigo-700 underline">Medical Disclaimer</Link>.
+        </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-10 text-left">
           {[

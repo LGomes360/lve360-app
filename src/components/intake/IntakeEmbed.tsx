@@ -93,6 +93,14 @@ export function IntakePrivacyNotice() {
         <Link className="font-semibold text-teal-700 underline underline-offset-2" href="/privacy">
           Privacy Policy
         </Link>
+        ,{" "}
+        <Link className="font-semibold text-teal-700 underline underline-offset-2" href="/terms">
+          Terms
+        </Link>
+        , and{" "}
+        <Link className="font-semibold text-teal-700 underline underline-offset-2" href="/medical-disclaimer">
+          Medical Disclaimer
+        </Link>
         .
       </p>
     </div>
