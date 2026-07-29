@@ -18,8 +18,8 @@ type SendReportEmailInput = {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function blueprintEmailIdempotencyKey(submissionId: string): string {
-  return `blueprint-email-${submissionId}`;
+export function blueprintEmailIdempotencyKey(submissionId: string, stackId: string): string {
+  return `blueprint-email-${submissionId}-${stackId}`;
 }
 
 function escapeHtml(value: string): string {
@@ -84,7 +84,7 @@ export async function sendGeneratedBlueprintEmail(input: SendReportEmailInput): 
     const pdf = await renderReportPdf(report.canonicalMarkdown, REPORT_DISCLAIMER_TEXT);
     const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://app.lve360.com").replace(/\/$/, "");
     const reportUrl = `${appUrl}/results?submission_id=${encodeURIComponent(input.submissionId)}`;
-    const idempotencyKey = blueprintEmailIdempotencyKey(input.submissionId);
+    const idempotencyKey = blueprintEmailIdempotencyKey(input.submissionId, input.stackId);
     const resend = new Resend(apiKey);
     console.info("[report-email] send attempt", {
       submissionId: input.submissionId,
