@@ -38,7 +38,7 @@ function markdownFromStack(stack: { sections: unknown; summary: string | null })
 export async function resolveBlueprintActionPointer(pointer: HandoffPointer) {
   const { data: stack, error } = await getSupabaseAdmin()
     .from("stacks")
-    .select("id, sections, summary")
+    .select("id, user_id, sections, summary")
     .eq("id", pointer.stackId)
     .maybeSingle();
 
@@ -47,7 +47,7 @@ export async function resolveBlueprintActionPointer(pointer: HandoffPointer) {
 
   const report = parseBlueprintReport(markdownFromStack(stack));
   const selected = buildBlueprintActionCandidates(report).find((candidate) => candidate.id === pointer.actionId) ?? null;
-  return selected ? { pointer, selected } : null;
+  return selected ? { pointer, selected, stack } : null;
 }
 
 export async function resolveBlueprintActionFromRequest(req: NextRequest) {

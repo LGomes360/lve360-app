@@ -56,11 +56,23 @@ interface FallbackResult {
 // (When you update the generator signature in A2, this cast will still be fine.)
 async function callGenerator(
   submissionId: string,
-  options: { mode: Mode; maxItems?: number }
+  options: {
+    mode: Mode;
+    maxItems?: number;
+    inputSnapshotHash?: string;
+    generationReason?: string;
+    supersedesStackId?: string | null;
+  }
 ): Promise<any> {
   const fn = generateStackForSubmission as unknown as (
     id: string,
-    opts?: { mode?: Mode; maxItems?: number }
+    opts?: {
+      mode?: Mode;
+      maxItems?: number;
+      inputSnapshotHash?: string;
+      generationReason?: string;
+      supersedesStackId?: string | null;
+    }
   ) => Promise<any>;
   return fn(submissionId, options);
 }
@@ -326,6 +338,7 @@ try {
     callGenerator(submissionId, {
       mode,
       maxItems: mode === "free" ? 12 : undefined,
+      generationReason: generationSource === "blueprint-refresh" ? "member-refresh" : "initial",
     }),
     HARD_TIMEOUT_MS
   );

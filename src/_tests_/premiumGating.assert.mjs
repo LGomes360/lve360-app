@@ -43,6 +43,8 @@ const paidApiRoutes = [
   "app/api/goals/upsert/route.ts",
   "app/api/stacks/route.ts",
   "app/api/tally-last/route.ts",
+  "app/api/blueprints/[stackId]/supplements/route.ts",
+  "app/api/blueprints/[stackId]/refresh/route.ts",
 ];
 
 for (const path of paidApiRoutes) {
