@@ -86,6 +86,9 @@ export default function RootLayout({ children }) {
               <Link href="/privacy" className="hover:text-purple-600 transition-colors">
                 Privacy
               </Link>
+              <Link href="/medical-disclaimer" className="hover:text-purple-600 transition-colors">
+                Medical Disclaimer
+              </Link>
               <Link href="/contact" className="hover:text-purple-600 transition-colors">
                 Contact
               </Link>
