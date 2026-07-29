@@ -15,6 +15,7 @@
     "qa:reminders": "node src/_tests_/reminders.assert.mjs",
     "qa:journey": "node src/_tests_/journey.assert.mjs",
     "qa:gating": "node src/_tests_/premiumGating.assert.mjs",
+    "qa:stripe-pricing": "node src/_tests_/stripePricing.assert.mjs",
     "qa:all": "npm run qa:env && npm run qa:build"
   },
   "dependencies": {
