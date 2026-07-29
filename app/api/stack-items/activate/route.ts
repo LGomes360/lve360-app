@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { requirePaidApi } from "@/lib/serverEntitlements";
 
 export async function POST(req: Request) {
+  const entitlement = await requirePaidApi();
+  if (!entitlement.ok) return entitlement.response;
+
   const supabase = createRouteHandlerClient({ cookies });
   const { data: { user } } = await supabase.auth.getUser();
   if (!user?.id) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });

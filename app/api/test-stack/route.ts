@@ -9,6 +9,10 @@ import { supabaseAdmin } from "@/lib/supabase";
  */
 
 export async function POST(req: NextRequest) {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
   try {
     const body = await req.json().catch(() => ({}));
     const submissionId = (body.submissionId ?? body.submission_id ?? "").toString().trim();

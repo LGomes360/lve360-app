@@ -74,7 +74,7 @@ function Inner() {
         const premiumDestination = action ? "/onboarding" : "/today";
 
         console.log("[/upgrade] start check");
-        let res = await fetch("/api/users/tier", { cache: "no-store" });
+        const res = await fetch("/api/users/tier", { cache: "no-store" });
         console.log("[/upgrade] tier status:", res.status);
 
         if (res.status === 401) {
@@ -82,18 +82,6 @@ function Inner() {
           const next = requestedPlan ? `/upgrade?plan=${requestedPlan}` : "/upgrade";
           router.replace(`/login?next=${encodeURIComponent(next)}`);
           return;
-        }
-
-        // If your /api/users/tier sometimes insists on userId, try to get it
-        if (res.status === 400) {
-          console.log("[/upgrade] 400 (tier) → fetch /api/user for id fallback");
-          const who = await fetch("/api/user", { cache: "no-store" })
-            .then(r => (r.ok ? r.json() : null))
-            .catch(() => null);
-          if (who?.id) {
-            res = await fetch(`/api/users/tier?userId=${encodeURIComponent(who.id)}`, { cache: "no-store" });
-            console.log("[/upgrade] retried tier with userId, status:", res.status);
-          }
         }
 
         let data: any = null;
@@ -104,7 +92,7 @@ function Inner() {
         console.log("[/upgrade] current tier:", t);
         setTier(t);
 
-        if (t === "premium") {
+        if (t === "premium" || t === "trial") {
           setBanner(action ? "Your first-week action is ready. Opening onboarding..." : "Welcome back! Redirecting to your dashboard...");
           console.log("[/upgrade] premium destination", premiumDestination);
           setTimeout(() => router.replace(premiumDestination), 400);
@@ -125,18 +113,14 @@ function Inner() {
           const deadline = Date.now() + 9000; // up to 9s
           console.log("[/upgrade] polling for premium flip…");
           while (Date.now() < deadline) {
-            let rr = await fetch("/api/users/tier", { cache: "no-store" });
-            if (rr.status === 400) {
-              const who = await fetch("/api/user", { cache: "no-store" }).then(r => (r.ok ? r.json() : null)).catch(() => null);
-              if (who?.id) rr = await fetch(`/api/users/tier?userId=${encodeURIComponent(who.id)}`, { cache: "no-store" });
-            }
+            const rr = await fetch("/api/users/tier", { cache: "no-store" });
             if (rr.status === 401) {
               console.log("[/upgrade] lost session during poll → to login");
               router.replace("/login?next=/today");
               return;
             }
             const j = await rr.json().catch(() => null);
-            if (j?.tier === "premium") {
+            if (j?.tier === "premium" || j?.tier === "trial") {
               console.log("[/upgrade] premium flip destination", premiumDestination);
               setBanner(action ? "All set! Opening your first-week setup..." : "All set! Taking you to your dashboard...");
               setTimeout(() => router.replace(premiumDestination), 400);

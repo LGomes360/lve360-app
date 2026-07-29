@@ -9,9 +9,13 @@ import type { NextRequest } from "next/server";
 
 // Adjust this relative path if your central client is located elsewhere:
 import { supabaseAdmin } from "@/lib/supabase";
+import { requirePaidApi } from "@/lib/serverEntitlements";
 
 export async function GET(_req: NextRequest) {
   try {
+    const entitlement = await requirePaidApi();
+    if (!entitlement.ok) return entitlement.response;
+
     // Runtime env validation — return helpful JSON if missing
     const tallyUrl = process.env.TALLY_API_URL?.trim();
     if (tallyUrl) {
@@ -40,6 +44,7 @@ export async function GET(_req: NextRequest) {
       const { data, error } = await supabaseAdmin
         .from("submissions")
         .select("*")
+        .eq("user_id", entitlement.user.id)
         .order("created_at", { ascending: false })
         .limit(1);
 

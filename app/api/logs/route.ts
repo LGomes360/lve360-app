@@ -8,8 +8,12 @@ import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
+import { requirePaidApi } from "@/lib/serverEntitlements";
 
 export async function GET() {
+  const entitlement = await requirePaidApi();
+  if (!entitlement.ok) return entitlement.response;
+
   const supabase = createRouteHandlerClient({ cookies });
   const {
     data: { user },
@@ -38,6 +42,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const entitlement = await requirePaidApi();
+  if (!entitlement.ok) return entitlement.response;
+
   const supabase = createRouteHandlerClient({ cookies });
   const {
     data: { user },

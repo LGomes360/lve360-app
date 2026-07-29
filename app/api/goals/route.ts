@@ -1,19 +1,26 @@
 // app/api/goals/route.ts
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { requirePaidApi } from "@/lib/serverEntitlements";
 
 export const dynamic = "force-dynamic";
 
 type Body = {
-  userId: string;
+  userId?: string;
   goals?: string[];       // e.g. ["Weight Loss","Longevity"]
   custom_goal?: string;   // free text
 };
 
 export async function GET(req: Request) {
+  const entitlement = await requirePaidApi();
+  if (!entitlement.ok) return entitlement.response;
+
   const url = new URL(req.url);
-  const userId = url.searchParams.get("userId");
-  if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
+  const requestedUserId = url.searchParams.get("userId");
+  if (requestedUserId && requestedUserId !== entitlement.user.id) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  const userId = entitlement.user.id;
 
   const supabaseAdmin = getSupabaseAdmin();
   const { data, error } = await supabaseAdmin
@@ -27,12 +34,17 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const entitlement = await requirePaidApi();
+  if (!entitlement.ok) return entitlement.response;
+
   const body = (await req.json()) as Body;
-  if (!body?.userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
+  if (body?.userId && body.userId !== entitlement.user.id) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   const supabaseAdmin = getSupabaseAdmin();
   const payload = {
-    user_id: body.userId,
+    user_id: entitlement.user.id,
     goals: body.goals ?? [],
     custom_goal: body.custom_goal ?? null,
   };

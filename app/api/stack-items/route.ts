@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { isEligibleSupplementName, isMedicationOrHormoneName } from "@/lib/supplementEligibility";
+import { authorizeStackPayload } from "@/lib/serverEntitlements";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -42,6 +43,17 @@ export async function GET(req: NextRequest) {
       // Not an error: just no stack yet
       return NextResponse.json({ ok: true, items: [] }, { status: 200 });
     }
+
+    const { data: stack } = await supabaseAdmin
+      .from("stacks")
+      .select("id, user_id, sections")
+      .eq("id", stackId)
+      .maybeSingle();
+    if (!stack) {
+      return NextResponse.json({ ok: false, error: "stack_not_found" }, { status: 404 });
+    }
+    const authorization = await authorizeStackPayload(stack);
+    if (!authorization.ok) return authorization.response;
 
     const { data: items, error } = await supabaseAdmin
       .from("stacks_items")

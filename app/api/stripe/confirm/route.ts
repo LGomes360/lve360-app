@@ -5,6 +5,8 @@ export const revalidate = false;
 
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { cookies } from "next/headers";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { supabaseAdmin } from "@/lib/supabase";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-06-20" });
@@ -41,6 +43,14 @@ async function findUserIdByEmail(email: string | null | undefined) {
 // ---------- main ----------
 export async function GET(req: Request) {
   try {
+    const supabase = createRouteHandlerClient({ cookies });
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
+    if (!authUser?.id) {
+      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    }
+
     const url = new URL(req.url);
     const sessionId = url.searchParams.get("session_id");
     if (!sessionId) {
@@ -78,6 +88,14 @@ export async function GET(req: Request) {
 
     if (!targetUserId) {
       targetUserId = await findUserIdByEmail(customerEmail);
+    }
+
+    if (targetUserId !== authUser.id) {
+      console.warn("[stripe/confirm] session owner mismatch", {
+        authenticated_user_id: authUser.id,
+        resolved_user_id: targetUserId,
+      });
+      return NextResponse.json({ ok: false, error: "session_owner_mismatch" }, { status: 403 });
     }
 
     console.log("[stripe/confirm] session summary:", {

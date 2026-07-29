@@ -12,6 +12,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { renderReportPdf } from "@/lib/reportPdf";
 import { parseBlueprintReport } from "@/lib/blueprintReport";
 import { REPORT_DISCLAIMER_TEXT, stripReportFences } from "@/lib/reportDocument";
+import { authorizeStackPayload } from "@/lib/serverEntitlements";
 
 function isUUID(id: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
@@ -45,6 +46,9 @@ export async function GET(req: NextRequest) {
     if (!stackRow) {
       return NextResponse.json({ ok: false, error: "Stack not found" }, { status: 404 });
     }
+
+    const authorization = await authorizeStackPayload(stackRow);
+    if (!authorization.ok) return authorization.response;
 
     const content = stripReportFences(
       (stackRow?.sections?.markdown as string | undefined) ??

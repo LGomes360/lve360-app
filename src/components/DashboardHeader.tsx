@@ -22,6 +22,10 @@ export default function DashboardHeader({ tier = "free" }: Props) {
   const router = useRouter();
   const supabase = createClientComponentClient();
   const [menuOpen, setMenuOpen] = useState(false);
+  const paid = tier === "premium" || tier === "trial";
+  const navigationItems = paid
+    ? AUTHENTICATED_NAV_ITEMS
+    : AUTHENTICATED_NAV_ITEMS.filter((item) => item.href === "/blueprints" || item.href === "/settings");
 
   async function handleSignOut() {
     setMenuOpen(false);
@@ -34,7 +38,7 @@ export default function DashboardHeader({ tier = "free" }: Props) {
     <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/90 shadow-[0_2px_12px_rgba(0,0,0,0.04)] backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
         <Link
-          href="/today"
+          href={paid ? "/today" : "/blueprints"}
           className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] focus-visible:ring-offset-2"
           aria-label="LVE360 Today"
         >
@@ -50,13 +54,21 @@ export default function DashboardHeader({ tier = "free" }: Props) {
         </Link>
 
         <nav className="hidden items-center gap-1 text-sm font-semibold text-[#041B2D] md:flex" aria-label="Member navigation">
-          {AUTHENTICATED_NAV_ITEMS.map((item) => (
+          {navigationItems.map((item) => (
             <NavLink key={item.href} href={item.href} pathname={pathname}>
               {item.label}
             </NavLink>
           ))}
           <span className="mx-2 h-6 w-px bg-slate-200" aria-hidden="true" />
           <span className="sr-only">Current plan: {tier}</span>
+          {!paid ? (
+            <Link
+              href="/upgrade"
+              className="rounded-lg border border-[#6D36C9] px-3 py-2 text-[#6D36C9] transition hover:bg-purple-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6D36C9] focus-visible:ring-offset-2"
+            >
+              Join LVE360
+            </Link>
+          ) : null}
           <button
             type="button"
             onClick={handleSignOut}
@@ -90,7 +102,7 @@ export default function DashboardHeader({ tier = "free" }: Props) {
             className="border-t border-slate-200 bg-white md:hidden"
           >
             <nav className="mx-auto flex max-w-6xl flex-col gap-1 p-4 text-base font-semibold text-[#041B2D]" aria-label="Mobile member navigation">
-              {AUTHENTICATED_NAV_ITEMS.map((item) => (
+              {navigationItems.map((item) => (
                 <NavLink
                   key={item.href}
                   href={item.href}
@@ -101,6 +113,15 @@ export default function DashboardHeader({ tier = "free" }: Props) {
                   {item.label}
                 </NavLink>
               ))}
+              {!paid ? (
+                <Link
+                  href="/upgrade"
+                  onClick={() => setMenuOpen(false)}
+                  className="min-h-11 rounded-xl border border-[#6D36C9] px-4 py-3 text-[#6D36C9]"
+                >
+                  Join LVE360
+                </Link>
+              ) : null}
               <button
                 type="button"
                 onClick={handleSignOut}
