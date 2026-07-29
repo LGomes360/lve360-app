@@ -7,8 +7,8 @@ import { createServerClient } from '@supabase/ssr';
 // Re-export the lazy admin getter and compatibility client for existing callers.
 export { getSupabaseAdmin, supabaseAdmin } from './supabaseAdmin';
 
-export function supabaseServer() {
-  const cookieStore = cookies();
+export async function supabaseServer() {
+  const cookieStore = await cookies();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

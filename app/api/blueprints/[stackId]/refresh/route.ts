@@ -12,7 +12,7 @@ export const maxDuration = 300;
 export const fetchCache = "force-no-store";
 export const revalidate = 0;
 
-type RouteContext = { params: { stackId: string } };
+type RouteContext = { params: Promise<{ stackId: string }> };
 
 export async function POST(_req: Request, { params }: RouteContext) {
   const entitlement = await requirePaidApi();
@@ -22,10 +22,11 @@ export async function POST(_req: Request, { params }: RouteContext) {
   let submissionId: string | null = null;
 
   try {
+    const { stackId } = await params;
     const { data: selected, error: stackError } = await admin
       .from("stacks")
       .select("*")
-      .eq("id", params.stackId)
+      .eq("id", stackId)
       .eq("user_id", entitlement.user.id)
       .maybeSingle();
     if (stackError) throw stackError;
@@ -86,14 +87,14 @@ export async function POST(_req: Request, { params }: RouteContext) {
       generationReason: "member-refresh",
       supersedesStackId: latest?.id ?? selected.id,
     });
-    const stackId = typeof result?.raw?.stack_id === "string" ? result.raw.stack_id : null;
-    if (!stackId) throw new Error("refreshed_blueprint_not_persisted");
+    const refreshedStackId = typeof result?.raw?.stack_id === "string" ? result.raw.stack_id : null;
+    if (!refreshedStackId) throw new Error("refreshed_blueprint_not_persisted");
 
     if (typeof result?.markdown === "string" && result.markdown.trim()) {
       await sendGeneratedBlueprintEmail({
         to: submission.user_email,
         submissionId: submission.id,
-        stackId,
+        stackId: refreshedStackId,
         markdown: result.markdown,
         generationSource: "blueprint-refresh",
       });
@@ -105,7 +106,7 @@ export async function POST(_req: Request, { params }: RouteContext) {
       source: "blueprints",
     });
 
-    return NextResponse.json({ ok: true, stack_id: stackId, reused: false });
+    return NextResponse.json({ ok: true, stack_id: refreshedStackId, reused: false });
   } catch (error) {
     console.error("[blueprints/refresh] failed", {
       submissionId,
