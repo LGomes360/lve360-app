@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
         dest: src, // source label, e.g., "amazon" or "fullscript"
         url: dest, // final resolved URL
         user_agent: req.headers.get("user-agent"),
-        ip: req.headers.get("x-forwarded-for") || req.ip || null,
+        ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null,
         referrer: req.headers.get("referer"),
       });
     } catch (e) {

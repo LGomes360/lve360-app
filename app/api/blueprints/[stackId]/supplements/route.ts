@@ -12,13 +12,14 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type RouteContext = { params: { stackId: string } };
+type RouteContext = { params: Promise<{ stackId: string }> };
 
 export async function PUT(req: Request, { params }: RouteContext) {
   const entitlement = await requirePaidApi();
   if (!entitlement.ok) return entitlement.response;
 
   try {
+    const { stackId } = await params;
     const body = await req.json().catch(() => null) as { supplements?: unknown } | null;
     const supplements = normalizeMemberSupplements(body?.supplements);
     const admin = getSupabaseAdmin();
@@ -26,7 +27,7 @@ export async function PUT(req: Request, { params }: RouteContext) {
     const { data: stack, error: stackError } = await admin
       .from("stacks")
       .select("*")
-      .eq("id", params.stackId)
+      .eq("id", stackId)
       .eq("user_id", entitlement.user.id)
       .maybeSingle();
     if (stackError) throw stackError;

@@ -3,6 +3,7 @@ const path = require("path");
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  outputFileTracingRoot: __dirname,
   // IMPORTANT: do NOT set `output: 'export'`
   webpack: (config) => {
     config.resolve.alias["@"] = path.resolve(__dirname, "src");

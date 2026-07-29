@@ -14,7 +14,7 @@ import BlueprintWorkspaceClient from "./BlueprintWorkspaceClient";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type PageProps = { params: { stackId: string } };
+type PageProps = { params: Promise<{ stackId: string }> };
 
 function markdownFromStack(stack: { sections: unknown; summary: string | null }): string {
   if (stack.sections && typeof stack.sections === "object" && "markdown" in stack.sections) {
@@ -25,15 +25,16 @@ function markdownFromStack(stack: { sections: unknown; summary: string | null })
 }
 
 export default async function BlueprintPage({ params }: PageProps) {
+  const { stackId } = await params;
   const { user } = await requireTier(["premium", "trial"], {
-    next: `/blueprints/${params.stackId}`,
+    next: `/blueprints/${stackId}`,
   });
   const admin = getSupabaseAdmin();
 
   const { data: stack, error: stackError } = await admin
     .from("stacks")
     .select("*")
-    .eq("id", params.stackId)
+    .eq("id", stackId)
     .eq("user_id", user.id)
     .maybeSingle();
   if (stackError) throw stackError;
