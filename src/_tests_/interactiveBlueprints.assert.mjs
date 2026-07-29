@@ -47,6 +47,22 @@ const workspace = read("app/(app)/blueprints/[stackId]/BlueprintWorkspaceClient.
 assert.match(workspace, /Refresh Blueprint and safety review/, "Stale reports need one honest refresh action.");
 assert.match(workspace, /Mark an item stopped to preserve the history/, "Stopping a supplement must preserve its history.");
 assert.match(workspace, /Start this weekly practice/, "Lifestyle guidance must connect to the existing practice loop.");
+assert.match(workspace, /timeZone: "UTC"/, "Blueprint dates must render consistently during hydration.");
 assert.doesNotMatch(workspace, /\bNo safety issues detected\b/i, "Customer-facing copy must not make an absolute safety claim.");
+
+const blueprintLibrary = read("app/(app)/blueprints/BlueprintsClient.tsx");
+assert.match(blueprintLibrary, /timeZone: "UTC"/, "Blueprint library dates must render consistently during hydration.");
+
+const reportEmail = read("src/lib/reportEmail.ts");
+assert.match(
+  reportEmail,
+  /blueprintEmailIdempotencyKey\(submissionId: string, stackId: string\)/,
+  "Each immutable Blueprint version must have its own delivery idempotency key."
+);
+assert.match(
+  reportEmail,
+  /blueprint-email-\$\{submissionId\}-\$\{stackId\}/,
+  "Refresh delivery must not reuse the original Blueprint email key."
+);
 
 console.log("Interactive Blueprint assertions passed.");

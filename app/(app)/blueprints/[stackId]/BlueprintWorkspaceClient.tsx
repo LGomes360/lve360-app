@@ -608,7 +608,12 @@ function formatDate(value: string | null): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? "date unavailable"
-    : date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+    : date.toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      });
 }
 
 function messageForSupplementError(value: unknown): string {
