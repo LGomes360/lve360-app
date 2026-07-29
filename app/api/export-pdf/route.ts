@@ -1,5 +1,6 @@
 // app/api/export-pdf/route.ts
-// GET /api/export-pdf?submission_id=<UUID or Tally short id>
+// GET /api/export-pdf?stack_id=<Blueprint version UUID>
+// OR  /api/export-pdf?submission_id=<UUID or Tally short id>
 // OR  /api/export-pdf?tally_submission_id=<Tally short id>
 
 export const dynamic = "force-dynamic";
@@ -21,22 +22,25 @@ function isUUID(id: string) {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = req.nextUrl;
+    const explicitStack = searchParams.get("stack_id");
     const explicitTally = searchParams.get("tally_submission_id");
-    const raw = explicitTally ?? searchParams.get("submission_id");
+    const raw = explicitStack ?? explicitTally ?? searchParams.get("submission_id");
 
     if (!raw) {
       return NextResponse.json(
-        { ok: false, error: "Missing identifier (submission_id or tally_submission_id)" },
+        { ok: false, error: "Missing identifier (stack_id, submission_id, or tally_submission_id)" },
         { status: 400 }
       );
     }
 
-    const base = supabaseAdmin.from("stacks").select("*").limit(1);
-    const query = explicitTally != null
-      ? base.eq("tally_submission_id", explicitTally)
-      : isUUID(raw)
-        ? base.eq("submission_id", raw)
-        : base.eq("tally_submission_id", raw);
+    const base = supabaseAdmin.from("stacks").select("*");
+    const query = explicitStack != null
+      ? base.eq("id", explicitStack).limit(1)
+      : explicitTally != null
+        ? base.eq("tally_submission_id", explicitTally).order("created_at", { ascending: false }).limit(1)
+        : isUUID(raw)
+          ? base.eq("submission_id", raw).order("created_at", { ascending: false }).limit(1)
+          : base.eq("tally_submission_id", raw).order("created_at", { ascending: false }).limit(1);
     const { data: stackRow, error: stackErr } = await query.maybeSingle();
 
     if (stackErr) {

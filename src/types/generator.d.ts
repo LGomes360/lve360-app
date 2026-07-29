@@ -4,6 +4,10 @@ declare module "@/lib/generateStack" {
   export interface GenerateOptions {
     mode?: GenerateMode;
     maxItems?: number;
+    forceRegenerate?: boolean;
+    inputSnapshotHash?: string;
+    generationReason?: string;
+    supersedesStackId?: string | null;
   }
   // Ambient declaration so TS accepts the second argument for now.
   // We'll implement this signature in A2 inside generateStack.ts.

@@ -303,9 +303,12 @@ export function findMissingRepeatedTallyItems(
   submission: any,
   ledger: NormalizedCurrentStackLedgerItem[]
 ): string[] {
+  const engine = parseJson(submission?.engine_input_json) ?? {};
+  const hasMemberSupplementOverride = Array.isArray(engine?.member_current_supplements);
   const ledgerKeys = new Set(ledger.map((item) => `${item.kind}:${item.name.toLowerCase()}`));
   const missing = tallyFieldCollections(submission)
     .flatMap(({ fields, path }) => parseTallyCurrentStackFields(fields, path))
+    .filter((item) => !(hasMemberSupplementOverride && item.kind === "supplement"))
     .filter((item) => item.raw_labels.some((label) =>
       /^(?:medication|supplement|hormone)\s+(?:[2-6]|others?)(?:\s*\/.*)?$/i.test(label) || /^others?$/i.test(label)
     ))
@@ -356,9 +359,11 @@ export function buildNormalizedCurrentStackLedger(submission: any): NormalizedCu
   const engine = parseJson(submission?.engine_input_json) ?? {};
   const payload = parseJson(submission?.payload_json) ?? {};
   const answers = parseJson(submission?.answers) ?? [];
+  const hasMemberSupplementOverride = Array.isArray(engine?.member_current_supplements);
 
   for (const { fields, path } of tallyFieldCollections(submission)) {
     for (const item of parseTallyCurrentStackFields(fields, path)) {
+      if (hasMemberSupplementOverride && item.kind === "supplement") continue;
       addValue(item.kind, item, item.source_paths[0], item.raw_labels[0]);
       const stored = ledger.get(`${item.kind}:${item.name.toLowerCase()}`);
       if (stored) {
@@ -371,6 +376,7 @@ export function buildNormalizedCurrentStackLedger(submission: any): NormalizedCu
   const directSources: Array<[CurrentStackKind, unknown, string, string]> = [
     ["medication", engine?.medications, "engine_input_json.medications", "medications"],
     ["medication", engine?.meds, "engine_input_json.meds", "meds"],
+    ["supplement", engine?.member_current_supplements?.filter((item: any) => item?.active !== false), "engine_input_json.member_current_supplements", "member_current_supplements"],
     ["supplement", engine?.current_supplements, "engine_input_json.current_supplements", "current_supplements"],
     ["supplement", engine?.supplements, "engine_input_json.supplements", "supplements"],
     ["hormone", engine?.hormones, "engine_input_json.hormones", "hormones"],
@@ -378,11 +384,16 @@ export function buildNormalizedCurrentStackLedger(submission: any): NormalizedCu
     ["supplement", submission?.supplements_text, "submissions.supplements", "supplements"],
     ["hormone", submission?.hormones_text, "submissions.hormones", "hormones"],
   ];
-  for (const [kind, value, path, label] of directSources) addValue(kind, value, path, label);
+  for (const [kind, value, path, label] of directSources) {
+    if (hasMemberSupplementOverride && kind === "supplement" && path !== "engine_input_json.member_current_supplements") continue;
+    addValue(kind, value, path, label);
+  }
   for (const [index, row] of (Array.isArray(submission?.medications) ? submission.medications : []).entries())
     addValue("medication", row, `submission_medications[${index}]`, "submission_medications");
-  for (const [index, row] of (Array.isArray(submission?.supplements) ? submission.supplements : []).entries())
-    addValue("supplement", row, `submission_supplements[${index}]`, "submission_supplements");
+  if (!hasMemberSupplementOverride) {
+    for (const [index, row] of (Array.isArray(submission?.supplements) ? submission.supplements : []).entries())
+      addValue("supplement", row, `submission_supplements[${index}]`, "submission_supplements");
+  }
   for (const [index, row] of (Array.isArray(submission?.hormones) ? submission.hormones : []).entries())
     addValue("hormone", row, `submission_hormones[${index}]`, "submission_hormones");
 
@@ -401,11 +412,15 @@ export function buildNormalizedCurrentStackLedger(submission: any): NormalizedCu
     if (isPreferenceFieldOrValue(fieldDescriptor)) return;
     const fieldKind = inferKind(fieldDescriptor);
     if (fieldKind && !DETAIL_LABEL_RE.test(fieldDescriptor)) {
-      for (const answerValue of fieldValues(object)) addValue(fieldKind, answerValue, path, String(rawLabel ?? rawKey ?? ""));
+      if (!(hasMemberSupplementOverride && fieldKind === "supplement")) {
+        for (const answerValue of fieldValues(object)) addValue(fieldKind, answerValue, path, String(rawLabel ?? rawKey ?? ""));
+      }
     }
     for (const [key, nested] of Object.entries(object)) {
       const kind = inferKind(key);
-      if (kind && !DETAIL_LABEL_RE.test(key)) addValue(kind, nested, `${path}.${key}`, key);
+      if (kind && !DETAIL_LABEL_RE.test(key) && !(hasMemberSupplementOverride && kind === "supplement")) {
+        addValue(kind, nested, `${path}.${key}`, key);
+      }
       scan(nested, `${path}.${key}`, seen, depth + 1);
     }
   };

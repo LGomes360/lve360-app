@@ -7,6 +7,7 @@ import {
   resolveBlueprintActionFromRequest,
   resolveBlueprintActionPointer,
 } from "@/lib/blueprintActionHandoff";
+import { authorizeStackPayload } from "@/lib/serverEntitlements";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -15,6 +16,10 @@ export const fetchCache = "force-no-store";
 export async function GET(req: NextRequest) {
   try {
     const resolved = await resolveBlueprintActionFromRequest(req);
+    if (resolved?.stack) {
+      const authorization = await authorizeStackPayload(resolved.stack);
+      if (!authorization.ok) return authorization.response;
+    }
     const selected = resolved?.selected ?? null;
     if (!selected || selected.kind !== "lifestyle") {
       const response = NextResponse.json({ ok: true, selected: null });
@@ -36,7 +41,12 @@ export async function POST(req: NextRequest) {
     }
 
     const pointer = { stackId: body.stack_id, actionId: body.action_id };
-    const selected = (await resolveBlueprintActionPointer(pointer))?.selected ?? null;
+    const resolved = await resolveBlueprintActionPointer(pointer);
+    if (resolved?.stack) {
+      const authorization = await authorizeStackPayload(resolved.stack);
+      if (!authorization.ok) return authorization.response;
+    }
+    const selected = resolved?.selected ?? null;
     if (!selected) return NextResponse.json({ ok: false, error: "action_not_found" }, { status: 404 });
     if (selected.kind !== "lifestyle") {
       return NextResponse.json({ ok: false, error: "action_requires_review" }, { status: 422 });

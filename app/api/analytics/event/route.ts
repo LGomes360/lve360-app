@@ -13,6 +13,9 @@ const CLIENT_EVENTS = new Set([
   "intake_page_viewed",
   "blueprint_viewed",
   "blueprint_action_selected",
+  "blueprint_version_selected",
+  "blueprint_input_change_started",
+  "blueprint_pdf_opened",
   "checkout_started",
 ]);
 

@@ -74,6 +74,8 @@ export async function GET(req: NextRequest) {
         "id, submission_id, user_id, safety_status, summary, sections"
       )
       .eq("submission_id", submissionId)
+      .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (error) {

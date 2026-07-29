@@ -34,6 +34,8 @@ export async function GET(req: NextRequest) {
           .from("stacks")
           .select("id")
           .eq("submission_id", resolvedSubmissionId)
+          .order("created_at", { ascending: false })
+          .limit(1)
           .maybeSingle();
         stackId = stk?.id ?? null;
       }

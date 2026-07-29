@@ -1,42 +1,32 @@
-// Canonical Blueprint library.
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+
+import { getUserAndTier } from "@/src/lib/getUserAndTier";
+
 import BlueprintsClient from "./BlueprintsClient";
 
-type StackRow = {
-  id: string;
-  submission_id: string | null;
-  tally_submission_id: string | null;
-  created_at: string | null;
-  safety_status: "safe" | "warning" | "error" | null;
-  summary: string | null;
-  sections: any | null;
-};
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function Page() {
-  // Server-side Supabase client (App Router)
-  const supabase = createServerComponentClient({ cookies });
-
-  // Require auth (if not logged in, send to /login)
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, tier } = await getUserAndTier();
   if (!user) redirect("/login");
 
-  // Fetch latest stack for this user (RLS must allow “own” rows)
-  const { data: stack, error } = await supabase
+  const supabase = createServerComponentClient({ cookies });
+  const { data: stacks, error } = await supabase
     .from("stacks")
-    .select(
-      "id, submission_id, tally_submission_id, created_at, safety_status, summary, sections"
-    )
+    .select("*")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<StackRow>();
+    .limit(25);
 
-  // Optional: log if there’s an error (won’t leak to client)
-  if (error) console.error("my-quiz stack fetch error:", error);
+  if (error) console.error("[blueprints] library lookup failed", error.message);
 
-  return <BlueprintsClient stack={stack ?? null} />;
+  return (
+    <BlueprintsClient
+      stacks={(stacks ?? []) as any}
+      paid={tier === "premium" || tier === "trial"}
+    />
+  );
 }

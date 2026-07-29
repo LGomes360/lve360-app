@@ -32,6 +32,7 @@ import {
   preferenceValuesFound,
   RECOMMENDABLE_SUPPLEMENT_CANDIDATES,
 } from "@/lib/supplementEligibility";
+import { blueprintInputSnapshotHash } from "@/lib/blueprintWorkspace";
 
 // Curated evidence index (JSON)
 // If this path differs in your repo, update the import below.
@@ -49,6 +50,9 @@ export interface GenerateOptions {
   mode?: GenerateMode;       // default inferred from submission
   maxItems?: number;         // hard cap (e.g., 3 for free) — only when provided
   forceRegenerate?: boolean; // kept for parity / future use
+  inputSnapshotHash?: string;
+  generationReason?: string;
+  supersedesStackId?: string | null;
 }
 
 export interface StackItem {
@@ -1655,6 +1659,9 @@ export async function generateStackForSubmission(arg: string | { submissionId: s
   const inferredPremium = Boolean((sub as any)?.is_premium) || Boolean((sub as any)?.user?.is_premium) || ((sub as any)?.plan === "premium");
   const mode: GenerateMode = modeFromOpts ?? (inferredPremium ? "premium" : "free");
   const cap = requestedCap; // only cap when provided
+  const inputSnapshotHash = options?.inputSnapshotHash ?? blueprintInputSnapshotHash(sub);
+  const generationReason = options?.generationReason ?? "initial";
+  const supersedesStackId = options?.supersedesStackId ?? null;
 
   const user_id = extractUserId(sub);
   const userEmail = (sub as any)?.user?.email ?? (sub as any)?.user_email ?? (sub as any)?.email ?? null;
@@ -2542,10 +2549,11 @@ const safetyInput = {
   // ----------------------------------------------------------------------------
   let parentRows: any[] = [];
   let stackId: string | null = null;
+  let createdNewStack = false;
   try {
     const { data, error } = await supabaseAdmin
       .from("stacks")
-      .upsert(
+      .insert(
         {
           submission_id: id,
           user_id,
@@ -2560,18 +2568,80 @@ const safetyInput = {
           sections: { markdown: md, generated_at: new Date().toISOString(), mode, item_cap: cap ?? null },
           notes: null,
           total_monthly_cost: asArray(withEvidence).reduce((acc, it) => acc + (it?.cost_estimate ?? 0), 0),
-        },
-        { onConflict: "submission_id" }
+          input_snapshot_hash: inputSnapshotHash,
+          generation_reason: generationReason,
+          supersedes_stack_id: supersedesStackId,
+        }
       )
       .select();
-    if (error) console.error("Supabase upsert error:", error);
-    if (data && data.length > 0 && data[0]?.id) { parentRows = data; stackId = String(data[0].id); }
-  } catch (err) { console.error("Stacks upsert exception:", err); }
+    const versionColumnsMissing = Boolean(
+      error &&
+      (error.code === "PGRST204" || error.code === "42703") &&
+      /input_snapshot_hash|generation_reason|supersedes_stack_id/i.test(error.message ?? "")
+    );
+    if (versionColumnsMissing) {
+      const { data: legacyData, error: legacyError } = await supabaseAdmin
+        .from("stacks")
+        .upsert(
+          {
+            submission_id: id,
+            user_id,
+            user_email: userEmail,
+            tally_submission_id: (sub as any)?.tally_submission_id ?? null,
+            version: modelUsed,
+            tokens_used: (promptTokens ?? 0) + (completionTokens ?? 0),
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+            safety_status: (ok.headingsValid && ok.blueprintValid && ok.blueprintMixValid && ok.citationsValid && ok.sectionBodiesValid && ok.currentStackParityValid && ok.currentStackNamesValid) ? "safe" : "warning",
+            summary: md,
+            sections: { markdown: md, generated_at: new Date().toISOString(), mode, item_cap: cap ?? null },
+            notes: null,
+            total_monthly_cost: asArray(withEvidence).reduce((acc, it) => acc + (it?.cost_estimate ?? 0), 0),
+          },
+          { onConflict: "submission_id" }
+        )
+        .select();
+      if (legacyError) throw legacyError;
+      if (legacyData?.[0]?.id) {
+        parentRows = legacyData;
+        stackId = String(legacyData[0].id);
+        createdNewStack = true;
+      }
+    } else if (error?.code === "23505") {
+      const { data: existing, error: existingError } = await supabaseAdmin
+        .from("stacks")
+        .select("*")
+        .eq("submission_id", id)
+        .eq("input_snapshot_hash", inputSnapshotHash)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existingError) throw existingError;
+      if (existing?.id) {
+        parentRows = [existing];
+        stackId = String(existing.id);
+        const existingMarkdown = existing?.sections?.markdown ?? existing?.summary;
+        if (typeof existingMarkdown === "string" && existingMarkdown.trim()) {
+          md = existingMarkdown;
+        }
+      }
+    } else if (error) {
+      console.error("Supabase stack insert error:", error);
+      throw error;
+    } else if (data && data.length > 0 && data[0]?.id) {
+      parentRows = data;
+      stackId = String(data[0].id);
+      createdNewStack = true;
+    }
+  } catch (err) {
+    console.error("Stacks persistence exception:", err);
+    throw err;
+  }
 
   // ----------------------------------------------------------------------------
   // Persist items (delete → rebuild → insert)
   // ----------------------------------------------------------------------------
-  if (parentRows.length > 0 && stackId && user_id) {
+  if (createdNewStack && parentRows.length > 0 && stackId && user_id) {
     try {
       await supabaseAdmin.from("stacks_items").delete().eq("stack_id", stackId);
       const rows: StackItemRow[] = itemsForPersistence
