@@ -4,6 +4,10 @@ import { requireTier } from "@/app/_auth/requireTier";
 import { buildBlueprintActionCandidates } from "@/lib/blueprintActions";
 import { parseBlueprintReport } from "@/lib/blueprintReport";
 import {
+  blueprintMarkdownFromStack,
+  deriveBlueprintSafetyStatus,
+} from "@/lib/blueprintSafetyStatus";
+import {
   blueprintInputSnapshotHash,
   getMemberSupplements,
 } from "@/lib/blueprintWorkspace";
@@ -15,14 +19,6 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type PageProps = { params: Promise<{ stackId: string }> };
-
-function markdownFromStack(stack: { sections: unknown; summary: string | null }): string {
-  if (stack.sections && typeof stack.sections === "object" && "markdown" in stack.sections) {
-    const markdown = (stack.sections as { markdown?: unknown }).markdown;
-    if (typeof markdown === "string") return markdown;
-  }
-  return stack.summary ?? "";
-}
 
 export default async function BlueprintPage({ params }: PageProps) {
   const { stackId } = await params;
@@ -58,7 +54,7 @@ export default async function BlueprintPage({ params }: PageProps) {
   if (historyError) throw historyError;
   if (!submission) notFound();
 
-  const markdown = markdownFromStack(stack);
+  const markdown = blueprintMarkdownFromStack(stack);
   const report = parseBlueprintReport(markdown);
   const { supplements, hasOverride } = getMemberSupplements(submission);
   const currentInputHash = blueprintInputSnapshotHash(submission);
@@ -74,7 +70,7 @@ export default async function BlueprintPage({ params }: PageProps) {
         id: stack.id,
         submissionId: stack.submission_id,
         createdAt: stack.created_at,
-        safetyStatus: stack.safety_status,
+        safetyStatus: deriveBlueprintSafetyStatus(markdown),
         generationReason: stack.generation_reason,
       }}
       sections={Object.entries(report.sections)
@@ -89,7 +85,7 @@ export default async function BlueprintPage({ params }: PageProps) {
       history={(history ?? []).map((version) => ({
         id: version.id,
         createdAt: version.created_at,
-        safetyStatus: version.safety_status,
+        safetyStatus: deriveBlueprintSafetyStatus(blueprintMarkdownFromStack(version)),
         generationReason: version.generation_reason,
       }))}
     />

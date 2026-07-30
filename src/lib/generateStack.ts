@@ -14,6 +14,7 @@ import { formatStartingGuidance } from "@/lib/supplementDosingRegistry";
 import { AFFILIATE_DISCLOSURE_NEAR_LINKS } from "@/lib/reportDisclosures";
 import { neutralGoalDescription, recommendationRationale } from "@/lib/reportIntegrity";
 import { parseBlueprintReport, validateBlueprintReport } from "@/lib/blueprintReport";
+import { deriveBlueprintSafetyStatus } from "@/lib/blueprintSafetyStatus";
 import { applySafetyChecks } from "@/lib/safetyCheck";
 import { enrichAffiliateLinks, buildAmazonSearchLink } from "@/lib/affiliateLinks";
 import { getTopCitationsFor } from "@/lib/evidence";
@@ -2317,8 +2318,7 @@ md = replaceOrAppendSection(md, buildPracticalFollowUpSection());
     return !looksLikeTimingArtifact(n);
   });
 
-  type SafetyStatus = "safe" | "warning" | "error";
-  interface SafetyOutput { cleaned: StackItem[]; status: SafetyStatus }
+  interface SafetyOutput { cleaned: StackItem[] }
 const safetyInput = {
   medications: Array.isArray((baseClient as any).medications)
     ? (baseClient as any).medications.map((m: any) => m?.med_name || m?.name || m)
@@ -2338,12 +2338,10 @@ const safetyInput = {
   is_premium: mode === "premium",
 };
 
-  let safetyStatus: SafetyStatus = "warning";
   let cleanedItems: StackItem[] = filteredItems;
   try {
     const res = (await applySafetyChecks(safetyInput, filteredItems)) as Partial<SafetyOutput> | null;
     cleanedItems = asArray<StackItem>((res?.cleaned as StackItem[]) ?? filteredItems);
-    const st = (res as any)?.status; safetyStatus = st === "safe" ? "safe" : st === "error" ? "error" : "warning";
   } catch (e) { console.warn("applySafetyChecks failed; continuing with uncautioned items.", e); }
 
   const itemKey = (name: string) => normalizeSupplementName(name).toLowerCase();
@@ -2468,6 +2466,7 @@ const safetyInput = {
     throw new Error(`Refusing to persist invalid canonical report: ${canonicalIssues.join(", ")}`);
   }
   md = canonicalReport.canonicalMarkdown;
+  const persistedSafetyStatus = deriveBlueprintSafetyStatus(md);
 
   if (/\[object Object\]/i.test(md)) {
     throw new Error("Invalid object string leaked into report");
@@ -2563,7 +2562,7 @@ const safetyInput = {
           tokens_used: (promptTokens ?? 0) + (completionTokens ?? 0),
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
-          safety_status: (ok.headingsValid && ok.blueprintValid && ok.blueprintMixValid && ok.citationsValid && ok.sectionBodiesValid && ok.currentStackParityValid && ok.currentStackNamesValid) ? "safe" : "warning",
+          safety_status: persistedSafetyStatus,
           summary: md,
           sections: { markdown: md, generated_at: new Date().toISOString(), mode, item_cap: cap ?? null },
           notes: null,
@@ -2592,7 +2591,7 @@ const safetyInput = {
             tokens_used: (promptTokens ?? 0) + (completionTokens ?? 0),
             prompt_tokens: promptTokens,
             completion_tokens: completionTokens,
-            safety_status: (ok.headingsValid && ok.blueprintValid && ok.blueprintMixValid && ok.citationsValid && ok.sectionBodiesValid && ok.currentStackParityValid && ok.currentStackNamesValid) ? "safe" : "warning",
+            safety_status: persistedSafetyStatus,
             summary: md,
             sections: { markdown: md, generated_at: new Date().toISOString(), mode, item_cap: cap ?? null },
             notes: null,
@@ -2687,7 +2686,13 @@ const safetyInput = {
   }
 
   const tokens_used = (promptTokens ?? 0) + (completionTokens ?? 0);
-  const raw = { stack_id: stackId ?? undefined, mode, item_cap: cap, validation: ok };
+  const raw = {
+    stack_id: stackId ?? undefined,
+    mode,
+    item_cap: cap,
+    validation: ok,
+    safety_status: persistedSafetyStatus,
+  };
   return { markdown: md, raw, model_used: modelUsed, tokens_used, prompt_tokens: promptTokens, completion_tokens: completionTokens };
 }
 

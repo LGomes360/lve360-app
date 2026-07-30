@@ -1,6 +1,10 @@
 // app/api/stacks/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import {
+  blueprintMarkdownFromStack,
+  deriveBlueprintSafetyStatus,
+} from "@/lib/blueprintSafetyStatus";
 import { requirePaidApi } from "@/lib/serverEntitlements";
 
 export const dynamic = "force-dynamic";
@@ -29,8 +33,12 @@ export async function GET() {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    console.log("[API] GET /api/stacks - returning", data?.length ?? 0, "stacks");
-    return NextResponse.json({ ok: true, stacks: data ?? [] });
+    const stacks = (data ?? []).map((stack) => ({
+      ...stack,
+      safety_status: deriveBlueprintSafetyStatus(blueprintMarkdownFromStack(stack)),
+    }));
+    console.log("[API] GET /api/stacks - returning", stacks.length, "stacks");
+    return NextResponse.json({ ok: true, stacks });
   } catch (err: any) {
     console.error("[API] Exception in /api/stacks:", err);
     return NextResponse.json({ error: err?.message ?? String(err) }, { status: 500 });
