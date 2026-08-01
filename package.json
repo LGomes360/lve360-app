@@ -23,6 +23,7 @@
     "qa:routine": "node --experimental-strip-types src/_tests_/routine.assert.ts && node src/_tests_/routinePage.assert.mjs",
     "qa:pr74": "node --experimental-strip-types src/_tests_/pr74.assert.ts && node src/_tests_/pr74Page.assert.mjs",
     "qa:pr75": "node --experimental-strip-types src/_tests_/pr75.assert.ts && node src/_tests_/pr75Page.assert.mjs",
+    "qa:pr76": "node --experimental-strip-types src/_tests_/pr76.assert.ts && node src/_tests_/pr76Page.assert.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
     "qa:all": "npm run qa:env && npm run qa:build"

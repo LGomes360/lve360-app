@@ -35,6 +35,7 @@ export async function getRoutineData(userId: string): Promise<{
     item_kind: item.item_kind,
     instruction_source: item.instruction_source,
     instruction_authority: item.instruction_authority,
+    schedule: item.schedule,
     active: item.active,
     is_current: true,
     source_type: "regimen",
@@ -43,6 +44,7 @@ export async function getRoutineData(userId: string): Promise<{
     refill_days_left: null,
     last_refilled_at: null,
     created_at: item.created_at ?? item.updated_at ?? null,
+    updated_at: item.updated_at ?? item.created_at ?? null,
   }));
 
   let proposals: RoutineItem[] = [];
@@ -67,6 +69,7 @@ export async function getRoutineData(userId: string): Promise<{
         item_kind: regimenKindForSupplement(item.name),
         instruction_source: null,
         instruction_authority: null,
+        schedule: null,
         active: false,
         is_current: false,
         source_type: "blueprint_proposal",
@@ -75,6 +78,7 @@ export async function getRoutineData(userId: string): Promise<{
         refill_days_left: item.refill_days_left,
         last_refilled_at: item.last_refilled_at,
         created_at: item.created_at,
+        updated_at: item.created_at,
       }));
   }
 

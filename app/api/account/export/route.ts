@@ -38,6 +38,8 @@ export async function GET() {
     { label: "practice_completions", table: "daily_practice_completions", column: "user_id", value: user.id },
     { label: "activation_events", table: "activation_events", column: "user_id", value: user.id },
     { label: "intake_events", table: "intake_events", column: "user_id", value: user.id },
+    { label: "current_regimen", table: "current_regimen_items", column: "user_id", value: user.id },
+    { label: "regimen_dose_events", table: "regimen_dose_events", column: "user_id", value: user.id },
     { label: "product_events", table: "product_events", column: "user_id", value: user.id },
   ];
 

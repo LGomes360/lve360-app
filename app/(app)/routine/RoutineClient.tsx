@@ -11,6 +11,7 @@ import {
   Loader2,
   Pencil,
   Pill,
+  Printer,
   RotateCcw,
   Search,
   ShieldAlert,
@@ -34,8 +35,18 @@ import {
 import {
   MEDICATION_AUTHORITY_LABELS,
   MEDICATION_INSTRUCTION_AUTHORITIES,
+  REGIMEN_AUTHORITY_LABELS,
+  REGIMEN_INSTRUCTION_AUTHORITIES,
   type MedicationInstructionAuthority,
+  type RegimenInstructionAuthority,
 } from "@/lib/medicationRecord";
+import ScheduleEditor, {
+  scheduleDraft,
+  scheduleDraftIsReady,
+  scheduleDraftPayload,
+  type ScheduleDraft,
+} from "./ScheduleEditor";
+import TodayDoses from "./TodayDoses";
 
 type LatestStack = { id: string; submission_id: string | null; created_at: string } | null;
 type ToastState = { message: string; undo?: () => Promise<void> } | null;
@@ -71,6 +82,7 @@ export default function RoutineClient({
   const [showAddHormone, setShowAddHormone] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
+  const [doseRefreshToken, setDoseRefreshToken] = useState(0);
   const grouped = useMemo(() => groupRoutineItems(items), [items]);
 
   useEffect(() => {
@@ -84,6 +96,7 @@ export default function RoutineClient({
     const body = await response.json().catch(() => null);
     if (!response.ok || !body?.ok) throw new Error(body?.error ?? "routine_unavailable");
     setItems(body.items ?? []);
+    setDoseRefreshToken((current) => current + 1);
   }
 
   async function updateItem(id: string, patch: Record<string, unknown>) {
@@ -96,9 +109,9 @@ export default function RoutineClient({
     if (!response.ok || !body?.ok) throw new Error(body?.error ?? "routine_update_failed");
   }
 
-  async function saveEdit(item: RoutineItem, patch: { dose?: string | null; timing: string | null; instructionAuthority?: MedicationInstructionAuthority }) {
+  async function saveEdit(item: RoutineItem, patch: { dose?: string | null; schedule?: RoutineItem["schedule"]; instructionAuthority?: RegimenInstructionAuthority }) {
     setBusyId(item.id);
-    const previous = { dose: item.dose, timing: item.timing };
+    const previous = { dose: item.dose, schedule: item.schedule ?? null, instructionAuthority: item.instruction_authority ?? undefined };
     try {
       await updateItem(item.id, patch);
       await refreshRoutine();
@@ -108,8 +121,8 @@ export default function RoutineClient({
         undo: async () => {
           await updateItem(item.id, {
             ...previous,
-            ...((item.item_kind === "medication" || item.item_kind === "hormone") && patch.instructionAuthority
-              ? { instructionAuthority: patch.instructionAuthority }
+            ...(previous.instructionAuthority || patch.instructionAuthority
+              ? { instructionAuthority: previous.instructionAuthority ?? patch.instructionAuthority }
               : {}),
           });
           await refreshRoutine();
@@ -185,6 +198,8 @@ export default function RoutineClient({
 
   return (
     <>
+      <TodayDoses refreshToken={doseRefreshToken} />
+
       <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold text-[#041B2D]">Your current routine</h2>
@@ -194,6 +209,15 @@ export default function RoutineClient({
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+          <a
+            href="/routine/print"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-12 items-center justify-center rounded-xl border border-slate-300 bg-white px-5 py-3 font-bold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72]"
+          >
+            <Printer className="mr-2 h-5 w-5" aria-hidden="true" />
+            Print clinician list
+          </a>
           <button
             type="button"
             onClick={() => setShowAddMedication(true)}
@@ -407,7 +431,7 @@ function RoutineCard({
           onClick={() => onEdit(item)}
           className="inline-flex min-h-12 items-center justify-center rounded-xl border border-[#9DCFC3] bg-white px-4 py-3 font-bold text-[#06695F] hover:bg-[#EAFBF8] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72]"
         >
-          <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> {prescribedItem ? "Record prescribed change" : "Edit details"}
+          <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> {prescribedItem ? "Record dose or schedule change" : "Edit dose or schedule"}
         </button>
         <button
           type="button"
@@ -463,13 +487,19 @@ function IdeasSection({ items, busyId, onAdopt }: { items: RoutineItem[]; busyId
   );
 }
 
-function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineItem; saving: boolean; onClose: () => void; onSave: (item: RoutineItem, patch: { dose?: string | null; timing: string | null; instructionAuthority?: MedicationInstructionAuthority }) => void }) {
+function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineItem; saving: boolean; onClose: () => void; onSave: (item: RoutineItem, patch: { dose?: string | null; schedule?: RoutineItem["schedule"]; instructionAuthority?: RegimenInstructionAuthority }) => void }) {
   const prescribedItem = item.item_kind === "medication" || item.item_kind === "hormone";
   const [dose, setDose] = useState(item.dose ?? "");
-  const [timing, setTiming] = useState(item.timing ?? "");
-  const [instructionAuthority, setInstructionAuthority] = useState<MedicationInstructionAuthority | "">(
+  const [schedule, setSchedule] = useState<ScheduleDraft>(() => scheduleDraft(item.schedule));
+  const [instructionAuthority, setInstructionAuthority] = useState<RegimenInstructionAuthority | "">(
     item.instruction_authority ?? ""
   );
+  const authorities = prescribedItem
+    ? MEDICATION_INSTRUCTION_AUTHORITIES
+    : REGIMEN_INSTRUCTION_AUTHORITIES.filter((authority) => authority !== "medication_label");
+  const hasStructuredSchedule = Boolean(schedule.cadence);
+  const scheduleReady = !hasStructuredSchedule || scheduleDraftIsReady(schedule);
+  const sourceRequired = prescribedItem || hasStructuredSchedule;
   return (
     <DialogShell title={prescribedItem ? `Record a prescribed change for ${item.name}` : `Update ${item.name}`} onClose={onClose}>
       <p className="text-sm leading-6 text-slate-600">
@@ -478,19 +508,24 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
           : "Record what you currently do. This does not create a medical instruction or replace a product label."}
       </p>
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">{prescribedItem ? "Prescribed dose" : "Amount you take"}<input autoFocus value={dose} onChange={(event) => setDose(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={item.item_kind === "hormone" ? "For example, 80 mg" : "For example, 2 capsules"} /></label>
-      <label className="mt-5 block text-sm font-bold text-[#041B2D]">When you take it<input value={timing} onChange={(event) => setTiming(event.target.value)} maxLength={160} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder="For example, Monday and Thursday evenings" /></label>
-      {prescribedItem ? (
+      {!item.schedule && item.timing ? <p className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700"><span className="font-bold">Current written schedule:</span> {item.timing}. Choose a structured cadence below to use the daily checklist.</p> : null}
+      <ScheduleEditor value={schedule} onChange={setSchedule} />
+      {sourceRequired ? (
         <label className="mt-5 block text-sm font-bold text-[#041B2D]">
           Where did this instruction come from?
-          <select value={instructionAuthority} onChange={(event) => setInstructionAuthority(event.target.value as MedicationInstructionAuthority)} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20">
+          <select value={instructionAuthority} onChange={(event) => setInstructionAuthority(event.target.value as RegimenInstructionAuthority)} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20">
             <option value="">Choose a source</option>
-            {MEDICATION_INSTRUCTION_AUTHORITIES.map((authority) => <option key={authority} value={authority}>{MEDICATION_AUTHORITY_LABELS[authority]}</option>)}
+            {authorities.map((authority) => <option key={authority} value={authority}>{REGIMEN_AUTHORITY_LABELS[authority]}</option>)}
           </select>
         </label>
       ) : null}
       <div className="mt-6 grid gap-2 sm:grid-cols-2">
         <button type="button" onClick={onClose} disabled={saving} className="min-h-12 rounded-xl border border-slate-300 px-4 py-3 font-bold text-slate-700">Cancel</button>
-        <button type="button" disabled={saving || (prescribedItem && !instructionAuthority)} onClick={() => onSave(item, { dose: dose.trim() || null, timing: timing.trim() || null, ...(prescribedItem && instructionAuthority ? { instructionAuthority } : {}) })} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 font-bold text-white disabled:opacity-60">
+        <button type="button" disabled={saving || !scheduleReady || (sourceRequired && !instructionAuthority)} onClick={() => onSave(item, {
+          dose: dose.trim() || null,
+          ...(hasStructuredSchedule ? { schedule: scheduleDraftPayload(schedule) } : {}),
+          ...(instructionAuthority ? { instructionAuthority } : {}),
+        })} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 font-bold text-white disabled:opacity-60">
           {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />} Save record
         </button>
       </div>
@@ -502,6 +537,7 @@ function AddPrescribedItemDialog({ kind, onClose, onAdded }: { kind: "medication
   const [name, setName] = useState("");
   const [dose, setDose] = useState("");
   const [timing, setTiming] = useState("");
+  const [schedule, setSchedule] = useState<ScheduleDraft>(() => scheduleDraft(null));
   const [purpose, setPurpose] = useState("");
   const [instructionAuthority, setInstructionAuthority] = useState<MedicationInstructionAuthority | "">("");
   const [busy, setBusy] = useState(false);
@@ -520,6 +556,7 @@ function AddPrescribedItemDialog({ kind, onClose, onAdded }: { kind: "medication
           name,
           dose,
           timing,
+          ...(schedule.cadence ? { schedule: scheduleDraftPayload(schedule) } : {}),
           purpose,
           instruction_authority: instructionAuthority,
         }),
@@ -542,6 +579,7 @@ function AddPrescribedItemDialog({ kind, onClose, onAdded }: { kind: "medication
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">{kind === "hormone" ? "Hormone name" : "Medication name"}<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={kind === "hormone" ? "For example, testosterone cypionate" : "For example, Zepbound"} /></label>
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">Prescribed dose<input value={dose} onChange={(event) => setDose(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={kind === "hormone" ? "For example, 80 mg" : "For example, 10 mg / 0.5 mL"} /></label>
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">Schedule<input value={timing} onChange={(event) => setTiming(event.target.value)} maxLength={160} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={kind === "hormone" ? "For example, Monday and Thursday evenings" : "For example, once weekly on Sunday"} /></label>
+      <ScheduleEditor value={schedule} onChange={setSchedule} />
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">Purpose you were given <span className="font-normal text-slate-500">(optional)</span><input value={purpose} onChange={(event) => setPurpose(event.target.value)} maxLength={200} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={kind === "hormone" ? "For example, hormone replacement" : "For example, weight management"} /></label>
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">Where did this instruction come from?
         <select value={instructionAuthority} onChange={(event) => setInstructionAuthority(event.target.value as MedicationInstructionAuthority)} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20">
@@ -552,7 +590,7 @@ function AddPrescribedItemDialog({ kind, onClose, onAdded }: { kind: "medication
       {error ? <p className="mt-4 rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-800">{error}</p> : null}
       <div className="mt-6 grid gap-2 sm:grid-cols-2">
         <button type="button" onClick={onClose} disabled={busy} className="min-h-12 rounded-xl border border-slate-300 px-4 py-3 font-bold text-slate-700">Cancel</button>
-        <button type="button" disabled={busy || !name.trim() || !instructionAuthority} onClick={() => void addPrescribedItem()} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 font-bold text-white disabled:opacity-60">
+        <button type="button" disabled={busy || !name.trim() || !instructionAuthority || (Boolean(schedule.cadence) && !scheduleDraftIsReady(schedule))} onClick={() => void addPrescribedItem()} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 font-bold text-white disabled:opacity-60">
           {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />} Add reported {label}
         </button>
       </div>
