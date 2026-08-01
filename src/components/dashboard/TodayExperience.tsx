@@ -35,11 +35,13 @@ export default function TodayExperience({
   blueprint,
   experimentBlueprint,
   initialCompletionDate,
+  onCompletionStateChange,
 }: {
   initialExperiment: WeeklyExperiment | null;
   blueprint: CurrentBlueprintContext | null;
   experimentBlueprint: ExperimentBlueprintContext | null;
   initialCompletionDate: string | null;
+  onCompletionStateChange?: (complete: boolean) => void;
 }) {
   const [localDate, setLocalDate] = useState("");
   const [experiment, setExperiment] = useState(initialExperiment);
@@ -102,6 +104,7 @@ export default function TodayExperience({
       if (!response.ok || !json?.ok) throw new Error("Your progress was not saved. Please try again.");
       setCompletions(json.completions ?? []);
       setWeekDays(json.bounds?.days ?? []);
+      onCompletionStateChange?.((json.completions ?? []).length > 0);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Your progress was not saved.");
     } finally {
@@ -119,6 +122,7 @@ export default function TodayExperience({
       if (!response.ok || !json?.ok) throw new Error("We could not undo that completion.");
       setCompletions(json.completions ?? []);
       setWeekDays(json.bounds?.days ?? []);
+      onCompletionStateChange?.((json.completions ?? []).length > 0);
     } catch (undoError) {
       setError(undoError instanceof Error ? undoError.message : "We could not undo that completion.");
     } finally {
@@ -128,7 +132,7 @@ export default function TodayExperience({
 
   if (!experiment || experiment.status !== "active") {
     return (
-      <section className="rounded-3xl border border-[#9DCFC3] bg-white p-6 shadow-sm sm:p-8" aria-labelledby="today-heading">
+      <section id="focused-practice" className="rounded-3xl border border-[#9DCFC3] bg-white p-6 shadow-sm sm:p-8" aria-labelledby="today-heading">
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#087F72]">Today</p>
         <h1 id="today-heading" className="mt-2 text-3xl font-bold tracking-tight text-[#041B2D] sm:text-4xl">
           Choose one practice for this week.
@@ -151,7 +155,7 @@ export default function TodayExperience({
   const weekNotStarted = !!localDate && localDate < experiment.week_start;
 
   return (
-    <section className="overflow-hidden rounded-3xl border border-[#9DCFC3] bg-white shadow-sm" aria-labelledby="today-heading">
+    <section id="focused-practice" className="overflow-hidden rounded-3xl border border-[#9DCFC3] bg-white shadow-sm" aria-labelledby="today-heading">
       <div className="bg-[#041B2D] px-6 py-5 text-white sm:px-8">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
