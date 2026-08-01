@@ -11,8 +11,9 @@ import {
   type CurrentRegimenItem,
   type CurrentRegimenSource,
 } from "@/lib/currentRegimenModel";
+import type { MedicationInstructionAuthority } from "@/lib/medicationRecord";
 
-const REGIMEN_COLUMNS = "id,user_id,source_submission_id,source_stack_item_id,item_kind,name,normalized_name,purpose,dose,timing,instruction_source,active,created_at,updated_at";
+const REGIMEN_COLUMNS = "id,user_id,source_submission_id,source_stack_item_id,item_kind,name,normalized_name,purpose,dose,timing,instruction_source,instruction_authority,active,created_at,updated_at";
 
 export async function getCurrentRegimen(userId: string, includeInactive = false): Promise<CurrentRegimenItem[]> {
   const admin = getSupabaseAdmin();
@@ -142,6 +143,37 @@ export async function upsertManualRegimenItem(userId: string, input: SupplementI
   };
   const { data, error } = await getSupabaseAdmin().from("current_regimen_items")
     .upsert(row, { onConflict: "user_id,item_kind,normalized_name" }).select(REGIMEN_COLUMNS).maybeSingle();
+  if (error) throw error;
+  return data as unknown as CurrentRegimenItem;
+}
+
+export async function upsertReportedMedication(userId: string, input: {
+  name: string;
+  dose: string | null;
+  timing: string | null;
+  purpose: string | null;
+  instruction_authority: MedicationInstructionAuthority;
+}) {
+  await ensureLatestUserRegimen(userId);
+  const row = {
+    user_id: userId,
+    source_submission_id: null,
+    source_stack_item_id: null,
+    item_kind: "medication" as const,
+    name: input.name,
+    normalized_name: normalizeRegimenName(input.name),
+    purpose: input.purpose,
+    dose: input.dose,
+    timing: input.timing,
+    instruction_source: "manual_add" satisfies CurrentRegimenSource,
+    instruction_authority: input.instruction_authority,
+    active: true,
+    updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await getSupabaseAdmin().from("current_regimen_items")
+    .upsert(row, { onConflict: "user_id,item_kind,normalized_name" })
+    .select(REGIMEN_COLUMNS)
+    .maybeSingle();
   if (error) throw error;
   return data as unknown as CurrentRegimenItem;
 }

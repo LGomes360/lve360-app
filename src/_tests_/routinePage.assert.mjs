@@ -22,13 +22,15 @@ assert.match(routineModel, /hormone: "Hormones"/, "Routine must separate hormone
 assert.match(routineModel, /supplement: "Supplements"/, "Routine must separate supplements.");
 assert.match(routineModel, /endocrine_active_supplement: "Hormone-active items"/, "Routine must separate hormone-active items.");
 assert.match(client, /Ideas to consider/, "Routine must separate proposed ideas.");
-assert.match(client, /Dose cannot be changed here/, "Prescription and hormone dose changes must be unavailable.");
+assert.match(client, /Record prescribed change/, "Members must be able to record clinician-directed medication changes.");
+assert.match(client, /Hormone dose changes remain outside this tool/, "Hormone dose changes must remain unavailable.");
 assert.match(client, /Schedule not recorded/, "Missing schedules must be stated plainly.");
 assert.match(client, /RotateCcw[\s\S]*Undo/, "State changes must expose text and icon Undo.");
 assert.match(client, /min-h-12/, "Primary mobile controls must use large tap targets.");
 assert.match(routineModel, /source_type === "blueprint_proposal"/, "Proposal grouping must not depend on historical current flags.");
 const updateRoute = read("app/api/stacks/update/route.ts");
-assert.match(updateRoute, /dose_updates_unavailable_for_prescriptions_and_hormones/, "Protected dose edits must also be rejected by the API.");
+assert.match(updateRoute, /dose_updates_unavailable_for_hormones/, "Protected hormone dose edits must also be rejected by the API.");
+assert.match(updateRoute, /medication_instruction_source_required/, "Medication edits must preserve their instruction source.");
 
 const today = read("app/(app)/today/TodayClient.tsx");
 assert.doesNotMatch(today, /Disclosure|details|summary/, "Today must not retain the collapsed regimen manager.");

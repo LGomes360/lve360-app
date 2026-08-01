@@ -5,6 +5,7 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import GoalsTargetsEditor from "@/src/components/dashboard/GoalsTargetsEditor";
 import TodayClient from "./TodayClient";
 import type { WeeklyExperiment } from "@/lib/activation";
+import { getCurrentBlueprintContext, getExperimentBlueprintContexts } from "@/lib/currentBlueprintContext";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -18,13 +19,14 @@ export default async function Page() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  // If requireTier already ensured auth, user should exist — guard anyway:
+  // If requireTier already ensured auth, user should exist. Guard anyway.
   if (!user?.id) {
     // You can redirect to /login if you prefer
     return null;
   }
 
-  const [{ data: goals }, { data: experiment }, { data: latestStack }] = await Promise.all([
+  const blueprintPromise = getCurrentBlueprintContext(user.id);
+  const [{ data: goals }, { data: experiment }, blueprint] = await Promise.all([
     supabase.from("goals").select("*").eq("user_id", user.id).maybeSingle(),
     supabase
       .from("weekly_experiments")
@@ -34,25 +36,12 @@ export default async function Page() {
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    supabase
-      .from("stacks")
-      .select("id")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    blueprintPromise,
   ]);
-
-  let safetyReviewCount = 0;
-  if (latestStack?.id) {
-    const { data: safetyItems } = await supabase
-      .from("stacks_items")
-      .select("notes")
-      .eq("stack_id", latestStack.id);
-    safetyReviewCount = (safetyItems ?? []).filter((item) =>
-      /clinician review|interaction|contraindicat|avoid|safety flag|use caution/i.test(item.notes ?? "")
-    ).length;
-  }
+  const activeExperiment = (experiment as WeeklyExperiment | null) ?? null;
+  const experimentBlueprints = activeExperiment
+    ? await getExperimentBlueprintContexts(user.id, [activeExperiment], blueprint)
+    : {};
 
   const targetWeight = goals?.target_weight ?? null;
   const targetSleep = goals?.target_sleep ?? null;
@@ -61,8 +50,9 @@ export default async function Page() {
   return (
     <>
       <TodayClient
-        experiment={(experiment as WeeklyExperiment | null) ?? null}
-        safetyReviewCount={safetyReviewCount}
+        experiment={activeExperiment}
+        blueprint={blueprint}
+        experimentBlueprint={activeExperiment ? experimentBlueprints[activeExperiment.id] ?? null : null}
       />
 
       {(targetWeight == null && targetSleep == null && targetEnergy == null) ? (

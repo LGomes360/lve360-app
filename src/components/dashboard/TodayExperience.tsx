@@ -15,6 +15,11 @@ import {
 import { identityLabel, type WeeklyExperiment } from "@/lib/activation";
 import type { CompletionKind, DailyPracticeCompletion } from "@/lib/today";
 import { isReviewDue, reviewDueDate } from "@/lib/weeklyReview";
+import {
+  blueprintSafetyLabel,
+  type CurrentBlueprintContext,
+  type ExperimentBlueprintContext,
+} from "@/lib/blueprintContext";
 
 type TodayResponse = {
   ok: boolean;
@@ -27,10 +32,12 @@ type TodayResponse = {
 
 export default function TodayExperience({
   initialExperiment,
-  safetyReviewCount,
+  blueprint,
+  experimentBlueprint,
 }: {
   initialExperiment: WeeklyExperiment | null;
-  safetyReviewCount: number;
+  blueprint: CurrentBlueprintContext | null;
+  experimentBlueprint: ExperimentBlueprintContext | null;
 }) {
   const [localDate, setLocalDate] = useState("");
   const [experiment, setExperiment] = useState(initialExperiment);
@@ -152,13 +159,21 @@ export default function TodayExperience({
         </div>
       </div>
 
-      {safetyReviewCount > 0 ? (
-        <a href="/results" className="flex items-start gap-3 border-b border-amber-200 bg-amber-50 px-6 py-4 text-amber-950 hover:bg-amber-100 sm:px-8">
+      {blueprint && (blueprint.needs_refresh || blueprint.safety_status !== "safe") ? (
+        <a href={`/blueprints/${blueprint.stack_id}`} className="flex items-start gap-3 border-b border-amber-200 bg-amber-50 px-6 py-4 text-amber-950 hover:bg-amber-100 sm:px-8">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
           <span className="text-sm leading-6">
-            <strong>{safetyReviewCount} {safetyReviewCount === 1 ? "item needs" : "items need"} safety review.</strong>{" "}
-            Keep those Blueprint notes in view before changing your stack.
+            <strong>{blueprintSafetyLabel(blueprint)}.</strong>{" "}
+            Open the exact current Blueprint before acting on safety-sensitive items.
           </span>
+          <ArrowRight className="ml-auto mt-1 h-4 w-4 shrink-0" />
+        </a>
+      ) : null}
+
+      {experimentBlueprint?.needs_review ? (
+        <a href={`/blueprints/${blueprint?.stack_id ?? experimentBlueprint.source_stack_id}`} className="flex items-start gap-3 border-b border-violet-200 bg-violet-50 px-6 py-4 text-violet-950 hover:bg-violet-100 sm:px-8">
+          <RotateCcw className="mt-0.5 h-5 w-5 shrink-0 text-violet-700" />
+          <span className="text-sm leading-6"><strong>Your Blueprint changed after this practice was chosen.</strong> Review the current priorities. Your active practice has not been overwritten.</span>
           <ArrowRight className="ml-auto mt-1 h-4 w-4 shrink-0" />
         </a>
       ) : null}
@@ -172,6 +187,7 @@ export default function TodayExperience({
       ) : null}
 
       <div className="p-6 sm:p-8">
+        {blueprint ? <CurrentBlueprintPanel blueprint={blueprint} experimentBlueprint={experimentBlueprint} /> : null}
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
             <p className="flex items-center gap-2 text-sm font-semibold text-[#087F72]">
@@ -265,11 +281,56 @@ export default function TodayExperience({
   );
 }
 
+function CurrentBlueprintPanel({
+  blueprint,
+  experimentBlueprint,
+}: {
+  blueprint: CurrentBlueprintContext;
+  experimentBlueprint: ExperimentBlueprintContext | null;
+}) {
+  return (
+    <aside className="mb-7 rounded-2xl border border-[#BCE3DA] bg-[#F4FAF8] p-4 sm:p-5" aria-label="Current Blueprint context">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">Current Blueprint</p>
+          <p className="mt-1 text-sm font-semibold text-[#041B2D]">Refreshed {formatBlueprintDate(blueprint.created_at)}</p>
+          <p className={`mt-1 text-sm ${blueprint.needs_refresh || blueprint.safety_status !== "safe" ? "font-semibold text-amber-800" : "text-slate-600"}`}>
+            {blueprintSafetyLabel(blueprint)}
+          </p>
+        </div>
+        <a href={`/blueprints/${blueprint.stack_id}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#9DCFC3] bg-white px-4 py-2 text-sm font-bold text-[#06695F] hover:bg-[#EAFBF8]">
+          Open Blueprint <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+        </a>
+      </div>
+      {experimentBlueprint?.priority_label ? (
+        <p className="mt-4 rounded-xl bg-white p-3 text-sm leading-6 text-slate-700">
+          <strong className="text-[#041B2D]">This focused week came from:</strong> {experimentBlueprint.priority_label}
+        </p>
+      ) : null}
+      <div className="mt-4">
+        <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Current priorities</p>
+        <ul className="mt-2 space-y-2 text-sm text-slate-700">
+          {blueprint.priorities.slice(0, 3).map((priority) => (
+            <li key={priority.id} className="flex items-start gap-2">
+              {priority.kind === "review_only" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-label="Review only" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#087F72]" aria-hidden="true" />}
+              <span>{priority.label}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </aside>
+  );
+}
+
 function toLocalDate(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function formatBlueprintDate(value: string): string {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
 }
 
 function weekdayLabel(date: string): string {
