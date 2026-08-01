@@ -6,7 +6,7 @@
 // Optional HMAC signature verification + replay guard.
 // -----------------------------------------------------------------------------
 
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supa } from "@/lib/supabaseAdmin";
 import { TALLY_KEYS, NormalizedSubmissionSchema } from "@/types/tally-normalized";
 import { parseList, parseSupplements } from "@/lib/parseLists";
@@ -17,6 +17,10 @@ import { recordProductEventSafely } from "@/lib/productAnalytics";
 // ---------- Config ----------
 const TALLY_HMAC_SECRET = process.env.TALLY_WEBHOOK_SECRET || ""; // optional
 const REPLAY_TTL_SECONDS = 10 * 60; // 10 minutes window
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 // ---------- Utilities ----------
 function cleanSingle(val: any): string | undefined {
@@ -440,19 +444,28 @@ const submissionRow = {
       userEmail ?? ""
     )}`;
 
-    // Fire-and-forget stack generation
-    try {
-      fetch(`${appUrl}/api/generate-stack`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          submission_id: submissionId,
-          generation_source: "tally-webhook",
-        }),
-      }).catch((err) => console.error("Background generate-stack failed:", err));
-    } catch (e) {
-      console.error("Failed to trigger generate-stack:", e);
-    }
+    // Keep generation alive after the webhook response without making Tally wait.
+    const internalSecret = process.env.CRON_SECRET;
+    after(async () => {
+      try {
+        const response = await fetch(`${appUrl}/api/generate-stack`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(internalSecret ? { Authorization: `Bearer ${internalSecret}` } : {}),
+          },
+          body: JSON.stringify({
+            submission_id: submissionId,
+            generation_source: "tally-webhook",
+          }),
+        });
+        if (!response.ok) {
+          console.error("Background generate-stack rejected:", response.status);
+        }
+      } catch (error) {
+        console.error("Background generate-stack failed:", error);
+      }
+    });
 
     // Respond to Tally immediately
     return NextResponse.json({

@@ -318,7 +318,11 @@ export async function POST(req: NextRequest) {
       const user = await fetchUserTierById(submission.user_id);
       tier = user?.tier === "premium" || user?.tier === "trial" ? user.tier : "free";
     }
-    if (isPaidTier(tier)) {
+    const internalSecret = process.env.CRON_SECRET;
+    const trustedInternalRequest = Boolean(
+      internalSecret && req.headers.get("authorization") === `Bearer ${internalSecret}`
+    );
+    if (isPaidTier(tier) && !trustedInternalRequest) {
       const entitlement = await getRequestEntitlement();
       if (!entitlement.user) {
         return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
