@@ -16,6 +16,8 @@ const CLIENT_EVENTS = new Set([
   "blueprint_version_selected",
   "blueprint_input_change_started",
   "blueprint_pdf_opened",
+  "blueprint_handoff_ready",
+  "blueprint_handoff_retry",
   "checkout_started",
 ]);
 
