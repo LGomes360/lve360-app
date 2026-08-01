@@ -15,6 +15,7 @@ export type JourneyExperiment = {
 
 export type JourneyReview = {
   experiment_id: string;
+  next_experiment_id: string | null;
   completion_count: number;
   target_count: number;
   difficulty: number | null;
@@ -22,6 +23,14 @@ export type JourneyReview = {
   decision: "keep" | "shrink" | "swap" | "pause" | "advance" | null;
   status: "draft" | "completed";
   completed_at: string | null;
+};
+
+export type JourneyDomainSummary = {
+  domain: string;
+  weeks: number;
+  repetitions: number;
+  reviews: number;
+  latest_decision: JourneyReview["decision"];
 };
 
 export type JourneyCompletion = {
@@ -105,4 +114,36 @@ export function measuredMetricsForDomain(domain: string | null): Array<"sleep" |
   }
   if (domain === "focus" || domain === "career") return ["energy", "sleep"];
   return [];
+}
+
+export function journeyDomainSummaries(
+  experiments: JourneyExperiment[],
+  reviews: JourneyReview[],
+  completions: JourneyCompletion[],
+): JourneyDomainSummary[] {
+  const reviewsByExperiment = new Map(reviews.map((review) => [review.experiment_id, review]));
+  const completionsByExperiment = completions.reduce<Map<string, number>>((counts, completion) => {
+    counts.set(completion.experiment_id, (counts.get(completion.experiment_id) ?? 0) + 1);
+    return counts;
+  }, new Map());
+
+  const summaries = new Map<string, JourneyDomainSummary>();
+  for (const experiment of experiments) {
+    const domain = experiment.identity_direction ?? "overall_health";
+    const review = reviewsByExperiment.get(experiment.id) ?? null;
+    const existing = summaries.get(domain) ?? {
+      domain,
+      weeks: 0,
+      repetitions: 0,
+      reviews: 0,
+      latest_decision: null,
+    };
+    existing.weeks += 1;
+    existing.repetitions += completionsByExperiment.get(experiment.id) ?? 0;
+    existing.reviews += review?.status === "completed" ? 1 : 0;
+    if (!existing.latest_decision && review?.decision) existing.latest_decision = review.decision;
+    summaries.set(domain, existing);
+  }
+
+  return [...summaries.values()].sort((a, b) => b.weeks - a.weeks || a.domain.localeCompare(b.domain));
 }

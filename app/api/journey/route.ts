@@ -52,7 +52,7 @@ export async function GET() {
         .limit(52),
       admin
         .from("weekly_experiment_reviews")
-        .select("experiment_id, completion_count, target_count, difficulty, value_rating, decision, status, completed_at")
+        .select("experiment_id, next_experiment_id, completion_count, target_count, difficulty, value_rating, decision, status, completed_at")
         .eq("user_id", auth.user.id)
         .order("completed_at", { ascending: false })
         .limit(52),
