@@ -53,6 +53,19 @@ assert.doesNotMatch(workspace, /\bNo safety issues detected\b/i, "Customer-facin
 const blueprintLibrary = read("app/(app)/blueprints/BlueprintsClient.tsx");
 assert.match(blueprintLibrary, /timeZone: "UTC"/, "Blueprint library dates must render consistently during hydration.");
 
+const blueprintLibraryPage = read("app/(app)/blueprints/page.tsx");
+assert.match(
+  blueprintLibraryPage,
+  /deriveBlueprintSafetyStatus\(blueprintMarkdownFromStack\(stack\)\)/,
+  "Existing Blueprint badges must be derived from the visible report, not stale database status."
+);
+
+assert.match(
+  detailPage,
+  /safetyStatus: deriveBlueprintSafetyStatus\(markdown\)/,
+  "The selected Blueprint badge must use the same visible safety section."
+);
+
 const reportEmail = read("src/lib/reportEmail.ts");
 assert.match(
   reportEmail,

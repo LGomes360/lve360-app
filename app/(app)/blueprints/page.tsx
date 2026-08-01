@@ -2,6 +2,10 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 
+import {
+  blueprintMarkdownFromStack,
+  deriveBlueprintSafetyStatus,
+} from "@/src/lib/blueprintSafetyStatus";
 import { getUserAndTier } from "@/src/lib/getUserAndTier";
 
 import BlueprintsClient from "./BlueprintsClient";
@@ -25,7 +29,10 @@ export default async function Page() {
 
   return (
     <BlueprintsClient
-      stacks={(stacks ?? []) as any}
+      stacks={(stacks ?? []).map((stack) => ({
+        ...stack,
+        safety_status: deriveBlueprintSafetyStatus(blueprintMarkdownFromStack(stack)),
+      })) as any}
       paid={tier === "premium" || tier === "trial"}
     />
   );
