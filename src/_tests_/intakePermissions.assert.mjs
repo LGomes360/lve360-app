@@ -42,7 +42,7 @@ assert.match(setRoute, /requirePaidApi/, "Intake writes must remain paid-gated."
 assert.match(setRoute, /getSupabaseAdmin/, "Intake writes must remain server-controlled.");
 assert.match(
   setRoute,
-  /\{\s*user_id:\s*userId,\s*item_id:\s*itemId,\s*intake_date:\s*today,\s*taken\s*\}/,
+  /\{\s*user_id:\s*userId,\s*regimen_item_id:\s*regimenItemId,\s*intake_date:\s*today,\s*taken\s*\}/,
   "Server writes must bind the authenticated user ID."
 );
 

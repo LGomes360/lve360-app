@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { adoptStackRecommendation } from "@/lib/currentRegimen";
 import { requirePaidApi } from "@/lib/serverEntitlements";
 
 export async function POST(req: Request) {
@@ -12,9 +13,12 @@ export async function POST(req: Request) {
   if (!user?.id) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   const body = (await req.json().catch(() => null)) as { item_id?: string } | null;
   if (!body?.item_id) return NextResponse.json({ ok: false, error: "item_id_required" }, { status: 400 });
-  const { data, error } = await supabase.from("stacks_items").update({ is_current: true })
-    .eq("id", body.item_id).eq("user_id", user.id).select("id").maybeSingle();
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-  if (!data) return NextResponse.json({ ok: false, error: "item_not_found" }, { status: 404 });
-  return NextResponse.json({ ok: true });
+  try {
+    const regimenItem = await adoptStackRecommendation(user.id, body.item_id);
+    if (!regimenItem) return NextResponse.json({ ok: false, error: "item_not_found" }, { status: 404 });
+    return NextResponse.json({ ok: true, item: regimenItem });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "recommendation_adoption_failed";
+    return NextResponse.json({ ok: false, error: message }, { status: 400 });
+  }
 }

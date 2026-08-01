@@ -1,106 +1,30 @@
-// app/api/fullscript/add/route.ts
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { requirePaidApi } from "@/lib/serverEntitlements";
 
-// NEW: import timing helpers (you added src/lib/timing.ts earlier)
-import { bucketsForItem, collapseBucketsToString } from "@/src/lib/timing";
+import { upsertManualRegimenItem } from "@/lib/currentRegimen";
+import { requirePaidApi } from "@/lib/serverEntitlements";
 
 export async function POST(req: Request) {
   const entitlement = await requirePaidApi();
   if (!entitlement.ok) return entitlement.response;
 
-  const cookieStore = cookies();
-  const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
-
   try {
-    const { data: userWrap, error: userErr } = await supabase.auth.getUser();
-    if (userErr || !userWrap?.user?.id) {
-      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-    }
-    const userId = userWrap.user.id;
+    const body = await req.json().catch(() => null) as {
+      name?: string;
+      dose?: string | null;
+      timing?: string | null;
+    } | null;
+    const name = body?.name?.trim();
+    if (!name) return NextResponse.json({ ok: false, error: "name_required" }, { status: 400 });
 
-    const body = await req.json();
-    const {
+    const item = await upsertManualRegimenItem(entitlement.user.id, {
       name,
-      brand = null,
-      dose = null,
-      link_fullscript = null,
-      link_amazon = null,
-      source = "fullscript",
-      sku = null,
-      timing = "AM",
-      notes = null,
-    } = body || {};
-
-    if (!name) {
-      return NextResponse.json({ ok: false, error: "name_required" }, { status: 400 });
-    }
-
-    // admin client to upsert (safer for creating stack if none exists)
-    const admin = getSupabaseAdmin();
-
-    // 1) ensure latest stack for user
-    const { data: stacksRows, error: stacksErr } = await admin
-      .from("stacks")
-      .select("id, created_at")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    if (stacksErr) throw stacksErr;
-
-    let stackId = stacksRows?.[0]?.id;
-    if (!stackId) {
-      const { data: newStack, error: insErr } = await admin
-        .from("stacks")
-        .insert({
-          user_id: userId,
-          user_email: userWrap.user.email ?? "unknown@lve360.com",
-          submission_id: crypto.randomUUID(), // keep your existing behavior
-          version: "manual-add",
-          items: [],
-          summary: null,
-          total_monthly_cost: 0,
-          notes: "Created by /api/fullscript/add",
-        })
-        .select("id")
-        .single();
-      if (insErr) throw insErr;
-      stackId = newStack.id;
-    }
-
-    // --- NEW: normalize timing into a canonical bucket string
-    const bucketArr = bucketsForItem(timing);
-    const timing_bucket = collapseBucketsToString(bucketArr);
-
-    // 2) insert stacks_items row (add timing_bucket; keep everything else)
-    const { error: itemErr } = await admin.from("stacks_items").insert({
-      stack_id: stackId,
-      user_id: userId,
-      user_email: userWrap.user.email ?? null,
-      name,
-      brand,
-      dose,
-      timing,
-      timing_bucket,                 // <-- NEW: write normalized bucket
-      notes,
-      link_fullscript,
-      link_amazon,
-      link_other: null,
-      link_type: link_fullscript ? "fullscript" : link_amazon ? "amazon" : null,
-      source,                        // (leave as-is if your DB has this column)
-      sku,                           // (leave as-is if your DB has this column)
-      is_custom: source === "custom",
-      is_current: true,
+      dose: body?.dose ?? null,
+      timing: body?.timing ?? null,
+      active: true,
     });
-
-    if (itemErr) throw itemErr;
-
-    return NextResponse.json({ ok: true, stack_id: stackId });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "add_failed" }, { status: 500 });
+    return NextResponse.json({ ok: true, item });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "add_failed";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

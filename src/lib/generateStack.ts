@@ -35,6 +35,7 @@ import {
   RECOMMENDABLE_SUPPLEMENT_CANDIDATES,
 } from "@/lib/supplementEligibility";
 import { blueprintInputSnapshotHash } from "@/lib/blueprintWorkspace";
+import { ensureCurrentRegimen } from "@/lib/currentRegimen";
 
 // Curated evidence index (JSON)
 // If this path differs in your repo, update the import below.
@@ -1661,7 +1662,6 @@ export async function generateStackForSubmission(arg: string | { submissionId: s
   const inferredPremium = Boolean((sub as any)?.is_premium) || Boolean((sub as any)?.user?.is_premium) || ((sub as any)?.plan === "premium");
   const mode: GenerateMode = modeFromOpts ?? (inferredPremium ? "premium" : "free");
   const cap = requestedCap; // only cap when provided
-  const inputSnapshotHash = options?.inputSnapshotHash ?? blueprintInputSnapshotHash(sub);
   const generationReason = options?.generationReason ?? "initial";
   const supersedesStackId = options?.supersedesStackId ?? null;
 
@@ -1788,9 +1788,13 @@ const conditionsMerged = mergeReadableValues(normalizationStats,
 );
 const conditionsRaw = conditionsMerged.values;
 
-const currentStackLedger = buildNormalizedCurrentStackLedger(sub).filter((item) =>
+const resolvedCurrentStackLedger = user_id
+  ? await ensureCurrentRegimen(user_id, id, sub)
+  : buildNormalizedCurrentStackLedger(sub);
+const currentStackLedger = resolvedCurrentStackLedger.filter((item) =>
   !isPreferenceFieldOrValue(item.name) && !item.raw_labels.some(isPreferenceFieldOrValue)
 );
+const inputSnapshotHash = options?.inputSnapshotHash ?? blueprintInputSnapshotHash(sub, currentStackLedger);
 const berberineRequiresReview = /\b(?:metformin|zepbound|tirzepatide|mounjaro|diabet(?:es|ic)?|blood sugar|glucose|a1c)\b/i.test(
   JSON.stringify({ currentStackLedger, conditions: conditionsRaw })
 );

@@ -31,6 +31,7 @@ type StackItem = {
   link_fullscript: string | null;
   refill_days_left: number | null;
   last_refilled_at: string | null;
+  source_type?: "regimen" | "blueprint_proposal";
 };
 
 type SearchItem = {
@@ -106,8 +107,8 @@ useEffect(() => {
       setItems(json.items || []);        // merged + de-duped items
 
       // today statuses (unchanged logic)
-      if (json.latestStack?.id) {
-        const res2 = await fetch(`/api/intake/status?stack_id=${json.latestStack.id}`, { cache: "no-store" });
+      if (json.latestStack?.id || (json.items ?? []).length > 0) {
+        const res2 = await fetch("/api/intake/status", { cache: "no-store" });
         const sjson = await res2.json();
         if (sjson?.ok) {
           setTakenMap(sjson.statuses || {});
@@ -145,7 +146,7 @@ useEffect(() => {
       const res = await fetch("/api/intake/set", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ item_id: itemId, taken: nextVal }),
+        body: JSON.stringify({ regimen_item_id: itemId, taken: nextVal }),
       });
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error || "set_failed");
@@ -177,7 +178,7 @@ useEffect(() => {
         fetch("/api/intake/set", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ item_id: id, taken }),
+          body: JSON.stringify({ regimen_item_id: id, taken }),
         })
       )
     );
@@ -202,28 +203,25 @@ useEffect(() => {
       setToast("Unable to add that recommendation");
       return;
     }
-    setItems((prev) => prev.map((item) => item.id === itemId ? { ...item, is_current: true } : item));
+    await reloadItems();
     setToast("Added to your active plan");
   }
 
   // Reload items (after adding new in modal)
   async function reloadItems() {
-    if (!stack?.id) return;
-    const { data: itemRows } = await supabase
-      .from("stacks_items")
-      .select(
-        "id, stack_id, name, brand, dose, timing, notes, link_amazon, link_fullscript, refill_days_left, last_refilled_at"
-      )
-      .eq("stack_id", stack.id)
-      .order("created_at", { ascending: true });
-    setItems((itemRows ?? []) as StackItem[]);
-
     try {
-      const res = await fetch(`/api/intake/status?stack_id=${stack.id}`, { cache: "no-store" });
-      const json = await res.json();
-      if (json?.ok) {
-        setTakenMap(json.statuses || {});
-        if (localKey) localStorage.setItem(localKey, JSON.stringify(json.statuses || {}));
+      const [itemsResponse, statusResponse] = await Promise.all([
+        fetch("/api/stacks/combined", { cache: "no-store" }),
+        fetch("/api/intake/status", { cache: "no-store" }),
+      ]);
+      const [itemsJson, statusJson] = await Promise.all([itemsResponse.json(), statusResponse.json()]);
+      if (itemsJson?.ok) {
+        setStack(itemsJson.latestStack ?? null);
+        setItems(itemsJson.items ?? []);
+      }
+      if (statusJson?.ok) {
+        setTakenMap(statusJson.statuses || {});
+        if (localKey) localStorage.setItem(localKey, JSON.stringify(statusJson.statuses || {}));
       }
     } catch {}
   }

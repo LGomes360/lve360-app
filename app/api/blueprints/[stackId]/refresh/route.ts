@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { blueprintInputSnapshotHash } from "@/lib/blueprintWorkspace";
+import { ensureCurrentRegimen } from "@/lib/currentRegimen";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 import { sendGeneratedBlueprintEmail } from "@/lib/reportEmail";
 import { requirePaidApi } from "@/lib/serverEntitlements";
@@ -49,7 +50,8 @@ export async function POST(_req: Request, { params }: RouteContext) {
       return NextResponse.json({ ok: false, error: "blueprint_not_found" }, { status: 404 });
     }
 
-    const inputSnapshotHash = blueprintInputSnapshotHash(submission);
+    const currentRegimen = await ensureCurrentRegimen(entitlement.user.id, submission.id, submission);
+    const inputSnapshotHash = blueprintInputSnapshotHash(submission, currentRegimen);
     const { data: existing, error: existingError } = await admin
       .from("stacks")
       .select("id")

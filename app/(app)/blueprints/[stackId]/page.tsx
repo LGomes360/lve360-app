@@ -9,8 +9,9 @@ import {
 } from "@/lib/blueprintSafetyStatus";
 import {
   blueprintInputSnapshotHash,
-  getMemberSupplements,
 } from "@/lib/blueprintWorkspace";
+import { ensureCurrentRegimen, getCurrentRegimen } from "@/lib/currentRegimen";
+import { regimenToLedger } from "@/lib/currentRegimenModel";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 import BlueprintWorkspaceClient from "./BlueprintWorkspaceClient";
@@ -56,8 +57,21 @@ export default async function BlueprintPage({ params }: PageProps) {
 
   const markdown = blueprintMarkdownFromStack(stack);
   const report = parseBlueprintReport(markdown);
-  const { supplements, hasOverride } = getMemberSupplements(submission);
-  const currentInputHash = blueprintInputSnapshotHash(submission);
+  await ensureCurrentRegimen(user.id, submission.id, submission);
+  const regimen = await getCurrentRegimen(user.id);
+  const supplementRegimen = regimen.filter((item) =>
+    item.item_kind === "supplement" || item.item_kind === "endocrine_active_supplement"
+  );
+  const supplements = supplementRegimen.map((item) => ({
+    id: item.id,
+    name: item.name,
+    brand: null,
+    dose: item.dose,
+    timing: item.timing,
+    active: item.active,
+  }));
+  const hasOverride = supplementRegimen.some((item) => item.instruction_source !== "intake");
+  const currentInputHash = blueprintInputSnapshotHash(submission, regimenToLedger(regimen));
   const versioningReady = Object.prototype.hasOwnProperty.call(stack, "input_snapshot_hash");
   const stale = versioningReady
     ? !stack.input_snapshot_hash || stack.input_snapshot_hash !== currentInputHash
