@@ -7,6 +7,7 @@ import {
   deriveBlueprintSafetyStatus,
 } from "@/src/lib/blueprintSafetyStatus";
 import { getUserAndTier } from "@/src/lib/getUserAndTier";
+import { getPremiumActivationProgress } from "@/lib/premiumActivation";
 
 import BlueprintsClient from "./BlueprintsClient";
 
@@ -18,12 +19,15 @@ export default async function Page() {
   if (!user) redirect("/login");
 
   const supabase = createServerComponentClient({ cookies });
-  const { data: stacks, error } = await supabase
-    .from("stacks")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(25);
+  const [{ data: stacks, error }, activationProgress] = await Promise.all([
+    supabase
+      .from("stacks")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(25),
+    getPremiumActivationProgress(user),
+  ]);
 
   if (error) console.error("[blueprints] library lookup failed", error.message);
 
@@ -34,6 +38,7 @@ export default async function Page() {
         safety_status: deriveBlueprintSafetyStatus(blueprintMarkdownFromStack(stack)),
       })) as any}
       paid={tier === "premium" || tier === "trial"}
+      activationProgress={activationProgress}
     />
   );
 }

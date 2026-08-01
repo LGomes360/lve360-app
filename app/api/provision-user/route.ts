@@ -15,11 +15,19 @@ export async function POST() {
 
   const email = user.email?.toLowerCase() ?? null;
 
-  // Single atomic repair + attach step in the DB
-await supabaseAdmin.rpc("reconcile_user_and_attach_v2", {
-  p_email: user.email?.toLowerCase() ?? null,
-  p_new_id: user.id,
-});
+  if (!email || !user.email_confirmed_at) {
+    return NextResponse.json({ ok: false, error: "verified_email_required" }, { status: 409 });
+  }
+
+  // Single atomic repair + attach step in the DB.
+  const { error: reconciliationError } = await supabaseAdmin.rpc("reconcile_user_and_attach_v2", {
+    p_email: email,
+    p_new_id: user.id,
+  });
+  if (reconciliationError) {
+    console.error("[provision-user] reconciliation failed", reconciliationError.message);
+    return NextResponse.json({ ok: false, error: "blueprint_connection_failed" }, { status: 500 });
+  }
 
 
   // Optionally return the user's tier so client can decide immediately
@@ -29,5 +37,5 @@ await supabaseAdmin.rpc("reconcile_user_and_attach_v2", {
     .eq("id", user.id)
     .maybeSingle();
 
-  return NextResponse.json({ ok: true, tier: profile?.tier ?? "free" });
+  return NextResponse.json({ ok: true, tier: profile?.tier ?? "free", reconciled: true });
 }

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { FileDown, FileText, History } from "lucide-react";
 
 import { trackProductEvent } from "@/lib/productAnalyticsClient";
+import type { PremiumActivationProgress } from "@/lib/premiumActivation";
+import PremiumActivationChecklist from "@/components/activation/PremiumActivationChecklist";
 
 type StackRow = {
   id: string;
@@ -17,9 +19,11 @@ type StackRow = {
 export default function BlueprintsClient({
   stacks,
   paid,
+  activationProgress,
 }: {
   stacks: StackRow[];
   paid: boolean;
+  activationProgress: PremiumActivationProgress;
 }) {
   const latest = stacks[0] ?? null;
 
@@ -36,19 +40,23 @@ export default function BlueprintsClient({
         </p>
       </header>
 
+      {paid ? <div className="mt-8"><PremiumActivationChecklist progress={activationProgress} surface="blueprints" /></div> : null}
+
       {!latest ? (
-        <section className="mt-8 rounded-2xl border border-[#BCE3DA] bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-bold text-[#041B2D]">Create your first Blueprint</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Complete the intake to organize your goals, current stack, safety context, and most useful next steps.
-          </p>
-          <Link
-            href="/quiz"
-            className="mt-5 inline-flex min-h-11 items-center rounded-xl bg-[#087F72] px-5 py-3 font-bold text-white hover:bg-[#06695F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] focus-visible:ring-offset-2"
-          >
-            Create my Blueprint
-          </Link>
-        </section>
+        paid ? null : (
+          <section className="mt-8 rounded-2xl border border-[#BCE3DA] bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-bold text-[#041B2D]">Create your first Blueprint</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Complete the intake to organize your goals, current stack, safety context, and most useful next steps.
+            </p>
+            <Link
+              href="/quiz"
+              className="mt-5 inline-flex min-h-11 items-center rounded-xl bg-[#087F72] px-5 py-3 font-bold text-white hover:bg-[#06695F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] focus-visible:ring-offset-2"
+            >
+              Create my Blueprint
+            </Link>
+          </section>
+        )
       ) : (
         <>
           <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

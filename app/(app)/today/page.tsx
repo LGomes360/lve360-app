@@ -7,6 +7,7 @@ import TodayClient from "./TodayClient";
 import type { WeeklyExperiment } from "@/lib/activation";
 import { getCurrentBlueprintContext, getExperimentBlueprintContexts } from "@/lib/currentBlueprintContext";
 import { parseLocalDate } from "@/lib/today";
+import { getPremiumActivationProgress } from "@/lib/premiumActivation";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -29,7 +30,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ c
   }
 
   const blueprintPromise = getCurrentBlueprintContext(user.id);
-  const [{ data: goals }, { data: experiment }, blueprint] = await Promise.all([
+  const [{ data: goals }, { data: experiment }, blueprint, activationProgress] = await Promise.all([
     supabase.from("goals").select("*").eq("user_id", user.id).maybeSingle(),
     supabase
       .from("weekly_experiments")
@@ -40,6 +41,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ c
       .limit(1)
       .maybeSingle(),
     blueprintPromise,
+    getPremiumActivationProgress(user),
   ]);
   const activeExperiment = (experiment as WeeklyExperiment | null) ?? null;
   const experimentBlueprints = activeExperiment
@@ -57,9 +59,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ c
         blueprint={blueprint}
         experimentBlueprint={activeExperiment ? experimentBlueprints[activeExperiment.id] ?? null : null}
         checkinDate={checkinDate}
+        activationProgress={activationProgress}
       />
 
-      {(targetWeight == null && targetSleep == null && targetEnergy == null) ? (
+      {(activationProgress.practice.status === "active" || activationProgress.firstActionComplete)
+        && (targetWeight == null && targetSleep == null && targetEnergy == null) ? (
         <div className="mx-auto w-full max-w-5xl px-4 pb-8 sm:px-6">
           <GoalsTargetsEditor
             targetWeight={targetWeight}
