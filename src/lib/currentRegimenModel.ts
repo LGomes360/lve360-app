@@ -1,6 +1,7 @@
 import type { NormalizedCurrentStackLedgerItem } from "@/lib/normalizedCurrentStackLedger";
 import { isEndocrineActiveSupplementName } from "@/lib/supplementEligibility";
-import type { MedicationInstructionAuthority } from "@/lib/medicationRecord";
+import type { RegimenInstructionAuthority } from "@/lib/medicationRecord";
+import type { RegimenSchedule } from "@/lib/regimenSchedule";
 
 export type CurrentRegimenKind = NormalizedCurrentStackLedgerItem["kind"];
 export type CurrentRegimenSource = "intake" | "member_update" | "adopted_recommendation" | "manual_add";
@@ -17,7 +18,8 @@ export type CurrentRegimenItem = {
   dose: string | null;
   timing: string | null;
   instruction_source: CurrentRegimenSource;
-  instruction_authority: MedicationInstructionAuthority | null;
+  instruction_authority: RegimenInstructionAuthority | null;
+  schedule: RegimenSchedule | null;
   active: boolean;
   created_at?: string;
   updated_at?: string;

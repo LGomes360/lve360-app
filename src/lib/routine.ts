@@ -1,3 +1,12 @@
+import type { RegimenInstructionAuthority } from "./medicationRecord.ts";
+import {
+  isRegimenScheduleDue,
+  localDateString,
+  regimenDoseSlots,
+  regimenScheduleLabel,
+  type RegimenSchedule,
+} from "./regimenSchedule.ts";
+
 export type RoutineItemKind = "medication" | "supplement" | "hormone" | "endocrine_active_supplement";
 export type RoutineSourceType = "regimen" | "blueprint_proposal";
 
@@ -13,7 +22,8 @@ export type RoutineItem = {
   notes: string | null;
   item_kind: RoutineItemKind;
   instruction_source?: "intake" | "member_update" | "adopted_recommendation" | "manual_add" | null;
-  instruction_authority?: "clinician" | "pharmacist" | "medication_label" | null;
+  instruction_authority?: RegimenInstructionAuthority | null;
+  schedule?: RegimenSchedule | null;
   active?: boolean;
   is_current: boolean;
   source_type: RoutineSourceType;
@@ -22,6 +32,7 @@ export type RoutineItem = {
   refill_days_left: number | null;
   last_refilled_at: string | null;
   created_at?: string | null;
+  updated_at?: string | null;
 };
 
 export const ROUTINE_SECTION_ORDER = [
@@ -49,7 +60,8 @@ export function groupRoutineItems(items: RoutineItem[]) {
   };
 }
 
-export function routineScheduleLabel(item: Pick<RoutineItem, "timing" | "timing_text">): string {
+export function routineScheduleLabel(item: Pick<RoutineItem, "timing" | "timing_text" | "schedule">): string {
+  if (item.schedule) return regimenScheduleLabel(item.schedule);
   return item.timing?.trim() || item.timing_text?.trim() || "Schedule not recorded";
 }
 
@@ -64,9 +76,10 @@ const DAY_INDEX: Record<string, number> = {
 };
 
 export function isRoutineItemDueToday(
-  item: Pick<RoutineItem, "timing" | "timing_text">,
+  item: Pick<RoutineItem, "timing" | "timing_text" | "schedule">,
   today = new Date()
 ): boolean {
+  if (item.schedule) return isRegimenScheduleDue(item.schedule, localDateString(today));
   const schedule = routineScheduleLabel(item).toLowerCase();
   if (schedule === "schedule not recorded" || /\b(as needed|prn)\b/.test(schedule)) return false;
   const namedDays = Object.entries(DAY_INDEX)
@@ -79,8 +92,12 @@ export function isRoutineItemDueToday(
 
 export function getRoutineTodaySummary(items: RoutineItem[], today = new Date()) {
   const { current, proposals } = groupRoutineItems(items);
+  const date = localDateString(today);
   return {
-    dueToday: current.filter((item) => isRoutineItemDueToday(item, today)).length,
+    dueToday: current.reduce((total, item) => {
+      if (item.schedule) return total + regimenDoseSlots(item.schedule, date).length;
+      return total + (isRoutineItemDueToday(item, today) ? 1 : 0);
+    }, 0),
     scheduleReview: current.filter((item) => routineScheduleLabel(item) === "Schedule not recorded").length,
     ideasToConsider: proposals.length,
   };
@@ -97,6 +114,7 @@ export function routineInstructionAuthorityLabel(authority: RoutineItem["instruc
   if (authority === "clinician") return "Instruction reported from your clinician or prescriber";
   if (authority === "pharmacist") return "Instruction reported from your pharmacist";
   if (authority === "medication_label") return "Instruction recorded from your medication label";
+  if (authority === "product_label") return "Instruction recorded from your product label";
   return null;
 }
 

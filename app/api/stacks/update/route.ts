@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { requirePaidApi } from "@/lib/serverEntitlements";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { isMedicationInstructionAuthority } from "@/lib/medicationRecord";
+import { isMedicationInstructionAuthority, isRegimenInstructionAuthority } from "@/lib/medicationRecord";
+import { normalizeRegimenSchedule, regimenScheduleLabel } from "@/lib/regimenSchedule";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -11,7 +12,7 @@ export async function POST(req: Request) {
     const entitlement = await requirePaidApi();
     if (!entitlement.ok) return entitlement.response;
 
-    const { id, purpose, dose, timing, active, instructionAuthority } = await req.json();
+    const { id, purpose, dose, timing, schedule, active, instructionAuthority } = await req.json();
     if (!id) return NextResponse.json({ ok: false, error: "missing_id" }, { status: 400 });
 
     const admin = getSupabaseAdmin();
@@ -26,26 +27,37 @@ export async function POST(req: Request) {
     if (!existing) return NextResponse.json({ ok: false, error: "regimen_item_not_found" }, { status: 404 });
     const prescribedItem = existing.item_kind === "medication" || existing.item_kind === "hormone";
     const changesPrescribedInstructions = prescribedItem
-      && [purpose, dose, timing].some((value) => typeof value !== "undefined");
+      && [purpose, dose, timing, schedule].some((value) => typeof value !== "undefined");
     if (changesPrescribedInstructions && !isMedicationInstructionAuthority(instructionAuthority)) {
       return NextResponse.json(
         { ok: false, error: `${existing.item_kind}_instruction_source_required` },
         { status: 400 },
       );
     }
-    if (typeof instructionAuthority !== "undefined" && !prescribedItem) {
-      return NextResponse.json({ ok: false, error: "instruction_source_not_supported" }, { status: 400 });
+    const changesSupplementSchedule = !prescribedItem && typeof schedule !== "undefined";
+    if (changesSupplementSchedule
+      && (!isRegimenInstructionAuthority(instructionAuthority) || instructionAuthority === "medication_label")) {
+      return NextResponse.json({ ok: false, error: "supplement_instruction_source_required" }, { status: 400 });
+    }
+    if (typeof instructionAuthority !== "undefined"
+      && !isRegimenInstructionAuthority(instructionAuthority)) {
+      return NextResponse.json({ ok: false, error: "invalid_instruction_source" }, { status: 400 });
     }
 
     const patch: Record<string, unknown> = Object.fromEntries(
       Object.entries({ purpose, dose, timing, active })
         .filter(([, value]) => typeof value !== "undefined")
     );
+    if (typeof schedule !== "undefined") {
+      const normalizedSchedule = schedule === null ? null : normalizeRegimenSchedule(schedule);
+      patch.schedule = normalizedSchedule;
+      if (normalizedSchedule) patch.timing = regimenScheduleLabel(normalizedSchedule);
+    }
     if (!Object.keys(patch).length) {
       return NextResponse.json({ ok: false, error: "no_supported_changes" }, { status: 400 });
     }
     patch.instruction_source = "member_update";
-    if (changesPrescribedInstructions) patch.instruction_authority = instructionAuthority;
+    if (changesPrescribedInstructions || changesSupplementSchedule) patch.instruction_authority = instructionAuthority;
     patch.updated_at = new Date().toISOString();
 
     const { data, error } = await admin
@@ -60,6 +72,8 @@ export async function POST(req: Request) {
     if (!data) return NextResponse.json({ ok: false, error: "regimen_item_not_found" }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "unknown_error" }, { status: 500 });
+    const message = e?.message ?? "unknown_error";
+    const invalid = /invalid|required|cadence|time|weekday|interval/.test(message);
+    return NextResponse.json({ ok: false, error: message }, { status: invalid ? 400 : 500 });
   }
 }

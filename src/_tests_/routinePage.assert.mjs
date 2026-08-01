@@ -22,7 +22,7 @@ assert.match(routineModel, /hormone: "Hormones"/, "Routine must separate hormone
 assert.match(routineModel, /supplement: "Supplements"/, "Routine must separate supplements.");
 assert.match(routineModel, /endocrine_active_supplement: "Hormone-active items"/, "Routine must separate hormone-active items.");
 assert.match(client, /Ideas to consider/, "Routine must separate proposed ideas.");
-assert.match(client, /Record prescribed change/, "Members must be able to record clinician-directed medication changes.");
+assert.match(client, /Record dose or schedule change/, "Members must be able to record clinician-directed medication changes.");
 assert.match(client, /kind="hormone"/, "Members must be able to record clinician-directed hormone changes.");
 assert.match(client, /Schedule not recorded/, "Missing schedules must be stated plainly.");
 assert.match(client, /RotateCcw[\s\S]*Undo/, "State changes must expose text and icon Undo.");

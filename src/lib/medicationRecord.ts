@@ -1,3 +1,5 @@
+import { normalizeRegimenSchedule } from "./regimenSchedule.ts";
+
 export const MEDICATION_INSTRUCTION_AUTHORITIES = [
   "clinician",
   "pharmacist",
@@ -6,15 +8,32 @@ export const MEDICATION_INSTRUCTION_AUTHORITIES = [
 
 export type MedicationInstructionAuthority = (typeof MEDICATION_INSTRUCTION_AUTHORITIES)[number];
 
+export const REGIMEN_INSTRUCTION_AUTHORITIES = [
+  ...MEDICATION_INSTRUCTION_AUTHORITIES,
+  "product_label",
+] as const;
+
+export type RegimenInstructionAuthority = (typeof REGIMEN_INSTRUCTION_AUTHORITIES)[number];
+
 export const MEDICATION_AUTHORITY_LABELS: Record<MedicationInstructionAuthority, string> = {
   clinician: "My clinician or prescriber",
   pharmacist: "My pharmacist",
   medication_label: "My current prescription label",
 };
 
+export const REGIMEN_AUTHORITY_LABELS: Record<RegimenInstructionAuthority, string> = {
+  ...MEDICATION_AUTHORITY_LABELS,
+  product_label: "My current product label",
+};
+
 export function isMedicationInstructionAuthority(value: unknown): value is MedicationInstructionAuthority {
   return typeof value === "string"
     && MEDICATION_INSTRUCTION_AUTHORITIES.includes(value as MedicationInstructionAuthority);
+}
+
+export function isRegimenInstructionAuthority(value: unknown): value is RegimenInstructionAuthority {
+  return typeof value === "string"
+    && REGIMEN_INSTRUCTION_AUTHORITIES.includes(value as RegimenInstructionAuthority);
 }
 
 function clean(value: unknown, maxLength: number): string | null {
@@ -47,5 +66,6 @@ function normalizePrescribedRecordInput(value: unknown, kind: "medication" | "ho
     timing: clean(input.timing, 160),
     purpose: clean(input.purpose, 200),
     instruction_authority: input.instruction_authority,
+    ...(typeof input.schedule !== "undefined" ? { schedule: normalizeRegimenSchedule(input.schedule) } : {}),
   };
 }

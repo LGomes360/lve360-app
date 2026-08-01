@@ -12,8 +12,9 @@ import {
   type CurrentRegimenSource,
 } from "@/lib/currentRegimenModel";
 import type { MedicationInstructionAuthority } from "@/lib/medicationRecord";
+import { regimenScheduleLabel, type RegimenSchedule } from "@/lib/regimenSchedule";
 
-const REGIMEN_COLUMNS = "id,user_id,source_submission_id,source_stack_item_id,item_kind,name,normalized_name,purpose,dose,timing,instruction_source,instruction_authority,active,created_at,updated_at";
+const REGIMEN_COLUMNS = "id,user_id,source_submission_id,source_stack_item_id,item_kind,name,normalized_name,purpose,dose,timing,schedule,instruction_source,instruction_authority,active,created_at,updated_at";
 
 export async function getCurrentRegimen(userId: string, includeInactive = false): Promise<CurrentRegimenItem[]> {
   const admin = getSupabaseAdmin();
@@ -153,6 +154,7 @@ export async function upsertReportedMedication(userId: string, input: {
   timing: string | null;
   purpose: string | null;
   instruction_authority: MedicationInstructionAuthority;
+  schedule?: RegimenSchedule | null;
 }) {
   await ensureLatestUserRegimen(userId);
   const row = {
@@ -164,7 +166,8 @@ export async function upsertReportedMedication(userId: string, input: {
     normalized_name: normalizeRegimenName(input.name),
     purpose: input.purpose,
     dose: input.dose,
-    timing: input.timing,
+    timing: input.schedule ? regimenScheduleLabel(input.schedule) : input.timing,
+    schedule: input.schedule ?? null,
     instruction_source: "manual_add" satisfies CurrentRegimenSource,
     instruction_authority: input.instruction_authority,
     active: true,
@@ -184,6 +187,7 @@ export async function upsertReportedHormone(userId: string, input: {
   timing: string | null;
   purpose: string | null;
   instruction_authority: MedicationInstructionAuthority;
+  schedule?: RegimenSchedule | null;
 }) {
   await ensureLatestUserRegimen(userId);
   const row = {
@@ -195,7 +199,8 @@ export async function upsertReportedHormone(userId: string, input: {
     normalized_name: normalizeRegimenName(input.name),
     purpose: input.purpose,
     dose: input.dose,
-    timing: input.timing,
+    timing: input.schedule ? regimenScheduleLabel(input.schedule) : input.timing,
+    schedule: input.schedule ?? null,
     instruction_source: "manual_add" satisfies CurrentRegimenSource,
     instruction_authority: input.instruction_authority,
     active: true,
