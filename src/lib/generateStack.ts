@@ -16,6 +16,7 @@ import { neutralGoalDescription, recommendationRationale } from "@/lib/reportInt
 import { parseBlueprintReport, validateBlueprintReport } from "@/lib/blueprintReport";
 import { deriveBlueprintSafetyStatus } from "@/lib/blueprintSafetyStatus";
 import { applySafetyChecks } from "@/lib/safetyCheck";
+import { applySafetyEvaluationToMarkdown } from "@/lib/safetyEngine";
 import { enrichAffiliateLinks, buildAmazonSearchLink } from "@/lib/affiliateLinks";
 import { getTopCitationsFor } from "@/lib/evidence";
 import { callOpenAI } from "@/lib/openai";
@@ -713,7 +714,7 @@ function validateBlueprintMix(md: string) {
     clinicianReview: statuses.filter((status) => status === "Clinician review").length,
   };
   return {
-    valid: counts.total === 10 && counts.current <= 5 && counts.new >= 4 && counts.clinicianReview <= 1 &&
+    valid: counts.total === 10 && counts.current <= 5 && (counts.new + counts.clinicianReview) >= 4 &&
       statuses.every((status) => ["Current - optimize", "New - consider", "Clinician review"].includes(status)),
     counts,
   };
@@ -2318,7 +2319,6 @@ md = replaceOrAppendSection(md, buildPracticalFollowUpSection());
     return !looksLikeTimingArtifact(n);
   });
 
-  interface SafetyOutput { cleaned: StackItem[] }
 const safetyInput = {
   medications: Array.isArray((baseClient as any).medications)
     ? (baseClient as any).medications.map((m: any) => m?.med_name || m?.name || m)
@@ -2333,19 +2333,38 @@ const safetyInput = {
     typeof (baseClient as any).pregnant === "boolean" || typeof (baseClient as any).pregnant === "string"
       ? (baseClient as any).pregnant
       : null,
+  procedures: extractReadableNames([
+    (baseClient as any).procedures,
+    (baseClient as any).upcoming_procedures,
+    (baseClient as any).surgeries,
+    (baseClient as any).surgery,
+  ]),
   brand_pref: (baseClient as any)?.preferences?.brand_pref ?? (baseClient as any)?.brand_pref ?? null,
   dosing_pref: (baseClient as any)?.preferences?.dosing_pref ?? (baseClient as any)?.dosing_pref ?? null,
   is_premium: mode === "premium",
 };
 
-  let cleanedItems: StackItem[] = filteredItems;
-  try {
-    const res = (await applySafetyChecks(safetyInput, filteredItems)) as Partial<SafetyOutput> | null;
-    cleanedItems = asArray<StackItem>((res?.cleaned as StackItem[]) ?? filteredItems);
-  } catch (e) { console.warn("applySafetyChecks failed; continuing with uncautioned items.", e); }
-
   const itemKey = (name: string) => normalizeSupplementName(name).toLowerCase();
   const currentKindByName = new Map(currentStackLedger.map((item) => [itemKey(item.name), item.kind]));
+  const safetyCandidates = filteredItems.filter((item) => {
+    const currentKind = currentKindByName.get(itemKey(item.name));
+    return !currentKind || currentKind === "supplement" || currentKind === "endocrine_active_supplement";
+  });
+  const safetyResult = await applySafetyChecks(safetyInput, safetyCandidates);
+  const safetyItemsByName = new Map(
+    asArray<StackItem>(safetyResult.cleaned as StackItem[]).map((item) => [itemKey(item.name), item])
+  );
+  const cleanedItems = filteredItems.map((item) => safetyItemsByName.get(itemKey(item.name)) ?? item);
+  md = applySafetyEvaluationToMarkdown(md, safetyResult);
+  console.info("[safety.engine]", {
+    complete: safetyResult.complete,
+    status: safetyResult.status,
+    candidate_count: safetyResult.candidates.length,
+    finding_count: safetyResult.findings.length,
+    review_count: safetyResult.candidates.filter((candidate) => candidate.decision === "review").length,
+    blocked_count: safetyResult.candidates.filter((candidate) => candidate.decision === "blocked").length,
+  });
+
   const blueprintShoppableNames = new Set(blueprintNames(tableMd).filter(isEligibleSupplementName).map(itemKey));
   const shoppableNames = new Set([
     ...blueprintNames(tableMd).filter(isEligibleSupplementName),
