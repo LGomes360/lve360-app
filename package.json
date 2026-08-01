@@ -22,6 +22,7 @@
     "qa:current-regimen": "node src/_tests_/currentRegimen.assert.mjs",
     "qa:routine": "node --experimental-strip-types src/_tests_/routine.assert.ts && node src/_tests_/routinePage.assert.mjs",
     "qa:pr74": "node --experimental-strip-types src/_tests_/pr74.assert.ts && node src/_tests_/pr74Page.assert.mjs",
+    "qa:pr75": "node --experimental-strip-types src/_tests_/pr75.assert.ts && node src/_tests_/pr75Page.assert.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
     "qa:all": "npm run qa:env && npm run qa:build"
@@ -52,6 +53,7 @@
     "remark-html": "^16.0.1",
     "resend": "^6.0.3",
     "stripe": "^16.12.0",
+    "svix": "1.99.1",
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7",
     "zod": "^3.23.8"

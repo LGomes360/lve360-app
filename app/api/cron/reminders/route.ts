@@ -3,10 +3,14 @@ import { NextResponse, type NextRequest } from "next/server";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 import {
   addDays,
+  effectiveReminderHour,
   evaluateReminder,
   reminderIdempotencyKey,
   sendReminderEmail,
+  shouldLedgerSkip,
+  skippedReminderIdempotencyKey,
 } from "@/lib/reminders";
+import { isReminderTiming, type ReminderKind, type ReminderTiming } from "@/lib/reminderSchedule";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +20,11 @@ type ExperimentRow = {
   id: string;
   user_id: string;
   week_start: string;
+  action_label: string;
+  minimum_version: string;
+  frequency_per_week: number;
+  reminder_timing: ReminderTiming | null;
+  reminder_hour: number | null;
 };
 
 export async function GET(req: NextRequest) {
@@ -27,7 +36,7 @@ export async function GET(req: NextRequest) {
   const admin = getSupabaseAdmin();
   const { data: experiments, error } = await admin
     .from("weekly_experiments")
-    .select("id, user_id, week_start")
+    .select("id, user_id, week_start, action_label, minimum_version, frequency_per_week, reminder_timing, reminder_hour")
     .eq("status", "active")
     .eq("reminder_preference", "email")
     .limit(500);
@@ -117,30 +126,74 @@ export async function GET(req: NextRequest) {
         throw completionsError ?? reviewError;
       }
 
+      const timing = isReminderTiming(experiment.reminder_timing)
+        ? experiment.reminder_timing
+        : "account_default";
+      const cueHour = effectiveReminderHour(timing, experiment.reminder_hour, preference.cue_hour);
+      const completedDates = (completions ?? []).map((item) => item.completion_date);
       const evaluation = evaluateReminder({
         now,
         timezone: preference.timezone,
-        cueHour: preference.cue_hour,
+        cueHour,
         quietStartHour: preference.quiet_start_hour,
         quietEndHour: preference.quiet_end_hour,
         weekStart: experiment.week_start,
-        completedDates: (completions ?? []).map((item) => item.completion_date),
+        completedDates,
         reviewCompleted: review?.status === "completed",
+        targetCount: experiment.frequency_per_week ?? 1,
+        timing,
       });
       if (!evaluation.decision) {
         countSkip(evaluation.reason);
+        if (shouldLedgerSkip(evaluation.reason)) {
+          const skipKind: ReminderKind = evaluation.reason === "review_complete"
+            ? "weekly_review"
+            : timing === "next_day"
+              ? "next_day_checkin"
+              : "practice";
+          const skipKey = skippedReminderIdempotencyKey(
+            experiment.id,
+            evaluation.localDate,
+            evaluation.reason,
+          );
+          const { error: skipError } = await admin.from("reminder_deliveries").insert({
+            user_id: experiment.user_id,
+            experiment_id: experiment.id,
+            reminder_kind: skipKind,
+            reminder_timing: timing,
+            local_date: evaluation.localDate,
+            target_date: timing === "next_day" ? addDays(evaluation.localDate, -1) : evaluation.localDate,
+            idempotency_key: skipKey,
+            status: "skipped",
+            skip_reason: evaluation.reason,
+            attempted_at: new Date().toISOString(),
+          });
+          if (skipError && skipError.code !== "23505") {
+            console.error("[reminders] skip ledger failed", {
+              experimentId: experiment.id,
+              code: skipError.code,
+            });
+          }
+        }
         continue;
       }
       const decision = evaluation.decision;
 
-      const key = reminderIdempotencyKey(decision.kind, experiment.id, decision.localDate);
+      const key = reminderIdempotencyKey(
+        decision.kind,
+        experiment.id,
+        decision.localDate,
+        decision.targetDate,
+      );
       const { data: delivery, error: claimError } = await admin
         .from("reminder_deliveries")
         .insert({
           user_id: experiment.user_id,
           experiment_id: experiment.id,
           reminder_kind: decision.kind,
+          reminder_timing: timing,
           local_date: decision.localDate,
+          target_date: decision.targetDate,
           idempotency_key: key,
         })
         .select("id")
@@ -154,28 +207,33 @@ export async function GET(req: NextRequest) {
       const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://lve360.com").replace(/\/$/, "");
       const path = decision.kind === "weekly_review"
         ? `/review?experiment=${encodeURIComponent(experiment.id)}&source=reminder`
-        : `/today?experiment=${encodeURIComponent(experiment.id)}&source=reminder`;
+        : decision.kind === "next_day_checkin"
+          ? `/today?checkin=${encodeURIComponent(decision.targetDate)}&source=reminder`
+          : `/today?experiment=${encodeURIComponent(experiment.id)}&source=reminder`;
       const result = await sendReminderEmail({
         to: profile.email,
         kind: decision.kind,
+        timing,
+        actionLabel: experiment.action_label || "Your focused weekly practice",
+        minimumVersion: experiment.minimum_version || "Take the smallest useful step",
         deepLink: `${appUrl}${path}`,
         idempotencyKey: key,
       });
       await admin.from("reminder_deliveries").update({
         status: result.status,
-        provider_id: result.status === "sent" ? result.providerId : null,
+        provider_id: result.status === "accepted" ? result.providerId : null,
         attempted_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }).eq("id", delivery.id);
 
       await recordProductEventSafely({
-        event_name: result.status === "sent" ? "reminder_sent" : "reminder_failed",
+        event_name: result.status === "accepted" ? "reminder_sent" : "reminder_failed",
         source: "reminders",
         user_id: experiment.user_id,
         experiment_id: experiment.id,
         event_key: `${key}:${result.status}`,
       });
-      if (result.status === "sent") sent += 1;
+      if (result.status === "accepted") sent += 1;
       else countFailure(`email_${result.reason}`);
     } catch (dispatchError) {
       countFailure("dispatch_error");

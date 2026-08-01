@@ -9,7 +9,7 @@ export type MedicationInstructionAuthority = (typeof MEDICATION_INSTRUCTION_AUTH
 export const MEDICATION_AUTHORITY_LABELS: Record<MedicationInstructionAuthority, string> = {
   clinician: "My clinician or prescriber",
   pharmacist: "My pharmacist",
-  medication_label: "My current medication label",
+  medication_label: "My current prescription label",
 };
 
 export function isMedicationInstructionAuthority(value: unknown): value is MedicationInstructionAuthority {
@@ -24,14 +24,22 @@ function clean(value: unknown, maxLength: number): string | null {
 }
 
 export function normalizeMedicationRecordInput(value: unknown) {
+  return normalizePrescribedRecordInput(value, "medication");
+}
+
+export function normalizeHormoneRecordInput(value: unknown) {
+  return normalizePrescribedRecordInput(value, "hormone");
+}
+
+function normalizePrescribedRecordInput(value: unknown, kind: "medication" | "hormone") {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("invalid_medication_record");
+    throw new Error(`invalid_${kind}_record`);
   }
   const input = value as Record<string, unknown>;
   const name = clean(input.name, 120);
-  if (!name || name.length < 2) throw new Error("medication_name_required");
+  if (!name || name.length < 2) throw new Error(`${kind}_name_required`);
   if (!isMedicationInstructionAuthority(input.instruction_authority)) {
-    throw new Error("medication_instruction_source_required");
+    throw new Error(`${kind}_instruction_source_required`);
   }
   return {
     name,

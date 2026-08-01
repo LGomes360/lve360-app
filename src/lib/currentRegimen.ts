@@ -177,3 +177,34 @@ export async function upsertReportedMedication(userId: string, input: {
   if (error) throw error;
   return data as unknown as CurrentRegimenItem;
 }
+
+export async function upsertReportedHormone(userId: string, input: {
+  name: string;
+  dose: string | null;
+  timing: string | null;
+  purpose: string | null;
+  instruction_authority: MedicationInstructionAuthority;
+}) {
+  await ensureLatestUserRegimen(userId);
+  const row = {
+    user_id: userId,
+    source_submission_id: null,
+    source_stack_item_id: null,
+    item_kind: "hormone" as const,
+    name: input.name,
+    normalized_name: normalizeRegimenName(input.name),
+    purpose: input.purpose,
+    dose: input.dose,
+    timing: input.timing,
+    instruction_source: "manual_add" satisfies CurrentRegimenSource,
+    instruction_authority: input.instruction_authority,
+    active: true,
+    updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await getSupabaseAdmin().from("current_regimen_items")
+    .upsert(row, { onConflict: "user_id,item_kind,normalized_name" })
+    .select(REGIMEN_COLUMNS)
+    .maybeSingle();
+  if (error) throw error;
+  return data as unknown as CurrentRegimenItem;
+}

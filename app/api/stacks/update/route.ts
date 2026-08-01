@@ -24,21 +24,16 @@ export async function POST(req: Request) {
 
     if (existingError) return NextResponse.json({ ok: false, error: existingError.message }, { status: 400 });
     if (!existing) return NextResponse.json({ ok: false, error: "regimen_item_not_found" }, { status: 404 });
-    if (typeof dose !== "undefined" && existing.item_kind === "hormone") {
-      return NextResponse.json(
-        { ok: false, error: "dose_updates_unavailable_for_hormones" },
-        { status: 400 },
-      );
-    }
-    const changesMedicationInstructions = existing.item_kind === "medication"
+    const prescribedItem = existing.item_kind === "medication" || existing.item_kind === "hormone";
+    const changesPrescribedInstructions = prescribedItem
       && [purpose, dose, timing].some((value) => typeof value !== "undefined");
-    if (changesMedicationInstructions && !isMedicationInstructionAuthority(instructionAuthority)) {
+    if (changesPrescribedInstructions && !isMedicationInstructionAuthority(instructionAuthority)) {
       return NextResponse.json(
-        { ok: false, error: "medication_instruction_source_required" },
+        { ok: false, error: `${existing.item_kind}_instruction_source_required` },
         { status: 400 },
       );
     }
-    if (typeof instructionAuthority !== "undefined" && existing.item_kind !== "medication") {
+    if (typeof instructionAuthority !== "undefined" && !prescribedItem) {
       return NextResponse.json({ ok: false, error: "instruction_source_not_supported" }, { status: 400 });
     }
 
@@ -50,7 +45,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "no_supported_changes" }, { status: 400 });
     }
     patch.instruction_source = "member_update";
-    if (changesMedicationInstructions) patch.instruction_authority = instructionAuthority;
+    if (changesPrescribedInstructions) patch.instruction_authority = instructionAuthority;
     patch.updated_at = new Date().toISOString();
 
     const { data, error } = await admin

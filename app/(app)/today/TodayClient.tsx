@@ -11,10 +11,12 @@ export default function TodayClient({
   experiment,
   blueprint,
   experimentBlueprint,
+  checkinDate,
 }: {
   experiment: WeeklyExperiment | null;
   blueprint: CurrentBlueprintContext | null;
   experimentBlueprint: ExperimentBlueprintContext | null;
+  checkinDate: string | null;
 }) {
   useEffect(() => {
     fetch("/api/provision-user", { method: "POST" }).catch((error) => {
@@ -29,6 +31,7 @@ export default function TodayClient({
           initialExperiment={experiment}
           blueprint={blueprint}
           experimentBlueprint={experimentBlueprint}
+          initialCompletionDate={checkinDate}
         />
 
         <section id="daily-log" aria-label="Quick check-in">

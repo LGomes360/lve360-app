@@ -32,10 +32,10 @@ const routine = read("app/(app)/routine/RoutineClient.tsx");
 const migration = read("supabase/migrations/20260801182027_pr74_medication_instruction_authority.sql");
 assert.match(medicationRoute, /normalizeMedicationRecordInput/, "New medications must use the strict provenance validator.");
 assert.match(medicationRoute, /upsertReportedMedication/, "New medications must enter the canonical regimen.");
-assert.match(updateRoute, /medication_instruction_source_required/, "Medication updates must require provenance.");
-assert.match(updateRoute, /existing\.item_kind === "hormone"/, "Hormone dose edits must remain blocked.");
-assert.match(routine, /Add a prescribed medication/, "Routine must let members add a new medication.");
-assert.match(routine, /LVE360 is not advising you to discontinue it/, "Stop tracking must not imply discontinuation advice.");
+assert.match(updateRoute, /instruction_source_required/, "Prescribed-item updates must require provenance.");
+assert.match(updateRoute, /prescribedItem/, "Prescribed regimen edits must retain the provenance gate.");
+assert.match(routine, /Add a medication/, "Routine must let members add a new medication.");
+assert.match(routine, /LVE360 is not advising you to discontinue or change it/, "Stop tracking must not imply discontinuation advice.");
 assert.match(routine, /Review your Blueprint after this change/, "Medication changes must point members back to Blueprint review.");
 assert.match(migration, /instruction_authority in \('clinician', 'pharmacist', 'medication_label'\)/, "Medication provenance must be constrained in Postgres.");
 

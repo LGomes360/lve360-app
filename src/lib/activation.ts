@@ -1,4 +1,5 @@
 import { isSafetySensitiveBlueprintAction } from "./blueprintActions";
+import { isReminderTiming, type ReminderTiming } from "./reminderSchedule";
 
 export const IDENTITY_OPTIONS = [
   { value: "movement", label: "Someone who moves consistently" },
@@ -27,6 +28,8 @@ export type WeeklyExperiment = {
   frequency_per_week: number | null;
   minimum_version: string | null;
   reminder_preference: ReminderPreference;
+  reminder_timing: ReminderTiming;
+  reminder_hour: number | null;
   onboarding_step: number;
   status: ExperimentStatus;
   week_start: string;
@@ -75,7 +78,13 @@ export function isReadyToActivate(experiment: Partial<WeeklyExperiment>): boolea
     && Number(experiment.frequency_per_week) >= 1
     && Number(experiment.frequency_per_week) <= 7
     && !!cleanText(experiment.minimum_version, 160)
-    && (experiment.reminder_preference === "none" || experiment.reminder_preference === "email");
+    && (experiment.reminder_preference === "none" || experiment.reminder_preference === "email")
+    && isReminderTiming(experiment.reminder_timing)
+    && (
+      experiment.reminder_preference === "none"
+      || experiment.reminder_timing === "account_default"
+      || (Number.isInteger(experiment.reminder_hour) && Number(experiment.reminder_hour) >= 0 && Number(experiment.reminder_hour) <= 23)
+    );
 }
 
 export function identityLabel(value: IdentityDirection | null | undefined): string {

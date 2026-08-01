@@ -224,7 +224,7 @@ export default function SettingsPage() {
                   className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-[#041B2D] shadow-sm focus:border-[#047F6D] focus:ring-2 focus:ring-teal-100"
                 />
               </Field>
-              <Field label="Cue time" hint="When a short reminder is most useful.">
+              <Field label="Default cue time" hint="Used when a weekly practice does not have its own reminder plan.">
                 <HourSelect
                   value={account.cue_hour}
                   onChange={(cue_hour) => setAccount({ ...account, cue_hour })}

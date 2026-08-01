@@ -68,6 +68,7 @@ export default function RoutineClient({
   const [editing, setEditing] = useState<RoutineItem | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showAddMedication, setShowAddMedication] = useState(false);
+  const [showAddHormone, setShowAddHormone] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
   const grouped = useMemo(() => groupRoutineItems(items), [items]);
@@ -103,11 +104,11 @@ export default function RoutineClient({
       await refreshRoutine();
       setEditing(null);
       setToast({
-        message: `${item.name} was updated.`,
+        message: `${item.name} was updated.${item.item_kind === "medication" || item.item_kind === "hormone" ? " Review your Blueprint after this change." : ""}`,
         undo: async () => {
           await updateItem(item.id, {
             ...previous,
-            ...(item.item_kind === "medication" && patch.instructionAuthority
+            ...((item.item_kind === "medication" || item.item_kind === "hormone") && patch.instructionAuthority
               ? { instructionAuthority: patch.instructionAuthority }
               : {}),
           });
@@ -123,9 +124,10 @@ export default function RoutineClient({
   }
 
   async function stopTracking(item: RoutineItem) {
-    if (item.item_kind === "medication") {
+    if (item.item_kind === "medication" || item.item_kind === "hormone") {
+      const label = item.item_kind === "hormone" ? "hormone therapy" : "medication";
       const confirmed = window.confirm(
-        "Only stop tracking this medication if it reflects your current prescribed list. LVE360 is not advising you to discontinue it."
+        `Only stop tracking this ${label} if it reflects your current prescribed list. LVE360 is not advising you to discontinue or change it.`
       );
       if (!confirmed) return;
     }
@@ -191,7 +193,7 @@ export default function RoutineClient({
             {latestStack?.created_at ? `, reviewed against your latest Blueprint from ${formatDate(latestStack.created_at)}` : ""}.
           </p>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
           <button
             type="button"
             onClick={() => setShowAddMedication(true)}
@@ -199,6 +201,14 @@ export default function RoutineClient({
           >
             <Pill className="mr-2 h-5 w-5" aria-hidden="true" />
             Add a medication
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAddHormone(true)}
+            className="inline-flex min-h-12 items-center justify-center rounded-xl border border-[#087F72] bg-white px-5 py-3 font-bold text-[#06695F] transition hover:bg-[#EAFBF8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72]"
+          >
+            <TestTube2 className="mr-2 h-5 w-5" aria-hidden="true" />
+            Add a hormone
           </button>
           <button
             type="button"
@@ -254,13 +264,33 @@ export default function RoutineClient({
       ) : null}
 
       {showAddMedication ? (
-        <AddMedicationDialog
+        <AddPrescribedItemDialog
+          kind="medication"
           onClose={() => setShowAddMedication(false)}
           onAdded={async (itemName, addedId) => {
             await refreshRoutine();
             setShowAddMedication(false);
             setToast({
               message: `${itemName} was added as a medication you reported. Review your Blueprint after this change.`,
+              undo: async () => {
+                await updateItem(addedId, { active: false });
+                await refreshRoutine();
+                setToast({ message: `${itemName} was removed from your current routine.` });
+              },
+            });
+          }}
+        />
+      ) : null}
+
+      {showAddHormone ? (
+        <AddPrescribedItemDialog
+          kind="hormone"
+          onClose={() => setShowAddHormone(false)}
+          onAdded={async (itemName, addedId) => {
+            await refreshRoutine();
+            setShowAddHormone(false);
+            setToast({
+              message: `${itemName} was added as a hormone therapy you reported. Review your Blueprint after this change.`,
               undo: async () => {
                 await updateItem(addedId, { active: false });
                 await refreshRoutine();
@@ -367,7 +397,7 @@ function RoutineCard({
       </dl>
       {prescribedItem ? (
         <p className="mt-4 rounded-xl bg-white p-3 text-xs leading-5 text-slate-600">
-          LVE360 records what you report. It does not select or recommend prescription doses. Follow your medication label and clinician instructions.
+          LVE360 records what you report. It does not select or recommend prescription doses. Follow your prescription label and clinician instructions.
         </p>
       ) : null}
       <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -377,7 +407,7 @@ function RoutineCard({
           onClick={() => onEdit(item)}
           className="inline-flex min-h-12 items-center justify-center rounded-xl border border-[#9DCFC3] bg-white px-4 py-3 font-bold text-[#06695F] hover:bg-[#EAFBF8] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72]"
         >
-          <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> {item.item_kind === "medication" ? "Record prescribed change" : item.item_kind === "hormone" ? "Edit schedule" : "Edit details"}
+          <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> {prescribedItem ? "Record prescribed change" : "Edit details"}
         </button>
         <button
           type="button"
@@ -434,23 +464,22 @@ function IdeasSection({ items, busyId, onAdopt }: { items: RoutineItem[]; busyId
 }
 
 function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineItem; saving: boolean; onClose: () => void; onSave: (item: RoutineItem, patch: { dose?: string | null; timing: string | null; instructionAuthority?: MedicationInstructionAuthority }) => void }) {
-  const medication = item.item_kind === "medication";
-  const protectedDose = item.item_kind === "hormone";
+  const prescribedItem = item.item_kind === "medication" || item.item_kind === "hormone";
   const [dose, setDose] = useState(item.dose ?? "");
   const [timing, setTiming] = useState(item.timing ?? "");
   const [instructionAuthority, setInstructionAuthority] = useState<MedicationInstructionAuthority | "">(
     item.instruction_authority ?? ""
   );
   return (
-    <DialogShell title={medication ? `Record a prescribed change for ${item.name}` : protectedDose ? `Record ${item.name} schedule` : `Update ${item.name}`} onClose={onClose}>
+    <DialogShell title={prescribedItem ? `Record a prescribed change for ${item.name}` : `Update ${item.name}`} onClose={onClose}>
       <p className="text-sm leading-6 text-slate-600">
-        {medication
-          ? "Use this only to record a change you received from your clinician, pharmacist, or current medication label. LVE360 is not changing your prescription."
+        {prescribedItem
+          ? "Use this only to record a change you received from your clinician, pharmacist, or current prescription label. LVE360 is not changing or recommending your prescription."
           : "Record what you currently do. This does not create a medical instruction or replace a product label."}
       </p>
-      {!protectedDose ? <label className="mt-5 block text-sm font-bold text-[#041B2D]">Amount you take<input autoFocus value={dose} onChange={(event) => setDose(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder="For example, 2 capsules" /></label> : null}
-      <label className="mt-5 block text-sm font-bold text-[#041B2D]">When you take it<input autoFocus={protectedDose} value={timing} onChange={(event) => setTiming(event.target.value)} maxLength={160} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder="For example, morning with breakfast" /></label>
-      {medication ? (
+      <label className="mt-5 block text-sm font-bold text-[#041B2D]">{prescribedItem ? "Prescribed dose" : "Amount you take"}<input autoFocus value={dose} onChange={(event) => setDose(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={item.item_kind === "hormone" ? "For example, 80 mg" : "For example, 2 capsules"} /></label>
+      <label className="mt-5 block text-sm font-bold text-[#041B2D]">When you take it<input value={timing} onChange={(event) => setTiming(event.target.value)} maxLength={160} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder="For example, Monday and Thursday evenings" /></label>
+      {prescribedItem ? (
         <label className="mt-5 block text-sm font-bold text-[#041B2D]">
           Where did this instruction come from?
           <select value={instructionAuthority} onChange={(event) => setInstructionAuthority(event.target.value as MedicationInstructionAuthority)} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20">
@@ -459,10 +488,9 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
           </select>
         </label>
       ) : null}
-      {protectedDose ? <p className="mt-3 text-sm text-slate-600">Reported dose: <strong>{item.dose || "Dose not recorded"}</strong>. Hormone dose changes remain outside this tool.</p> : null}
       <div className="mt-6 grid gap-2 sm:grid-cols-2">
         <button type="button" onClick={onClose} disabled={saving} className="min-h-12 rounded-xl border border-slate-300 px-4 py-3 font-bold text-slate-700">Cancel</button>
-        <button type="button" disabled={saving || (medication && !instructionAuthority)} onClick={() => onSave(item, { ...(protectedDose ? {} : { dose: dose.trim() || null }), timing: timing.trim() || null, ...(medication && instructionAuthority ? { instructionAuthority } : {}) })} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 font-bold text-white disabled:opacity-60">
+        <button type="button" disabled={saving || (prescribedItem && !instructionAuthority)} onClick={() => onSave(item, { dose: dose.trim() || null, timing: timing.trim() || null, ...(prescribedItem && instructionAuthority ? { instructionAuthority } : {}) })} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 font-bold text-white disabled:opacity-60">
           {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />} Save record
         </button>
       </div>
@@ -470,7 +498,7 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
   );
 }
 
-function AddMedicationDialog({ onClose, onAdded }: { onClose: () => void; onAdded: (name: string, id: string) => Promise<void> }) {
+function AddPrescribedItemDialog({ kind, onClose, onAdded }: { kind: "medication" | "hormone"; onClose: () => void; onAdded: (name: string, id: string) => Promise<void> }) {
   const [name, setName] = useState("");
   const [dose, setDose] = useState("");
   const [timing, setTiming] = useState("");
@@ -479,11 +507,13 @@ function AddMedicationDialog({ onClose, onAdded }: { onClose: () => void; onAdde
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function addMedication() {
+  const label = kind === "hormone" ? "hormone therapy" : "medication";
+
+  async function addPrescribedItem() {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch("/api/routine/medications", {
+      const response = await fetch(`/api/routine/${kind === "hormone" ? "hormones" : "medications"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -495,24 +525,24 @@ function AddMedicationDialog({ onClose, onAdded }: { onClose: () => void; onAdde
         }),
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok || !body?.ok || !body?.item?.id) throw new Error(body?.error ?? "medication_add_failed");
+      if (!response.ok || !body?.ok || !body?.item?.id) throw new Error(body?.error ?? `${kind}_add_failed`);
       await onAdded(name.trim(), body.item.id);
     } catch {
-      setError("We could not add that medication. Your routine is unchanged.");
+      setError(`We could not add that ${label}. Your routine is unchanged.`);
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <DialogShell title="Add a prescribed medication" onClose={onClose}>
+    <DialogShell title={`Add a prescribed ${label}`} onClose={onClose}>
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
-        Record only what you currently take based on your clinician, pharmacist, or medication label. This does not ask LVE360 to recommend a medication or dose.
+        Record only what you currently take based on your clinician, pharmacist, or prescription label. This does not ask LVE360 to recommend a {label} or dose.
       </div>
-      <label className="mt-5 block text-sm font-bold text-[#041B2D]">Medication name<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder="For example, Zepbound" /></label>
-      <label className="mt-5 block text-sm font-bold text-[#041B2D]">Prescribed dose<input value={dose} onChange={(event) => setDose(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder="For example, 10 mg / 0.5 mL" /></label>
-      <label className="mt-5 block text-sm font-bold text-[#041B2D]">Schedule<input value={timing} onChange={(event) => setTiming(event.target.value)} maxLength={160} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder="For example, once weekly on Sunday" /></label>
-      <label className="mt-5 block text-sm font-bold text-[#041B2D]">Purpose you were given <span className="font-normal text-slate-500">(optional)</span><input value={purpose} onChange={(event) => setPurpose(event.target.value)} maxLength={200} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder="For example, weight management" /></label>
+      <label className="mt-5 block text-sm font-bold text-[#041B2D]">{kind === "hormone" ? "Hormone name" : "Medication name"}<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={kind === "hormone" ? "For example, testosterone cypionate" : "For example, Zepbound"} /></label>
+      <label className="mt-5 block text-sm font-bold text-[#041B2D]">Prescribed dose<input value={dose} onChange={(event) => setDose(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={kind === "hormone" ? "For example, 80 mg" : "For example, 10 mg / 0.5 mL"} /></label>
+      <label className="mt-5 block text-sm font-bold text-[#041B2D]">Schedule<input value={timing} onChange={(event) => setTiming(event.target.value)} maxLength={160} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={kind === "hormone" ? "For example, Monday and Thursday evenings" : "For example, once weekly on Sunday"} /></label>
+      <label className="mt-5 block text-sm font-bold text-[#041B2D]">Purpose you were given <span className="font-normal text-slate-500">(optional)</span><input value={purpose} onChange={(event) => setPurpose(event.target.value)} maxLength={200} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={kind === "hormone" ? "For example, hormone replacement" : "For example, weight management"} /></label>
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">Where did this instruction come from?
         <select value={instructionAuthority} onChange={(event) => setInstructionAuthority(event.target.value as MedicationInstructionAuthority)} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20">
           <option value="">Choose a source</option>
@@ -522,8 +552,8 @@ function AddMedicationDialog({ onClose, onAdded }: { onClose: () => void; onAdde
       {error ? <p className="mt-4 rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-800">{error}</p> : null}
       <div className="mt-6 grid gap-2 sm:grid-cols-2">
         <button type="button" onClick={onClose} disabled={busy} className="min-h-12 rounded-xl border border-slate-300 px-4 py-3 font-bold text-slate-700">Cancel</button>
-        <button type="button" disabled={busy || !name.trim() || !instructionAuthority} onClick={() => void addMedication()} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 font-bold text-white disabled:opacity-60">
-          {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />} Add reported medication
+        <button type="button" disabled={busy || !name.trim() || !instructionAuthority} onClick={() => void addPrescribedItem()} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 font-bold text-white disabled:opacity-60">
+          {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />} Add reported {label}
         </button>
       </div>
     </DialogShell>

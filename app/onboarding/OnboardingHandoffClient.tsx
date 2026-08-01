@@ -12,6 +12,7 @@ import {
   type ReminderPreference,
   type WeeklyExperiment,
 } from "@/lib/activation";
+import type { ReminderTiming } from "@/lib/reminderSchedule";
 
 type FormState = {
   identity_direction: IdentityDirection | null;
@@ -20,8 +21,9 @@ type FormState = {
   frequency_per_week: number;
   minimum_version: string;
   reminder_preference: ReminderPreference;
+  reminder_timing: ReminderTiming;
+  reminder_hour: number;
   timezone: string;
-  cue_hour: number;
 };
 
 const EMPTY_FORM: FormState = {
@@ -31,8 +33,9 @@ const EMPTY_FORM: FormState = {
   frequency_per_week: 3,
   minimum_version: "",
   reminder_preference: "none",
+  reminder_timing: "at_cue",
+  reminder_hour: 18,
   timezone: "UTC",
-  cue_hour: 18,
 };
 
 export default function OnboardingHandoffClient() {
@@ -79,7 +82,7 @@ export default function OnboardingHandoffClient() {
       if (!response.ok || !json?.experiment) throw new Error(errorMessage(json?.error));
       const updated = json.experiment as WeeklyExperiment;
       setExperiment(updated);
-      setForm({ ...formFromExperiment(updated), timezone: form.timezone, cue_hour: form.cue_hour });
+      setForm({ ...formFromExperiment(updated), timezone: form.timezone });
       if (step < 6) setStep(step + 1);
     } catch (saveError: any) {
       setError(saveError?.message ?? "We could not save that step. Please try again.");
@@ -106,7 +109,7 @@ export default function OnboardingHandoffClient() {
           <p className="mt-1 text-sm text-slate-500">About three minutes</p>
         </div>
         <div className="text-right">
-          <p className="text-sm font-semibold text-[#041B2D]">{active ? "Ready" : `Step ${step} of 6`}</p>
+          <p className="text-sm font-semibold text-[#041B2D]">{active && step === 6 ? "Ready" : `Step ${step} of 6`}</p>
           <div className="mt-2 flex gap-1" aria-label={`Step ${step} of 6`}>
             {[1, 2, 3, 4, 5, 6].map((item) => <span key={item} className={`h-1.5 w-7 rounded-full ${item <= step ? "bg-[#08A88A]" : "bg-slate-200"}`} />)}
           </div>
@@ -119,13 +122,14 @@ export default function OnboardingHandoffClient() {
       {step === 4 && <MinimumStep value={form.minimum_version} action={form.action_label} onChange={(minimum_version) => setForm({ ...form, minimum_version })} />}
       {step === 5 && (
         <ReminderStep
-          value={form.reminder_preference}
-          cueHour={form.cue_hour}
+          preference={form.reminder_preference}
+          timing={form.reminder_timing}
+          reminderHour={form.reminder_hour}
           timezone={form.timezone}
           onChange={(changes) => setForm({ ...form, ...changes })}
         />
       )}
-      {step === 6 && <ConfirmationStep form={form} active={active} />}
+      {step === 6 && <ConfirmationStep form={form} active={active} onEditReminders={() => setStep(5)} />}
 
       {error && <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{error}</p>}
 
@@ -135,12 +139,12 @@ export default function OnboardingHandoffClient() {
             <ArrowLeft className="mr-2 h-4 w-4" /> Back
           </button>
         ) : <span />}
-        {active ? (
+        {active && step === 6 ? (
           <a href="/today" className="inline-flex items-center justify-center rounded-xl bg-[#08A88A] px-6 py-3 font-bold text-white shadow-sm hover:bg-[#078B74]">Open Today <ArrowRight className="ml-2 h-5 w-5" /></a>
         ) : (
           <button type="button" onClick={saveStep} disabled={saving} className="inline-flex items-center justify-center rounded-xl bg-[#08A88A] px-6 py-3 font-bold text-white shadow-sm hover:bg-[#078B74] disabled:opacity-60">
             {saving ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : null}
-            {step === 6 ? "Start my week" : "Save and continue"} <ArrowRight className="ml-2 h-5 w-5" />
+            {active && step === 5 ? "Save reminder plan" : step === 6 ? "Start my week" : "Save and continue"} <ArrowRight className="ml-2 h-5 w-5" />
           </button>
         )}
       </div>
@@ -173,49 +177,63 @@ function MinimumStep({ value, action, onChange }: { value: string; action: strin
 }
 
 function ReminderStep({
-  value,
-  cueHour,
+  preference,
+  timing,
+  reminderHour,
   timezone,
   onChange,
 }: {
-  value: ReminderPreference;
-  cueHour: number;
+  preference: ReminderPreference;
+  timing: ReminderTiming;
+  reminderHour: number;
   timezone: string;
-  onChange: (changes: Partial<Pick<FormState, "reminder_preference" | "cue_hour">>) => void;
+  onChange: (changes: Partial<Pick<FormState, "reminder_preference" | "reminder_timing" | "reminder_hour">>) => void;
 }) {
+  const options: Array<{
+    preference: ReminderPreference;
+    timing: ReminderTiming;
+    title: string;
+    copy: string;
+    defaultHour?: number;
+  }> = [
+    { preference: "email", timing: "prepare_before", title: "Help me prepare beforehand", copy: "Send a setup cue before the moment so the practice is easier later.", defaultHour: 20 },
+    { preference: "email", timing: "at_cue", title: "Remind me at the cue", copy: "Send the practice and its minimum version when I plan to act.", defaultHour: 18 },
+    { preference: "email", timing: "next_day", title: "Check in the next morning", copy: "Useful for bedtime or phone-free practices. Record it the next day without reopening your phone afterward.", defaultHour: 8 },
+    { preference: "none", timing: "at_cue", title: "No reminder for this practice", copy: "I will use my own cue and dashboard." },
+  ];
   return (
     <section>
       <Mail className="h-8 w-8 text-[#08A88A]" />
-      <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">How should we support you?</h1>
-      <p className="mt-3 leading-7 text-slate-600">Choose whether a small email cue would help. You can change or turn it off anytime.</p>
+      <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">When would support actually help?</h1>
+      <p className="mt-3 leading-7 text-slate-600">Match the email to this practice. A bedtime habit can use an earlier preparation cue or a next-morning check-in so your phone stays out of the routine.</p>
       <div className="mt-6 grid gap-3">
-        {[
-          { value: "email" as const, title: "Helpful email cues", copy: "Practice, gentle restart, and weekly review reminders." },
-          { value: "none" as const, title: "No reminders", copy: "I will use my own cue and dashboard." },
-        ].map((option) => (
-          <button key={option.value} type="button" onClick={() => onChange({ reminder_preference: option.value })} aria-pressed={value === option.value} className={`flex items-center justify-between rounded-2xl border p-5 text-left ${value === option.value ? "border-[#08A88A] bg-[#EAFBF8]" : "border-slate-200 hover:border-[#9DCFC3]"}`}>
+        {options.map((option) => {
+          const selected = preference === option.preference && (option.preference === "none" || timing === option.timing);
+          return (
+          <button key={`${option.preference}:${option.timing}`} type="button" onClick={() => onChange({ reminder_preference: option.preference, reminder_timing: option.timing, ...(option.defaultHour ? { reminder_hour: option.defaultHour } : {}) })} aria-pressed={selected} className={`flex items-center justify-between rounded-2xl border p-5 text-left ${selected ? "border-[#08A88A] bg-[#EAFBF8]" : "border-slate-200 hover:border-[#9DCFC3]"}`}>
             <span><span className="block font-bold text-[#041B2D]">{option.title}</span><span className="mt-1 block text-sm text-slate-600">{option.copy}</span></span>
-            {value === option.value ? <Check className="h-5 w-5 text-[#087F72]" /> : null}
+            {selected ? <Check className="h-5 w-5 text-[#087F72]" /> : null}
           </button>
-        ))}
+        )})}
       </div>
-      {value === "email" && (
+      {preference === "email" && timing !== "account_default" && (
         <label className="mt-5 block text-sm font-bold text-[#041B2D]">
-          Send around
-          <select value={cueHour} onChange={(event) => onChange({ cue_hour: Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal">
-            {Array.from({ length: 15 }, (_, index) => index + 7).map((hour) => (
+          {timing === "next_day" ? "Check in around" : timing === "prepare_before" ? "Help me prepare around" : "Send at"}
+          <select value={reminderHour} onChange={(event) => onChange({ reminder_hour: Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal">
+            {Array.from({ length: 14 }, (_, index) => index + 7).map((hour) => (
               <option key={hour} value={hour}>{new Intl.DateTimeFormat("en-US", { hour: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 1, hour)))}</option>
             ))}
           </select>
-          <span className="mt-2 block font-normal text-slate-500">Local time in {timezone}. Quiet hours default to 9 PM through 7 AM.</span>
+          <span className="mt-2 block font-normal text-slate-500">Local time in {timezone}. We keep emails outside your 9 PM through 7 AM quiet window.</span>
         </label>
       )}
+      {preference === "email" && timing === "account_default" ? <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">This existing practice uses your account default time. Choose another option above to tailor it.</p> : null}
     </section>
   );
 }
 
-function ConfirmationStep({ form, active }: { form: FormState; active: boolean }) {
-  return <section><CheckCircle2 className="h-10 w-10 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">{active ? "Your week is active" : "Your first week is ready"}</h1><p className="mt-3 leading-7 text-slate-600">This is one vote for the person you are becoming. Keep it small, notice what works, and review after the week.</p><div className="mt-6 space-y-4 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5"><Summary label="Identity" value={identityLabel(form.identity_direction)} /><Summary label="This week I will" value={form.action_label} /><Summary label="My cue" value={`After I ${form.cue}`} /><Summary label="Target" value={`${form.frequency_per_week} ${form.frequency_per_week === 1 ? "day" : "days"} this week`} /><Summary label="On a hard day" value={form.minimum_version} /></div></section>;
+function ConfirmationStep({ form, active, onEditReminders }: { form: FormState; active: boolean; onEditReminders: () => void }) {
+  return <section><CheckCircle2 className="h-10 w-10 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">{active ? "Your week is active" : "Your first week is ready"}</h1><p className="mt-3 leading-7 text-slate-600">This is one vote for the person you are becoming. Keep it small, notice what works, and review after the week.</p><div className="mt-6 space-y-4 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5"><Summary label="Identity" value={identityLabel(form.identity_direction)} /><Summary label="This week I will" value={form.action_label} /><Summary label="My cue" value={`After I ${form.cue}`} /><Summary label="Target" value={`${form.frequency_per_week} ${form.frequency_per_week === 1 ? "day" : "days"} this week`} /><Summary label="On a hard day" value={form.minimum_version} /><Summary label="Reminder plan" value={reminderSummary(form)} /></div>{active ? <button type="button" onClick={onEditReminders} className="mt-5 min-h-11 rounded-xl border border-[#9DCFC3] px-4 py-2 font-bold text-[#087F72] hover:bg-[#EAFBF8]">Change reminder plan</button> : null}</section>;
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
@@ -230,8 +248,9 @@ function formFromExperiment(experiment: WeeklyExperiment): FormState {
     frequency_per_week: experiment.frequency_per_week ?? 3,
     minimum_version: experiment.minimum_version ?? "",
     reminder_preference: experiment.reminder_preference ?? "none",
+    reminder_timing: experiment.reminder_timing ?? "account_default",
+    reminder_hour: experiment.reminder_hour ?? 18,
     timezone: "UTC",
-    cue_hour: 18,
   };
 }
 
@@ -243,8 +262,9 @@ function payloadForStep(step: number, form: FormState) {
   if (step === 5) return {
     step,
     reminder_preference: form.reminder_preference,
+    reminder_timing: form.reminder_timing,
+    reminder_hour: form.reminder_hour,
     timezone: form.timezone,
-    cue_hour: form.cue_hour,
   };
   return { step: 6 };
 }
@@ -254,7 +274,18 @@ function errorMessage(code: string | undefined) {
   if (code === "choose_safe_lifestyle_action") return "Choose a lifestyle action. Supplement and medication changes stay in your Blueprint for professional review.";
   if (code === "add_cue_and_frequency") return "Add a clear cue and choose how many days you want to practice.";
   if (code === "add_safe_minimum_version") return "Add a small lifestyle version that can count on a hard day.";
+  if (code === "choose_reminder_timing") return "Choose when reminder support would be useful for this practice.";
   if (code === "choose_reminder_time") return "Choose a valid local reminder time.";
   if (code === "complete_required_steps") return "One of the earlier steps is incomplete. Go back and review your plan.";
   return "We could not save that step. Please try again.";
+}
+
+function reminderSummary(form: FormState): string {
+  if (form.reminder_preference === "none") return "No email for this practice";
+  if (form.reminder_timing === "account_default") return "Use my account default";
+  const time = new Intl.DateTimeFormat("en-US", { hour: "numeric", timeZone: "UTC" })
+    .format(new Date(Date.UTC(2026, 0, 1, form.reminder_hour)));
+  if (form.reminder_timing === "prepare_before") return `Prepare beforehand around ${time}`;
+  if (form.reminder_timing === "next_day") return `Check in the next morning around ${time}`;
+  return `Remind me at the cue around ${time}`;
 }
