@@ -34,10 +34,12 @@ export default function TodayExperience({
   initialExperiment,
   blueprint,
   experimentBlueprint,
+  initialCompletionDate,
 }: {
   initialExperiment: WeeklyExperiment | null;
   blueprint: CurrentBlueprintContext | null;
   experimentBlueprint: ExperimentBlueprintContext | null;
+  initialCompletionDate: string | null;
 }) {
   const [localDate, setLocalDate] = useState("");
   const [experiment, setExperiment] = useState(initialExperiment);
@@ -48,7 +50,7 @@ export default function TodayExperience({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const date = toLocalDate(new Date());
+    const date = initialCompletionDate ?? toLocalDate(new Date());
     setLocalDate(date);
     if (!initialExperiment) {
       setLoadingState(false);
@@ -75,7 +77,7 @@ export default function TodayExperience({
         if (!cancelled) setLoadingState(false);
       });
     return () => { cancelled = true; };
-  }, [initialExperiment]);
+  }, [initialExperiment, initialCompletionDate]);
 
   const todayCompletion = useMemo(
     () => completions.find((item) => item.completion_date === localDate) ?? null,
@@ -142,6 +144,7 @@ export default function TodayExperience({
   }
 
   const target = experiment.frequency_per_week ?? 1;
+  const recordingPastDate = !!initialCompletionDate && initialCompletionDate !== toLocalDate(new Date());
   const targetMet = completedCount >= target;
   const reviewDue = !!localDate && isReviewDue(experiment.week_start, localDate);
   const weekEnded = !!localDate && localDate > reviewDueDate(experiment.week_start);
@@ -187,6 +190,11 @@ export default function TodayExperience({
       ) : null}
 
       <div className="p-6 sm:p-8">
+        {recordingPastDate ? (
+          <div className="mb-6 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm leading-6 text-violet-950">
+            <strong>Phone-free check-in:</strong> Record whether the practice happened on {formatCheckinDate(localDate)}. You did not need to reopen LVE360 after the habit.
+          </div>
+        ) : null}
         {blueprint ? <CurrentBlueprintPanel blueprint={blueprint} experimentBlueprint={experimentBlueprint} /> : null}
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
@@ -223,7 +231,7 @@ export default function TodayExperience({
                 <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-[#087F72]" />
                 <div>
                   <p className="font-bold text-[#041B2D]">
-                    {todayCompletion.completion_kind === "minimum" ? "Your minimum version counts." : "Today's practice is complete."}
+                    {todayCompletion.completion_kind === "minimum" ? "Your minimum version counts." : recordingPastDate ? "That practice is recorded." : "Today's practice is complete."}
                   </p>
                   <p className="mt-1 text-sm text-slate-600">You kept the promise small and moved your identity forward.</p>
                 </div>
@@ -242,7 +250,7 @@ export default function TodayExperience({
           ) : (
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <button onClick={() => saveCompletion("full")} disabled={busy || !localDate} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#08A88A] px-6 py-3 text-base font-bold text-white shadow-sm hover:bg-[#078B74] disabled:opacity-60">
-                {busy ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Check className="mr-2 h-5 w-5" />} I did it today
+                {busy ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Check className="mr-2 h-5 w-5" />} {recordingPastDate ? "I did it that day" : "I did it today"}
               </button>
               <button onClick={() => saveCompletion("minimum")} disabled={busy || !localDate} className="min-h-12 rounded-xl border border-[#9DCFC3] px-5 py-3 text-sm font-bold text-[#087F72] hover:bg-[#F4FAF8] disabled:opacity-60">
                 I did the minimum version
@@ -331,6 +339,11 @@ function toLocalDate(date: Date): string {
 
 function formatBlueprintDate(value: string): string {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
+}
+
+function formatCheckinDate(value: string): string {
+  return new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" })
+    .format(new Date(`${value}T12:00:00.000Z`));
 }
 
 function weekdayLabel(date: string): string {

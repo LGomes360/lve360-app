@@ -14,6 +14,7 @@ import { resolveBlueprintActionFromRequest } from "@/lib/blueprintActionHandoff"
 import { isHour, isIanaTimeZone } from "@/lib/accountSettings";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
+import { isReminderTiming } from "@/lib/reminderSchedule";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -27,6 +28,8 @@ type ActivationBody = {
   frequency_per_week?: unknown;
   minimum_version?: unknown;
   reminder_preference?: unknown;
+  reminder_timing?: unknown;
+  reminder_hour?: unknown;
   timezone?: unknown;
   cue_hour?: unknown;
 };
@@ -141,7 +144,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const experiment = await getOrCreateExperiment(req, auth.user.id);
-    if (experiment.status === "active") {
+    if (experiment.status === "active" && step !== 5) {
       return NextResponse.json({ ok: true, experiment });
     }
 
@@ -191,10 +194,19 @@ export async function PUT(req: NextRequest) {
       if (body?.reminder_preference !== "none" && body?.reminder_preference !== "email") {
         return NextResponse.json({ ok: false, error: "choose_reminder_preference" }, { status: 400 });
       }
-      if (body.reminder_preference === "email" && (!isIanaTimeZone(body.timezone) || !isHour(body.cue_hour))) {
+      if (!isReminderTiming(body.reminder_timing)) {
+        return NextResponse.json({ ok: false, error: "choose_reminder_timing" }, { status: 400 });
+      }
+      const usesPracticeHour = body.reminder_preference === "email" && body.reminder_timing !== "account_default";
+      if (
+        body.reminder_preference === "email"
+        && (!isIanaTimeZone(body.timezone) || (usesPracticeHour && !isHour(body.reminder_hour)))
+      ) {
         return NextResponse.json({ ok: false, error: "choose_reminder_time" }, { status: 400 });
       }
       changes.reminder_preference = body.reminder_preference;
+      changes.reminder_timing = body.reminder_timing;
+      changes.reminder_hour = usesPracticeHour ? body.reminder_hour : null;
     }
 
     if (step === 6) {
@@ -241,7 +253,6 @@ export async function PUT(req: NextRequest) {
           reminder_preference: body?.reminder_preference,
           ...(body?.reminder_preference === "email" ? {
             timezone: body.timezone,
-            cue_hour: body.cue_hour,
           } : {}),
           updated_at: new Date().toISOString(),
         },

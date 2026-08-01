@@ -6,13 +6,16 @@ import GoalsTargetsEditor from "@/src/components/dashboard/GoalsTargetsEditor";
 import TodayClient from "./TodayClient";
 import type { WeeklyExperiment } from "@/lib/activation";
 import { getCurrentBlueprintContext, getExperimentBlueprintContexts } from "@/lib/currentBlueprintContext";
+import { parseLocalDate } from "@/lib/today";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function Page() {
+export default async function Page({ searchParams }: { searchParams: Promise<{ checkin?: string }> }) {
   // Keep your existing gating (premium or trial)
   await requireTier(["premium", "trial"]);
+  const params = await searchParams;
+  const checkinDate = parseLocalDate(params.checkin ?? null);
 
   // Server-side: fetch current user + goals (no changes to your client)
   const supabase = createServerComponentClient({ cookies });
@@ -53,6 +56,7 @@ export default async function Page() {
         experiment={activeExperiment}
         blueprint={blueprint}
         experimentBlueprint={activeExperiment ? experimentBlueprints[activeExperiment.id] ?? null : null}
+        checkinDate={checkinDate}
       />
 
       {(targetWeight == null && targetSleep == null && targetEnergy == null) ? (
