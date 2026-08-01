@@ -150,14 +150,20 @@ function stableValue(value: unknown): unknown {
   );
 }
 
-export function blueprintInputSnapshotHash(submission: SubmissionInput): string {
+export function blueprintInputSnapshotHash(
+  submission: SubmissionInput,
+  canonicalRegimen?: unknown
+): string {
   const engine = asObject(submission.engine_input_json);
-  const source = Object.keys(engine).length > 0
+  const submissionSource = Object.keys(engine).length > 0
     ? { engine_input_json: engine }
     : {
         answers: submission.answers ?? null,
         payload_json: submission.payload_json ?? null,
       };
+  const source = typeof canonicalRegimen === "undefined"
+    ? submissionSource
+    : { ...submissionSource, canonical_current_regimen: canonicalRegimen };
   return createHash("sha256")
     .update(JSON.stringify(stableValue(source)))
     .digest("hex");

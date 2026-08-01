@@ -6,6 +6,8 @@ import {
   withMemberSupplementOverride,
 } from "@/lib/blueprintWorkspace";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
+import { replaceCurrentSupplements } from "@/lib/currentRegimen";
+import { regimenToLedger } from "@/lib/currentRegimenModel";
 import { requirePaidApi } from "@/lib/serverEntitlements";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -62,7 +64,9 @@ export async function PUT(req: Request, { params }: RouteContext) {
       return NextResponse.json({ ok: false, error: "update_not_saved" }, { status: 409 });
     }
 
-    const currentInputHash = blueprintInputSnapshotHash(updated);
+    const currentRegimen = await replaceCurrentSupplements(entitlement.user.id, submission.id, supplements);
+
+    const currentInputHash = blueprintInputSnapshotHash(updated, regimenToLedger(currentRegimen));
     await recordProductEventSafely({
       user_id: entitlement.user.id,
       event_name: "blueprint_input_change_saved",

@@ -21,6 +21,14 @@ const fields = [
   { label: "Purpose", value: "Muscle and cognition" },
   { label: "Dosage", value: "5 g" },
   { label: "Frequency", value: "Daily PM" },
+  { label: "Supplement 3", value: "Magnesium Threonate" },
+  { label: "Purpose", value: "Sleep and cognition" },
+  { label: "Dosage", value: "2 capsules" },
+  { label: "Frequency", value: "Before bed" },
+  { label: "List Hormones", value: "Testosterone cypionate" },
+  { label: "Purpose", value: "Hormone replacement" },
+  { label: "Dosage", value: "80 mg" },
+  { label: "Frequency", value: "Monday and Thursday evenings" },
 ];
 
 const ledger = buildNormalizedCurrentStackLedger({ payload_json: { data: { fields } } });
@@ -34,6 +42,11 @@ assert(byName.get("Omega-3")?.dose === "1000 mg", "Expected Omega alias and exam
 assert(byName.get("Omega-3")?.timing === "Daily AM", "Expected example-labeled supplement timing to be retained");
 assert(byName.get("Creatine Monohydrate")?.dose === "5 g", "Expected repeated supplement dose to be retained");
 assert(byName.get("Creatine Monohydrate")?.timing === "Daily PM", "Expected repeated supplement timing to be retained");
+assert(byName.get("Magnesium Threonate")?.timing === "Before bed", "Expected free-text supplement timing to be retained");
+assert(byName.get("Testosterone cypionate")?.kind === "hormone", "Expected an intake hormone to retain its type");
+assert(byName.get("Testosterone cypionate")?.purpose === "Hormone replacement", "Expected hormone purpose to be retained");
+assert(byName.get("Testosterone cypionate")?.dose === "80 mg", "Expected hormone dose to be retained");
+assert(byName.get("Testosterone cypionate")?.timing === "Monday and Thursday evenings", "Expected free-text hormone timing to be retained");
 assert(ledger.filter((item) => item.name === "Omega-3").length === 1, "Expected Omega aliases to deduplicate");
 
 console.log("normalizedCurrentStackLedger assertions passed");
