@@ -47,6 +47,7 @@ export default async function RoutinePrintPage() {
                   return (
                     <div key={item.id} className="break-inside-avoid rounded-xl border border-slate-300 p-4 print:rounded-none">
                       <h3 className="text-lg font-bold text-[#041B2D]">{item.name}</h3>
+                      {item.brand ? <p className="mt-1 text-sm text-slate-700">Brand: {item.brand}</p> : null}
                       <dl className="mt-2 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
                         <div><dt className="font-bold">Recorded dose or amount</dt><dd>{item.dose?.trim() || "Not recorded"}</dd></div>
                         <div><dt className="font-bold">Recorded schedule</dt><dd>{routineScheduleLabel(item)}</dd></div>

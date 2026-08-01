@@ -8,7 +8,9 @@ import {
   Clock3,
   ExternalLink,
   HeartPulse,
+  ListChecks,
   Loader2,
+  PackageOpen,
   Pencil,
   Pill,
   Printer,
@@ -19,13 +21,13 @@ import {
   TestTube2,
   X,
 } from "lucide-react";
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
 import {
   groupRoutineItems,
   isClinicianReviewProposal,
   ROUTINE_SECTION_LABELS,
-  ROUTINE_SECTION_ORDER,
   routineScheduleLabel,
   routineInstructionAuthorityLabel,
   routineSourceLabel,
@@ -50,6 +52,14 @@ import TodayDoses from "./TodayDoses";
 
 type LatestStack = { id: string; submission_id: string | null; created_at: string } | null;
 type ToastState = { message: string; undo?: () => Promise<void> } | null;
+type RoutineView = "today" | "medications" | "hormones" | "supplements";
+type RoutineEditPatch = {
+  dose?: string | null;
+  schedule?: RoutineItem["schedule"];
+  instructionAuthority?: RegimenInstructionAuthority;
+  brand?: string | null;
+  reorderUrl?: string | null;
+};
 type SearchItem = {
   vendor: "fullscript" | "fallback";
   sku: string | null;
@@ -59,6 +69,8 @@ type SearchItem = {
   link_fullscript: string | null;
   link_amazon: string | null;
   price: number | null;
+  reorder_url: string | null;
+  image_url: string | null;
 };
 
 const SECTION_DESCRIPTIONS: Record<RoutineItemKind, string> = {
@@ -83,7 +95,12 @@ export default function RoutineClient({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
   const [doseRefreshToken, setDoseRefreshToken] = useState(0);
+  const [activeView, setActiveView] = useState<RoutineView>("today");
   const grouped = useMemo(() => groupRoutineItems(items), [items]);
+  const supplements = useMemo(
+    () => [...grouped.byKind.supplement, ...grouped.byKind.endocrine_active_supplement],
+    [grouped]
+  );
 
   useEffect(() => {
     if (!toast) return;
@@ -109,9 +126,15 @@ export default function RoutineClient({
     if (!response.ok || !body?.ok) throw new Error(body?.error ?? "routine_update_failed");
   }
 
-  async function saveEdit(item: RoutineItem, patch: { dose?: string | null; schedule?: RoutineItem["schedule"]; instructionAuthority?: RegimenInstructionAuthority }) {
+  async function saveEdit(item: RoutineItem, patch: RoutineEditPatch) {
     setBusyId(item.id);
-    const previous = { dose: item.dose, schedule: item.schedule ?? null, instructionAuthority: item.instruction_authority ?? undefined };
+    const previous = {
+      dose: item.dose,
+      schedule: item.schedule ?? null,
+      instructionAuthority: item.instruction_authority ?? undefined,
+      brand: item.brand,
+      reorderUrl: item.reorder_url,
+    };
     try {
       await updateItem(item.id, patch);
       await refreshRoutine();
@@ -198,8 +221,6 @@ export default function RoutineClient({
 
   return (
     <>
-      <TodayDoses refreshToken={doseRefreshToken} />
-
       <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold text-[#041B2D]">Your current routine</h2>
@@ -245,20 +266,56 @@ export default function RoutineClient({
         </div>
       </div>
 
-      <div className="space-y-5">
-        {ROUTINE_SECTION_ORDER.map((kind) => (
+      <nav aria-label="Routine sections" className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm lg:grid-cols-4">
+        {([
+          { id: "today", label: "Today", count: null, icon: ListChecks },
+          { id: "medications", label: "Medications", count: grouped.byKind.medication.length, icon: Pill },
+          { id: "hormones", label: "Hormones", count: grouped.byKind.hormone.length, icon: TestTube2 },
+          { id: "supplements", label: "Supplements", count: supplements.length, icon: Sparkles },
+        ] as const).map((view) => {
+          const Icon = view.icon;
+          const selected = activeView === view.id;
+          return (
+            <button
+              key={view.id}
+              type="button"
+              aria-current={selected ? "page" : undefined}
+              onClick={() => setActiveView(view.id)}
+              className={`inline-flex min-h-12 items-center justify-center rounded-xl px-3 py-3 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] ${selected ? "bg-[#087F72] text-white" : "text-slate-700 hover:bg-[#EAFBF8] hover:text-[#06695F]"}`}
+            >
+              <Icon className="mr-2 h-5 w-5" aria-hidden="true" />
+              {view.label}{view.count === null ? "" : ` (${view.count})`}
+            </button>
+          );
+        })}
+      </nav>
+
+      {activeView === "today" ? <TodayDoses refreshToken={doseRefreshToken} /> : null}
+
+      {activeView === "medications" ? (
+        <div className="space-y-5">
           <RoutineSection
-            key={kind}
-            kind={kind}
-            items={grouped.byKind[kind]}
+            kind="medication"
+            items={grouped.byKind.medication}
             busyId={busyId}
             onEdit={setEditing}
             onStop={stopTracking}
           />
-        ))}
-      </div>
+        </div>
+      ) : null}
 
-      <IdeasSection items={grouped.proposals} busyId={busyId} onAdopt={adoptProposal} />
+      {activeView === "hormones" ? (
+        <div className="space-y-5">
+          <RoutineSection kind="hormone" items={grouped.byKind.hormone} busyId={busyId} onEdit={setEditing} onStop={stopTracking} />
+        </div>
+      ) : null}
+
+      {activeView === "supplements" ? (
+        <div className="space-y-5">
+          <RoutineSection kind="supplement" items={supplements} busyId={busyId} onEdit={setEditing} onStop={stopTracking} />
+          <IdeasSection items={grouped.proposals} busyId={busyId} onAdopt={adoptProposal} />
+        </div>
+      ) : null}
 
       {editing ? (
         <EditRoutineDialog
@@ -275,6 +332,7 @@ export default function RoutineClient({
           onAdded={async (itemName, addedId) => {
             await refreshRoutine();
             setShowAdd(false);
+            setActiveView("supplements");
             setToast({
               message: `${itemName} was added to your current routine.`,
               undo: async () => {
@@ -294,6 +352,7 @@ export default function RoutineClient({
           onAdded={async (itemName, addedId) => {
             await refreshRoutine();
             setShowAddMedication(false);
+            setActiveView("medications");
             setToast({
               message: `${itemName} was added as a medication you reported. Review your Blueprint after this change.`,
               undo: async () => {
@@ -313,6 +372,7 @@ export default function RoutineClient({
           onAdded={async (itemName, addedId) => {
             await refreshRoutine();
             setShowAddHormone(false);
+            setActiveView("hormones");
             setToast({
               message: `${itemName} was added as a hormone therapy you reported. Review your Blueprint after this change.`,
               undo: async () => {
@@ -395,15 +455,36 @@ function RoutineCard({
   onStop: (item: RoutineItem) => void;
 }) {
   const prescribedItem = item.item_kind === "medication" || item.item_kind === "hormone";
+  const supplementItem = !prescribedItem;
+  const hormoneActive = item.item_kind === "endocrine_active_supplement";
   const authorityLabel = routineInstructionAuthorityLabel(item.instruction_authority);
   return (
     <li className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start gap-4">
+        {supplementItem ? (
+          item.image_url ? (
+            item.reorder_url ? (
+              <a href={item.reorder_url} target="_blank" rel="noopener noreferrer nofollow sponsored" className="relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72]" aria-label={`Open product page for ${item.name}`}>
+                <Image src={item.image_url} alt={`${item.brand ? `${item.brand} ` : ""}${item.name} product`} fill sizes="96px" className="object-contain p-2" />
+              </a>
+            ) : (
+              <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                <Image src={item.image_url} alt={`${item.brand ? `${item.brand} ` : ""}${item.name} product`} fill sizes="96px" className="object-contain p-2" />
+              </div>
+            )
+          ) : (
+            <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white text-slate-400" aria-label="Product image not available">
+              <PackageOpen className="h-9 w-9" aria-hidden="true" />
+            </div>
+          )
+        ) : null}
         <div className="min-w-0">
           <h3 className="text-lg font-bold text-[#041B2D]">{item.name}</h3>
+          {item.brand ? <p className="mt-1 font-semibold text-slate-700">{item.brand}</p> : null}
           <p className="mt-1 text-sm text-slate-600">{routineSourceLabel(item.instruction_source)}</p>
+          {hormoneActive ? <p className="mt-2 inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-900"><HeartPulse className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Hormone-active supplement</p> : null}
         </div>
-        {busy ? <Loader2 className="h-5 w-5 animate-spin text-[#087F72]" aria-label="Saving" /> : null}
+        {busy ? <Loader2 className="ml-auto h-5 w-5 shrink-0 animate-spin text-[#087F72]" aria-label="Saving" /> : null}
       </div>
       <dl className="mt-4 space-y-3 text-sm">
         <div>
@@ -424,6 +505,14 @@ function RoutineCard({
           LVE360 records what you report. It does not select or recommend prescription doses. Follow your prescription label and clinician instructions.
         </p>
       ) : null}
+      {supplementItem && item.reorder_url ? (
+        <div className="mt-4">
+          <a href={item.reorder_url} target="_blank" rel="noopener noreferrer nofollow sponsored" className="inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-[#041B2D] px-4 py-3 font-bold text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] focus-visible:ring-offset-2">
+            <ExternalLink className="mr-2 h-4 w-4" aria-hidden="true" /> Open product or reorder link
+          </a>
+          {item.product_source !== "member" ? <p className="mt-2 text-xs leading-5 text-slate-500">Product links may be affiliate links. Your price does not change.</p> : null}
+        </div>
+      ) : null}
       <div className="mt-4 grid gap-2 sm:grid-cols-2">
         <button
           type="button"
@@ -431,7 +520,7 @@ function RoutineCard({
           onClick={() => onEdit(item)}
           className="inline-flex min-h-12 items-center justify-center rounded-xl border border-[#9DCFC3] bg-white px-4 py-3 font-bold text-[#06695F] hover:bg-[#EAFBF8] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72]"
         >
-          <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> {prescribedItem ? "Record dose or schedule change" : "Edit dose or schedule"}
+          <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> {prescribedItem ? "Record dose or schedule change" : "Edit supplement details"}
         </button>
         <button
           type="button"
@@ -487,9 +576,11 @@ function IdeasSection({ items, busyId, onAdopt }: { items: RoutineItem[]; busyId
   );
 }
 
-function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineItem; saving: boolean; onClose: () => void; onSave: (item: RoutineItem, patch: { dose?: string | null; schedule?: RoutineItem["schedule"]; instructionAuthority?: RegimenInstructionAuthority }) => void }) {
+function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineItem; saving: boolean; onClose: () => void; onSave: (item: RoutineItem, patch: RoutineEditPatch) => void }) {
   const prescribedItem = item.item_kind === "medication" || item.item_kind === "hormone";
   const [dose, setDose] = useState(item.dose ?? "");
+  const [brand, setBrand] = useState(item.brand ?? "");
+  const [reorderUrl, setReorderUrl] = useState(item.reorder_url ?? "");
   const [schedule, setSchedule] = useState<ScheduleDraft>(() => scheduleDraft(item.schedule));
   const [instructionAuthority, setInstructionAuthority] = useState<RegimenInstructionAuthority | "">(
     item.instruction_authority ?? ""
@@ -500,6 +591,7 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
   const hasStructuredSchedule = Boolean(schedule.cadence);
   const scheduleReady = !hasStructuredSchedule || scheduleDraftIsReady(schedule);
   const sourceRequired = prescribedItem || hasStructuredSchedule;
+  const reorderUrlReady = !reorderUrl.trim() || isValidHttpsUrl(reorderUrl);
   return (
     <DialogShell title={prescribedItem ? `Record a prescribed change for ${item.name}` : `Update ${item.name}`} onClose={onClose}>
       <p className="text-sm leading-6 text-slate-600">
@@ -508,6 +600,13 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
           : "Record what you currently do. This does not create a medical instruction or replace a product label."}
       </p>
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">{prescribedItem ? "Prescribed dose" : "Amount you take"}<input autoFocus value={dose} onChange={(event) => setDose(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={item.item_kind === "hormone" ? "For example, 80 mg" : "For example, 2 capsules"} /></label>
+      {!prescribedItem ? (
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <label className="block text-sm font-bold text-[#041B2D]">Brand <span className="font-normal text-slate-500">(optional)</span><input value={brand} onChange={(event) => setBrand(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder="For example, Thorne" /></label>
+          <label className="block text-sm font-bold text-[#041B2D]">Product or reorder link <span className="font-normal text-slate-500">(optional)</span><input type="url" inputMode="url" value={reorderUrl} onChange={(event) => setReorderUrl(event.target.value)} maxLength={2048} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder="https://..." aria-invalid={!reorderUrlReady} /></label>
+          {!reorderUrlReady ? <p className="text-sm font-semibold text-rose-700 sm:col-span-2">Use a complete secure link that begins with https://.</p> : null}
+        </div>
+      ) : null}
       {!item.schedule && item.timing ? <p className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700"><span className="font-bold">Current written schedule:</span> {item.timing}. Choose a structured cadence below to use the daily checklist.</p> : null}
       <ScheduleEditor value={schedule} onChange={setSchedule} />
       {sourceRequired ? (
@@ -521,8 +620,9 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
       ) : null}
       <div className="mt-6 grid gap-2 sm:grid-cols-2">
         <button type="button" onClick={onClose} disabled={saving} className="min-h-12 rounded-xl border border-slate-300 px-4 py-3 font-bold text-slate-700">Cancel</button>
-        <button type="button" disabled={saving || !scheduleReady || (sourceRequired && !instructionAuthority)} onClick={() => onSave(item, {
+        <button type="button" disabled={saving || !scheduleReady || !reorderUrlReady || (sourceRequired && !instructionAuthority)} onClick={() => onSave(item, {
           dose: dose.trim() || null,
+          ...(!prescribedItem ? { brand: brand.trim() || null, reorderUrl: reorderUrl.trim() || null } : {}),
           ...(hasStructuredSchedule ? { schedule: scheduleDraftPayload(schedule) } : {}),
           ...(instructionAuthority ? { instructionAuthority } : {}),
         })} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 font-bold text-white disabled:opacity-60">
@@ -616,7 +716,16 @@ function AddSupplementDialog({ onClose, onAdded }: { onClose: () => void; onAdde
   async function add(item: SearchItem, timing: "AM" | "PM" | "AM/PM") {
     setBusy(true); setError(null);
     try {
-      const response = await fetch("/api/fullscript/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: item.name, dose: item.dose, timing }) });
+      const response = await fetch("/api/fullscript/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        name: item.name,
+        dose: item.dose,
+        timing,
+        brand: item.brand,
+        reorder_url: item.reorder_url,
+        image_url: item.image_url,
+        product_source: item.vendor,
+        product_sku: item.sku,
+      }) });
       const body = await response.json().catch(() => null);
       if (!response.ok || !body?.ok || !body?.item?.id) throw new Error("add_failed");
       await onAdded(item.name, body.item.id);
@@ -633,7 +742,7 @@ function AddSupplementDialog({ onClose, onAdded }: { onClose: () => void; onAdde
       </div>
       {error ? <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">{error}</p> : null}
       <div className="mt-5 max-h-[50vh] space-y-3 overflow-y-auto pr-1">
-        {results.map((item, index) => <div key={item.sku ?? `${item.name}-${index}`} className="rounded-2xl border border-slate-200 p-4"><h3 className="font-bold text-[#041B2D]">{item.name}</h3><p className="mt-1 text-sm text-slate-600">{item.brand || "Brand not listed"}{item.dose ? `, ${item.dose}` : ""}</p><div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">{(["AM", "PM", "AM/PM"] as const).map((timing) => <button key={timing} type="button" disabled={busy} onClick={() => void add(item, timing)} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-[#9DCFC3] px-3 py-3 font-bold text-[#06695F] hover:bg-[#EAFBF8] disabled:opacity-60">Add {timing}<ChevronRight className="ml-1 h-4 w-4" aria-hidden="true" /></button>)}</div></div>)}
+        {results.map((item, index) => <div key={item.sku ?? `${item.name}-${index}`} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-start gap-4">{item.image_url ? <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white"><Image src={item.image_url} alt={`${item.brand ? `${item.brand} ` : ""}${item.name} product`} fill sizes="80px" className="object-contain p-1.5" /></div> : <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-dashed border-slate-300 text-slate-400"><PackageOpen className="h-8 w-8" aria-hidden="true" /></div>}<div><h3 className="font-bold text-[#041B2D]">{item.name}</h3><p className="mt-1 text-sm text-slate-600">{item.brand || "Brand not listed"}{item.dose ? `, ${item.dose}` : ""}</p></div></div><div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">{(["AM", "PM", "AM/PM"] as const).map((timing) => <button key={timing} type="button" disabled={busy} onClick={() => void add(item, timing)} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-[#9DCFC3] px-3 py-3 font-bold text-[#06695F] hover:bg-[#EAFBF8] disabled:opacity-60">Add {timing}<ChevronRight className="ml-1 h-4 w-4" aria-hidden="true" /></button>)}</div></div>)}
         {!results.length && !busy ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">Search by supplement or ingredient name.</p> : null}
       </div>
     </DialogShell>
@@ -654,4 +763,13 @@ function DialogShell({ title, onClose, children, wide = false }: { title: string
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(value));
+}
+
+function isValidHttpsUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
 }

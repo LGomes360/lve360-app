@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { requirePaidApi } from "@/lib/serverEntitlements";
+import { fullscriptImageUrlForSku, normalizeHttpsUrl, normalizeTrustedProductImageUrl } from "@/lib/supplementProduct";
 
 // --- Env ---
 const FULLSCRIPT_BASE = process.env.FULLSCRIPT_BASE_URL || "https://api.fullscript.com";
@@ -28,7 +29,17 @@ async function fallbackSearch(q: string) {
     link_fullscript: row.link_fullscript || null,
     link_amazon: row.link_amazon || null,
     price: null,
+    reorder_url: safeHttpsUrl(row.link_fullscript || row.link_amazon),
+    image_url: null,
   }));
+}
+
+function safeHttpsUrl(value: unknown): string | null {
+  try { return normalizeHttpsUrl(value); } catch { return null; }
+}
+
+function safeImageUrl(value: unknown): string | null {
+  try { return normalizeTrustedProductImageUrl(value); } catch { return null; }
 }
 
 // Minimal Fullscript proxy (adjust endpoint to your account’s catalog/search)
@@ -46,16 +57,30 @@ async function fullscriptSearch(q: string) {
 
   // Normalize a few common fields
   const items = Array.isArray(json?.data) ? json.data : [];
-  return items.map((p: any) => ({
-    vendor: "fullscript",
-    sku: String(p?.id ?? ""),
-    name: p?.attributes?.name ?? p?.name ?? "Unnamed",
-    brand: p?.attributes?.brand_name ?? p?.brand?.name ?? null,
-    dose: p?.attributes?.strength ?? null,
-    link_fullscript: p?.links?.self ?? null,
-    link_amazon: null,
-    price: p?.attributes?.price ?? null,
-  }));
+  return items.map((p: any) => {
+    const sku = String(p?.attributes?.sku ?? p?.attributes?.code ?? p?.id ?? "");
+    const imageCandidate = p?.attributes?.image_url
+      ?? p?.attributes?.image?.url
+      ?? p?.attributes?.images?.[0]?.url
+      ?? fullscriptImageUrlForSku(sku);
+    const reorderCandidate = p?.attributes?.product_url
+      ?? p?.attributes?.web_url
+      ?? p?.links?.product
+      ?? p?.links?.web
+      ?? null;
+    return {
+      vendor: "fullscript",
+      sku,
+      name: p?.attributes?.name ?? p?.name ?? "Unnamed",
+      brand: p?.attributes?.brand_name ?? p?.brand?.name ?? null,
+      dose: p?.attributes?.strength ?? null,
+      link_fullscript: safeHttpsUrl(reorderCandidate),
+      link_amazon: null,
+      price: p?.attributes?.price ?? null,
+      reorder_url: safeHttpsUrl(reorderCandidate),
+      image_url: safeImageUrl(imageCandidate),
+    };
+  });
 }
 
 export async function GET(req: Request) {

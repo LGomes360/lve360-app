@@ -4,6 +4,11 @@ const path = require("path");
 const nextConfig = {
   reactStrictMode: true,
   outputFileTracingRoot: __dirname,
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "assets.fullscript.io", pathname: "/Product/**" },
+    ],
+  },
   // IMPORTANT: do NOT set `output: 'export'`
   webpack: (config) => {
     config.resolve.alias["@"] = path.resolve(__dirname, "src");
