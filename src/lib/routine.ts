@@ -15,6 +15,10 @@ export type RoutineItem = {
   stack_id: string | null;
   name: string;
   brand: string | null;
+  reorder_url: string | null;
+  image_url: string | null;
+  product_source: "fullscript" | "fallback" | "member" | null;
+  product_sku: string | null;
   purpose: string | null;
   dose: string | null;
   timing: string | null;
