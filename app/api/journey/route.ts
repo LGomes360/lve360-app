@@ -9,6 +9,7 @@ import type {
   JourneyReview,
 } from "@/lib/journey";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { getCurrentBlueprintContext, getExperimentBlueprintContexts } from "@/lib/currentBlueprintContext";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -41,10 +42,11 @@ export async function GET() {
     }
 
     const admin = getSupabaseAdmin();
+    const blueprintPromise = getCurrentBlueprintContext(auth.user.id);
     const [{ data: experiments, error: experimentError }, { data: reviews, error: reviewError }, { data: checkIns, error: checkInError }] = await Promise.all([
       admin
         .from("weekly_experiments")
-        .select("id, identity_direction, action_label, cue, frequency_per_week, minimum_version, status, week_start, activated_at, completed_at")
+        .select("id, source_stack_id, source_action_id, identity_direction, action_label, cue, frequency_per_week, minimum_version, status, week_start, activated_at, completed_at")
         .eq("user_id", auth.user.id)
         .order("week_start", { ascending: false })
         .limit(52),
@@ -79,12 +81,21 @@ export async function GET() {
       completions = (data ?? []) as JourneyCompletion[];
     }
 
+    const blueprint = await blueprintPromise;
+    const experimentBlueprints = await getExperimentBlueprintContexts(
+      auth.user.id,
+      experimentRows,
+      blueprint,
+    );
+
     return NextResponse.json({
       ok: true,
       experiments: experimentRows,
       reviews: (reviews ?? []) as JourneyReview[],
       completions,
       check_ins: (checkIns ?? []) as JourneyCheckIn[],
+      blueprint,
+      experiment_blueprints: experimentBlueprints,
     });
   } catch (error) {
     console.error("[journey] load failed", error);

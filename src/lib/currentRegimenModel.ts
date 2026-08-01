@@ -1,5 +1,6 @@
 import type { NormalizedCurrentStackLedgerItem } from "@/lib/normalizedCurrentStackLedger";
 import { isEndocrineActiveSupplementName } from "@/lib/supplementEligibility";
+import type { MedicationInstructionAuthority } from "@/lib/medicationRecord";
 
 export type CurrentRegimenKind = NormalizedCurrentStackLedgerItem["kind"];
 export type CurrentRegimenSource = "intake" | "member_update" | "adopted_recommendation" | "manual_add";
@@ -16,6 +17,7 @@ export type CurrentRegimenItem = {
   dose: string | null;
   timing: string | null;
   instruction_source: CurrentRegimenSource;
+  instruction_authority: MedicationInstructionAuthority | null;
   active: boolean;
   created_at?: string;
   updated_at?: string;
@@ -64,6 +66,6 @@ export function regimenToLedger(items: CurrentRegimenItem[]): NormalizedCurrentS
     ...(item.dose ? { dose: item.dose } : {}),
     ...(item.timing ? { timing: item.timing } : {}),
     source_paths: [`current_regimen_items.${item.id}`, `instruction_source.${item.instruction_source}`],
-    raw_labels: [item.instruction_source],
+    raw_labels: [item.instruction_source, item.instruction_authority].filter(Boolean) as string[],
   }));
 }

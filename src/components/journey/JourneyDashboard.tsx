@@ -10,6 +10,7 @@ import {
   LineChart,
   Loader2,
   Sparkles,
+  AlertTriangle,
 } from "lucide-react";
 
 import {
@@ -24,6 +25,7 @@ import {
   type JourneyResponse,
   type JourneyReview,
 } from "@/lib/journey";
+import { blueprintSafetyLabel, type CurrentBlueprintContext, type ExperimentBlueprintContext } from "@/lib/blueprintContext";
 
 type MetricKey = "sleep" | "energy" | "weight";
 
@@ -121,7 +123,9 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
         </dl>
       </section>
 
-      {activeExperiment ? <CurrentChapter experiment={activeExperiment} completed={data.completions.filter((item) => item.experiment_id === activeExperiment.id).length} /> : (
+      {data.blueprint ? <BlueprintJourneyContext blueprint={data.blueprint} /> : null}
+
+      {activeExperiment ? <CurrentChapter experiment={activeExperiment} blueprintContext={data.experiment_blueprints[activeExperiment.id] ?? null} completed={data.completions.filter((item) => item.experiment_id === activeExperiment.id).length} /> : (
         <EmptyState
           title="Ready for a new focused week?"
           body="Your past weeks are saved below. Start another small experiment when you are ready."
@@ -143,6 +147,7 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
             <ExperimentCard
               key={experiment.id}
               experiment={experiment}
+              blueprintContext={data.experiment_blueprints[experiment.id] ?? null}
               review={data.reviews.find((item) => item.experiment_id === experiment.id) ?? null}
               completed={data.completions.filter((item) => item.experiment_id === experiment.id).length}
             />
@@ -190,6 +195,48 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
   );
 }
 
+function BlueprintJourneyContext({ blueprint }: { blueprint: CurrentBlueprintContext }) {
+  return (
+    <section className="rounded-3xl border border-[#BCE3DA] bg-[#F4FAF8] p-6 sm:p-8" aria-labelledby="journey-blueprint-title">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Current Blueprint</p>
+          <h2 id="journey-blueprint-title" className="mt-1 text-2xl font-bold text-[#041B2D]">The priorities your weeks can support</h2>
+          <p className={`mt-2 text-sm ${blueprint.needs_refresh || blueprint.safety_status !== "safe" ? "font-semibold text-amber-800" : "text-slate-600"}`}>
+            {blueprintSafetyLabel(blueprint)}. Refreshed {formatDateTime(blueprint.created_at)}.
+          </p>
+        </div>
+        <Link href={`/blueprints/${blueprint.stack_id}`} className="inline-flex min-h-12 shrink-0 items-center justify-center rounded-xl border border-[#9DCFC3] bg-white px-4 py-3 text-sm font-bold text-[#06695F] hover:bg-[#EAFBF8]">
+          Open current Blueprint <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+        </Link>
+      </div>
+      <ul className="mt-5 grid gap-3 lg:grid-cols-3">
+        {blueprint.priorities.slice(0, 3).map((priority) => (
+          <li key={priority.id} className="rounded-2xl bg-white p-4 text-sm leading-6 text-slate-700">
+            <div className="flex items-start gap-2">
+              {priority.kind === "review_only" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-label="Review only" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#087F72]" aria-hidden="true" />}
+              <span>{priority.label}</span>
+            </div>
+            {priority.kind === "review_only" ? <p className="mt-2 text-xs font-semibold text-amber-800">Review only. This cannot become a practice.</p> : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function BlueprintPracticeLink({ context, compact = false }: { context: ExperimentBlueprintContext | null; compact?: boolean }) {
+  if (!context?.priority_label) {
+    return <p className={`${compact ? "mt-2" : "mt-3"} text-xs font-semibold text-slate-500`}>Self-chosen practice. No Blueprint priority link recorded.</p>;
+  }
+  return (
+    <div className={`${compact ? "mt-2" : "mt-3"} rounded-xl ${context.needs_review ? "bg-amber-50 text-amber-900" : "bg-white text-slate-700"} p-3 text-xs leading-5`}>
+      <strong>{context.needs_review ? "Review against the current Blueprint:" : "Supports Blueprint priority:"}</strong> {context.priority_label}
+      {context.needs_review ? <span className="block mt-1">The practice was preserved and was not automatically changed.</span> : null}
+    </div>
+  );
+}
+
 function SummaryStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl bg-white/10 p-4">
@@ -199,7 +246,7 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CurrentChapter({ experiment, completed }: { experiment: JourneyExperiment; completed: number }) {
+function CurrentChapter({ experiment, blueprintContext, completed }: { experiment: JourneyExperiment; blueprintContext: ExperimentBlueprintContext | null; completed: number }) {
   const target = experiment.frequency_per_week ?? 1;
   return (
     <section aria-labelledby="current-chapter-title" className="rounded-3xl border border-[#BCE3DA] bg-[#F4FAF8] p-6 sm:p-8">
@@ -210,6 +257,7 @@ function CurrentChapter({ experiment, completed }: { experiment: JourneyExperime
           <p className="mt-2 text-sm leading-6 text-slate-600">
             After: {experiment.cue || "your chosen cue"}. Minimum: {experiment.minimum_version || "your smallest version"}.
           </p>
+          <BlueprintPracticeLink context={blueprintContext} />
         </div>
         <div className="min-w-48">
           <p className="text-sm font-bold text-[#041B2D]">{completed} of {target} planned reps</p>
@@ -232,7 +280,7 @@ function CurrentChapter({ experiment, completed }: { experiment: JourneyExperime
   );
 }
 
-function ExperimentCard({ experiment, review, completed }: { experiment: JourneyExperiment; review: JourneyReview | null; completed: number }) {
+function ExperimentCard({ experiment, blueprintContext, review, completed }: { experiment: JourneyExperiment; blueprintContext: ExperimentBlueprintContext | null; review: JourneyReview | null; completed: number }) {
   const target = review?.target_count ?? experiment.frequency_per_week ?? 1;
   return (
     <li className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
@@ -242,6 +290,7 @@ function ExperimentCard({ experiment, review, completed }: { experiment: Journey
             Week of {formatDate(experiment.week_start)}. {domainLabel(experiment.identity_direction)}
           </p>
           <h3 className="mt-2 font-bold text-[#041B2D]">{experiment.action_label || "Focused weekly practice"}</h3>
+          <BlueprintPracticeLink context={blueprintContext} compact />
         </div>
         <span className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${experiment.status === "active" ? "bg-[#DDF7F1] text-[#087F72]" : "bg-slate-200 text-slate-700"}`}>
           {experiment.status === "active" ? "In progress" : experiment.status === "completed" ? "Reviewed" : "Closed"}
@@ -393,4 +442,8 @@ function formatMetric(value: number, metric: MetricKey): string {
 function formatNullable(value: number | null, suffix: string): string {
   if (typeof value !== "number") return "Not logged";
   return `${Number.isInteger(value) ? value : value.toFixed(1)}${suffix}`;
+}
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
 }

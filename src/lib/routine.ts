@@ -13,6 +13,7 @@ export type RoutineItem = {
   notes: string | null;
   item_kind: RoutineItemKind;
   instruction_source?: "intake" | "member_update" | "adopted_recommendation" | "manual_add" | null;
+  instruction_authority?: "clinician" | "pharmacist" | "medication_label" | null;
   active?: boolean;
   is_current: boolean;
   source_type: RoutineSourceType;
@@ -90,6 +91,13 @@ export function routineSourceLabel(source: RoutineItem["instruction_source"]): s
   if (source === "adopted_recommendation") return "Added from your Blueprint";
   if (source === "manual_add") return "Added by you";
   return "From your intake";
+}
+
+export function routineInstructionAuthorityLabel(authority: RoutineItem["instruction_authority"]): string | null {
+  if (authority === "clinician") return "Instruction reported from your clinician or prescriber";
+  if (authority === "pharmacist") return "Instruction reported from your pharmacist";
+  if (authority === "medication_label") return "Instruction recorded from your medication label";
+  return null;
 }
 
 export function isClinicianReviewProposal(item: Pick<RoutineItem, "notes">): boolean {

@@ -1,5 +1,7 @@
 export type JourneyExperiment = {
   id: string;
+  source_stack_id: string | null;
+  source_action_id: string | null;
   identity_direction: string | null;
   action_label: string | null;
   cue: string | null;
@@ -41,6 +43,8 @@ export type JourneyResponse = {
   reviews: JourneyReview[];
   completions: JourneyCompletion[];
   check_ins: JourneyCheckIn[];
+  blueprint: import("@/lib/blueprintContext").CurrentBlueprintContext | null;
+  experiment_blueprints: Record<string, import("@/lib/blueprintContext").ExperimentBlueprintContext>;
   error?: string;
 };
 
