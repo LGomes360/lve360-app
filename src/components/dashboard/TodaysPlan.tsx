@@ -1,688 +1,83 @@
 "use client";
 
+import { AlertTriangle, ArrowRight, CalendarCheck2, ClipboardList, Loader2 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import { CheckCircle2, Circle, TriangleAlert, PackageOpen, Pill, Search,} from "lucide-react";
-import {
-  cleanDashboardDose,
-  getDashboardItemKind,
-  getDashboardSchedule,
-  isBatchTrackable,
-  isPendingRecommendation,
-} from "@/src/lib/dashboardPlan";
 
-/* =========================
-   Types
-========================= */
-type StackRow = { id: string; created_at: string };
-type StackItem = {
-  id: string;
-  stack_id: string;
-  name: string;
-  brand: string | null;
-  dose: string | null;
-  timing: "AM" | "PM" | "AM/PM" | (string & {}) | null;
-  /** ADD THIS: enables the normalizer to use either field */
-  timing_bucket?: string | null;
-  timing_text?: string | null;
-  is_current?: boolean | null;
-  notes: string | null;
-  link_amazon: string | null;
-  link_fullscript: string | null;
-  refill_days_left: number | null;
-  last_refilled_at: string | null;
-  source_type?: "regimen" | "blueprint_proposal";
-};
-
-type SearchItem = {
-  vendor: "fullscript" | "fallback";
-  sku: string | null;
-  name: string;
-  brand: string | null;
-  dose: string | null;
-  link_fullscript: string | null;
-  link_amazon: string | null;
-  price: number | null;
-};
-
-type ViewTab = "All" | "AM" | "PM";
+import { getRoutineTodaySummary, type RoutineItem } from "@/lib/routine";
 
 export default function TodaysPlan() {
-  const supabase = createClientComponentClient();
-
-  /* -------------------------
-     State
-  ------------------------- */
+  const [items, setItems] = useState<RoutineItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [stack, setStack] = useState<StackRow | null>(null);
-  const [items, setItems] = useState<StackItem[]>([]);
-  const [showManager, setShowManager] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
 
-  // View filter (sticky header tabs)
-  const [view, setView] = useState<ViewTab>("All");
-
-  // DB-persisted "taken today" statuses
-  const [takenMap, setTakenMap] = useState<Record<string, boolean>>({});
-  const today = new Date().toISOString().slice(0, 10);
-
-  // Toast
-  const [toast, setToast] = useState<string | null>(null);
   useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2500);
-    return () => clearTimeout(t);
-  }, [toast]);
+    let cancelled = false;
+    fetch("/api/stacks/combined", { cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json().catch(() => null);
+        if (!response.ok || !body?.ok) throw new Error("routine_unavailable");
+        if (!cancelled) setItems(body.items ?? []);
+      })
+      .catch(() => { if (!cancelled) setUnavailable(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
 
-  // Local fallback key (only if API fails)
-  const localKey = useMemo(() => {
-    if (!userId) return null;
-    return `lve360_taken_${userId}_${today}`;
-  }, [userId, today]);
-
-  /* -------------------------
-     Load: user → latest stack → items → today statuses
-  ------------------------- */
-useEffect(() => {
-  (async () => {
-    setLoading(true);
-
-    // who am I?
-    const { data: userWrap } = await supabase.auth.getUser();
-    const uid = userWrap?.user?.id ?? null;
-    setUserId(uid);
-    if (!uid) {
-      setLoading(false);
-      return;
-    }
-
-    // NEW: one call to get merged list + latest stack meta
-    try {
-      const res = await fetch("/api/stacks/combined", { cache: "no-store" });
-      const json = await res.json();
-
-      if (!json?.ok) throw new Error(json?.error || "combined_failed");
-
-      setStack(json.latestStack);        // { id, created_at } or null
-      setItems(json.items || []);        // merged + de-duped items
-
-      // today statuses (unchanged logic)
-      if (json.latestStack?.id || (json.items ?? []).length > 0) {
-        const res2 = await fetch("/api/intake/status", { cache: "no-store" });
-        const sjson = await res2.json();
-        if (sjson?.ok) {
-          setTakenMap(sjson.statuses || {});
-          if (localKey) localStorage.setItem(localKey, JSON.stringify(sjson.statuses || {}));
-        } else if (localKey) {
-          const raw = localStorage.getItem(localKey);
-          setTakenMap(raw ? JSON.parse(raw) : {});
-        }
-      } else if (localKey) {
-        const raw = localStorage.getItem(localKey);
-        setTakenMap(raw ? JSON.parse(raw) : {});
-      }
-    } catch {
-      // fallback to any locally-cached taken states
-      if (localKey) {
-        const raw = localStorage.getItem(localKey);
-        setTakenMap(raw ? JSON.parse(raw) : {});
-      }
-    } finally {
-      setLoading(false);
-    }
-  })();
-}, [supabase, localKey]);
-
-
-  /* -------------------------
-     Actions
-  ------------------------- */
-
-  // Toggle a single item (DB, with local fallback)
-  async function toggleTaken(itemId: string) {
-    const nextVal = !takenMap[itemId];
-
-    try {
-      const res = await fetch("/api/intake/set", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ regimen_item_id: itemId, taken: nextVal }),
-      });
-      const json = await res.json();
-      if (!json?.ok) throw new Error(json?.error || "set_failed");
-
-      setTakenMap((prev) => {
-        const next = { ...prev, [itemId]: nextVal };
-        if (localKey) localStorage.setItem(localKey, JSON.stringify(next));
-        return next;
-      });
-      setToast(nextVal ? "Marked item taken" : "Marked item not taken");
-    } catch {
-      // Fallback to local only if DB write fails
-      setTakenMap((prev) => {
-        const next = { ...prev, [itemId]: nextVal };
-        if (localKey) localStorage.setItem(localKey, JSON.stringify(next));
-        return next;
-      });
-      setToast(nextVal ? "Marked item taken" : "Marked item not taken");
-    }
-  }
-
-  // Mark all in current view (All/AM/PM) as taken (true) or not (false)
-  async function markAllInView(taken: boolean) {
-    const scoped = visibleItems.filter(isBatchTrackable).map((i) => i.id);
-    if (scoped.length === 0) return;
-
-    await Promise.allSettled(
-      scoped.map((id) =>
-        fetch("/api/intake/set", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ regimen_item_id: id, taken }),
-        })
-      )
-    );
-
-    setTakenMap((prev) => {
-      const next = { ...prev };
-      scoped.forEach((id) => (next[id] = taken));
-      if (localKey) localStorage.setItem(localKey, JSON.stringify(next));
-      return next;
-    });
-    setToast(taken ? "Marked all visible items taken" : "Cleared all visible items");
-  }
-
-  async function activateRecommendation(itemId: string) {
-    const res = await fetch("/api/stack-items/activate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ item_id: itemId }),
-    });
-    const json = await res.json();
-    if (!res.ok || !json?.ok) {
-      setToast("Unable to add that recommendation");
-      return;
-    }
-    await reloadItems();
-    setToast("Added to your active plan");
-  }
-
-  // Reload items (after adding new in modal)
-  async function reloadItems() {
-    try {
-      const [itemsResponse, statusResponse] = await Promise.all([
-        fetch("/api/stacks/combined", { cache: "no-store" }),
-        fetch("/api/intake/status", { cache: "no-store" }),
-      ]);
-      const [itemsJson, statusJson] = await Promise.all([itemsResponse.json(), statusResponse.json()]);
-      if (itemsJson?.ok) {
-        setStack(itemsJson.latestStack ?? null);
-        setItems(itemsJson.items ?? []);
-      }
-      if (statusJson?.ok) {
-        setTakenMap(statusJson.statuses || {});
-        if (localKey) localStorage.setItem(localKey, JSON.stringify(statusJson.statuses || {}));
-      }
-    } catch {}
-  }
-
-  /* -------------------------
-     Derived (AM/PM bucketing via normalizer)
-  ------------------------- */
-  const pendingItems = useMemo(() => items.filter(isPendingRecommendation), [items]);
-  const activeItems = useMemo(() => items.filter((item) => !isPendingRecommendation(item)), [items]);
-  const { itemsAM, itemsPM, itemsOther } = useMemo(() => {
-    const groups: { AM: StackItem[]; PM: StackItem[]; OTHER: StackItem[] } = { AM: [], PM: [], OTHER: [] };
-    for (const it of activeItems) {
-      const schedule = getDashboardSchedule(it);
-      if (schedule === "AM/PM") {
-        groups.AM.push(it);
-        groups.PM.push(it);
-      } else if (schedule === "AM") groups.AM.push(it);
-      else if (schedule === "PM") groups.PM.push(it);
-      else groups.OTHER.push(it);
-    }
-    return {
-      itemsAM: groups.AM,
-      itemsPM: groups.PM,
-      itemsOther: groups.OTHER,
-    };
-  }, [activeItems]);
-
-  // Items visible under current tab
-  const visibleItems = useMemo<StackItem[]>(() => {
-    if (view === "All") return activeItems;
-    if (view === "AM") return itemsAM;
-    return itemsPM;
-  }, [view, activeItems, itemsAM, itemsPM]);
-
-  // Completion overall + scoped
-  const completionScoped = useMemo(() => {
-    const ids = visibleItems.map((i) => i.id);
-    const total = ids.length || 1;
-    const done = ids.reduce((acc, id) => acc + (takenMap[id] ? 1 : 0), 0);
-    return Math.round((done / total) * 100);
-  }, [visibleItems, takenMap]);
-
-  /* -------------------------
-     Render
-  ------------------------- */
-  if (loading) {
-    return (
-      <div id="todays-plan" className="bg-white/70 backdrop-blur-md rounded-2xl p-6 shadow-sm">
-        <div className="flex items-center text-gray-600">
-          <Pill className="w-5 h-5 mr-2 text-purple-600" />
-          Loading your plan…
-        </div>
-      </div>
-    );
-  }
+  const summary = useMemo(() => getRoutineTodaySummary(items), [items]);
 
   return (
-    <div id="todays-plan" className="rounded-2xl border border-slate-200 bg-white p-0 shadow-sm">
-      {/* Sticky Header */}
-      <div className="sticky top-0 z-10 rounded-t-2xl border-b border-slate-200 bg-white/95 backdrop-blur-md">
-        <div className="px-6 pt-5 pb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-[#041B2D]">🗓️ Today’s Plan</h2>
-            <p className="text-gray-600">
-              Your latest stack{stack?.created_at ? ` • generated ${new Date(stack.created_at).toLocaleDateString()}` : ""}.
-            </p>
-          </div>
-
-          {/* Tabs + scoped actions */}
-          <div className="flex items-center gap-2">
-            <Tab label="All" active={view === "All"} onClick={() => setView("All")} />
-            <Tab label="AM" active={view === "AM"} onClick={() => setView("AM")} />
-            <Tab label="PM" active={view === "PM"} onClick={() => setView("PM")} />
-          </div>
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6" aria-labelledby="today-routine-summary">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Routine at a glance</p>
+          <h2 id="today-routine-summary" className="mt-1 text-xl font-bold text-[#041B2D]">What needs your attention today</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+            Keep detailed medication, hormone, and supplement organization in Routine. Today only shows what may need attention.
+          </p>
         </div>
-
-        {/* Progress bar row */}
-        <div className="px-6 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <div className="flex-1">
-            <div className="text-xs text-gray-600 mb-1">
-              Completion {view === "All" ? "(overall)" : `(in ${view})`}: <span className="font-semibold">{completionScoped}%</span>
-            </div>
-            <ProgressBar pct={completionScoped} />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                const batchItems = visibleItems.filter(isBatchTrackable);
-                const allDone = batchItems.length > 0 && batchItems.every((i) => takenMap[i.id]);
-                markAllInView(!allDone);
-              }}
-              className="text-sm font-semibold text-[#06C1A0] underline underline-offset-2"
-              title="Toggle all items in current tab"
-              aria-label="Toggle all items in current tab"
-            >
-              {visibleItems.filter(isBatchTrackable).length > 0 &&
-              visibleItems.filter(isBatchTrackable).every((i) => takenMap[i.id]) ? "Clear routine" : "Mark routine taken"}
-            </button>
-
-            <button
-              onClick={() => setShowManager(true)}
-              className="inline-flex items-center rounded-xl bg-[#047F6D] px-3 py-1.5 text-white text-sm font-semibold shadow-md hover:bg-[#036957]"
-              aria-label="Manage stack"
-            >
-              <Search className="w-4 h-4 mr-1" />
-              Manage
-            </button>
-          </div>
-        </div>
+        <Link href="/routine" className="inline-flex min-h-12 shrink-0 items-center justify-center rounded-xl bg-[#087F72] px-5 py-3 font-bold text-white transition hover:bg-[#06695F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] focus-visible:ring-offset-2">
+          Open Routine <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
+        </Link>
       </div>
 
-      {/* Lists */}
-      <div className="px-6 pb-6 pt-4 space-y-6">
-        {/* Scoped list if AM/PM selected */}
-        {view !== "All" ? (
-          <TimingBlock
-            title={`${view} Routine`}
-            items={visibleItems}
-            takenMap={takenMap}
-            onToggle={toggleTaken}
-          />
-        ) : (
-          <>
-            <TimingBlock title="AM Routine" items={itemsAM} takenMap={takenMap} onToggle={toggleTaken} />
-            <TimingBlock title="PM Routine" items={itemsPM} takenMap={takenMap} onToggle={toggleTaken} />
-            {itemsOther.length > 0 && (
-              <TimingBlock title="Anytime, weekly, or as needed" items={itemsOther} takenMap={takenMap} onToggle={toggleTaken} />
-            )}
-          </>
-        )}
-
-        {pendingItems.length > 0 && (
-          <RecommendationBlock items={pendingItems} onActivate={activateRecommendation} />
-        )}
-
-        {/* Manage & Refill row */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <LowStockBanner items={activeItems} />
-          {/* spacer to keep layout balanced; Manage sits in sticky header now */}
-          <div className="h-0" />
+      {loading ? (
+        <div className="mt-5 flex min-h-24 items-center justify-center rounded-xl bg-slate-50 text-slate-600">
+          <Loader2 className="mr-2 h-5 w-5 animate-spin text-[#087F72]" aria-hidden="true" /> Loading routine summary
         </div>
-      </div>
-
-      {/* Stack Manager Modal (search + add) */}
-      {showManager && (
-        <StackManagerModal
-          onClose={() => setShowManager(false)}
-          onAdded={async () => {
-            await reloadItems();
-            setShowManager(false);
-          }}
-        />
-      )}
-
-      {/* Toast (stay fixed to viewport) */}
-      {toast && (
-        <div className="fixed inset-x-0 bottom-6 z-[60] flex justify-center px-4">
-          <div className="rounded-xl border border-purple-200 bg-white/90 backdrop-blur-md shadow-lg px-4 py-2 text-sm text-[#041B2D]">
-            {toast}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ============================================================
-   Modal (search + add)
-============================================================ */
-function StackManagerModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
-  const [q, setQ] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [items, setItems] = useState<SearchItem[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  async function doSearch() {
-    try {
-      setBusy(true);
-      setError(null);
-      const res = await fetch(`/api/fullscript/search?q=${encodeURIComponent(q)}`, { cache: "no-store" });
-      const json = await res.json();
-      if (!json?.ok) throw new Error(json?.error || "search_failed");
-      setItems(json.items || []);
-    } catch (e: any) {
-      setError(e?.message ?? "Search failed");
-      setItems([]);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function addToStack(it: SearchItem, timing: "AM" | "PM" | "AM/PM") {
-    try {
-      setBusy(true);
-      setError(null);
-      const res = await fetch("/api/fullscript/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: it.name,
-          brand: it.brand,
-          dose: it.dose,
-          link_fullscript: it.link_fullscript,
-          link_amazon: it.link_amazon,
-          source: it.vendor === "fullscript" ? "fullscript" : "amazon",
-          sku: it.sku,
-          timing,
-          notes: null,
-        }),
-      });
-      const json = await res.json();
-      if (!json?.ok) throw new Error(json?.error || "add_failed");
-      await onAdded();
-    } catch (e: any) {
-      setError(e?.message ?? "Add failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-xl">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-semibold text-[#041B2D]">Manage Your Stack</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700" aria-label="Close">
-            ✕
-          </button>
-        </div>
-
-        <div className="flex gap-2">
-          <input
-            className="flex-1 rounded-lg border px-3 py-2"
-            placeholder="Search Fullscript (or fallback catalog)…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && doSearch()}
-          />
-          <button
-            onClick={doSearch}
-            disabled={busy || !q.trim()}
-            className="rounded-lg border px-4 py-2 font-medium hover:bg-white disabled:opacity-60"
-          >
-            {busy ? "Searching…" : "Search"}
-          </button>
-        </div>
-
-        {error && (
-          <div className="mt-3 text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
-            {error}
-          </div>
-        )}
-
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[50vh] overflow-auto pr-1">
-          {items.map((it, idx) => (
-            <div
-              key={`${it.sku ?? idx}`}
-              className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-yellow-50 p-4"
-            >
-              <div className="font-semibold text-[#041B2D]">{it.name}</div>
-              <div className="text-sm text-gray-700">{it.brand ?? "—"}</div>
-              <div className="text-xs text-gray-600">{it.dose ?? ""}</div>
-              <div className="text-xs text-gray-500 mt-1">
-                {it.price != null ? `~$${Number(it.price).toFixed(2)}` : ""}
-              </div>
-              <div className="mt-3 flex gap-2">
-                <button onClick={() => addToStack(it, "AM")} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white">
-                  Add to AM
-                </button>
-                <button onClick={() => addToStack(it, "PM")} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white">
-                  Add to PM
-                </button>
-                <button onClick={() => addToStack(it, "AM/PM")} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-white">
-                  Add AM/PM
-                </button>
-              </div>
-            </div>
-          ))}
-          {items.length === 0 && !error && (
-            <div className="text-gray-600">Try “magnesium”, “omega”, “ashwagandha”…</div>
-          )}
-        </div>
-
-        <div className="mt-4 text-right">
-          <button onClick={onClose} className="rounded-lg border px-4 py-2 text-sm">
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ============================================================
-   Banners & Blocks
-============================================================ */
-function LowStockBanner({ items }: { items: StackItem[] }) {
-  const low = items.filter((i) => (i.refill_days_left ?? Infinity) <= 10);
-  if (!low.length) return null;
-  return (
-    <div className="inline-flex items-center gap-2 text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-      <TriangleAlert className="w-4 h-4" />
-      {low.length} item{low.length > 1 ? "s" : ""} low — consider reordering.
-    </div>
-  );
-}
-
-function RecommendationBlock({ items, onActivate }: { items: StackItem[]; onActivate: (id: string) => void }) {
-  return (
-    <section aria-label="Recommendations to consider">
-      <div className="text-xs uppercase tracking-wide text-[#047F6D] mb-2">Recommendations to consider</div>
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-        <p className="mb-3 text-sm text-amber-900">
-          These Blueprint ideas are not part of your daily checklist until you choose to add them.
-        </p>
-        <ul className="space-y-2">
-          {items.map((item) => (
-            <li key={item.id} className="flex flex-col gap-3 rounded-lg bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="font-semibold text-[#041B2D]">{item.name}</div>
-                <div className="text-sm text-gray-700">{cleanDashboardDose(item.dose) ?? "Starting guidance is in your Blueprint"}</div>
-              </div>
-              <button onClick={() => onActivate(item.id)} className="rounded-lg border border-[#06C1A0] px-3 py-1.5 text-sm font-semibold text-[#047F6D] hover:bg-[#EAFBF8]">
-                Add to my plan
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </section>
-  );
-}
-
-function TimingBlock({
-  title,
-  items,
-  takenMap,
-  onToggle,
-}: {
-  title: string;
-  items: StackItem[];
-  takenMap: Record<string, boolean>;
-  onToggle: (id: string) => void;
-}) {
-  return (
-    <section aria-label={title}>
-      <div className="text-xs uppercase tracking-wide text-[#047F6D] mb-2">{title}</div>
-      {items.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-gray-600">
-          No items in this timing.
+      ) : unavailable ? (
+        <div className="mt-5 flex items-start rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <AlertTriangle className="mr-2 mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" /> Routine details are temporarily unavailable. Open Routine to try again.
         </div>
       ) : (
-        <ul className="space-y-2">
-          {items.map((it) => {
-            const taken = !!takenMap[it.id];
-            const kind = getDashboardItemKind(it.name);
-            const schedule = getDashboardSchedule(it);
-            const link = kind === "supplement" ? it.link_fullscript || it.link_amazon || null : null;
-            const low = (it.refill_days_left ?? Infinity) <= 10;
-            return (
-              <li
-                key={it.id}
-                className="rounded-xl border border-slate-200 bg-slate-50 p-3"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <button
-                      onClick={() => onToggle(it.id)}
-                      className="mt-0.5 text-[#7C3AED]"
-                      aria-label={taken ? "Mark not taken" : "Mark taken"}
-                      title={taken ? "Mark not taken" : "Mark taken"}
-                    >
-                      {taken ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
-                    </button>
-                    <div>
-                      <div className="font-semibold text-[#041B2D]">
-                        {(it.name || "").replace(/^theanine$/i, "L-Theanine")}
-                        {it.brand ? ` — ${it.brand}` : ""}
-                      </div>
-                      <div className="text-sm text-gray-700">
-                        {cleanDashboardDose(it.dose) || "Reported dose not set"}
-                        {it.timing && !["AM", "PM", "AM/PM"].includes(it.timing) ? ` • ${it.timing}` : ""}
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-1.5">
-                        {kind !== "supplement" && (
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
-                            {kind === "endocrine_active_supplement" ? "Hormone-active" : "Medication / hormone"}
-                          </span>
-                        )}
-                        {schedule === "WEEKLY" && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">Weekly</span>}
-                        {schedule === "AS_NEEDED" && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">As needed</span>}
-                        {schedule === "UNSCHEDULED" && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">Schedule not set</span>}
-                      </div>
-                      {it.notes && (
-                        <div className="text-xs text-gray-600 mt-0.5 line-clamp-2" title={it.notes}>
-                          {it.notes}
-                        </div>
-                      )}
-                      {low && (
-                        <div className="mt-1 inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-                          <TriangleAlert className="w-3 h-3" /> Refill soon
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {link ? (
-                      <a
-                        className="inline-flex items-center rounded-lg border px-3 py-1.5 text-sm hover:bg-white"
-                        href={link}
-                        target="_blank"
-                        rel="noopener noreferrer nofollow sponsored"
-                        title="Reorder"
-                      >
-                        <PackageOpen className="w-4 h-4 mr-1" />
-                        Reorder
-                      </a>
-                    ) : null}
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        <dl className="mt-5 grid gap-3 sm:grid-cols-3">
+          <SummaryStat icon={CalendarCheck2} value={summary.dueToday} label="Due today" detail="Based on your recorded schedule" />
+          <SummaryStat icon={ClipboardList} value={summary.scheduleReview} label="Need a schedule" detail="Schedule not recorded" warning={summary.scheduleReview > 0} />
+          <SummaryStat icon={AlertTriangle} value={summary.ideasToConsider} label="Ideas to consider" detail="Not in your current routine" warning={summary.ideasToConsider > 0} />
+        </dl>
       )}
     </section>
   );
 }
 
-/* =========================
-   Small UI bits
-========================= */
-function Tab({ label, active, onClick }: { label: ViewTab; active: boolean; onClick: () => void }) {
+function SummaryStat({
+  icon: Icon,
+  value,
+  label,
+  detail,
+  warning = false,
+}: {
+  icon: typeof CalendarCheck2;
+  value: number;
+  label: string;
+  detail: string;
+  warning?: boolean;
+}) {
   return (
-    <button
-      onClick={onClick}
-      className={`rounded-full px-3 py-1 text-sm border ${
-        active ? "bg-[#047F6D] text-white border-transparent" : "bg-white text-[#041B2D] border-slate-200"
-      }`}
-      aria-pressed={active}
-      aria-label={`Show ${label} items`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function ProgressBar({ pct }: { pct: number }) {
-  const clamped = Math.max(0, Math.min(100, pct));
-  return (
-    <div className="h-2 w-full rounded-full bg-gray-200 overflow-hidden">
-      <div
-        className="h-full bg-gradient-to-r from-[#06C1A0] to-[#7C3AED] transition-all"
-        style={{ width: `${clamped}%` }}
-        aria-valuenow={clamped}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        role="progressbar"
-      />
+    <div className={`rounded-xl border p-4 ${warning ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-slate-50"}`}>
+      <dt className="flex items-center text-sm font-bold text-[#041B2D]"><Icon className={`mr-2 h-5 w-5 ${warning ? "text-amber-700" : "text-[#087F72]"}`} aria-hidden="true" /> {label}</dt>
+      <dd className="mt-2 text-3xl font-extrabold text-[#041B2D]">{value}</dd>
+      <p className="mt-1 text-xs leading-5 text-slate-600">{detail}</p>
     </div>
   );
 }

@@ -20,6 +20,7 @@
     "qa:stripe-pricing": "node src/_tests_/stripePricing.assert.mjs",
     "qa:blueprints": "node src/_tests_/interactiveBlueprints.assert.mjs",
     "qa:current-regimen": "node src/_tests_/currentRegimen.assert.mjs",
+    "qa:routine": "node --experimental-strip-types src/_tests_/routine.assert.ts && node src/_tests_/routinePage.assert.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
     "qa:all": "npm run qa:env && npm run qa:build"

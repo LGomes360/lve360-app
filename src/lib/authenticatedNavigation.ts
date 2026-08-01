@@ -1,5 +1,6 @@
 export const AUTHENTICATED_NAV_ITEMS = [
   { href: "/today", label: "Today" },
+  { href: "/routine", label: "Routine" },
   { href: "/journey", label: "Journey" },
   { href: "/blueprints", label: "Blueprints" },
   { href: "/settings", label: "Settings" },

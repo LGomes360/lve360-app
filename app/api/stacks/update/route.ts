@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { requirePaidApi } from "@/lib/serverEntitlements";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -12,12 +10,25 @@ export async function POST(req: Request) {
     const entitlement = await requirePaidApi();
     if (!entitlement.ok) return entitlement.response;
 
-    const supabase = createRouteHandlerClient({ cookies });
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-
     const { id, purpose, dose, timing, active } = await req.json();
     if (!id) return NextResponse.json({ ok: false, error: "missing_id" }, { status: 400 });
+
+    const admin = getSupabaseAdmin();
+    const { data: existing, error: existingError } = await admin
+      .from("current_regimen_items")
+      .select("id,item_kind")
+      .eq("id", id)
+      .eq("user_id", entitlement.user.id)
+      .maybeSingle();
+
+    if (existingError) return NextResponse.json({ ok: false, error: existingError.message }, { status: 400 });
+    if (!existing) return NextResponse.json({ ok: false, error: "regimen_item_not_found" }, { status: 404 });
+    if (typeof dose !== "undefined" && ["medication", "hormone"].includes(existing.item_kind)) {
+      return NextResponse.json(
+        { ok: false, error: "dose_updates_unavailable_for_prescriptions_and_hormones" },
+        { status: 400 },
+      );
+    }
 
     const patch: Record<string, unknown> = Object.fromEntries(
       Object.entries({ purpose, dose, timing, active })
@@ -29,11 +40,11 @@ export async function POST(req: Request) {
     patch.instruction_source = "member_update";
     patch.updated_at = new Date().toISOString();
 
-    const { data, error } = await getSupabaseAdmin()
+    const { data, error } = await admin
       .from("current_regimen_items")
       .update(patch)
       .eq("id", id)
-      .eq("user_id", user.id)
+      .eq("user_id", entitlement.user.id)
       .select("id")
       .maybeSingle();
 

@@ -13,10 +13,12 @@ const writePrivileges = read("supabase/migrations/20260801182000_server_control_
 assert.match(writePrivileges, /revoke update[^;]*from authenticated/i, "Member regimen writes must remain server-controlled.");
 
 const combined = read("app/api/stacks/combined/route.ts");
-assert.match(combined, /getCurrentRegimen/, "Today must read the canonical current regimen.");
-assert.match(combined, /\.eq\("stack_id", latestStack\.id\)/, "Only the newest Blueprint may provide proposals.");
-assert.match(combined, /\.eq\("is_current", false\)/, "Blueprint recommendations must remain proposals until adopted.");
-assert.doesNotMatch(combined, /\.eq\("user_id", userId\)[\s\S]*\.eq\("is_current", true\)/, "Historical current flags must not drive Today.");
+assert.match(combined, /getRoutineData/, "Today must read the canonical routine data service.");
+const routineData = read("src/lib/routineData.ts");
+assert.match(routineData, /getCurrentRegimen/, "Routine data must read the canonical current regimen.");
+assert.match(routineData, /\.eq\("stack_id", latestStack\.id\)/, "Only the newest Blueprint may provide proposals.");
+assert.match(routineData, /\.eq\("is_current", false\)/, "Blueprint recommendations must remain proposals until adopted.");
+assert.doesNotMatch(routineData, /\.eq\("user_id", userId\)[\s\S]*\.eq\("is_current", true\)/, "Historical current flags must not drive Today.");
 
 const supplements = read("app/api/blueprints/[stackId]/supplements/route.ts");
 assert.match(supplements, /replaceCurrentSupplements/, "Blueprint updates must replace the current supplement regimen.");
@@ -34,8 +36,9 @@ const updateRoute = read("app/api/stacks/update/route.ts");
 assert.match(updateRoute, /getSupabaseAdmin/, "Regimen updates must use the owner-bound server route.");
 
 const today = read("src/components/dashboard/TodaysPlan.tsx");
-assert.match(today, /regimen_item_id: itemId/, "Today must save adherence against canonical regimen items.");
-assert.match(today, /fetch\("\/api\/stacks\/combined"/, "Today must reload from the canonical combined endpoint after an update.");
+assert.match(today, /fetch\("\/api\/stacks\/combined"/, "Today must load its summary from the canonical combined endpoint.");
+assert.match(today, /href="\/routine"/, "Today must hand detailed regimen work off to Routine.");
+assert.doesNotMatch(today, /\/api\/intake\/set/, "The compact Today summary must not retain inline regimen tracking controls.");
 
 const model = read("src/lib/currentRegimenModel.ts");
 assert.match(model, /purpose: item\.purpose \?\? null/, "Regimen normalization must preserve purpose.");
