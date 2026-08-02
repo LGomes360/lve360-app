@@ -30,5 +30,13 @@ assert.match(dashboard, /role="img"/, "Trend charts should expose an accessible 
 assert.match(dashboard, /<table className="sr-only">/, "Trend charts should include a screen-reader data table.");
 assert.match(dashboard, /Complete the minimum version or finish a weekly review/, "Empty wins should guide the next action.");
 assert.match(helpers, /measuredMetricsForDomain/, "Trends should be selected by the user's current domain.");
+assert.match(route, /next_experiment_id/, "Journey should load the next experiment chosen in each completed review.");
+assert.match(dashboard, /Your learning loop/, "Journey should present completed reviews as a learning loop.");
+for (const label of ["Tried", "Why it mattered", "Noticed", "Chose next"]) {
+  assert.ok(dashboard.includes(label), `Journey learning loop should show ${label}.`);
+}
+assert.match(dashboard, /Progress by life area/, "Journey should summarize activity by relevant lifestyle domain.");
+assert.match(dashboard, /Based on that review and your current Blueprint/, "Next-focus copy should use both completed reviews and current Blueprint priorities.");
+assert.match(helpers, /journeyDomainSummaries/, "Domain summaries should be derived without a universal score.");
 
 console.log("Journey v1 acceptance checks passed.");

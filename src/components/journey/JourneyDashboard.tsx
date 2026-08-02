@@ -19,6 +19,7 @@ import {
   distinctWeeks,
   domainLabel,
   hasFourWeeksOfHistory,
+  journeyDomainSummaries,
   measuredMetricsForDomain,
   type JourneyCheckIn,
   type JourneyExperiment,
@@ -93,6 +94,8 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
     ?? data.experiments.find((item) => item.identity_direction)?.identity_direction
     ?? null;
   const metrics = measuredMetricsForDomain(currentDomain);
+  const domainSummaries = journeyDomainSummaries(data.experiments, completedReviews, data.completions);
+  const latestReview = completedReviews[0] ?? null;
 
   if (!data.experiments.length) {
     return (
@@ -133,6 +136,16 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
           href="/today"
         />
       )}
+
+      <NextFocusPrompt
+        activeExperiment={activeExperiment}
+        blueprint={data.blueprint}
+        experiments={data.experiments}
+        experimentBlueprints={data.experiment_blueprints}
+        latestReview={latestReview}
+      />
+
+      <DomainProgress summaries={domainSummaries} />
 
       <section aria-labelledby="experiment-history-title" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
         <div className="flex items-start gap-3">
@@ -189,9 +202,78 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <WinsTimeline reviews={completedReviews} completionTotal={completionTotal} />
-        <ReviewHistory reviews={completedReviews} experiments={data.experiments} />
+        <LearningLoop
+          reviews={completedReviews}
+          experiments={data.experiments}
+          experimentBlueprints={data.experiment_blueprints}
+        />
       </div>
     </div>
+  );
+}
+
+function NextFocusPrompt({ activeExperiment, blueprint, experiments, experimentBlueprints, latestReview }: {
+  activeExperiment: JourneyExperiment | null;
+  blueprint: CurrentBlueprintContext | null;
+  experiments: JourneyExperiment[];
+  experimentBlueprints: Record<string, ExperimentBlueprintContext>;
+  latestReview: JourneyReview | null;
+}) {
+  const usedCurrentPriorityIds = new Set(experiments
+    .filter((experiment) => experimentBlueprints[experiment.id]?.is_current_blueprint)
+    .map((experiment) => experiment.source_action_id)
+    .filter((id): id is string => Boolean(id)));
+  const actionable = blueprint?.priorities.filter((priority) => priority.kind === "lifestyle") ?? [];
+  const suggested = actionable.find((priority) => !usedCurrentPriorityIds.has(priority.id)) ?? actionable[0] ?? null;
+
+  if (activeExperiment) {
+    const context = experimentBlueprints[activeExperiment.id] ?? null;
+    return (
+      <section aria-labelledby="next-focus-title" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Your next choice</p>
+        <h2 id="next-focus-title" className="mt-1 text-2xl font-bold text-[#041B2D]">Learn from this week before adding more.</h2>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+          {latestReview?.decision ? `Your last review: ${DECISION_LABELS[latestReview.decision].toLowerCase()}. ` : ""}
+          Complete this week, notice usefulness and difficulty, then choose whether to keep, adjust, or replace the practice.
+        </p>
+        {context?.priority_label ? <p className="mt-4 rounded-2xl bg-[#F4FAF8] p-4 text-sm text-slate-700"><strong className="text-[#041B2D]">Current Blueprint connection:</strong> {context.priority_label}</p> : null}
+      </section>
+    );
+  }
+
+  if (!blueprint || !suggested) return null;
+  return (
+    <section aria-labelledby="next-focus-title" className="rounded-3xl border border-[#BCE3DA] bg-[#F4FAF8] p-6 sm:p-8">
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">A possible next focus</p>
+      <h2 id="next-focus-title" className="mt-1 text-2xl font-bold text-[#041B2D]">Return to a current Blueprint priority.</h2>
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+        {latestReview?.decision ? `Your last review: ${DECISION_LABELS[latestReview.decision].toLowerCase()}. ` : ""}
+        Based on that review and your current Blueprint, this is one option to consider next.
+      </p>
+      <p className="mt-4 rounded-2xl bg-white p-4 font-semibold text-[#041B2D]">{suggested.label}</p>
+      <Link href={`/blueprints/${blueprint.stack_id}`} className="mt-5 inline-flex min-h-12 items-center rounded-xl bg-[#08A88A] px-5 py-3 text-sm font-bold text-white hover:bg-[#078B74]">
+        Review this priority <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+      </Link>
+    </section>
+  );
+}
+
+function DomainProgress({ summaries }: { summaries: ReturnType<typeof journeyDomainSummaries> }) {
+  return (
+    <section aria-labelledby="domain-progress-title" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Progress by life area</p>
+      <h2 id="domain-progress-title" className="mt-1 text-2xl font-bold text-[#041B2D]">Where you have been practicing</h2>
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">These are activity summaries, not grades. A quieter life area is not a failure or a recommendation.</p>
+      <ul className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {summaries.map((summary) => (
+          <li key={summary.domain} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <h3 className="font-bold text-[#041B2D]">{domainLabel(summary.domain)}</h3>
+            <p className="mt-2 text-sm text-slate-600">{summary.weeks} {summary.weeks === 1 ? "week" : "weeks"}. {summary.repetitions} practice {summary.repetitions === 1 ? "rep" : "reps"}. {summary.reviews} {summary.reviews === 1 ? "review" : "reviews"}.</p>
+            {summary.latest_decision ? <p className="mt-2 text-xs font-semibold text-[#087F72]">Latest choice: {DECISION_LABELS[summary.latest_decision]}</p> : null}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -395,14 +477,23 @@ function WinsTimeline({ reviews, completionTotal }: { reviews: JourneyReview[]; 
   );
 }
 
-function ReviewHistory({ reviews, experiments }: { reviews: JourneyReview[]; experiments: JourneyExperiment[] }) {
+function LearningLoop({ reviews, experiments, experimentBlueprints }: { reviews: JourneyReview[]; experiments: JourneyExperiment[]; experimentBlueprints: Record<string, ExperimentBlueprintContext> }) {
   return (
     <section aria-labelledby="review-history-title" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex items-center gap-2"><Compass className="h-5 w-5 text-[#087F72]" aria-hidden="true" /><h2 id="review-history-title" className="text-xl font-bold text-[#041B2D]">What you learned</h2></div>
+      <div className="flex items-center gap-2"><Compass className="h-5 w-5 text-[#087F72]" aria-hidden="true" /><h2 id="review-history-title" className="text-xl font-bold text-[#041B2D]">Your learning loop</h2></div>
       {reviews.length ? (
         <ul className="mt-5 space-y-4">{reviews.map((review) => {
           const experiment = experiments.find((item) => item.id === review.experiment_id);
-          return <li key={review.experiment_id} className="rounded-2xl bg-slate-50 p-4"><p className="font-semibold text-[#041B2D]">{experiment?.action_label || "Weekly practice"}</p><p className="mt-2 text-sm leading-6 text-slate-600">Useful {review.value_rating}/5. Difficult {review.difficulty}/5. {review.decision ? DECISION_LABELS[review.decision] : "Reviewed"}.</p></li>;
+          const nextExperiment = experiments.find((item) => item.id === review.next_experiment_id) ?? null;
+          const context = experiment ? experimentBlueprints[experiment.id] ?? null : null;
+          return <li key={review.experiment_id} className="rounded-2xl bg-slate-50 p-4">
+            <dl className="space-y-3 text-sm leading-6">
+              <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Tried</dt><dd className="font-semibold text-[#041B2D]">{experiment?.action_label || "Weekly practice"}</dd></div>
+              <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Why it mattered</dt><dd className="text-slate-600">{context?.priority_label || `${domainLabel(experiment?.identity_direction ?? null)} was your chosen focus.`}</dd></div>
+              <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Noticed</dt><dd className="text-slate-600">You reported usefulness {review.value_rating}/5 and difficulty {review.difficulty}/5 after {review.completion_count} of {review.target_count} planned reps.</dd></div>
+              <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Chose next</dt><dd className="text-slate-600">{review.decision ? DECISION_LABELS[review.decision] : "Reviewed"}{nextExperiment?.action_label ? `: ${nextExperiment.action_label}` : "."}</dd></div>
+            </dl>
+          </li>;
         })}</ul>
       ) : (
         <EmptyPanel title="Your first weekly reflection will appear here." body="At the end of the week, notice usefulness and difficulty, then decide whether to keep, shrink, swap, pause, or build on the practice." />
