@@ -36,6 +36,11 @@ import {
 } from "@/lib/supplementEligibility";
 import { blueprintInputSnapshotHash } from "@/lib/blueprintWorkspace";
 import { ensureCurrentRegimen } from "@/lib/currentRegimen";
+import {
+  BLUEPRINT_MIN_RECOMMENDATIONS,
+  BLUEPRINT_TARGET_RECOMMENDATIONS,
+  validateBlueprintRecommendationMix,
+} from "@/lib/blueprintRecommendationMix";
 
 // Curated evidence index (JSON)
 // If this path differs in your repo, update the import below.
@@ -175,7 +180,7 @@ async function callChatWithRetry(
 // ----------------------------------------------------------------------------
 const TODAY = new Date().toISOString().slice(0, 10); // e.g., 2025-11-03
 const MIN_ANALYSIS_SENTENCES = 3;
-const BLUEPRINT_MIN_ROWS = 10; // business rule: always show ≥10 rows
+const BLUEPRINT_MIN_ROWS = BLUEPRINT_MIN_RECOMMENDATIONS;
 
 const MODEL_CITE_RE = /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/?|doi\.org\/\S+)\b/;
 const CURATED_CITE_RE = /\bhttps?:\/\/(?:pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/?|pmc\.ncbi\.nlm\.nih\.gov\/articles\/\S+|doi\.org\/\S+|jamanetwork\.com\/\S+|(?:[a-z0-9-]+\.)?biomedcentral\.com\/\S+|journals\.plos\.org\/\S+|nature\.com\/\S+|sciencedirect\.com\/\S+|amjmed\.com\/\S+|koreascience\.kr\/\S+|researchmgt\.monash\.edu\/\S+)\b/i;
@@ -708,17 +713,7 @@ function validateBlueprintMix(md: string) {
     .filter((line) => /^\s*\|\s*\d+\s*\|/.test(line))
     .map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim()));
   const statuses = rows.map((cells) => cells[2]);
-  const counts = {
-    total: rows.length,
-    current: statuses.filter((status) => status === "Current - optimize").length,
-    new: statuses.filter((status) => status === "New - consider").length,
-    clinicianReview: statuses.filter((status) => status === "Clinician review").length,
-  };
-  return {
-    valid: counts.total === 10 && counts.current <= 5 && (counts.new + counts.clinicianReview) >= 4 &&
-      statuses.every((status) => ["Current - optimize", "New - consider", "Clinician review"].includes(status)),
-    counts,
-  };
+  return validateBlueprintRecommendationMix(statuses);
 }
 
 function malformedCurrentStackRows(md: string): string[] {
@@ -1486,8 +1481,8 @@ ${JSON.stringify(recommendableSupplementLedger, null, 2)}
 Output ONLY the section "## Your Blueprint Recommendations" as a Markdown table with the exact header:
 | Rank | Supplement | Status | Why it Matters |
 
-- Provide exactly **10** data rows (Rank 1..10).
-- Include at least 4 "New - consider" rows, no more than 5 "Current - optimize" rows, and no more than 1 "Clinician review" row.
+- Provide 8 to 10 justified data rows. Do not add filler simply to reach 10.
+- Include at least 3 combined "New - consider" or "Clinician review" rows and no more than 5 "Current - optimize" rows.
 - Recommend goal-aligned supplement options only. Never recommend medications, prescription drugs, or hormones.
 - Never recommend endocrine-active supplements such as DHEA or Pregnenolone by default.
 - Select from the recommendable supplement ledger. Do not simply copy the Current Stack unless a legitimate current supplement has a clear optimization reason.
@@ -1891,8 +1886,8 @@ if (!tableMd) {
 Convert the text below into a single Markdown table ONLY with header exactly:
 | Rank | Supplement | Status | Why it Matters |
 
-- Provide exactly 10 data rows (Rank 1..10).
-- Include at least 4 "New - consider" rows, no more than 5 "Current - optimize" rows, and no more than 1 "Clinician review" row.
+- Provide 8 to 10 justified data rows. Do not add filler simply to reach 10.
+- Include at least 3 combined "New - consider" or "Clinician review" rows and no more than 5 "Current - optimize" rows.
 - Short, plain-English "Why it Matters".
 - If dose/timing is relevant, write "See Dosing & Notes".
 - No other text. No code fences.
@@ -1917,7 +1912,7 @@ if (!tableMd) {
 }
 tableMd = sanitizeBlueprintTable(
   tableMd,
-  BLUEPRINT_MIN_ROWS,
+  BLUEPRINT_TARGET_RECOMMENDATIONS,
   recommendableSupplementLedger.map((item) => item.name),
   currentStackLedger,
   berberineRequiresReview
@@ -2287,7 +2282,7 @@ md = replaceOrAppendSection(md, buildPracticalFollowUpSection());
   md = forceHeadings(md);
   md = hardenBlueprintSection(
     md,
-    computeValidationTargets(mode, cap).minRows,
+    BLUEPRINT_TARGET_RECOMMENDATIONS,
     recommendableSupplementLedger.map((item) => item.name),
     currentStackLedger,
     berberineRequiresReview
