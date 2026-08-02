@@ -71,6 +71,7 @@ export default function BlueprintWorkspaceClient({
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshIssue, setRefreshIssue] = useState<string | null>(null);
   const [handoffId, setHandoffId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -145,17 +146,20 @@ export default function BlueprintWorkspaceClient({
     setRefreshing(true);
     setError(null);
     setMessage(null);
+    setRefreshIssue(null);
     try {
       const response = await fetch(`/api/blueprints/${encodeURIComponent(stack.id)}/refresh`, {
         method: "POST",
       });
       const data = await response.json().catch(() => null);
       if (!response.ok || !data?.ok || !data?.stack_id) {
-        throw new Error("We could not refresh your Blueprint. Your existing version is unchanged.");
+        throw new Error("refresh_unavailable");
       }
       window.location.assign(`/blueprints/${encodeURIComponent(data.stack_id)}?refreshed=1`);
-    } catch (refreshError) {
-      setError(refreshError instanceof Error ? refreshError.message : "We could not refresh your Blueprint.");
+    } catch {
+      setRefreshIssue(
+        "We could not create an updated version right now. Your saved changes and current Blueprint are still available. This is a service issue, so there is nothing you need to correct. Please try again in a few minutes."
+      );
       setRefreshing(false);
     }
   }
@@ -234,11 +238,10 @@ export default function BlueprintWorkspaceClient({
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
             <div className="flex-1">
               <h2 className="font-bold text-amber-950">
-                {stack.generationReason ? "Your Blueprint may be out of date" : "Refresh recommended"}
+                {refreshIssue ? "Your current Blueprint is still available" : "Your saved changes are ready for review"}
               </h2>
               <p className="mt-1 text-sm leading-6 text-amber-900">
-                Your current inputs differ from this report, or this version predates change tracking. The existing report
-                stays available until you choose to create a refreshed version.
+                {refreshIssue ?? "Your current health information differs from this dated report. Create an updated Blueprint when you are ready to review those changes and rerun the safety check."}
               </p>
               <button
                 type="button"
@@ -247,7 +250,7 @@ export default function BlueprintWorkspaceClient({
                 className="mt-4 inline-flex min-h-11 items-center rounded-xl bg-amber-800 px-5 py-3 text-sm font-bold text-white hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />}
-                {refreshing ? "Refreshing Blueprint..." : "Refresh Blueprint and safety review"}
+                {refreshing ? "Refreshing Blueprint..." : refreshIssue ? "Try Blueprint refresh again" : "Refresh Blueprint and safety review"}
               </button>
             </div>
           </div>
