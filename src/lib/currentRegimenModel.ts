@@ -2,6 +2,7 @@ import type { NormalizedCurrentStackLedgerItem } from "@/lib/normalizedCurrentSt
 import { isEndocrineActiveSupplementName } from "@/lib/supplementEligibility";
 import type { RegimenInstructionAuthority } from "@/lib/medicationRecord";
 import type { RegimenSchedule } from "@/lib/regimenSchedule";
+import { canonicalRegimenTiming } from "@/lib/regimenSchedule";
 import type { SupplementProductSource } from "@/lib/supplementProduct";
 
 export type CurrentRegimenKind = NormalizedCurrentStackLedgerItem["kind"];
@@ -67,13 +68,16 @@ export function regimenToLedger(items: CurrentRegimenItem[]): NormalizedCurrentS
       left.item_kind.localeCompare(right.item_kind) ||
       left.normalized_name.localeCompare(right.normalized_name)
     )
-    .map((item) => ({
-    name: item.name,
-    kind: item.item_kind,
-    ...(item.purpose ? { purpose: item.purpose } : {}),
-    ...(item.dose ? { dose: item.dose } : {}),
-    ...(item.timing ? { timing: item.timing } : {}),
-    source_paths: [`current_regimen_items.${item.id}`, `instruction_source.${item.instruction_source}`],
-    raw_labels: [item.instruction_source, item.instruction_authority].filter(Boolean) as string[],
-  }));
+    .map((item) => {
+      const timing = canonicalRegimenTiming(item);
+      return {
+        name: item.name,
+        kind: item.item_kind,
+        ...(item.purpose ? { purpose: item.purpose } : {}),
+        ...(item.dose ? { dose: item.dose } : {}),
+        ...(timing ? { timing } : {}),
+        source_paths: [`current_regimen_items.${item.id}`, `instruction_source.${item.instruction_source}`],
+        raw_labels: [item.instruction_source, item.instruction_authority].filter(Boolean) as string[],
+      };
+    });
 }

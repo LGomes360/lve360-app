@@ -98,11 +98,11 @@ export function getRoutineTodaySummary(items: RoutineItem[], today = new Date())
   const { current, proposals } = groupRoutineItems(items);
   const date = localDateString(today);
   return {
-    dueToday: current.reduce((total, item) => {
-      if (item.schedule) return total + regimenDoseSlots(item.schedule, date).length;
-      return total + (isRoutineItemDueToday(item, today) ? 1 : 0);
-    }, 0),
-    scheduleReview: current.filter((item) => routineScheduleLabel(item) === "Schedule not recorded").length,
+    dueToday: current.reduce(
+      (total, item) => total + (item.schedule ? regimenDoseSlots(item.schedule, date).length : 0),
+      0,
+    ),
+    scheduleReview: current.filter((item) => !item.schedule).length,
     ideasToConsider: proposals.length,
   };
 }

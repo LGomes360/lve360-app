@@ -88,6 +88,14 @@ export function regimenScheduleLabel(schedule: RegimenSchedule): string {
   return `Every ${schedule.interval_days} days from ${formatDate(schedule.anchor_date!)} at ${times}`;
 }
 
+export function canonicalRegimenTiming(item: {
+  schedule?: RegimenSchedule | null;
+  timing?: string | null;
+}): string | null {
+  if (item.schedule) return regimenScheduleLabel(item.schedule);
+  return item.timing?.trim() || null;
+}
+
 export function isRegimenScheduleDue(schedule: RegimenSchedule, date: string): boolean {
   if (!validDate(date) || schedule.cadence === "as_needed") return false;
   const day = dateDay(date);

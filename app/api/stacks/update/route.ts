@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { isMedicationInstructionAuthority, isRegimenInstructionAuthority } from "@/lib/medicationRecord";
 import { normalizeRegimenSchedule, regimenScheduleLabel } from "@/lib/regimenSchedule";
 import { normalizeHttpsUrl } from "@/lib/supplementProduct";
+import { doseIntegrityIssue } from "@/lib/doseIntegrity";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -13,13 +14,13 @@ export async function POST(req: Request) {
     const entitlement = await requirePaidApi();
     if (!entitlement.ok) return entitlement.response;
 
-    const { id, purpose, dose, timing, schedule, active, instructionAuthority, brand, reorderUrl } = await req.json();
+    const { id, purpose, dose, timing, schedule, active, instructionAuthority, brand, reorderUrl, doseConfirmed } = await req.json();
     if (!id) return NextResponse.json({ ok: false, error: "missing_id" }, { status: 400 });
 
     const admin = getSupabaseAdmin();
     const { data: existing, error: existingError } = await admin
       .from("current_regimen_items")
-      .select("id,item_kind,instruction_authority")
+      .select("id,item_kind,name,instruction_authority")
       .eq("id", id)
       .eq("user_id", entitlement.user.id)
       .maybeSingle();
@@ -51,6 +52,12 @@ export async function POST(req: Request) {
     if (typeof instructionAuthority !== "undefined"
       && !isRegimenInstructionAuthority(instructionAuthority)) {
       return NextResponse.json({ ok: false, error: "invalid_instruction_source" }, { status: 400 });
+    }
+    if (typeof dose !== "undefined") {
+      const normalizedDose = String(dose ?? "").trim() || null;
+      if (doseIntegrityIssue(existing.name, normalizedDose) && doseConfirmed !== true) {
+        return NextResponse.json({ ok: false, error: "dose_confirmation_required" }, { status: 400 });
+      }
     }
 
     const patch: Record<string, unknown> = Object.fromEntries(
