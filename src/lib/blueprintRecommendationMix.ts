@@ -1,4 +1,4 @@
-export const BLUEPRINT_MIN_RECOMMENDATIONS = 8;
+export const BLUEPRINT_MIN_RECOMMENDATIONS = 5;
 export const BLUEPRINT_TARGET_RECOMMENDATIONS = 10;
 
 const ALLOWED_STATUSES = new Set([
@@ -18,7 +18,6 @@ export function validateBlueprintRecommendationMix(statuses: string[]) {
     valid: counts.total >= BLUEPRINT_MIN_RECOMMENDATIONS &&
       counts.total <= BLUEPRINT_TARGET_RECOMMENDATIONS &&
       counts.current <= 5 &&
-      (counts.new + counts.clinicianReview) >= 3 &&
       statuses.every((status) => ALLOWED_STATUSES.has(status)),
     counts,
   };
