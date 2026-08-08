@@ -1,17 +1,27 @@
 "use client";
 
-import { Check, Clock3, History, Loader2, RotateCcw, SkipForward } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Check, Clock3, History, Loader2, Pencil, RotateCcw, SkipForward } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { AsNeededRegimenItem, RegimenDoseDay, RegimenDoseOccurrence, RegimenDoseStatus } from "@/lib/regimenDose";
+import { regimenDoseDaypart, type AsNeededRegimenItem, type RegimenDoseDay, type RegimenDoseOccurrence, type RegimenDoseStatus } from "@/lib/regimenDose";
 import { localDateString } from "@/lib/regimenSchedule";
+import type { RoutineItem } from "@/lib/routine";
 
-export default function TodayDoses({ refreshToken }: { refreshToken: number }) {
+export default function TodayDoses({
+  refreshToken,
+  scheduleReviewItems,
+  onEditSchedule,
+}: {
+  refreshToken: number;
+  scheduleReviewItems: RoutineItem[];
+  onEditSchedule: (item: RoutineItem) => void;
+}) {
   const [day, setDay] = useState<RegimenDoseDay | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const date = localDateString();
+  const dayparts = useMemo(() => groupByDaypart(day?.occurrences ?? []), [day]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,6 +86,32 @@ export default function TodayDoses({ refreshToken }: { refreshToken: number }) {
     }
   }
 
+  async function recordGroup(label: string, occurrences: RegimenDoseOccurrence[]) {
+    const remaining = occurrences.filter((occurrence) => !occurrence.status);
+    if (!remaining.length) return;
+    setBusyKey(`group:${label}`);
+    setError(null);
+    try {
+      const responses = await Promise.all(remaining.map((occurrence) => fetch("/api/routine/doses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          regimen_item_id: occurrence.regimenItemId,
+          date,
+          slot_key: occurrence.slotKey,
+          status: "taken",
+        }),
+      })));
+      if (responses.some((response) => !response.ok)) throw new Error("dose_group_record_failed");
+      await load();
+    } catch {
+      await load();
+      setError("Some items may not have been recorded. Review this section and try any remaining items again.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   async function undo(eventId: string) {
     setBusyKey(eventId);
     setError(null);
@@ -113,12 +149,30 @@ export default function TodayDoses({ refreshToken }: { refreshToken: number }) {
 
       {!loading && day ? (
         <>
-          <div className="mt-5 space-y-3">
-            {day.occurrences.map((occurrence) => {
-              const key = `${occurrence.regimenItemId}:${occurrence.slotKey}`;
-              const busy = busyKey === key || (Boolean(occurrence.eventId) && busyKey === occurrence.eventId);
+          <div className="mt-5 space-y-5">
+            {dayparts.map(({ label, occurrences }) => {
+              const remaining = occurrences.filter((occurrence) => !occurrence.status);
+              const groupBusy = busyKey === `group:${label}`;
               return (
-                <article key={key} className="rounded-2xl border border-slate-200 p-4 sm:flex sm:items-center sm:justify-between sm:gap-5">
+                <section key={label} className="overflow-hidden rounded-2xl border border-slate-200" aria-labelledby={`dose-${label.toLowerCase()}`}>
+                  <div className="flex flex-col gap-3 bg-slate-50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 id={`dose-${label.toLowerCase()}`} className="text-lg font-bold text-[#041B2D]">{label}</h3>
+                      <p className="mt-1 text-xs text-slate-600">{occurrences.length} scheduled item{occurrences.length === 1 ? "" : "s"}</p>
+                    </div>
+                    {remaining.length ? (
+                      <button type="button" disabled={busyKey !== null} onClick={() => void recordGroup(label, occurrences)} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#087F72] bg-white px-4 py-2 text-sm font-bold text-[#06695F] hover:bg-[#EAFBF8] disabled:opacity-60">
+                        {groupBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />}
+                        Mark {remaining.length === occurrences.length ? "all" : `${remaining.length} remaining`} taken
+                      </button>
+                    ) : <span className="inline-flex min-h-11 items-center text-sm font-bold text-emerald-800"><Check className="mr-2 h-4 w-4" aria-hidden="true" /> All recorded</span>}
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {occurrences.map((occurrence) => {
+                      const key = `${occurrence.regimenItemId}:${occurrence.slotKey}`;
+                      const busy = busyKey === key || (Boolean(occurrence.eventId) && busyKey === occurrence.eventId);
+                      return (
+                        <article key={key} className="p-4 sm:flex sm:items-center sm:justify-between sm:gap-5">
                   <div>
                     <p className="flex items-center text-sm font-bold text-[#087F72]"><Clock3 className="mr-2 h-4 w-4" aria-hidden="true" /> {occurrence.timeLabel}</p>
                     <h3 className="mt-1 text-lg font-bold text-[#041B2D]">{occurrence.itemName}</h3>
@@ -144,7 +198,11 @@ export default function TodayDoses({ refreshToken }: { refreshToken: number }) {
                       </button>
                     </div>
                   )}
-                </article>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
               );
             })}
             {!day.occurrences.length ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">No scheduled doses are due today.</p> : null}
@@ -163,7 +221,19 @@ export default function TodayDoses({ refreshToken }: { refreshToken: number }) {
             </div>
           ) : null}
 
-          {day.scheduleReview ? <p className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-950">{day.scheduleReview} current item{day.scheduleReview === 1 ? " needs" : "s need"} a structured schedule before it can appear in this checklist. Use Edit schedule below.</p> : null}
+          {scheduleReviewItems.length ? (
+            <section id="schedule-review" className="mt-5 scroll-mt-24 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950" aria-labelledby="schedule-review-heading">
+              <h3 id="schedule-review-heading" className="font-bold">Complete {scheduleReviewItems.length} schedule{scheduleReviewItems.length === 1 ? "" : "s"}</h3>
+              <p className="mt-1 text-sm leading-6">These items need a structured time or cadence before they can appear in the checklist.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {scheduleReviewItems.map((item) => (
+                  <button key={item.id} type="button" onClick={() => onEditSchedule(item)} className="inline-flex min-h-11 items-center rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-bold text-amber-950 hover:bg-amber-100">
+                    <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> Edit {item.name}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <details className="mt-6 border-t border-slate-200 pt-5">
             <summary className="flex min-h-12 cursor-pointer items-center font-bold text-[#041B2D]"><History className="mr-2 h-5 w-5" aria-hidden="true" /> Recent dose history</summary>
@@ -176,6 +246,21 @@ export default function TodayDoses({ refreshToken }: { refreshToken: number }) {
       ) : null}
     </section>
   );
+}
+
+function groupByDaypart(occurrences: RegimenDoseOccurrence[]): Array<{ label: "Morning" | "Afternoon" | "Evening"; occurrences: RegimenDoseOccurrence[] }> {
+  const groups = {
+    Morning: [] as RegimenDoseOccurrence[],
+    Afternoon: [] as RegimenDoseOccurrence[],
+    Evening: [] as RegimenDoseOccurrence[],
+  };
+  for (const occurrence of occurrences) {
+    const label = regimenDoseDaypart(occurrence.time);
+    groups[label].push(occurrence);
+  }
+  return (["Morning", "Afternoon", "Evening"] as const)
+    .map((label) => ({ label, occurrences: groups[label] }))
+    .filter((group) => group.occurrences.length > 0);
 }
 
 function formatDay(value: string): string {

@@ -166,8 +166,8 @@ export default function TodayExperience({
         </div>
       </div>
 
-      {blueprint && (blueprint.needs_refresh || blueprint.safety_status !== "safe") ? (
-        <a href={`/blueprints/${blueprint.stack_id}`} className="flex items-start gap-3 border-b border-amber-200 bg-amber-50 px-6 py-4 text-amber-950 hover:bg-amber-100 sm:px-8">
+      {blueprint && (blueprint.needs_refresh || (blueprint.safety_status !== "safe" && !blueprint.safety_acknowledged)) ? (
+        <a href={`/blueprints/${blueprint.stack_id}#safety-notes`} className="flex items-start gap-3 border-b border-amber-200 bg-amber-50 px-6 py-4 text-amber-950 hover:bg-amber-100 sm:px-8">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
           <span className="text-sm leading-6">
             <strong>{blueprintSafetyLabel(blueprint)}.</strong>{" "}
@@ -306,7 +306,7 @@ function CurrentBlueprintPanel({
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">Current Blueprint</p>
           <p className="mt-1 text-sm font-semibold text-[#041B2D]">Refreshed {formatBlueprintDate(blueprint.created_at)}</p>
-          <p className={`mt-1 text-sm ${blueprint.needs_refresh || blueprint.safety_status !== "safe" ? "font-semibold text-amber-800" : "text-slate-600"}`}>
+          <p className={`mt-1 text-sm ${blueprint.needs_refresh || (blueprint.safety_status !== "safe" && !blueprint.safety_acknowledged) ? "font-semibold text-amber-800" : "text-slate-600"}`}>
             {blueprintSafetyLabel(blueprint)}
           </p>
         </div>

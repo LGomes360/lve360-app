@@ -23,6 +23,7 @@ type StackSource = {
   summary: string | null;
   created_at: string;
   input_snapshot_hash: string | null;
+  safety_acknowledged_at: string | null;
 };
 
 function stackActions(stack: Pick<StackSource, "sections" | "summary">) {
@@ -34,7 +35,7 @@ export async function getCurrentBlueprintContext(userId: string): Promise<Curren
   const admin = getSupabaseAdmin();
   const { data: latest, error } = await admin
     .from("stacks")
-    .select("id,submission_id,sections,summary,created_at,input_snapshot_hash")
+    .select("id,submission_id,sections,summary,created_at,input_snapshot_hash,safety_acknowledged_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -64,6 +65,7 @@ export async function getCurrentBlueprintContext(userId: string): Promise<Curren
     stack_id: stack.id,
     created_at: stack.created_at,
     safety_status: deriveBlueprintSafetyStatus(blueprintMarkdownFromStack(stack)),
+    safety_acknowledged: Boolean(stack.safety_acknowledged_at),
     needs_refresh: needsRefresh,
     priorities: stackActions(stack).map(({ id, label, category, kind }) => ({ id, label, category, kind })),
   };
@@ -79,7 +81,7 @@ export async function getExperimentBlueprintContexts(
   if (sourceIds.length) {
     const { data, error } = await getSupabaseAdmin()
       .from("stacks")
-      .select("id,submission_id,sections,summary,created_at,input_snapshot_hash")
+      .select("id,submission_id,sections,summary,created_at,input_snapshot_hash,safety_acknowledged_at")
       .eq("user_id", userId)
       .in("id", sourceIds);
     if (error) throw error;

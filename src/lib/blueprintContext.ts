@@ -12,6 +12,7 @@ export type CurrentBlueprintContext = {
   stack_id: string;
   created_at: string;
   safety_status: BlueprintSafetyStatus;
+  safety_acknowledged: boolean;
   needs_refresh: boolean;
   priorities: BlueprintPriorityContext[];
 };
@@ -30,6 +31,7 @@ export type ExperimentBlueprintContext = {
 export function blueprintSafetyLabel(context: CurrentBlueprintContext): string {
   if (context.needs_refresh) return "Review after your recent changes";
   if (context.safety_status === "safe") return "No material safety flags identified";
+  if (context.safety_acknowledged) return "Safety notes reviewed";
   if (context.safety_status === "warning") return "Safety notes need your attention";
   return "Safety section needs review";
 }

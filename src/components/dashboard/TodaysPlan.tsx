@@ -50,11 +50,11 @@ export default function TodaysPlan() {
           <AlertTriangle className="mr-2 mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" /> Routine details are temporarily unavailable. Open Routine to try again.
         </div>
       ) : (
-        <dl className="mt-5 grid gap-3 sm:grid-cols-3">
-          <SummaryStat icon={CalendarCheck2} value={summary.dueToday} label="Due today" detail="Based on your recorded schedule" />
-          <SummaryStat icon={ClipboardList} value={summary.scheduleReview} label="Need a schedule" detail="Schedule not recorded" warning={summary.scheduleReview > 0} />
-          <SummaryStat icon={AlertTriangle} value={summary.ideasToConsider} label="Ideas to consider" detail="Not in your current routine" warning={summary.ideasToConsider > 0} />
-        </dl>
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <SummaryStat icon={CalendarCheck2} value={summary.dueToday} label="Due today" detail="Based on your recorded schedule" href="/routine" />
+          <SummaryStat icon={ClipboardList} value={summary.scheduleReview} label="Need a schedule" detail="Open the item that needs attention" warning={summary.scheduleReview > 0} href="/routine#schedule-review" />
+          <SummaryStat icon={AlertTriangle} value={summary.ideasToConsider} label="Ideas to consider" detail="Review before adding anything" warning={summary.ideasToConsider > 0} href="/routine#routine-ideas" />
+        </div>
       )}
     </section>
   );
@@ -66,18 +66,20 @@ function SummaryStat({
   label,
   detail,
   warning = false,
+  href,
 }: {
   icon: typeof CalendarCheck2;
   value: number;
   label: string;
   detail: string;
   warning?: boolean;
+  href: string;
 }) {
   return (
-    <div className={`rounded-xl border p-4 ${warning ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-slate-50"}`}>
-      <dt className="flex items-center text-sm font-bold text-[#041B2D]"><Icon className={`mr-2 h-5 w-5 ${warning ? "text-amber-700" : "text-[#087F72]"}`} aria-hidden="true" /> {label}</dt>
-      <dd className="mt-2 text-3xl font-extrabold text-[#041B2D]">{value}</dd>
-      <p className="mt-1 text-xs leading-5 text-slate-600">{detail}</p>
-    </div>
+    <Link href={href} className={`group rounded-xl border p-4 transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] ${warning ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-slate-50"}`}>
+      <p className="flex items-center text-sm font-bold text-[#041B2D]"><Icon className={`mr-2 h-5 w-5 ${warning ? "text-amber-700" : "text-[#087F72]"}`} aria-hidden="true" /> {label}</p>
+      <p className="mt-2 text-3xl font-extrabold text-[#041B2D]">{value}</p>
+      <p className="mt-1 flex items-center text-xs leading-5 text-slate-600">{detail}<ArrowRight className="ml-1 h-3.5 w-3.5 transition group-hover:translate-x-0.5" aria-hidden="true" /></p>
+    </Link>
   );
 }

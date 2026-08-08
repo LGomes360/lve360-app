@@ -86,6 +86,7 @@ export default async function BlueprintPage({ params }: PageProps) {
         createdAt: stack.created_at,
         safetyStatus: deriveBlueprintSafetyStatus(markdown),
         generationReason: stack.generation_reason,
+        safetyAcknowledgedAt: stack.safety_acknowledged_at ?? null,
       }}
       sections={Object.entries(report.sections)
         .filter(([, body]) => Boolean(body.trim()))
