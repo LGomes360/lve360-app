@@ -11,8 +11,10 @@ assert.match(page, /requireTier\(\["premium", "trial"\]/, "Routine must require 
 assert.match(page, /getRoutineData\(user\.id\)/, "Routine must render the canonical regimen on the server.");
 
 const data = read("src/lib/routineData.ts");
+const recommendationData = read("src/lib/recommendationDecisionData.ts");
 assert.match(data, /item_kind: item\.item_kind/, "Current items must use their persisted type.");
-assert.match(data, /\.eq\("is_current", false\)/, "Only unadopted Blueprint rows may appear as proposals.");
+assert.match(recommendationData, /\.eq\("is_current", false\)/, "Only unadopted Blueprint rows may appear as proposals.");
+assert.match(data, /isActionableRecommendationStatus/, "Routine must honor a member's persisted recommendation decision.");
 assert.match(data, /source_type: "blueprint_proposal"/, "Proposals need an explicit non-current source type.");
 
 const client = read("app/(app)/routine/RoutineClient.tsx");

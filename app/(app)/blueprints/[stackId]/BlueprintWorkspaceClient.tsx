@@ -8,13 +8,16 @@ import {
   ArrowLeft,
   CheckCircle2,
   ChevronDown,
+  Clock3,
   FileDown,
+  HeartPulse,
   History,
   Loader2,
   Pencil,
   Plus,
   RefreshCw,
   RotateCcw,
+  X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -24,6 +27,10 @@ import type { MemberSupplement } from "@/lib/blueprintWorkspace";
 import { doseIntegrityIssue } from "@/lib/doseIntegrity";
 import { trackProductEvent } from "@/lib/productAnalyticsClient";
 import { reportSectionTitle } from "@/lib/reportPresentation";
+import type {
+  MemberRecommendationDecision,
+  RecommendationDecisionRecord,
+} from "@/lib/recommendationDecision";
 
 type StackSummary = {
   id: string;
@@ -41,10 +48,24 @@ type VersionSummary = {
   generationReason: string | null;
 };
 
+type RecommendationSummary = {
+  proposal: {
+    id: string;
+    name: string;
+    dose: string | null;
+    timing: string | null;
+    timing_text: string | null;
+    link_amazon: string | null;
+    link_fullscript: string | null;
+  };
+  decision: RecommendationDecisionRecord;
+};
+
 type Props = {
   stack: StackSummary;
   sections: Array<{ name: string; body: string }>;
   actions: BlueprintActionCandidate[];
+  recommendations: RecommendationSummary[];
   initialSupplements: MemberSupplement[];
   hasMemberOverride: boolean;
   initialStale: boolean;
@@ -57,6 +78,7 @@ export default function BlueprintWorkspaceClient({
   stack,
   sections,
   actions,
+  recommendations,
   initialSupplements,
   hasMemberOverride,
   initialStale,
@@ -77,10 +99,16 @@ export default function BlueprintWorkspaceClient({
   const [handoffId, setHandoffId] = useState<string | null>(null);
   const [safetyAcknowledged, setSafetyAcknowledged] = useState(Boolean(stack.safetyAcknowledgedAt));
   const [acknowledgingSafety, setAcknowledgingSafety] = useState(false);
+  const [recommendationItems, setRecommendationItems] = useState(recommendations);
+  const [recommendationBusyId, setRecommendationBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     trackProductEvent({ event_name: "blueprint_viewed", source: "blueprints" });
   }, []);
+
+  useEffect(() => {
+    setRecommendationItems(recommendations);
+  }, [recommendations]);
 
   function beginEditing() {
     if (!versioningReady) {
@@ -205,6 +233,67 @@ export default function BlueprintWorkspaceClient({
       setError("We could not save that acknowledgement. Please try again.");
     } finally {
       setAcknowledgingSafety(false);
+    }
+  }
+
+  async function updateRecommendationStatus(itemId: string, decision: MemberRecommendationDecision) {
+    setRecommendationBusyId(itemId);
+    setError(null);
+    try {
+      const response = await fetch("/api/recommendations/decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: itemId, decision }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok || !data?.decision) throw new Error(data?.error ?? "recommendation_decision_failed");
+      setRecommendationItems((current) => current.map((item) =>
+        item.proposal.id === itemId ? { ...item, decision: data.decision } : item
+      ));
+      const statusMessage = decision === "clinician_review"
+        ? "Marked for a clinician or pharmacist conversation."
+        : decision === "deferred"
+          ? "Moved out of your active ideas for now."
+          : decision === "dismissed"
+            ? "Dismissed for this health context."
+            : "Returned to active review.";
+      setMessage(statusMessage);
+      router.refresh();
+    } catch {
+      setError("We could not save that recommendation decision. Nothing changed.");
+    } finally {
+      setRecommendationBusyId(null);
+    }
+  }
+
+  async function adoptRecommendation(item: RecommendationSummary) {
+    if (item.decision.overlap_snapshot.length || item.decision.status === "clinician_review") {
+      const confirmed = window.confirm(
+        "This recommendation has an overlap or clinician-review note. Only add it after you have checked that it belongs in your routine."
+      );
+      if (!confirmed) return;
+    }
+    setRecommendationBusyId(item.proposal.id);
+    setError(null);
+    try {
+      const response = await fetch("/api/stack-items/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: item.proposal.id }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok) throw new Error("recommendation_adoption_failed");
+      setRecommendationItems((current) => current.map((candidate) =>
+        candidate.proposal.id === item.proposal.id
+          ? { ...candidate, decision: { ...candidate.decision, status: "adopted" } }
+          : candidate
+      ));
+      setMessage(`${item.proposal.name} was added to your current routine. Record its schedule in Routine.`);
+      router.refresh();
+    } catch {
+      setError("We could not add that recommendation. Your routine is unchanged.");
+    } finally {
+      setRecommendationBusyId(null);
     }
   }
 
@@ -353,15 +442,22 @@ export default function BlueprintWorkspaceClient({
                         {handoffId === action.id ? "Saving..." : "Start this weekly practice"}
                       </button>
                     ) : (
-                      <p className="mt-auto pt-4 text-xs font-bold uppercase tracking-wide text-amber-700">
-                        Keep for clinician review
-                      </p>
+                      <a href="#recommendation-decisions" className="mt-auto pt-4 text-sm font-bold text-amber-800 underline decoration-amber-300 underline-offset-2 hover:decoration-amber-700">
+                        Review why this appeared
+                      </a>
                     )}
                   </li>
                 ))}
               </ol>
             </section>
           ) : null}
+
+          <RecommendationDecisionPanel
+            items={recommendationItems}
+            busyId={recommendationBusyId}
+            onDecision={updateRecommendationStatus}
+            onAdopt={adoptRecommendation}
+          />
 
           {sections.map((section, index) => (
             <ReportSection
@@ -426,6 +522,104 @@ export default function BlueprintWorkspaceClient({
       </div>
     </div>
   );
+}
+
+function RecommendationDecisionPanel({
+  items,
+  busyId,
+  onDecision,
+  onAdopt,
+}: {
+  items: RecommendationSummary[];
+  busyId: string | null;
+  onDecision: (itemId: string, decision: MemberRecommendationDecision) => void;
+  onAdopt: (item: RecommendationSummary) => void;
+}) {
+  if (!items.length) return null;
+  const ordered = [...items].sort((left, right) => {
+    const statusOrder: Record<RecommendationDecisionRecord["status"], number> = {
+      review: 0,
+      clinician_review: 1,
+      deferred: 2,
+      dismissed: 3,
+      adopted: 4,
+    };
+    return statusOrder[left.decision.status] - statusOrder[right.decision.status]
+      || left.proposal.name.localeCompare(right.proposal.name);
+  });
+  const activeCount = ordered.filter((item) => item.decision.status === "review" || item.decision.status === "clinician_review").length;
+
+  return (
+    <section id="recommendation-decisions" className="scroll-mt-24 rounded-2xl border border-[#9DCFC3] bg-[#F4FAF8] p-5 shadow-sm sm:p-6" aria-labelledby="recommendation-decisions-title">
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Live decision layer</p>
+      <h2 id="recommendation-decisions-title" className="mt-1 text-2xl font-bold text-[#041B2D]">Understand each idea before you act</h2>
+      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-700">
+        This dated Blueprint stays unchanged. Your decisions below remain live across Blueprint, Today, and Routine. {activeCount} {activeCount === 1 ? "idea needs" : "ideas need"} a decision.
+      </p>
+      <ul className="mt-5 space-y-4">
+        {ordered.map((item) => {
+          const busy = busyId === item.proposal.id;
+          const active = item.decision.status === "review" || item.decision.status === "clinician_review";
+          const link = item.proposal.link_fullscript || item.proposal.link_amazon;
+          return (
+            <li key={item.proposal.id} className={`rounded-2xl border p-4 sm:p-5 ${active ? "border-[#BCE3DA] bg-white" : "border-slate-200 bg-slate-50"}`}>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-[#041B2D]">{item.proposal.name}</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-700">{item.decision.reason_snapshot}</p>
+                </div>
+                <span className={`w-fit shrink-0 rounded-full px-3 py-1 text-xs font-bold ${active ? "bg-amber-100 text-amber-900" : item.decision.status === "adopted" ? "bg-emerald-100 text-emerald-900" : "bg-slate-200 text-slate-700"}`}>
+                  {recommendationStatusLabel(item.decision.status)}
+                </span>
+              </div>
+              {item.decision.overlap_snapshot.length ? (
+                <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
+                  <strong>Possible overlap:</strong> Your current routine includes {item.decision.overlap_snapshot.join(", ")}. Check the ingredient labels before adding another source.
+                </p>
+              ) : null}
+              {[item.proposal.dose, item.proposal.timing_text || item.proposal.timing].some(Boolean) ? (
+                <p className="mt-3 text-sm text-slate-600">
+                  <strong>Report starting guidance:</strong> {[item.proposal.dose, item.proposal.timing_text || item.proposal.timing].filter(Boolean).join(" · ")}
+                </p>
+              ) : null}
+              {active ? (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <button type="button" disabled={busy} onClick={() => void onAdopt(item)} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 text-sm font-bold text-white hover:bg-[#06695F] disabled:opacity-60">
+                    {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" />}
+                    {item.decision.status === "clinician_review" ? "Add after review" : "Add to Routine"}
+                  </button>
+                  <button type="button" disabled={busy} onClick={() => onDecision(item.proposal.id, "clinician_review")} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-bold text-amber-900 hover:bg-amber-50 disabled:opacity-60">
+                    <HeartPulse className="mr-2 h-4 w-4" aria-hidden="true" /> Ask my clinician
+                  </button>
+                  <button type="button" disabled={busy} onClick={() => onDecision(item.proposal.id, "deferred")} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+                    <Clock3 className="mr-2 h-4 w-4" aria-hidden="true" /> Not now
+                  </button>
+                  <button type="button" disabled={busy} onClick={() => onDecision(item.proposal.id, "dismissed")} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+                    <X className="mr-2 h-4 w-4" aria-hidden="true" /> Dismiss
+                  </button>
+                </div>
+              ) : item.decision.status !== "adopted" ? (
+                <button type="button" disabled={busy} onClick={() => onDecision(item.proposal.id, "review")} className="mt-4 inline-flex min-h-11 items-center rounded-xl border border-[#9DCFC3] bg-white px-4 py-2 text-sm font-bold text-[#06695F] hover:bg-[#EAFBF8] disabled:opacity-60">
+                  Return to active review
+                </button>
+              ) : (
+                <Link href="/routine" className="mt-4 inline-flex min-h-11 items-center text-sm font-bold text-[#087F72] hover:underline">Open in Routine</Link>
+              )}
+              {link ? <a href={link} target="_blank" rel="noopener noreferrer nofollow sponsored" className="mt-3 inline-flex text-sm font-bold text-[#087F72] hover:underline">Product information</a> : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+function recommendationStatusLabel(status: RecommendationDecisionRecord["status"]): string {
+  if (status === "clinician_review") return "Discuss with clinician";
+  if (status === "deferred") return "Not now";
+  if (status === "dismissed") return "Dismissed";
+  if (status === "adopted") return "Added to Routine";
+  return "Needs review";
 }
 
 function SupplementEditor({
@@ -585,7 +779,7 @@ function ReportSection({
   const isCurrent = name === "Current Stack" || name === "Dosing & Notes";
   const isRecommendations = name === "Your Blueprint Recommendations";
   return (
-    <details id={isSafety ? "safety-notes" : undefined} open={defaultOpen} className="group scroll-mt-24 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <details id={isSafety ? "safety-notes" : isRecommendations ? "recommendation-report" : undefined} open={defaultOpen} className="group scroll-mt-24 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <summary className={`flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 font-bold marker:hidden ${isSafety ? "bg-amber-50 text-amber-950" : "bg-white text-[#041B2D]"}`}>
         {reportSectionTitle(name)}
         <ChevronDown className="h-5 w-5 shrink-0 transition group-open:rotate-180" aria-hidden="true" />
