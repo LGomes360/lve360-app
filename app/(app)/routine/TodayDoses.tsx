@@ -1,11 +1,12 @@
 "use client";
 
-import { Check, Clock3, History, Loader2, Pencil, RotateCcw, SkipForward } from "lucide-react";
+import { AlertTriangle, Check, Clock3, History, Loader2, Pencil, RotateCcw, SkipForward } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { regimenDoseDaypart, type AsNeededRegimenItem, type RegimenDoseDay, type RegimenDoseOccurrence, type RegimenDoseStatus } from "@/lib/regimenDose";
 import { localDateString } from "@/lib/regimenSchedule";
 import type { RoutineItem } from "@/lib/routine";
+import { doseIntegrityIssue } from "@/lib/doseIntegrity";
 
 export default function TodayDoses({
   refreshToken,
@@ -171,12 +172,14 @@ export default function TodayDoses({
                     {occurrences.map((occurrence) => {
                       const key = `${occurrence.regimenItemId}:${occurrence.slotKey}`;
                       const busy = busyKey === key || (Boolean(occurrence.eventId) && busyKey === occurrence.eventId);
+                      const doseIssue = doseIntegrityIssue(occurrence.itemName, occurrence.dose);
                       return (
                         <article key={key} className="p-4 sm:flex sm:items-center sm:justify-between sm:gap-5">
                   <div>
                     <p className="flex items-center text-sm font-bold text-[#087F72]"><Clock3 className="mr-2 h-4 w-4" aria-hidden="true" /> {occurrence.timeLabel}</p>
                     <h3 className="mt-1 text-lg font-bold text-[#041B2D]">{occurrence.itemName}</h3>
                     <p className="mt-1 text-sm text-slate-600">{occurrence.dose || "Dose not recorded"}</p>
+                    {doseIssue ? <p className="mt-1 flex items-start text-xs font-semibold text-amber-800"><AlertTriangle className="mr-1.5 mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />Confirm amount and unit in Routine.</p> : null}
                   </div>
                   {occurrence.status ? (
                     <div className="mt-3 flex flex-col gap-2 sm:mt-0 sm:items-end">
@@ -215,7 +218,8 @@ export default function TodayDoses({
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {day.asNeeded.map((item) => {
                   const busy = busyKey === `as-needed:${item.regimenItemId}`;
-                  return <div key={item.regimenItemId} className="rounded-xl border border-slate-200 p-4"><h4 className="font-bold text-[#041B2D]">{item.itemName}</h4><p className="mt-1 text-sm text-slate-600">{item.dose || "Dose not recorded"}</p><button type="button" disabled={busy} onClick={() => void recordAsNeeded(item)} className="mt-3 inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-[#087F72] px-4 py-3 font-bold text-[#06695F] hover:bg-[#EAFBF8] disabled:opacity-60">{busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />} Record taken</button></div>;
+                  const doseIssue = doseIntegrityIssue(item.itemName, item.dose);
+                  return <div key={item.regimenItemId} className="rounded-xl border border-slate-200 p-4"><h4 className="font-bold text-[#041B2D]">{item.itemName}</h4><p className="mt-1 text-sm text-slate-600">{item.dose || "Dose not recorded"}</p>{doseIssue ? <p className="mt-1 text-xs font-semibold text-amber-800">Confirm amount and unit in Routine.</p> : null}<button type="button" disabled={busy} onClick={() => void recordAsNeeded(item)} className="mt-3 inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-[#087F72] px-4 py-3 font-bold text-[#06695F] hover:bg-[#EAFBF8] disabled:opacity-60">{busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />} Record taken</button></div>;
                 })}
               </div>
             </div>

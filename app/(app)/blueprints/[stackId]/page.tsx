@@ -12,6 +12,7 @@ import {
 } from "@/lib/blueprintWorkspace";
 import { ensureCurrentRegimen, getCurrentRegimen } from "@/lib/currentRegimen";
 import { regimenToLedger } from "@/lib/currentRegimenModel";
+import { canonicalRegimenTiming } from "@/lib/regimenSchedule";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 import BlueprintWorkspaceClient from "./BlueprintWorkspaceClient";
@@ -65,9 +66,9 @@ export default async function BlueprintPage({ params }: PageProps) {
   const supplements = supplementRegimen.map((item) => ({
     id: item.id,
     name: item.name,
-    brand: null,
+    brand: item.brand,
     dose: item.dose,
-    timing: item.timing,
+    timing: canonicalRegimenTiming(item),
     active: item.active,
   }));
   const hasOverride = supplementRegimen.some((item) => item.instruction_source !== "intake");

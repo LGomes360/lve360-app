@@ -42,6 +42,7 @@ import {
   type MedicationInstructionAuthority,
   type RegimenInstructionAuthority,
 } from "@/lib/medicationRecord";
+import { doseIntegrityIssue } from "@/lib/doseIntegrity";
 import ScheduleEditor, {
   scheduleDraft,
   scheduleDraftIsReady,
@@ -55,6 +56,7 @@ type ToastState = { message: string; undo?: () => Promise<void> } | null;
 type RoutineView = "today" | "medications" | "hormones" | "supplements";
 type RoutineEditPatch = {
   dose?: string | null;
+  doseConfirmed?: boolean;
   schedule?: RoutineItem["schedule"];
   instructionAuthority?: RegimenInstructionAuthority;
   brand?: string | null;
@@ -134,6 +136,7 @@ export default function RoutineClient({
     setBusyId(item.id);
     const previous = {
       dose: item.dose,
+      doseConfirmed: Boolean(doseIntegrityIssue(item.name, item.dose)),
       schedule: item.schedule ?? null,
       instructionAuthority: item.instruction_authority ?? undefined,
       brand: item.brand,
@@ -468,6 +471,7 @@ function RoutineCard({
   const supplementItem = !prescribedItem;
   const hormoneActive = item.item_kind === "endocrine_active_supplement";
   const authorityLabel = routineInstructionAuthorityLabel(item.instruction_authority);
+  const doseIssue = doseIntegrityIssue(item.name, item.dose);
   return (
     <li className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex items-start gap-4">
@@ -498,7 +502,7 @@ function RoutineCard({
       </div>
       <dl className="mt-4 space-y-3 text-sm">
         <div>
-          <dt className="font-bold text-[#041B2D]">{prescribedItem ? "Reported dose" : "Recorded amount"}</dt>
+          <dt className="font-bold text-[#041B2D]">{prescribedItem ? "Reported dose at each scheduled time" : "Recorded amount at each scheduled time"}</dt>
           <dd className="mt-0.5 text-slate-700">{item.dose?.trim() || "Dose not recorded"}</dd>
         </div>
         <div>
@@ -510,6 +514,12 @@ function RoutineCard({
         {item.purpose ? <div><dt className="font-bold text-[#041B2D]">Purpose you reported</dt><dd className="mt-0.5 text-slate-700">{item.purpose}</dd></div> : null}
         {authorityLabel ? <div><dt className="font-bold text-[#041B2D]">Instruction source</dt><dd className="mt-0.5 text-slate-700">{authorityLabel}</dd></div> : null}
       </dl>
+      {doseIssue ? (
+        <p className="mt-4 flex items-start rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-950">
+          <AlertTriangle className="mr-2 mt-1 h-4 w-4 shrink-0" aria-hidden="true" />
+          {doseIssue.message}
+        </p>
+      ) : null}
       {prescribedItem ? (
         <p className="mt-4 rounded-xl bg-white p-3 text-xs leading-5 text-slate-600">
           LVE360 records what you report. It does not select or recommend prescription doses. Follow your prescription label and clinician instructions.
@@ -595,6 +605,7 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
   const [instructionAuthority, setInstructionAuthority] = useState<RegimenInstructionAuthority | "">(
     item.instruction_authority ?? ""
   );
+  const [doseConfirmed, setDoseConfirmed] = useState(false);
   const authorities = prescribedItem
     ? MEDICATION_INSTRUCTION_AUTHORITIES
     : REGIMEN_INSTRUCTION_AUTHORITIES.filter((authority) => authority !== "medication_label");
@@ -602,6 +613,7 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
   const scheduleReady = !hasStructuredSchedule || scheduleDraftIsReady(schedule);
   const sourceRequired = prescribedItem || hasStructuredSchedule;
   const reorderUrlReady = !reorderUrl.trim() || isValidHttpsUrl(reorderUrl);
+  const doseIssue = doseIntegrityIssue(item.name, dose);
   return (
     <DialogShell title={prescribedItem ? `Record a prescribed change for ${item.name}` : `Update ${item.name}`} onClose={onClose}>
       <p className="text-sm leading-6 text-slate-600">
@@ -609,7 +621,17 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
           ? "Use this only to record a change you received from your clinician, pharmacist, or current prescription label. LVE360 is not changing or recommending your prescription."
           : "Record what you currently do. This does not create a medical instruction or replace a product label."}
       </p>
-      <label className="mt-5 block text-sm font-bold text-[#041B2D]">{prescribedItem ? "Prescribed dose" : "Amount you take"}<input autoFocus value={dose} onChange={(event) => setDose(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={item.item_kind === "hormone" ? "For example, 80 mg" : "For example, 2 capsules"} /></label>
+      <label className="mt-5 block text-sm font-bold text-[#041B2D]">{prescribedItem ? "Prescribed dose at each scheduled time" : "Amount at each scheduled time"}<input autoFocus value={dose} onChange={(event) => { setDose(event.target.value); setDoseConfirmed(false); }} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={item.item_kind === "hormone" ? "For example, 80 mg" : "For example, 2 capsules"} /></label>
+      {item.schedule && item.schedule.times.length > 1 ? <p className="mt-2 text-sm leading-6 text-slate-600">This amount is shown for every scheduled time. If the amount is a full-day total, enter the amount you take at one scheduled time instead.</p> : null}
+      {doseIssue ? (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+          <p className="font-semibold">{doseIssue.message}</p>
+          <label className="mt-3 flex min-h-11 cursor-pointer items-start gap-3 font-semibold">
+            <input type="checkbox" checked={doseConfirmed} onChange={(event) => setDoseConfirmed(event.target.checked)} className="mt-1 h-4 w-4 rounded border-amber-400 text-[#087F72] focus:ring-[#087F72]" />
+            I checked the amount and unit against the current label or instruction.
+          </label>
+        </div>
+      ) : null}
       {!prescribedItem ? (
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <label className="block text-sm font-bold text-[#041B2D]">Brand <span className="font-normal text-slate-500">(optional)</span><input value={brand} onChange={(event) => setBrand(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder="For example, Thorne" /></label>
@@ -630,8 +652,9 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
       ) : null}
       <div className="mt-6 grid gap-2 sm:grid-cols-2">
         <button type="button" onClick={onClose} disabled={saving} className="min-h-12 rounded-xl border border-slate-300 px-4 py-3 font-bold text-slate-700">Cancel</button>
-        <button type="button" disabled={saving || !scheduleReady || !reorderUrlReady || (sourceRequired && !instructionAuthority)} onClick={() => onSave(item, {
+        <button type="button" disabled={saving || !scheduleReady || !reorderUrlReady || Boolean(doseIssue && !doseConfirmed) || (sourceRequired && !instructionAuthority)} onClick={() => onSave(item, {
           dose: dose.trim() || null,
+          ...(doseIssue ? { doseConfirmed } : {}),
           ...(!prescribedItem ? { brand: brand.trim() || null, reorderUrl: reorderUrl.trim() || null } : {}),
           ...(hasStructuredSchedule ? { schedule: scheduleDraftPayload(schedule) } : {}),
           ...(instructionAuthority ? { instructionAuthority } : {}),

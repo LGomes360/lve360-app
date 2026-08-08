@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireTier } from "@/app/_auth/requireTier";
 import { groupRoutineItems, ROUTINE_SECTION_LABELS, ROUTINE_SECTION_ORDER, routineInstructionAuthorityLabel, routineScheduleLabel } from "@/lib/routine";
 import { getRoutineData } from "@/lib/routineData";
+import { doseIntegrityIssue } from "@/lib/doseIntegrity";
 
 import PrintButton from "./PrintButton";
 
@@ -44,17 +45,19 @@ export default async function RoutinePrintPage() {
               <div className="mt-3 space-y-3">
                 {items.map((item) => {
                   const authority = routineInstructionAuthorityLabel(item.instruction_authority);
+                  const doseIssue = doseIntegrityIssue(item.name, item.dose);
                   return (
                     <div key={item.id} className="break-inside-avoid rounded-xl border border-slate-300 p-4 print:rounded-none">
                       <h3 className="text-lg font-bold text-[#041B2D]">{item.name}</h3>
                       {item.brand ? <p className="mt-1 text-sm text-slate-700">Brand: {item.brand}</p> : null}
                       <dl className="mt-2 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-                        <div><dt className="font-bold">Recorded dose or amount</dt><dd>{item.dose?.trim() || "Not recorded"}</dd></div>
+                        <div><dt className="font-bold">Recorded amount at each scheduled time</dt><dd>{item.dose?.trim() || "Not recorded"}</dd></div>
                         <div><dt className="font-bold">Recorded schedule</dt><dd>{routineScheduleLabel(item)}</dd></div>
                         <div><dt className="font-bold">Instruction source</dt><dd>{authority || "Not recorded"}</dd></div>
                         <div><dt className="font-bold">Last updated</dt><dd>{item.updated_at ? formatDate(item.updated_at) : "Not available"}</dd></div>
                         {item.purpose ? <div className="sm:col-span-2"><dt className="font-bold">Purpose reported by member</dt><dd>{item.purpose}</dd></div> : null}
                       </dl>
+                      {doseIssue ? <p className="mt-3 border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950">Member confirmation needed: {doseIssue.message}</p> : null}
                     </div>
                   );
                 })}

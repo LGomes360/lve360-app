@@ -21,6 +21,7 @@ import remarkGfm from "remark-gfm";
 
 import type { BlueprintActionCandidate } from "@/lib/blueprintActions";
 import type { MemberSupplement } from "@/lib/blueprintWorkspace";
+import { doseIntegrityIssue } from "@/lib/doseIntegrity";
 import { trackProductEvent } from "@/lib/productAnalyticsClient";
 import { reportSectionTitle } from "@/lib/reportPresentation";
 
@@ -442,14 +443,16 @@ function SupplementEditor({
   onCancel: () => void;
   onSave: () => void;
 }) {
+  const hasDoseIssues = supplements.some((item) => Boolean(doseIntegrityIssue(item.name, item.dose)));
   return (
     <div className="mt-6">
       <p className="rounded-xl bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-950">
         Mark an item stopped to preserve the history. Saving changes does not modify this older report.
       </p>
       <div className="mt-4 space-y-4">
-        {supplements.map((item, index) => (
-          <fieldset key={item.id} className="rounded-xl border border-slate-200 p-4">
+        {supplements.map((item, index) => {
+          const doseIssue = doseIntegrityIssue(item.name, item.dose);
+          return <fieldset key={item.id} className="rounded-xl border border-slate-200 p-4">
             <legend className="px-1 text-sm font-bold text-[#041B2D]">Supplement {index + 1}</legend>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Name" required>
@@ -478,16 +481,13 @@ function SupplementEditor({
                   className={inputClass}
                 />
               </Field>
-              <Field label="Timing">
-                <input
-                  value={item.timing ?? ""}
-                  onChange={(event) => onChange(item.id, { timing: event.target.value || null })}
-                  maxLength={160}
-                  placeholder="Example: Evening with food"
-                  className={inputClass}
-                />
-              </Field>
+              <div className="text-sm font-semibold text-slate-700">
+                <p>Timing</p>
+                <p className="mt-1 min-h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-normal text-slate-700">{item.timing || "Schedule not recorded"}</p>
+              </div>
             </div>
+            <p className="mt-3 text-sm leading-6 text-slate-600">Manage checklist timing and cadence in <Link href="/routine" className="font-bold text-[#087F72] hover:underline">Routine</Link> so every page uses the same schedule.</p>
+            {doseIssue ? <p className="mt-3 flex items-start rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-950"><AlertTriangle className="mr-2 mt-1 h-4 w-4 shrink-0" aria-hidden="true" />{doseIssue.message} Correct it before saving.</p> : null}
             <label className="mt-4 flex min-h-11 cursor-pointer items-center gap-3 text-sm font-semibold text-slate-700">
               <input
                 type="checkbox"
@@ -497,8 +497,8 @@ function SupplementEditor({
               />
               I currently take this supplement
             </label>
-          </fieldset>
-        ))}
+          </fieldset>;
+        })}
       </div>
       <button
         type="button"
@@ -512,7 +512,7 @@ function SupplementEditor({
         <button
           type="button"
           onClick={onSave}
-          disabled={saving}
+          disabled={saving || hasDoseIssues}
           className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#087F72] px-5 py-3 text-sm font-bold text-white hover:bg-[#06695F] disabled:opacity-60"
         >
           {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
@@ -537,19 +537,21 @@ function SupplementList({ supplements }: { supplements: MemberSupplement[] }) {
   }
   return (
     <ul className="mt-5 divide-y divide-slate-100">
-      {supplements.map((item) => (
-        <li key={item.id} className="flex flex-col gap-1 py-3 sm:flex-row sm:items-start sm:justify-between">
+      {supplements.map((item) => {
+        const doseIssue = doseIntegrityIssue(item.name, item.dose);
+        return <li key={item.id} className="flex flex-col gap-1 py-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className={`font-semibold ${item.active ? "text-[#041B2D]" : "text-slate-500 line-through"}`}>{item.name}</p>
             <p className="text-sm text-slate-500">
               {[item.brand, item.dose, item.timing].filter(Boolean).join(" · ") || "Details not provided"}
             </p>
+            {doseIssue ? <p className="mt-1 text-sm font-semibold text-amber-800">Check amount and unit in Routine.</p> : null}
           </div>
           <span className={`w-fit rounded-full px-2 py-1 text-xs font-bold ${item.active ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>
             {item.active ? "Current" : "Stopped"}
           </span>
-        </li>
-      ))}
+        </li>;
+      })}
     </ul>
   );
 }
@@ -674,6 +676,7 @@ function messageForSupplementError(value: unknown): string {
   if (value === "duplicate_supplement") return "Each supplement should appear only once.";
   if (value === "invalid_supplement_name") return "Enter a valid supplement name. Medications and hormones belong in the broader health-context update.";
   if (value === "too_many_supplements") return "You can save up to 30 supplements.";
+  if (value === "invalid_supplement_dose") return "Check the highlighted supplement amount and unit before saving.";
   return "We could not save those changes. Check the fields and try again.";
 }
 

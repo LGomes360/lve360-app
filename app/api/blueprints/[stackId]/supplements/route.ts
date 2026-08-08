@@ -10,6 +10,7 @@ import { replaceCurrentSupplements } from "@/lib/currentRegimen";
 import { regimenToLedger } from "@/lib/currentRegimenModel";
 import { requirePaidApi } from "@/lib/serverEntitlements";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { doseIntegrityIssue } from "@/lib/doseIntegrity";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -24,6 +25,9 @@ export async function PUT(req: Request, { params }: RouteContext) {
     const { stackId } = await params;
     const body = await req.json().catch(() => null) as { supplements?: unknown } | null;
     const supplements = normalizeMemberSupplements(body?.supplements);
+    if (supplements.some((item) => doseIntegrityIssue(item.name, item.dose))) {
+      return NextResponse.json({ ok: false, error: "invalid_supplement_dose" }, { status: 400 });
+    }
     const admin = getSupabaseAdmin();
 
     const { data: stack, error: stackError } = await admin
@@ -86,6 +90,7 @@ export async function PUT(req: Request, { params }: RouteContext) {
       "invalid_supplement",
       "invalid_supplement_name",
       "duplicate_supplement",
+      "invalid_supplement_dose",
     ].includes(message) ? 400 : 500;
     if (status === 500) console.error("[blueprints/supplements] failed", error);
     return NextResponse.json({ ok: false, error: message }, { status });
