@@ -1481,8 +1481,8 @@ ${JSON.stringify(recommendableSupplementLedger, null, 2)}
 Output ONLY the section "## Your Blueprint Recommendations" as a Markdown table with the exact header:
 | Rank | Supplement | Status | Why it Matters |
 
-- Provide 8 to 10 justified data rows. Do not add filler simply to reach 10.
-- Include at least 3 combined "New - consider" or "Clinician review" rows and no more than 5 "Current - optimize" rows.
+- Provide 5 to 10 justified data rows. Do not add filler simply to reach 10.
+- Include no more than 5 "Current - optimize" rows. Add "New - consider" or "Clinician review" rows only when they are justified by the member's context.
 - Recommend goal-aligned supplement options only. Never recommend medications, prescription drugs, or hormones.
 - Never recommend endocrine-active supplements such as DHEA or Pregnenolone by default.
 - Select from the recommendable supplement ledger. Do not simply copy the Current Stack unless a legitimate current supplement has a clear optimization reason.
@@ -1886,8 +1886,8 @@ if (!tableMd) {
 Convert the text below into a single Markdown table ONLY with header exactly:
 | Rank | Supplement | Status | Why it Matters |
 
-- Provide 8 to 10 justified data rows. Do not add filler simply to reach 10.
-- Include at least 3 combined "New - consider" or "Clinician review" rows and no more than 5 "Current - optimize" rows.
+- Provide 5 to 10 justified data rows. Do not add filler simply to reach 10.
+- Include no more than 5 "Current - optimize" rows. Add "New - consider" or "Clinician review" rows only when they are justified by the member's context.
 - Short, plain-English "Why it Matters".
 - If dose/timing is relevant, write "See Dosing & Notes".
 - No other text. No code fences.
