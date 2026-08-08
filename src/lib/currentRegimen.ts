@@ -14,6 +14,7 @@ import {
 import type { MedicationInstructionAuthority } from "@/lib/medicationRecord";
 import { regimenScheduleLabel, type RegimenSchedule } from "@/lib/regimenSchedule";
 import { normalizeHttpsUrl, type SupplementProductSource } from "@/lib/supplementProduct";
+import { updateRecommendationDecision } from "@/lib/recommendationDecisionData";
 
 const REGIMEN_COLUMNS = "id,user_id,source_submission_id,source_stack_item_id,item_kind,name,normalized_name,purpose,dose,timing,schedule,brand,reorder_url,image_url,product_source,product_sku,instruction_source,instruction_authority,active,created_at,updated_at";
 
@@ -150,6 +151,7 @@ export async function adoptStackRecommendation(userId: string, stackItemId: stri
   const { data, error: upsertError } = await admin.from("current_regimen_items")
     .upsert(row, { onConflict: "user_id,item_kind,normalized_name" }).select(REGIMEN_COLUMNS).maybeSingle();
   if (upsertError) throw upsertError;
+  await updateRecommendationDecision(userId, item.id, "adopted");
   return data as unknown as CurrentRegimenItem;
 }
 

@@ -43,6 +43,7 @@ import {
   type RegimenInstructionAuthority,
 } from "@/lib/medicationRecord";
 import { doseIntegrityIssue } from "@/lib/doseIntegrity";
+import type { MemberRecommendationDecision } from "@/lib/recommendationDecision";
 import ScheduleEditor, {
   scheduleDraft,
   scheduleDraftIsReady,
@@ -194,9 +195,9 @@ export default function RoutineClient({
   }
 
   async function adoptProposal(item: RoutineItem) {
-    if (isClinicianReviewProposal(item)) {
+    if (isClinicianReviewProposal(item) || (item.recommendation_overlaps?.length ?? 0) > 0) {
       const confirmed = window.confirm(
-        "This item was flagged for clinician or pharmacist review. Only add it if you have already decided it belongs in your routine."
+        "This idea needs an overlap or clinician review. Only add it if you have already decided it belongs in your routine."
       );
       if (!confirmed) return;
     }
@@ -215,12 +216,43 @@ export default function RoutineClient({
         message: `${item.name} was added to your current routine.`,
         undo: async () => {
           await updateItem(adoptedId, { active: false });
+          await fetch("/api/recommendations/decision", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ item_id: item.id, decision: "review" }),
+          });
           await refreshRoutine();
           setToast({ message: `${item.name} was returned to ideas to consider.` });
         },
       });
     } catch {
       setToast({ message: "We could not add that idea. Your current routine is unchanged." });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function updateProposalDecision(item: RoutineItem, decision: MemberRecommendationDecision) {
+    setBusyId(item.id);
+    try {
+      const response = await fetch("/api/recommendations/decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: item.id, decision }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body?.ok) throw new Error(body?.error ?? "recommendation_decision_failed");
+      await refreshRoutine();
+      const message = decision === "clinician_review"
+        ? `${item.name} is marked for clinician or pharmacist review.`
+        : decision === "deferred"
+          ? `${item.name} was moved out of your active ideas for now.`
+          : decision === "dismissed"
+            ? `${item.name} was dismissed for this health context.`
+            : `${item.name} is back under review.`;
+      setToast({ message });
+    } catch {
+      setToast({ message: "We could not save that recommendation decision. Nothing changed." });
     } finally {
       setBusyId(null);
     }
@@ -326,7 +358,7 @@ export default function RoutineClient({
       {activeView === "supplements" ? (
         <div className="space-y-5">
           <RoutineSection kind="supplement" items={supplements} busyId={busyId} onEdit={setEditing} onStop={stopTracking} />
-          <IdeasSection items={grouped.proposals} busyId={busyId} onAdopt={adoptProposal} />
+          <IdeasSection items={grouped.proposals} busyId={busyId} onAdopt={adoptProposal} onDecision={updateProposalDecision} />
         </div>
       ) : null}
 
@@ -555,7 +587,17 @@ function RoutineCard({
   );
 }
 
-function IdeasSection({ items, busyId, onAdopt }: { items: RoutineItem[]; busyId: string | null; onAdopt: (item: RoutineItem) => void }) {
+function IdeasSection({
+  items,
+  busyId,
+  onAdopt,
+  onDecision,
+}: {
+  items: RoutineItem[];
+  busyId: string | null;
+  onAdopt: (item: RoutineItem) => void;
+  onDecision: (item: RoutineItem, decision: MemberRecommendationDecision) => void;
+}) {
   return (
     <section className="scroll-mt-24 rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm sm:p-6" aria-labelledby="routine-ideas">
       <div className="flex items-start gap-3">
@@ -573,19 +615,33 @@ function IdeasSection({ items, busyId, onAdopt }: { items: RoutineItem[]; busyId
             return (
               <li key={item.id} className="rounded-2xl border border-amber-200 bg-white p-4">
                 <h3 className="text-lg font-bold text-[#041B2D]">{item.name}</h3>
-                <p className="mt-2 text-sm text-slate-700">{item.purpose || item.notes || "Review the evidence and safety context in your Blueprint."}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-700">{item.recommendation_reason || item.purpose || "Review the evidence and safety context in your Blueprint."}</p>
+                {item.recommendation_overlaps?.length ? (
+                  <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
+                    <strong>Check what you already take:</strong> Your current routine includes {item.recommendation_overlaps.join(", ")}. Review the ingredient label before adding another source.
+                  </p>
+                ) : null}
                 {clinicianReview ? <p className="mt-3 flex items-start rounded-xl bg-amber-100 p-3 text-sm font-semibold text-amber-900"><AlertTriangle className="mr-2 mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> Clinician or pharmacist review is recommended before adding this.</p> : null}
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
                   <button
                     type="button"
                     disabled={busyId === item.id}
                     onClick={() => void onAdopt(item)}
-                    className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 font-bold text-white hover:bg-[#06695F] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] focus-visible:ring-offset-2"
+                    className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 font-bold text-white hover:bg-[#06695F] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] focus-visible:ring-offset-2"
                   >
                     {busyId === item.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />}
                     {clinicianReview ? "Add after review" : "Add to current routine"}
                   </button>
-                  {link ? <a href={link} target="_blank" rel="noopener noreferrer nofollow sponsored" className="inline-flex min-h-12 items-center justify-center rounded-xl border border-amber-300 px-4 py-3 font-bold text-amber-900 hover:bg-amber-100"><ExternalLink className="mr-2 h-4 w-4" aria-hidden="true" /> Product info</a> : null}
+                  <button type="button" disabled={busyId === item.id} onClick={() => void onDecision(item, "clinician_review")} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-amber-300 px-4 py-3 font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-60">
+                    <HeartPulse className="mr-2 h-4 w-4" aria-hidden="true" /> Ask my clinician
+                  </button>
+                  <button type="button" disabled={busyId === item.id} onClick={() => void onDecision(item, "deferred")} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-slate-300 px-4 py-3 font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+                    <Clock3 className="mr-2 h-4 w-4" aria-hidden="true" /> Not now
+                  </button>
+                  <button type="button" disabled={busyId === item.id} onClick={() => void onDecision(item, "dismissed")} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-slate-300 px-4 py-3 font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+                    <X className="mr-2 h-4 w-4" aria-hidden="true" /> Dismiss
+                  </button>
+                  {link ? <a href={link} target="_blank" rel="noopener noreferrer nofollow sponsored" className="inline-flex min-h-12 items-center justify-center rounded-xl border border-amber-300 px-4 py-3 font-bold text-amber-900 hover:bg-amber-100 sm:col-span-2"><ExternalLink className="mr-2 h-4 w-4" aria-hidden="true" /> Product information</a> : null}
                 </div>
               </li>
             );

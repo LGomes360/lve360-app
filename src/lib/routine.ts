@@ -1,4 +1,5 @@
 import type { RegimenInstructionAuthority } from "./medicationRecord.ts";
+import type { RecommendationDecisionStatus } from "./recommendationDecision.ts";
 import {
   isRegimenScheduleDue,
   localDateString,
@@ -24,6 +25,9 @@ export type RoutineItem = {
   timing: string | null;
   timing_text?: string | null;
   notes: string | null;
+  recommendation_status?: RecommendationDecisionStatus | null;
+  recommendation_reason?: string | null;
+  recommendation_overlaps?: string[];
   item_kind: RoutineItemKind;
   instruction_source?: "intake" | "member_update" | "adopted_recommendation" | "manual_add" | null;
   instruction_authority?: RegimenInstructionAuthority | null;
@@ -122,6 +126,7 @@ export function routineInstructionAuthorityLabel(authority: RoutineItem["instruc
   return null;
 }
 
-export function isClinicianReviewProposal(item: Pick<RoutineItem, "notes">): boolean {
-  return /clinician review|pharmacist|interaction|contraindicat|use caution|avoid/i.test(item.notes ?? "");
+export function isClinicianReviewProposal(item: Pick<RoutineItem, "notes" | "recommendation_status">): boolean {
+  return item.recommendation_status === "clinician_review"
+    || /clinician review|pharmacist|interaction|contraindicat|use caution|avoid/i.test(item.notes ?? "");
 }

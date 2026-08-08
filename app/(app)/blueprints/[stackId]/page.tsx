@@ -13,6 +13,8 @@ import {
 import { ensureCurrentRegimen, getCurrentRegimen } from "@/lib/currentRegimen";
 import { regimenToLedger } from "@/lib/currentRegimenModel";
 import { canonicalRegimenTiming } from "@/lib/regimenSchedule";
+import { extractBlueprintGoalNames } from "@/lib/recommendationDecision";
+import { getStackRecommendationDecisions } from "@/lib/recommendationDecisionData";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 import BlueprintWorkspaceClient from "./BlueprintWorkspaceClient";
@@ -60,6 +62,12 @@ export default async function BlueprintPage({ params }: PageProps) {
   const report = parseBlueprintReport(markdown);
   await ensureCurrentRegimen(user.id, submission.id, submission);
   const regimen = await getCurrentRegimen(user.id);
+  const recommendations = await getStackRecommendationDecisions(
+    user.id,
+    stack.id,
+    regimen,
+    extractBlueprintGoalNames(report.sections.Goals),
+  );
   const supplementRegimen = regimen.filter((item) =>
     item.item_kind === "supplement" || item.item_kind === "endocrine_active_supplement"
   );
@@ -93,6 +101,7 @@ export default async function BlueprintPage({ params }: PageProps) {
         .filter(([, body]) => Boolean(body.trim()))
         .map(([name, body]) => ({ name, body }))}
       actions={buildBlueprintActionCandidates(report)}
+      recommendations={recommendations}
       initialSupplements={supplements}
       hasMemberOverride={hasOverride}
       initialStale={stale}
