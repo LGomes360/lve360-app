@@ -30,6 +30,7 @@ type StackSummary = {
   createdAt: string | null;
   safetyStatus: "safe" | "warning" | "error" | null;
   generationReason: string | null;
+  safetyAcknowledgedAt: string | null;
 };
 
 type VersionSummary = {
@@ -73,6 +74,8 @@ export default function BlueprintWorkspaceClient({
   const [error, setError] = useState<string | null>(null);
   const [refreshIssue, setRefreshIssue] = useState<string | null>(null);
   const [handoffId, setHandoffId] = useState<string | null>(null);
+  const [safetyAcknowledged, setSafetyAcknowledged] = useState(Boolean(stack.safetyAcknowledgedAt));
+  const [acknowledgingSafety, setAcknowledgingSafety] = useState(false);
 
   useEffect(() => {
     trackProductEvent({ event_name: "blueprint_viewed", source: "blueprints" });
@@ -185,6 +188,25 @@ export default function BlueprintWorkspaceClient({
     }
   }
 
+  async function acknowledgeSafetyNotes() {
+    setAcknowledgingSafety(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/blueprints/${encodeURIComponent(stack.id)}/safety-acknowledgement`, {
+        method: "POST",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok) throw new Error("safety_acknowledgement_unavailable");
+      setSafetyAcknowledged(true);
+      setMessage("Safety notes marked as reviewed. LVE360 will alert you again when a new Blueprint needs review.");
+      router.refresh();
+    } catch {
+      setError("We could not save that acknowledgement. Please try again.");
+    } finally {
+      setAcknowledgingSafety(false);
+    }
+  }
+
   const activeCount = supplements.filter((item) => item.active).length;
 
   return (
@@ -208,7 +230,7 @@ export default function BlueprintWorkspaceClient({
             </p>
           </div>
           <div className="flex flex-col items-start gap-3 sm:flex-row lg:flex-col lg:items-end">
-            <SafetyBadge status={stack.safetyStatus} stale={stale} />
+            <SafetyBadge status={stack.safetyStatus} stale={stale} acknowledged={safetyAcknowledged} />
             <a
               href={`/api/export-pdf?stack_id=${encodeURIComponent(stack.id)}`}
               target="_blank"
@@ -350,6 +372,10 @@ export default function BlueprintWorkspaceClient({
               onEditSupplements={beginEditing}
               onRefresh={refreshBlueprint}
               refreshing={refreshing}
+              safetyAcknowledged={safetyAcknowledged}
+              acknowledgingSafety={acknowledgingSafety}
+              onAcknowledgeSafety={acknowledgeSafetyNotes}
+              safetyNeedsReview={stack.safetyStatus !== "safe"}
             />
           ))}
         </main>
@@ -536,6 +562,10 @@ function ReportSection({
   onEditSupplements,
   onRefresh,
   refreshing,
+  safetyAcknowledged,
+  acknowledgingSafety,
+  onAcknowledgeSafety,
+  safetyNeedsReview,
 }: {
   name: string;
   body: string;
@@ -544,12 +574,16 @@ function ReportSection({
   onEditSupplements: () => void;
   onRefresh: () => void;
   refreshing: boolean;
+  safetyAcknowledged: boolean;
+  acknowledgingSafety: boolean;
+  onAcknowledgeSafety: () => void;
+  safetyNeedsReview: boolean;
 }) {
   const isSafety = name.includes("Contraindications");
   const isCurrent = name === "Current Stack" || name === "Dosing & Notes";
   const isRecommendations = name === "Your Blueprint Recommendations";
   return (
-    <details open={defaultOpen} className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <details id={isSafety ? "safety-notes" : undefined} open={defaultOpen} className="group scroll-mt-24 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <summary className={`flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 font-bold marker:hidden ${isSafety ? "bg-amber-50 text-amber-950" : "bg-white text-[#041B2D]"}`}>
         {reportSectionTitle(name)}
         <ChevronDown className="h-5 w-5 shrink-0 transition group-open:rotate-180" aria-hidden="true" />
@@ -558,6 +592,22 @@ function ReportSection({
         {isSafety && stale ? (
           <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
             These cautions are based on an earlier input snapshot. Refresh before relying on them after a change.
+          </p>
+        ) : null}
+        {isSafety && safetyNeedsReview && !stale && !safetyAcknowledged ? (
+          <button
+            type="button"
+            onClick={onAcknowledgeSafety}
+            disabled={acknowledgingSafety}
+            className="mt-5 inline-flex min-h-11 items-center rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-bold text-amber-900 hover:bg-amber-50 disabled:opacity-60"
+          >
+            {acknowledgingSafety ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" />}
+            I have reviewed these safety notes
+          </button>
+        ) : null}
+        {isSafety && safetyNeedsReview && !stale && safetyAcknowledged ? (
+          <p className="mt-5 inline-flex min-h-11 items-center rounded-xl bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-900">
+            <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" /> Safety notes reviewed for this Blueprint
           </p>
         ) : null}
         <div className="report-prose prose prose-slate max-w-none">
@@ -590,10 +640,11 @@ function ReportSection({
   );
 }
 
-function SafetyBadge({ status, stale }: { status: StackSummary["safetyStatus"]; stale: boolean }) {
+function SafetyBadge({ status, stale, acknowledged }: { status: StackSummary["safetyStatus"]; stale: boolean; acknowledged: boolean }) {
   if (stale) return <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-bold text-amber-900">Review after changes</span>;
   if (status === "safe") return <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-bold text-emerald-900">No material concern identified</span>;
-  if (status === "warning") return <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-bold text-amber-900">Review safety notes</span>;
+  if (acknowledged) return <a href="#safety-notes" className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-bold text-emerald-900 hover:underline">Safety notes reviewed</a>;
+  if (status === "warning") return <a href="#safety-notes" className="rounded-full bg-amber-100 px-3 py-1 text-sm font-bold text-amber-900 hover:underline">Review safety notes</a>;
   return <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-bold text-slate-700">Safety status pending</span>;
 }
 

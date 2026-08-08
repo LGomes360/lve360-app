@@ -1,6 +1,7 @@
 import type { RoutineItemKind } from "@/lib/routine";
 
 export type RegimenDoseStatus = "taken" | "skipped";
+export type RegimenDoseDaypart = "Morning" | "Afternoon" | "Evening";
 
 export type RegimenDoseOccurrence = {
   eventId: string | null;
@@ -41,3 +42,10 @@ export type RegimenDoseDay = {
   history: RegimenDoseHistoryItem[];
   scheduleReview: number;
 };
+
+export function regimenDoseDaypart(time: string): RegimenDoseDaypart {
+  const hour = Number(time.slice(0, 2));
+  if (hour < 12) return "Morning";
+  if (hour < 17) return "Afternoon";
+  return "Evening";
+}

@@ -108,6 +108,10 @@ export default function RoutineClient({
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if (window.location.hash === "#routine-ideas") setActiveView("supplements");
+  }, []);
+
   async function refreshRoutine() {
     const response = await fetch("/api/stacks/combined", { cache: "no-store" });
     const body = await response.json().catch(() => null);
@@ -290,7 +294,13 @@ export default function RoutineClient({
         })}
       </nav>
 
-      {activeView === "today" ? <TodayDoses refreshToken={doseRefreshToken} /> : null}
+      {activeView === "today" ? (
+        <TodayDoses
+          refreshToken={doseRefreshToken}
+          scheduleReviewItems={grouped.current.filter((item) => !item.schedule)}
+          onEditSchedule={setEditing}
+        />
+      ) : null}
 
       {activeView === "medications" ? (
         <div className="space-y-5">
@@ -537,7 +547,7 @@ function RoutineCard({
 
 function IdeasSection({ items, busyId, onAdopt }: { items: RoutineItem[]; busyId: string | null; onAdopt: (item: RoutineItem) => void }) {
   return (
-    <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm sm:p-6" aria-labelledby="routine-ideas">
+    <section className="scroll-mt-24 rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm sm:p-6" aria-labelledby="routine-ideas">
       <div className="flex items-start gap-3">
         <span className="rounded-xl bg-white p-2.5 text-amber-700"><ShieldAlert className="h-6 w-6" aria-hidden="true" /></span>
         <div>

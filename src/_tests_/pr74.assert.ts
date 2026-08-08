@@ -28,6 +28,7 @@ const context: CurrentBlueprintContext = {
   stack_id: "stack",
   created_at: "2026-08-01T12:00:00.000Z",
   safety_status: "safe",
+  safety_acknowledged: false,
   needs_refresh: true,
   priorities: [],
 };

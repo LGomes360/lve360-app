@@ -13,6 +13,7 @@ type StackRow = {
   tally_submission_id: string | null;
   created_at: string | null;
   safety_status: "safe" | "warning" | "error" | null;
+  safety_acknowledged_at?: string | null;
   generation_reason?: string | null;
 };
 
@@ -76,7 +77,7 @@ export default function BlueprintsClient({
                   </p>
                 )}
               </div>
-              <SafetyStatus status={latest.safety_status} />
+              <SafetyStatus stack={latest} paid={paid} />
             </div>
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
@@ -147,19 +148,26 @@ function generationLabel(reason: string | null | undefined): string {
   return reason === "member-refresh" ? "Updated after member changes" : "Original Blueprint";
 }
 
-function SafetyStatus({ status }: { status: StackRow["safety_status"] }) {
+function SafetyStatus({ stack, paid }: { stack: StackRow; paid: boolean }) {
+  const status = stack.safety_status;
+  const acknowledged = Boolean(stack.safety_acknowledged_at);
   const label = status === "safe"
     ? "No material concern identified"
+    : acknowledged
+      ? "Safety notes reviewed"
     : status === "warning"
       ? "Review safety notes"
       : status === "error"
         ? "Blueprint needs review"
         : "Safety status pending";
-  const tone = status === "safe"
+  const tone = status === "safe" || acknowledged
     ? "bg-emerald-50 text-emerald-800"
     : status === "warning"
       ? "bg-amber-50 text-amber-800"
       : "bg-slate-100 text-slate-700";
+  if (paid && status !== "safe" && !acknowledged) {
+    return <Link href={`/blueprints/${encodeURIComponent(stack.id)}#safety-notes`} className={`w-fit rounded-full px-3 py-1 text-sm font-semibold hover:underline ${tone}`}>{label}</Link>;
+  }
   return <span className={`w-fit rounded-full px-3 py-1 text-sm font-semibold ${tone}`}>{label}</span>;
 }
 
