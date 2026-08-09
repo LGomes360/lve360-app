@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import DailyLog from "@/components/dashboard/DailyLog";
 import TodayExperience from "@/components/dashboard/TodayExperience";
-import TodaysPlan from "@/components/dashboard/TodaysPlan";
+import TodayRoutineAgenda from "@/components/dashboard/TodayRoutineAgenda";
 import type { WeeklyExperiment } from "@/lib/activation";
 import type { CurrentBlueprintContext, ExperimentBlueprintContext } from "@/lib/blueprintContext";
 import type { PremiumActivationProgress } from "@/lib/premiumActivation";
@@ -50,11 +50,11 @@ export default function TodayClient({
               onCompletionStateChange={setFirstActionComplete}
             />
 
+            <TodayRoutineAgenda />
+
             <section id="daily-log" aria-label="Quick check-in">
               <DailyLog />
             </section>
-
-            <TodaysPlan />
           </>
         ) : null}
 

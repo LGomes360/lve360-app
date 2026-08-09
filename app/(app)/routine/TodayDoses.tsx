@@ -1,6 +1,7 @@
 "use client";
 
-import { AlertTriangle, Check, Clock3, History, Loader2, Pencil, RotateCcw, SkipForward } from "lucide-react";
+import { AlertTriangle, ArrowRight, Check, Clock3, History, Loader2, Pencil, RotateCcw, SkipForward } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { regimenDoseDaypart, type AsNeededRegimenItem, type RegimenDoseDay, type RegimenDoseOccurrence, type RegimenDoseStatus } from "@/lib/regimenDose";
@@ -12,10 +13,12 @@ export default function TodayDoses({
   refreshToken,
   scheduleReviewItems,
   onEditSchedule,
+  variant = "routine",
 }: {
   refreshToken: number;
   scheduleReviewItems: RoutineItem[];
-  onEditSchedule: (item: RoutineItem) => void;
+  onEditSchedule?: (item: RoutineItem) => void;
+  variant?: "routine" | "today";
 }) {
   const [day, setDay] = useState<RegimenDoseDay | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,10 +139,12 @@ export default function TodayDoses({
     <section className="rounded-2xl border border-[#9DCFC3] bg-white p-5 shadow-sm sm:p-6" aria-labelledby="today-doses-heading">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Today</p>
-          <h2 id="today-doses-heading" className="mt-1 text-2xl font-bold text-[#041B2D]">Your dose checklist</h2>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">{variant === "today" ? "Your routine" : "Today"}</p>
+          <h2 id="today-doses-heading" className="mt-1 text-2xl font-bold text-[#041B2D]">{variant === "today" ? "What is due today" : "Your dose checklist"}</h2>
           <p className="mt-1 text-sm leading-6 text-slate-600">
-            Mark each scheduled occurrence separately. This records what happened and does not change your instructions.
+            {variant === "today"
+              ? "Record your scheduled items here. LVE360 follows the schedule you entered; it does not choose doses or replace prescription instructions, pharmacist guidance, or a safety-critical alarm."
+              : "Mark each scheduled occurrence separately. This records what happened and does not change your instructions."}
           </p>
         </div>
         <p className="rounded-full bg-[#EAFBF8] px-3 py-2 text-sm font-bold text-[#06695F]">{formatDay(date)}</p>
@@ -211,7 +216,7 @@ export default function TodayDoses({
             {!day.occurrences.length ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">No scheduled doses are due today.</p> : null}
           </div>
 
-          {day.asNeeded.length ? (
+          {variant === "routine" && day.asNeeded.length ? (
             <div className="mt-6 border-t border-slate-200 pt-5">
               <h3 className="font-bold text-[#041B2D]">As needed</h3>
               <p className="mt-1 text-sm text-slate-600">These items never appear overdue. Record one only when you take it under your existing instructions.</p>
@@ -230,8 +235,12 @@ export default function TodayDoses({
               <h3 id="schedule-review-heading" className="font-bold">Complete {scheduleReviewItems.length} schedule{scheduleReviewItems.length === 1 ? "" : "s"}</h3>
               <p className="mt-1 text-sm leading-6">These items need a structured time or cadence before they can appear in the checklist.</p>
               <div className="mt-3 flex flex-wrap gap-2">
-                {scheduleReviewItems.map((item) => (
-                  <button key={item.id} type="button" onClick={() => onEditSchedule(item)} className="inline-flex min-h-11 items-center rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-bold text-amber-950 hover:bg-amber-100">
+                {scheduleReviewItems.map((item) => variant === "today" ? (
+                  <Link key={item.id} href={`/routine#edit-routine-item-${encodeURIComponent(item.id)}`} className="inline-flex min-h-11 items-center rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-bold text-amber-950 hover:bg-amber-100">
+                    <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> Edit {item.name} <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+                  </Link>
+                ) : (
+                  <button key={item.id} type="button" onClick={() => onEditSchedule?.(item)} className="inline-flex min-h-11 items-center rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-bold text-amber-950 hover:bg-amber-100">
                     <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> Edit {item.name}
                   </button>
                 ))}
@@ -239,13 +248,17 @@ export default function TodayDoses({
             </section>
           ) : null}
 
-          <details className="mt-6 border-t border-slate-200 pt-5">
+          {variant === "routine" ? <details className="mt-6 border-t border-slate-200 pt-5">
             <summary className="flex min-h-12 cursor-pointer items-center font-bold text-[#041B2D]"><History className="mr-2 h-5 w-5" aria-hidden="true" /> Recent dose history</summary>
             <div className="mt-3 space-y-2">
               {day.history.map((entry) => <div key={entry.eventId} className="flex flex-col gap-1 rounded-xl bg-slate-50 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"><span className="font-semibold text-[#041B2D]">{entry.itemName}{entry.dose ? `, ${entry.dose}` : ""}</span><span className="text-slate-600">{formatDay(entry.date)}{entry.time ? ` at ${entry.time}` : ""} · {entry.status === "taken" ? "Taken" : "Skipped"}</span></div>)}
               {!day.history.length ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">No dose records yet.</p> : null}
             </div>
-          </details>
+          </details> : (
+            <Link href="/routine" className="mt-5 inline-flex min-h-11 items-center text-sm font-bold text-[#087F72] hover:underline">
+              Open full Routine <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+            </Link>
+          )}
         </>
       ) : null}
     </section>
