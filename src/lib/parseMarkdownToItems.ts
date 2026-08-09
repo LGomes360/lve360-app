@@ -3,7 +3,7 @@
 // Central, single-source parser for converting the Markdown report into
 // normalized stack items used by the DB/UI.
 
-import { canonicalHealthItemDisplayName } from "@/lib/healthItemIdentity";
+import { canonicalHealthItemDisplayName } from "./healthItemIdentity.ts";
 
 export type ParsedItem = {
   name: string;
@@ -196,7 +196,7 @@ export function parseMarkdownToItems(md: string): ParsedItem[] {
       const line = raw.replace(/^\s*[-*]\s*/, "");
       // Split only on a deliberate item delimiter. Plain hyphens inside
       // "evidence-informed", "label-directed", or "3-5 g" are content.
-      const split = line.match(/^(.+?)(?:\s+[—–-]\s+|:\s+)(.+)$/);
+      const split = line.match(/^(.+?)(?:\s+(?:--|—|–|-)\s+|:\s+)(.+)$/);
       if (!split) continue;
 
       const nameRaw = split[1].trim();

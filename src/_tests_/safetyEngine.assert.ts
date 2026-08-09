@@ -75,4 +75,15 @@ assert.match(patched, /\| 2 \| Unmapped compound \| Clinician review \|/, "A pro
 assert.match(patched, /Clinician review: Unmapped compound/, "The customer-visible safety section must use the canonical structured finding.");
 assert.doesNotMatch(patched, /Placeholder/, "The structured safety section must replace generated placeholder content.");
 
+const duplicateCandidates = evaluateSafetyCandidates(
+  {},
+  [
+    { name: "Magnesium Glycinate", is_current: false },
+    { name: "magnesium bisglycinate", is_current: true },
+  ],
+  { interactions: [], rules: [] },
+);
+assert.equal(duplicateCandidates.candidates.length, 1, "Canonical duplicate candidates should be evaluated once");
+assert.equal(duplicateCandidates.findings.length, 0, "A missing library row should not warn repeatedly about an existing routine item");
+
 console.log("Safety engine assertions passed.");

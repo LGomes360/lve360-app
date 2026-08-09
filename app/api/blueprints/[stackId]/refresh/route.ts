@@ -110,9 +110,11 @@ export async function POST(_req: Request, { params }: RouteContext) {
 
     return NextResponse.json({ ok: true, stack_id: refreshedStackId, reused: false });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const validationFailed = errorMessage.startsWith("Refusing to persist health-item integrity failure:");
     console.error("[blueprints/refresh] failed", {
       submissionId,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage,
     });
     await recordProductEventSafely({
       user_id: entitlement.user.id,
@@ -120,7 +122,7 @@ export async function POST(_req: Request, { params }: RouteContext) {
       source: "blueprints",
     });
     return NextResponse.json(
-      { ok: false, error: "blueprint_refresh_failed" },
+      { ok: false, error: validationFailed ? "blueprint_refresh_validation_failed" : "blueprint_refresh_failed" },
       { status: 500 }
     );
   }
