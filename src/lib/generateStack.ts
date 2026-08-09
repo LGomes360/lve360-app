@@ -36,6 +36,7 @@ import {
 } from "@/lib/supplementEligibility";
 import { blueprintInputSnapshotHash } from "@/lib/blueprintWorkspace";
 import { ensureCurrentRegimen } from "@/lib/currentRegimen";
+import { extractReportRecommendationProposals } from "@/lib/reportRecommendationProposals";
 import {
   BLUEPRINT_MIN_RECOMMENDATIONS,
   BLUEPRINT_TARGET_RECOMMENDATIONS,
@@ -2482,6 +2483,16 @@ const safetyInput = {
   if (canonicalIssues.length) {
     console.warn("[validation] canonical report issues", canonicalIssues);
     throw new Error(`Refusing to persist invalid canonical report: ${canonicalIssues.join(", ")}`);
+  }
+  const persistedNames = new Set(itemsForPersistence.map((item) => normalizeSupplementName(item.name).toLowerCase()));
+  for (const proposal of extractReportRecommendationProposals(
+    canonicalReport.canonicalMarkdown,
+    currentStackLedger.map((item) => item.name),
+  )) {
+    const key = normalizeSupplementName(proposal.name).toLowerCase();
+    if (persistedNames.has(key)) continue;
+    itemsForPersistence.push({ ...proposal, is_current: false });
+    persistedNames.add(key);
   }
   md = canonicalReport.canonicalMarkdown;
   const persistedSafetyStatus = deriveBlueprintSafetyStatus(md);

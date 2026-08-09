@@ -32,6 +32,7 @@
     "qa:pr83": "node --experimental-strip-types src/_tests_/pr83.assert.ts && node src/_tests_/pr83Page.assert.mjs",
     "qa:pr84": "node --experimental-strip-types src/_tests_/pr84.assert.ts && node src/_tests_/pr84Page.assert.mjs",
     "qa:pr85": "node --experimental-strip-types src/_tests_/pr85.assert.ts && node src/_tests_/pr85Page.assert.mjs",
+    "qa:pr85-1": "node src/_tests_/pr85_1ReportMaterialization.assert.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
     "qa:all": "npm run qa:env && npm run qa:build"

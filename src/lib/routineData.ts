@@ -58,7 +58,13 @@ export async function getRoutineData(userId: string): Promise<{
   if (latestStack?.id) {
     const report = parseBlueprintReport(blueprintMarkdownFromStack(latestStack));
     const goals = extractBlueprintGoalNames(report.sections.Goals);
-    const decisions = await getStackRecommendationDecisions(userId, latestStack.id, regimen, goals);
+    const decisions = await getStackRecommendationDecisions(
+      userId,
+      latestStack.id,
+      regimen,
+      goals,
+      report.canonicalMarkdown,
+    );
     proposals = decisions
       .filter(({ decision }) => isActionableRecommendationStatus(decision.status))
       .map(({ proposal: item, decision }) => ({

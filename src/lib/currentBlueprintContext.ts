@@ -14,6 +14,8 @@ import {
 import { blueprintInputSnapshotHash } from "@/lib/blueprintWorkspace";
 import { ensureCurrentRegimen, getCurrentRegimen } from "@/lib/currentRegimen";
 import { regimenToLedger } from "@/lib/currentRegimenModel";
+import { extractBlueprintGoalNames, isActionableRecommendationStatus } from "@/lib/recommendationDecision";
+import { getStackRecommendationDecisions } from "@/lib/recommendationDecisionData";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 type StackSource = {
@@ -44,7 +46,10 @@ export async function getCurrentBlueprintContext(userId: string): Promise<Curren
   if (!latest) return null;
 
   const stack = latest as StackSource;
+  const markdown = blueprintMarkdownFromStack(stack);
+  const report = parseBlueprintReport(markdown);
   let needsRefresh = false;
+  let regimen: Awaited<ReturnType<typeof getCurrentRegimen>> | null = null;
   if (stack.submission_id) {
     const { data: submission, error: submissionError } = await admin
       .from("submissions")
@@ -55,18 +60,29 @@ export async function getCurrentBlueprintContext(userId: string): Promise<Curren
     if (submissionError) throw submissionError;
     if (submission) {
       await ensureCurrentRegimen(userId, submission.id, submission);
-      const regimen = await getCurrentRegimen(userId);
+      regimen = await getCurrentRegimen(userId);
       const currentHash = blueprintInputSnapshotHash(submission, regimenToLedger(regimen));
       needsRefresh = !stack.input_snapshot_hash || stack.input_snapshot_hash !== currentHash;
     }
   }
+  regimen ??= await getCurrentRegimen(userId);
+  const recommendations = await getStackRecommendationDecisions(
+    userId,
+    stack.id,
+    regimen,
+    extractBlueprintGoalNames(report.sections.Goals),
+    report.canonicalMarkdown,
+  );
 
   return {
     stack_id: stack.id,
     created_at: stack.created_at,
-    safety_status: deriveBlueprintSafetyStatus(blueprintMarkdownFromStack(stack)),
+    safety_status: deriveBlueprintSafetyStatus(markdown),
     safety_acknowledged: Boolean(stack.safety_acknowledged_at),
     needs_refresh: needsRefresh,
+    actionable_recommendation_count: recommendations.filter(({ decision }) =>
+      isActionableRecommendationStatus(decision.status)
+    ).length,
     priorities: stackActions(stack).map(({ id, label, category, kind }) => ({ id, label, category, kind })),
   };
 }

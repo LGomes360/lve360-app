@@ -14,6 +14,7 @@ export type CurrentBlueprintContext = {
   safety_status: BlueprintSafetyStatus;
   safety_acknowledged: boolean;
   needs_refresh: boolean;
+  actionable_recommendation_count?: number;
   priorities: BlueprintPriorityContext[];
 };
 

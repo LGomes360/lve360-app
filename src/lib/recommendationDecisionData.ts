@@ -10,6 +10,7 @@ import {
 } from "@/lib/recommendationDecision";
 import { normalizeRegimenName } from "@/lib/currentRegimenModel";
 import { isEligibleSupplementName, isMedicationOrHormoneName } from "@/lib/supplementEligibility";
+import { extractReportRecommendationProposals } from "@/lib/reportRecommendationProposals";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type StackRecommendationProposal = RecommendationProposalInput & {
@@ -30,6 +31,7 @@ export type StackRecommendationDecision = {
 };
 
 const DECISION_COLUMNS = "id,stack_id,stack_item_id,recommendation_key,context_fingerprint,status,reason_snapshot,overlap_snapshot,deferred_until,created_at,updated_at";
+const PROPOSAL_COLUMNS = "id,stack_id,name,brand,dose,timing,timing_text,notes,rationale,is_current,link_amazon,link_fullscript,refill_days_left,last_refilled_at,created_at";
 
 function isMissingDecisionTable(error: { code?: string; message?: string } | null | undefined): boolean {
   return error?.code === "42P01"
@@ -72,15 +74,49 @@ export async function getStackRecommendationDecisions(
   stackId: string,
   currentItems: CurrentRegimenItem[],
   goals: string[],
+  reportMarkdown: string,
 ): Promise<StackRecommendationDecision[]> {
   const admin = getSupabaseAdmin();
-  const { data, error } = await admin
+  let { data, error } = await admin
     .from("stacks_items")
-    .select("id,stack_id,name,brand,dose,timing,timing_text,notes,rationale,is_current,link_amazon,link_fullscript,refill_days_left,last_refilled_at,created_at")
+    .select(PROPOSAL_COLUMNS)
     .eq("stack_id", stackId)
     .eq("user_id", userId)
     .eq("is_current", false);
   if (error) throw error;
+
+  const storedNames = new Set((data ?? []).map((item) => normalizeRegimenName(item.name)));
+  const reportProposals = extractReportRecommendationProposals(
+    reportMarkdown,
+    currentItems.map((item) => item.name),
+  ).filter((item) => !storedNames.has(normalizeRegimenName(item.name)));
+
+  if (reportProposals.length) {
+    for (const proposal of reportProposals) {
+      const { error: insertError } = await admin.from("stacks_items").insert({
+        stack_id: stackId,
+        user_id: userId,
+        name: proposal.name,
+        dose: proposal.dose ?? null,
+        timing: proposal.timing ?? null,
+        timing_text: proposal.timing_text ?? null,
+        timing_bucket: proposal.timing_bucket ?? null,
+        notes: proposal.notes ?? null,
+        rationale: proposal.rationale ?? null,
+        is_current: false,
+      });
+      if (insertError && insertError.code !== "23505") throw insertError;
+    }
+
+    const refreshed = await admin
+      .from("stacks_items")
+      .select(PROPOSAL_COLUMNS)
+      .eq("stack_id", stackId)
+      .eq("user_id", userId)
+      .eq("is_current", false);
+    if (refreshed.error) throw refreshed.error;
+    data = refreshed.data;
+  }
 
   const currentNames = new Set(currentItems.map((item) => normalizeRegimenName(item.name)));
   const proposals = (data ?? [])

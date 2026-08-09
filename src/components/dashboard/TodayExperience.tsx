@@ -326,8 +326,10 @@ function CurrentBlueprintPanel({
             <li key={priority.id} className="flex items-start gap-2">
               {priority.kind === "review_only" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-label="Review only" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#087F72]" aria-hidden="true" />}
               {priority.kind === "review_only" ? (
-                <a href={`/blueprints/${blueprint.stack_id}#recommendation-decisions`} className="font-semibold text-amber-900 underline decoration-amber-300 underline-offset-2 hover:decoration-amber-700">
-                  {priority.label} Review why this appeared and choose what to do.
+                <a href={`/blueprints/${blueprint.stack_id}#${(blueprint.actionable_recommendation_count ?? 0) > 0 ? "recommendation-decisions" : "recommendation-report"}`} className="font-semibold text-amber-900 underline decoration-amber-300 underline-offset-2 hover:decoration-amber-700">
+                  {priority.label} {(blueprint.actionable_recommendation_count ?? 0) > 0
+                    ? "Review why this appeared and choose what to do."
+                    : "Review this recommendation in your report."}
                 </a>
               ) : <span>{priority.label}</span>}
             </li>
