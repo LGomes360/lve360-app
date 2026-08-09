@@ -12,7 +12,7 @@ import {
   type ReminderPreference,
   type WeeklyExperiment,
 } from "@/lib/activation";
-import type { ReminderTiming } from "@/lib/reminderSchedule";
+import { isQuietHour, type ReminderTiming } from "@/lib/reminderSchedule";
 
 type FormState = {
   identity_direction: IdentityDirection | null;
@@ -24,6 +24,12 @@ type FormState = {
   reminder_timing: ReminderTiming;
   reminder_hour: number;
   timezone: string;
+};
+
+type ReminderContext = {
+  timezone: string;
+  quiet_start_hour: number;
+  quiet_end_hour: number;
 };
 
 const EMPTY_FORM: FormState = {
@@ -45,20 +51,27 @@ export default function OnboardingHandoffClient() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reminderContext, setReminderContext] = useState<ReminderContext>({
+    timezone: "UTC",
+    quiet_start_hour: 21,
+    quiet_end_hour: 7,
+  });
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/activation", { cache: "no-store" })
       .then(async (response) => {
         const json = await response.json().catch(() => null);
-        if (!response.ok || !json?.experiment) throw new Error("We could not load your first-week setup.");
-        return json.experiment as WeeklyExperiment;
+        if (!response.ok || !json?.experiment) throw new Error("We could not load your weekly setup.");
+        return json as { experiment: WeeklyExperiment; reminder_context?: ReminderContext };
       })
-      .then((loaded) => {
+      .then(({ experiment: loaded, reminder_context }) => {
         if (cancelled) return;
         setExperiment(loaded);
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        setForm({ ...formFromExperiment(loaded), timezone: timezone || "UTC" });
+        const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const context = reminder_context ?? { timezone: detectedTimezone || "UTC", quiet_start_hour: 21, quiet_end_hour: 7 };
+        setReminderContext(context);
+        setForm({ ...formFromExperiment(loaded), timezone: context.timezone || detectedTimezone || "UTC" });
         setStep(nextOnboardingStep(loaded));
       })
       .catch((loadError) => { if (!cancelled) setError(loadError?.message ?? "Setup is unavailable."); })
@@ -126,15 +139,17 @@ export default function OnboardingHandoffClient() {
           timing={form.reminder_timing}
           reminderHour={form.reminder_hour}
           timezone={form.timezone}
+          quietStartHour={reminderContext.quiet_start_hour}
+          quietEndHour={reminderContext.quiet_end_hour}
           onChange={(changes) => setForm({ ...form, ...changes })}
         />
       )}
-      {step === 6 && <ConfirmationStep form={form} active={active} onEditReminders={() => setStep(5)} />}
+      {step === 6 && <ConfirmationStep form={form} active={active} onEditPlan={() => setStep(1)} onEditReminders={() => setStep(5)} />}
 
       {error && <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{error}</p>}
 
       <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {!active && step > 1 ? (
+        {step > 1 && !(active && step === 6) ? (
           <button type="button" onClick={() => { setError(null); setStep(step - 1); }} className="inline-flex items-center justify-center rounded-xl px-4 py-3 font-semibold text-slate-600 hover:bg-slate-100">
             <ArrowLeft className="mr-2 h-4 w-4" /> Back
           </button>
@@ -181,12 +196,16 @@ function ReminderStep({
   timing,
   reminderHour,
   timezone,
+  quietStartHour,
+  quietEndHour,
   onChange,
 }: {
   preference: ReminderPreference;
   timing: ReminderTiming;
   reminderHour: number;
   timezone: string;
+  quietStartHour: number;
+  quietEndHour: number;
   onChange: (changes: Partial<Pick<FormState, "reminder_preference" | "reminder_timing" | "reminder_hour">>) => void;
 }) {
   const options: Array<{
@@ -220,11 +239,11 @@ function ReminderStep({
         <label className="mt-5 block text-sm font-bold text-[#041B2D]">
           {timing === "next_day" ? "Check in around" : timing === "prepare_before" ? "Help me prepare around" : "Send at"}
           <select value={reminderHour} onChange={(event) => onChange({ reminder_hour: Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal">
-            {Array.from({ length: 14 }, (_, index) => index + 7).map((hour) => (
+            {Array.from({ length: 24 }, (_, hour) => hour).filter((hour) => !isQuietHour(hour, quietStartHour, quietEndHour)).map((hour) => (
               <option key={hour} value={hour}>{new Intl.DateTimeFormat("en-US", { hour: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 1, hour)))}</option>
             ))}
           </select>
-          <span className="mt-2 block font-normal text-slate-500">Local time in {timezone}. We keep emails outside your 9 PM through 7 AM quiet window.</span>
+          <span className="mt-2 block font-normal text-slate-500">Local time in {timezone}. Your quiet hours are {formatHour(quietStartHour)} to {formatHour(quietEndHour)}.</span>
         </label>
       )}
       {preference === "email" && timing === "account_default" ? <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">This existing practice uses your account default time. Choose another option above to tailor it.</p> : null}
@@ -232,8 +251,8 @@ function ReminderStep({
   );
 }
 
-function ConfirmationStep({ form, active, onEditReminders }: { form: FormState; active: boolean; onEditReminders: () => void }) {
-  return <section><CheckCircle2 className="h-10 w-10 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">{active ? "Your week is active" : "Your first week is ready"}</h1><p className="mt-3 leading-7 text-slate-600">This is one vote for the person you are becoming. Keep it small, notice what works, and review after the week.</p><div className="mt-6 space-y-4 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5"><Summary label="Identity" value={identityLabel(form.identity_direction)} /><Summary label="This week I will" value={form.action_label} /><Summary label="My cue" value={`After I ${form.cue}`} /><Summary label="Target" value={`${form.frequency_per_week} ${form.frequency_per_week === 1 ? "day" : "days"} this week`} /><Summary label="On a hard day" value={form.minimum_version} /><Summary label="Reminder plan" value={reminderSummary(form)} /></div>{active ? <button type="button" onClick={onEditReminders} className="mt-5 min-h-11 rounded-xl border border-[#9DCFC3] px-4 py-2 font-bold text-[#087F72] hover:bg-[#EAFBF8]">Change reminder plan</button> : null}</section>;
+function ConfirmationStep({ form, active, onEditPlan, onEditReminders }: { form: FormState; active: boolean; onEditPlan: () => void; onEditReminders: () => void }) {
+  return <section><CheckCircle2 className="h-10 w-10 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">{active ? "Your week is active" : "Your first week is ready"}</h1><p className="mt-3 leading-7 text-slate-600">Use this plan while it fits your life. You can change it when your schedule or priorities change.</p><div className="mt-6 space-y-4 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5"><Summary label="This week's direction" value={identityLabel(form.identity_direction)} /><Summary label="This week I will" value={form.action_label} /><Summary label="My cue" value={`After I ${form.cue}`} /><Summary label="Target" value={`${form.frequency_per_week} ${form.frequency_per_week === 1 ? "day" : "days"} this week`} /><Summary label="On a hard day" value={form.minimum_version} /><Summary label="Reminder plan" value={reminderSummary(form)} /></div>{active ? <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={onEditPlan} className="min-h-11 rounded-xl bg-[#087F72] px-4 py-2 font-bold text-white hover:bg-[#06695F]">Edit weekly plan</button><button type="button" onClick={onEditReminders} className="min-h-11 rounded-xl border border-[#9DCFC3] px-4 py-2 font-bold text-[#087F72] hover:bg-[#EAFBF8]">Change reminder plan</button></div> : null}</section>;
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
@@ -276,6 +295,7 @@ function errorMessage(code: string | undefined) {
   if (code === "add_safe_minimum_version") return "Add a small lifestyle version that can count on a hard day.";
   if (code === "choose_reminder_timing") return "Choose when reminder support would be useful for this practice.";
   if (code === "choose_reminder_time") return "Choose a valid local reminder time.";
+  if (code === "reminder_in_quiet_hours") return "Choose a reminder time outside the quiet hours saved in Settings.";
   if (code === "complete_required_steps") return "One of the earlier steps is incomplete. Go back and review your plan.";
   return "We could not save that step. Please try again.";
 }
@@ -288,4 +308,9 @@ function reminderSummary(form: FormState): string {
   if (form.reminder_timing === "prepare_before") return `Prepare beforehand around ${time}`;
   if (form.reminder_timing === "next_day") return `Check in the next morning around ${time}`;
   return `Remind me at the cue around ${time}`;
+}
+
+function formatHour(hour: number): string {
+  return new Intl.DateTimeFormat("en-US", { hour: "numeric", timeZone: "UTC" })
+    .format(new Date(Date.UTC(2026, 0, 1, hour)));
 }

@@ -14,7 +14,7 @@ import { resolveBlueprintActionFromRequest } from "@/lib/blueprintActionHandoff"
 import { isHour, isIanaTimeZone } from "@/lib/accountSettings";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
-import { isReminderTiming } from "@/lib/reminderSchedule";
+import { isQuietHour, isReminderTiming } from "@/lib/reminderSchedule";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -125,8 +125,24 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await requirePaidUser();
     if (auth.error || !auth.user) return responseForAuthError(auth.error ?? "unauthorized");
-    const experiment = await getOrCreateExperiment(req, auth.user.id);
-    return NextResponse.json({ ok: true, experiment });
+    const [experiment, { data: preferences, error: preferencesError }] = await Promise.all([
+      getOrCreateExperiment(req, auth.user.id),
+      getSupabaseAdmin()
+        .from("user_preferences")
+        .select("timezone, quiet_start_hour, quiet_end_hour")
+        .eq("user_id", auth.user.id)
+        .maybeSingle(),
+    ]);
+    if (preferencesError) throw preferencesError;
+    return NextResponse.json({
+      ok: true,
+      experiment,
+      reminder_context: {
+        timezone: preferences?.timezone ?? "UTC",
+        quiet_start_hour: preferences?.quiet_start_hour ?? 21,
+        quiet_end_hour: preferences?.quiet_end_hour ?? 7,
+      },
+    });
   } catch (error) {
     console.error("[activation] load failed", error);
     return NextResponse.json({ ok: false, error: "activation_unavailable" }, { status: 500 });
@@ -144,7 +160,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const experiment = await getOrCreateExperiment(req, auth.user.id);
-    if (experiment.status === "active" && step !== 5) {
+    if (experiment.status === "active" && step === 6) {
       return NextResponse.json({ ok: true, experiment });
     }
 
@@ -203,6 +219,19 @@ export async function PUT(req: NextRequest) {
         && (!isIanaTimeZone(body.timezone) || (usesPracticeHour && !isHour(body.reminder_hour)))
       ) {
         return NextResponse.json({ ok: false, error: "choose_reminder_time" }, { status: 400 });
+      }
+      if (usesPracticeHour) {
+        const { data: preferences, error: preferencesError } = await getSupabaseAdmin()
+          .from("user_preferences")
+          .select("quiet_start_hour, quiet_end_hour")
+          .eq("user_id", auth.user.id)
+          .maybeSingle();
+        if (preferencesError) throw preferencesError;
+        const quietStartHour = preferences?.quiet_start_hour ?? 21;
+        const quietEndHour = preferences?.quiet_end_hour ?? 7;
+        if (isQuietHour(Number(body.reminder_hour), quietStartHour, quietEndHour)) {
+          return NextResponse.json({ ok: false, error: "reminder_in_quiet_hours" }, { status: 400 });
+        }
       }
       changes.reminder_preference = body.reminder_preference;
       changes.reminder_timing = body.reminder_timing;
