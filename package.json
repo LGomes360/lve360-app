@@ -37,6 +37,7 @@
     "qa:pr91": "node src/_tests_/pr91BlueprintWorkspace.assert.mjs",
     "qa:pr93": "node src/_tests_/pr93BlueprintNavigation.assert.mjs",
     "qa:pr94": "node src/_tests_/pr94TodayMomentum.assert.mjs",
+    "qa:pr95": "node src/_tests_/pr95WeeklyPracticeControl.assert.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
     "qa:all": "npm run qa:env && npm run qa:build"
