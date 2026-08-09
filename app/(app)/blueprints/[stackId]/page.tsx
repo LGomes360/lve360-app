@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 
 import { requireTier } from "@/app/_auth/requireTier";
-import { buildBlueprintActionCandidates } from "@/lib/blueprintActions";
 import { parseBlueprintReport } from "@/lib/blueprintReport";
 import {
   blueprintMarkdownFromStack,
@@ -101,7 +100,6 @@ export default async function BlueprintPage({ params }: PageProps) {
       sections={Object.entries(report.sections)
         .filter(([, body]) => Boolean(body.trim()))
         .map(([name, body]) => ({ name, body }))}
-      actions={buildBlueprintActionCandidates(report)}
       recommendations={recommendations}
       initialSupplements={supplements}
       hasMemberOverride={hasOverride}
