@@ -121,6 +121,9 @@ export default function BlueprintWorkspaceClient({
     setMessage(null);
     setError(null);
     trackProductEvent({ event_name: "blueprint_input_change_started", source: "blueprints" });
+    window.setTimeout(() => {
+      document.getElementById("current-supplements")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
   }
 
   function cancelEditing() {
@@ -409,7 +412,7 @@ export default function BlueprintWorkspaceClient({
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <main className="min-w-0 space-y-6">
-          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <section id="current-supplements" className="scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Current health context</p>
@@ -495,7 +498,7 @@ export default function BlueprintWorkspaceClient({
             <p className="mt-2 text-sm leading-6 text-slate-600">These sections preserve the complete report in a readable reference format.</p>
           </div>
 
-          {sections.map((section, index) => (
+          {sections.filter((section) => section.name !== "This Week Try").map((section, index) => (
             <ReportSection
               key={section.name}
               sectionNumber={index + 1}
@@ -875,7 +878,7 @@ function ReportSection({
             <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" /> Safety notes reviewed for this Blueprint
           </p>
         ) : null}
-        <BlueprintMarkdown body={body} />
+        <BlueprintMarkdown name={name} body={body} />
         {isCurrent ? (
           <button type="button" onClick={onEditSupplements} className="mt-5 inline-flex min-h-11 items-center text-sm font-bold text-[#087F72] hover:underline">
             <Pencil className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -903,7 +906,8 @@ function ReportSection({
   );
 }
 
-function BlueprintMarkdown({ body }: { body: string }) {
+function BlueprintMarkdown({ name, body }: { name: string; body: string }) {
+  const formattedBody = formatReportBody(name, body);
   return (
     <div className="report-prose prose prose-slate max-w-none prose-headings:text-[#041B2D] prose-p:leading-7 prose-li:my-1">
       <ReactMarkdown
@@ -921,12 +925,50 @@ function BlueprintMarkdown({ body }: { body: string }) {
           ul: ({ children }) => <ul className="my-4 space-y-2 pl-5 marker:text-[#087F72]">{children}</ul>,
           ol: ({ children }) => <ol className="my-4 space-y-2 pl-5 marker:font-bold marker:text-[#087F72]">{children}</ol>,
           blockquote: ({ children }) => <blockquote className="my-4 rounded-r-xl border-l-4 border-[#9DCFC3] bg-[#F4FAF8] px-4 py-3 not-italic">{children}</blockquote>,
+          a: ({ href, children }) => {
+            const external = Boolean(href && /^https?:\/\//i.test(href));
+            return (
+              <a
+                href={href}
+                target={external ? "_blank" : undefined}
+                rel={external ? "noopener noreferrer" : undefined}
+                className="font-semibold text-[#087F72] underline decoration-[#9DCFC3] underline-offset-2 hover:decoration-[#087F72]"
+              >
+                {children}
+                {external ? <span className="sr-only"> (opens in a new tab)</span> : null}
+              </a>
+            );
+          },
         }}
       >
-        {body}
+        {formattedBody}
       </ReactMarkdown>
     </div>
   );
+}
+
+const listFormattedSections = new Set([
+  "Contraindications & Med Interactions",
+  "Dosing & Notes",
+  "Evidence & References",
+  "Shopping Links",
+  "Follow-up Plan",
+  "Lifestyle Foundations",
+  "Longevity Levers",
+]);
+
+function formatReportBody(sectionName: string, body: string): string {
+  const lines = body.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) return body;
+  if (!listFormattedSections.has(sectionName)) return body;
+
+  return lines.map((line) => {
+    if (/^#{1,6}\s|^[-*]\s|^\d+\.\s|^\|/.test(line)) return line;
+    if (sectionName === "Shopping Links" && /^Affiliate disclosure:/i.test(line)) return line;
+    if (sectionName === "Dosing & Notes" && (/^Starting points/i.test(line) || /^Keep prescribed/i.test(line))) return line;
+    if (/^(Current Stack Notes|How to Measure Progress)$/i.test(line)) return `### ${line}`;
+    return `- ${line}`;
+  }).join("\n");
 }
 
 function reportSectionCategory(name: string): string {
