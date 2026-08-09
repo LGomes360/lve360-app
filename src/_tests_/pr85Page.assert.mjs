@@ -25,7 +25,7 @@ assert.match(blueprintPage, /getStackRecommendationDecisions/);
 assert.match(blueprintClient, /id="recommendation-decisions"/);
 assert.match(blueprintClient, /Possible overlap/);
 assert.match(blueprintClient, /Add to Routine/);
-assert.match(today, /#recommendation-decisions/);
+assert.match(today, /"recommendation-decisions" : "recommendation-report"/, "Today must link to the live actions when present and the dated report otherwise.");
 assert.match(decisionApi, /isMemberRecommendationDecision/);
 
 console.log("PR85 page and persistence assertions passed.");

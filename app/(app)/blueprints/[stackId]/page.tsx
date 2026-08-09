@@ -67,6 +67,7 @@ export default async function BlueprintPage({ params }: PageProps) {
     stack.id,
     regimen,
     extractBlueprintGoalNames(report.sections.Goals),
+    report.canonicalMarkdown,
   );
   const supplementRegimen = regimen.filter((item) =>
     item.item_kind === "supplement" || item.item_kind === "endocrine_active_supplement"
