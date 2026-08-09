@@ -7,7 +7,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
-  ChevronDown,
+  ClipboardCheck,
   Clock3,
   FileDown,
   HeartPulse,
@@ -301,6 +301,11 @@ export default function BlueprintWorkspaceClient({
   }
 
   const activeCount = supplements.filter((item) => item.active).length;
+  const openRecommendationCount = recommendationItems.filter((item) =>
+    item.decision.status === "review" || item.decision.status === "clinician_review"
+  ).length;
+  const hasSafetyNotes = stack.safetyStatus !== "safe";
+  const recommendationTarget = recommendationItems.length ? "#recommendation-decisions" : "#recommendation-report";
 
   return (
     <div className="mx-auto max-w-6xl pb-16">
@@ -379,6 +384,28 @@ export default function BlueprintWorkspaceClient({
 
       {message ? <p role="status" className="mt-5 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900">{message}</p> : null}
       {error ? <p role="alert" className="mt-5 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{error}</p> : null}
+
+      <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6" aria-labelledby="blueprint-next-steps-title">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Your decision map</p>
+        <h2 id="blueprint-next-steps-title" className="mt-1 text-2xl font-bold text-[#041B2D]">What needs your attention</h2>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+          Start with decisions and safety. Use the full report below when you want the supporting detail.
+        </p>
+        <div className="mt-5 grid gap-3 md:grid-cols-3">
+          <a href={recommendationTarget} className="rounded-xl border border-slate-200 p-4 transition hover:border-[#9DCFC3] hover:bg-[#F4FAF8]">
+            <span className="flex items-center gap-2 font-bold text-[#041B2D]"><ClipboardCheck className="h-5 w-5 text-[#087F72]" aria-hidden="true" />Ideas to decide</span>
+            <span className="mt-2 block text-sm leading-6 text-slate-600">{openRecommendationCount} {openRecommendationCount === 1 ? "idea needs" : "ideas need"} a keep, discuss, defer, or dismiss decision.</span>
+          </a>
+          <a href="#safety-notes" className="rounded-xl border border-slate-200 p-4 transition hover:border-amber-300 hover:bg-amber-50">
+            <span className="flex items-center gap-2 font-bold text-[#041B2D]"><AlertTriangle className="h-5 w-5 text-amber-700" aria-hidden="true" />Safety review</span>
+            <span className="mt-2 block text-sm leading-6 text-slate-600">{!hasSafetyNotes ? "No material concern identified." : safetyAcknowledged ? "Reviewed for this Blueprint." : "Open the safety notes and acknowledge them after review."}</span>
+          </a>
+          <Link href="/routine" className="rounded-xl border border-slate-200 p-4 transition hover:border-[#9DCFC3] hover:bg-[#F4FAF8]">
+            <span className="flex items-center gap-2 font-bold text-[#041B2D]"><CheckCircle2 className="h-5 w-5 text-[#087F72]" aria-hidden="true" />Put it into practice</span>
+            <span className="mt-2 block text-sm leading-6 text-slate-600">Open Routine to schedule and check off supplements, medications, and hormones.</span>
+          </Link>
+        </div>
+      </section>
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <main className="min-w-0 space-y-6">
@@ -462,12 +489,17 @@ export default function BlueprintWorkspaceClient({
             onAdopt={adoptRecommendation}
           />
 
-          {sections.map((section, index) => (
+          <div className="pt-2">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Supporting report</p>
+            <h2 className="mt-1 text-2xl font-bold text-[#041B2D]">Why your Blueprint says this</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">These sections preserve the complete report in a readable reference format.</p>
+          </div>
+
+          {sections.map((section) => (
             <ReportSection
               key={section.name}
               name={section.name}
               body={section.body}
-              defaultOpen={index < 2 || section.name.includes("Contraindications")}
               stale={stale}
               onEditSupplements={beginEditing}
               onRefresh={refreshBlueprint}
@@ -756,7 +788,6 @@ function SupplementList({ supplements }: { supplements: MemberSupplement[] }) {
 function ReportSection({
   name,
   body,
-  defaultOpen,
   stale,
   onEditSupplements,
   onRefresh,
@@ -768,7 +799,6 @@ function ReportSection({
 }: {
   name: string;
   body: string;
-  defaultOpen: boolean;
   stale: boolean;
   onEditSupplements: () => void;
   onRefresh: () => void;
@@ -781,13 +811,18 @@ function ReportSection({
   const isSafety = name.includes("Contraindications");
   const isCurrent = name === "Current Stack" || name === "Dosing & Notes";
   const isRecommendations = name === "Your Blueprint Recommendations";
+  const sectionId = isSafety
+    ? "safety-notes"
+    : isRecommendations
+      ? "recommendation-report"
+      : `report-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}`;
   return (
-    <details id={isSafety ? "safety-notes" : isRecommendations ? "recommendation-report" : undefined} open={defaultOpen} className="group scroll-mt-24 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <summary className={`flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 font-bold marker:hidden ${isSafety ? "bg-amber-50 text-amber-950" : "bg-white text-[#041B2D]"}`}>
-        {reportSectionTitle(name)}
-        <ChevronDown className="h-5 w-5 shrink-0 transition group-open:rotate-180" aria-hidden="true" />
-      </summary>
-      <div className="border-t border-slate-100 p-5 sm:p-6">
+    <section id={sectionId} className={`scroll-mt-24 overflow-hidden rounded-2xl border bg-white shadow-sm ${isSafety ? "border-amber-200" : "border-slate-200"}`} aria-labelledby={`${sectionId}-title`}>
+      <div className={`border-b px-5 py-4 ${isSafety ? "border-amber-200 bg-amber-50" : "border-slate-100 bg-slate-50/70"}`}>
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{isSafety ? "Review and acknowledge" : isRecommendations ? "Report snapshot" : "Blueprint reference"}</p>
+        <h3 id={`${sectionId}-title`} className={`mt-1 text-xl font-bold ${isSafety ? "text-amber-950" : "text-[#041B2D]"}`}>{reportSectionTitle(name)}</h3>
+      </div>
+      <div className="p-5 sm:p-6">
         {isSafety && stale ? (
           <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
             These cautions are based on an earlier input snapshot. Refresh before relying on them after a change.
@@ -835,7 +870,7 @@ function ReportSection({
           </Link>
         ) : null}
       </div>
-    </details>
+    </section>
   );
 }
 
