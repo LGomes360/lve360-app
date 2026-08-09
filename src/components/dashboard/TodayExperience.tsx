@@ -149,7 +149,8 @@ export default function TodayExperience({
 
   const target = experiment.frequency_per_week ?? 1;
   const recordingPastDate = !!initialCompletionDate && initialCompletionDate !== toLocalDate(new Date());
-  const targetMet = completedCount >= target;
+  const progressPercent = Math.min(100, Math.round((completedCount / target) * 100));
+  const momentumMessage = weeklyMomentumMessage(completedCount, target);
   const reviewDue = !!localDate && isReviewDue(experiment.week_start, localDate);
   const weekEnded = !!localDate && localDate > reviewDueDate(experiment.week_start);
   const weekNotStarted = !!localDate && localDate < experiment.week_start;
@@ -270,7 +271,10 @@ export default function TodayExperience({
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">This week</p>
               <p className="mt-1 text-lg font-bold text-[#041B2D]">{completedCount} of {target} planned reps</p>
             </div>
-            <p className="text-sm text-slate-600">{targetMet ? "Weekly target met. Extra reps are optional." : "Small repetitions compound."}</p>
+            <p className="text-sm font-medium text-slate-600">{momentumMessage}</p>
+          </div>
+          <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label="Weekly practice momentum" aria-valuemin={0} aria-valuemax={target} aria-valuenow={Math.min(completedCount, target)}>
+            <div className="h-full rounded-full bg-gradient-to-r from-[#08A88A] to-[#58CDB8] transition-[width] duration-500" style={{ width: `${progressPercent}%` }} />
           </div>
           <div className="mt-4 grid grid-cols-7 gap-2" aria-label={`${completedCount} weekly completions`}>
             {weekDays.map((day) => {
@@ -291,6 +295,14 @@ export default function TodayExperience({
       </div>
     </section>
   );
+}
+
+function weeklyMomentumMessage(completed: number, target: number): string {
+  if (completed >= target) return "Weekly promise kept. Anything extra is a bonus.";
+  if (completed === 0) return "Your first small win starts the momentum.";
+  if (completed === 1) return "Momentum started. Repeat when your cue appears.";
+  const remaining = target - completed;
+  return `${remaining} ${remaining === 1 ? "repetition" : "repetitions"} left to keep this week's promise.`;
 }
 
 function CurrentBlueprintPanel({

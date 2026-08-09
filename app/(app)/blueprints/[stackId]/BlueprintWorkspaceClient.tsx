@@ -22,7 +22,6 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import type { BlueprintActionCandidate } from "@/lib/blueprintActions";
 import type { MemberSupplement } from "@/lib/blueprintWorkspace";
 import { doseIntegrityIssue } from "@/lib/doseIntegrity";
 import { trackProductEvent } from "@/lib/productAnalyticsClient";
@@ -64,7 +63,6 @@ type RecommendationSummary = {
 type Props = {
   stack: StackSummary;
   sections: Array<{ name: string; body: string }>;
-  actions: BlueprintActionCandidate[];
   recommendations: RecommendationSummary[];
   initialSupplements: MemberSupplement[];
   hasMemberOverride: boolean;
@@ -77,7 +75,6 @@ type Props = {
 export default function BlueprintWorkspaceClient({
   stack,
   sections,
-  actions,
   recommendations,
   initialSupplements,
   hasMemberOverride,
@@ -96,7 +93,6 @@ export default function BlueprintWorkspaceClient({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshIssue, setRefreshIssue] = useState<string | null>(null);
-  const [handoffId, setHandoffId] = useState<string | null>(null);
   const [safetyAcknowledged, setSafetyAcknowledged] = useState(Boolean(stack.safetyAcknowledgedAt));
   const [acknowledgingSafety, setAcknowledgingSafety] = useState(false);
   const [recommendationItems, setRecommendationItems] = useState(recommendations);
@@ -199,27 +195,6 @@ export default function BlueprintWorkspaceClient({
           : "We could not create an updated version right now. Your saved changes and current Blueprint are still available. This is a service issue, so there is nothing you need to correct. Please try again in a few minutes."
       );
       setRefreshing(false);
-    }
-  }
-
-  async function startWeeklyPractice(actionId: string) {
-    setHandoffId(actionId);
-    setError(null);
-    try {
-      const response = await fetch("/api/blueprint-action", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stack_id: stack.id, action_id: actionId }),
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.ok) {
-        throw new Error("We could not start that practice. Please try again.");
-      }
-      trackProductEvent({ event_name: "blueprint_action_selected", source: "blueprints" });
-      window.location.assign("/onboarding");
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "We could not start that practice.");
-      setHandoffId(null);
     }
   }
 
@@ -453,37 +428,6 @@ export default function BlueprintWorkspaceClient({
               <SupplementList supplements={supplements} />
             )}
           </section>
-
-          {actions.length > 0 ? (
-            <section className="rounded-2xl border border-[#9DCFC3] bg-gradient-to-r from-[#EFF5FA] to-[#E6F7F3] p-6 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#122945]">Turn insight into practice</p>
-              <h2 className="mt-1 text-2xl font-bold text-[#041B2D]">Choose one focus for this week</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Lifestyle actions can enter your weekly practice. Supplement or medication changes remain review-only.
-              </p>
-              <ol className="mt-5 grid gap-3 sm:grid-cols-2">
-                {actions.map((action, index) => (
-                  <li key={action.id} className="flex flex-col rounded-xl bg-white p-4 shadow-sm">
-                    <p className="text-sm leading-6 text-slate-800"><strong>{index + 1}.</strong> {action.label}</p>
-                    {action.kind === "lifestyle" ? (
-                      <button
-                        type="button"
-                        onClick={() => startWeeklyPractice(action.id)}
-                        disabled={handoffId !== null}
-                        className="mt-auto pt-4 text-left text-sm font-bold text-[#087F72] hover:underline disabled:opacity-50"
-                      >
-                        {handoffId === action.id ? "Saving..." : "Start this weekly practice"}
-                      </button>
-                    ) : (
-                      <a href="#recommendation-decisions" className="mt-auto pt-4 text-sm font-bold text-amber-800 underline decoration-amber-300 underline-offset-2 hover:decoration-amber-700">
-                        Review why this appeared
-                      </a>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            </section>
-          ) : null}
 
           <RecommendationDecisionPanel
             items={recommendationItems}
