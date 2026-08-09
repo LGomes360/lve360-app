@@ -495,9 +495,10 @@ export default function BlueprintWorkspaceClient({
             <p className="mt-2 text-sm leading-6 text-slate-600">These sections preserve the complete report in a readable reference format.</p>
           </div>
 
-          {sections.map((section) => (
+          {sections.map((section, index) => (
             <ReportSection
               key={section.name}
+              sectionNumber={index + 1}
               name={section.name}
               body={section.body}
               stale={stale}
@@ -519,7 +520,7 @@ export default function BlueprintWorkspaceClient({
               <h2 className="font-bold text-[#041B2D]">Version history</h2>
             </div>
             <ul className="mt-3 divide-y divide-slate-100">
-              {history.map((version, index) => (
+              {history.slice(0, 6).map((version, index) => (
                 <li key={version.id} className="py-3">
                   {version.id === stack.id ? (
                     <div>
@@ -541,6 +542,11 @@ export default function BlueprintWorkspaceClient({
                 </li>
               ))}
             </ul>
+            {history.length > 6 ? (
+              <Link href="/blueprints" className="mt-3 inline-flex text-sm font-bold text-[#087F72] hover:underline">
+                View all {history.length} versions
+              </Link>
+            ) : null}
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-5 text-sm leading-6 text-slate-600 shadow-sm">
@@ -765,27 +771,49 @@ function SupplementList({ supplements }: { supplements: MemberSupplement[] }) {
     return <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">No supplements are currently saved.</p>;
   }
   return (
-    <ul className="mt-5 divide-y divide-slate-100">
-      {supplements.map((item) => {
-        const doseIssue = doseIntegrityIssue(item.name, item.dose);
-        return <li key={item.id} className="flex flex-col gap-1 py-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className={`font-semibold ${item.active ? "text-[#041B2D]" : "text-slate-500 line-through"}`}>{item.name}</p>
-            <p className="text-sm text-slate-500">
-              {[item.brand, item.dose, item.timing].filter(Boolean).join(" · ") || "Details not provided"}
-            </p>
-            {doseIssue ? <p className="mt-1 text-sm font-semibold text-amber-800">Check amount and unit in Routine.</p> : null}
-          </div>
-          <span className={`w-fit rounded-full px-2 py-1 text-xs font-bold ${item.active ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>
-            {item.active ? "Current" : "Stopped"}
-          </span>
-        </li>;
-      })}
-    </ul>
+    <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[42rem] border-collapse text-left text-sm">
+          <caption className="sr-only">Current supplements, amounts, timing, and status</caption>
+          <thead className="bg-slate-50 text-xs uppercase tracking-[0.08em] text-slate-600">
+            <tr>
+              <th scope="col" className="px-4 py-3 font-bold">Supplement</th>
+              <th scope="col" className="px-4 py-3 font-bold">Amount</th>
+              <th scope="col" className="px-4 py-3 font-bold">Timing</th>
+              <th scope="col" className="px-4 py-3 text-right font-bold">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 bg-white">
+            {supplements.map((item) => {
+              const doseIssue = doseIntegrityIssue(item.name, item.dose);
+              return (
+                <tr key={item.id} className={item.active ? "" : "bg-slate-50 text-slate-500"}>
+                  <th scope="row" className={`px-4 py-3 align-top font-semibold ${item.active ? "text-[#041B2D]" : "line-through"}`}>
+                    {item.name}
+                    {item.brand ? <span className="mt-0.5 block text-xs font-normal text-slate-500">{item.brand}</span> : null}
+                  </th>
+                  <td className="px-4 py-3 align-top text-slate-700">
+                    {item.dose || "Not recorded"}
+                    {doseIssue ? <span className="mt-1 block text-xs font-bold text-amber-800">Check amount and unit</span> : null}
+                  </td>
+                  <td className="px-4 py-3 align-top text-slate-700">{item.timing || "Not scheduled"}</td>
+                  <td className="px-4 py-3 text-right align-top">
+                    <span className={`inline-flex rounded-full px-2 py-1 text-xs font-bold ${item.active ? "bg-emerald-50 text-emerald-800" : "bg-slate-200 text-slate-600"}`}>
+                      {item.active ? "Current" : "Stopped"}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
 function ReportSection({
+  sectionNumber,
   name,
   body,
   stale,
@@ -797,6 +825,7 @@ function ReportSection({
   onAcknowledgeSafety,
   safetyNeedsReview,
 }: {
+  sectionNumber: number;
   name: string;
   body: string;
   stale: boolean;
@@ -819,7 +848,9 @@ function ReportSection({
   return (
     <section id={sectionId} className={`scroll-mt-24 overflow-hidden rounded-2xl border bg-white shadow-sm ${isSafety ? "border-amber-200" : "border-slate-200"}`} aria-labelledby={`${sectionId}-title`}>
       <div className={`border-b px-5 py-4 ${isSafety ? "border-amber-200 bg-amber-50" : "border-slate-100 bg-slate-50/70"}`}>
-        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{isSafety ? "Review and acknowledge" : isRecommendations ? "Report snapshot" : "Blueprint reference"}</p>
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+          {String(sectionNumber).padStart(2, "0")} / {reportSectionCategory(name)}
+        </p>
         <h3 id={`${sectionId}-title`} className={`mt-1 text-xl font-bold ${isSafety ? "text-amber-950" : "text-[#041B2D]"}`}>{reportSectionTitle(name)}</h3>
       </div>
       <div className="p-5 sm:p-6">
@@ -844,9 +875,7 @@ function ReportSection({
             <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" /> Safety notes reviewed for this Blueprint
           </p>
         ) : null}
-        <div className="report-prose prose prose-slate max-w-none">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
-        </div>
+        <BlueprintMarkdown body={body} />
         {isCurrent ? (
           <button type="button" onClick={onEditSupplements} className="mt-5 inline-flex min-h-11 items-center text-sm font-bold text-[#087F72] hover:underline">
             <Pencil className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -872,6 +901,42 @@ function ReportSection({
       </div>
     </section>
   );
+}
+
+function BlueprintMarkdown({ body }: { body: string }) {
+  return (
+    <div className="report-prose prose prose-slate max-w-none prose-headings:text-[#041B2D] prose-p:leading-7 prose-li:my-1">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          table: ({ children }) => (
+            <div className="my-5 overflow-x-auto rounded-xl border border-slate-200">
+              <table className="m-0 w-full min-w-[38rem] border-collapse text-left text-sm">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => <thead className="bg-[#EFF5FA] text-[#041B2D]">{children}</thead>,
+          th: ({ children }) => <th className="border-b border-slate-200 px-3 py-3 align-top font-bold">{children}</th>,
+          td: ({ children }) => <td className="border-b border-slate-100 px-3 py-3 align-top leading-6">{children}</td>,
+          tr: ({ children }) => <tr className="even:bg-slate-50/70">{children}</tr>,
+          ul: ({ children }) => <ul className="my-4 space-y-2 pl-5 marker:text-[#087F72]">{children}</ul>,
+          ol: ({ children }) => <ol className="my-4 space-y-2 pl-5 marker:font-bold marker:text-[#087F72]">{children}</ol>,
+          blockquote: ({ children }) => <blockquote className="my-4 rounded-r-xl border-l-4 border-[#9DCFC3] bg-[#F4FAF8] px-4 py-3 not-italic">{children}</blockquote>,
+        }}
+      >
+        {body}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function reportSectionCategory(name: string): string {
+  if (name.includes("Contraindications")) return "Safety review";
+  if (name === "Current Stack" || name === "Dosing & Notes") return "Your regimen";
+  if (name.includes("Recommendations") || name === "Shopping Links") return "Decisions";
+  if (name === "Evidence & References") return "Evidence";
+  if (name === "Follow-up Plan" || name === "This Week Try") return "Next steps";
+  if (name === "Lifestyle Foundations" || name === "Longevity Levers") return "Lifestyle";
+  return "Your foundation";
 }
 
 function SafetyBadge({ status, stale, acknowledged }: { status: StackSummary["safetyStatus"]; stale: boolean; acknowledged: boolean }) {
