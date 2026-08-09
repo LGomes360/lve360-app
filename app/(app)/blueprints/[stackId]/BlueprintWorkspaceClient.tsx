@@ -185,12 +185,15 @@ export default function BlueprintWorkspaceClient({
       });
       const data = await response.json().catch(() => null);
       if (!response.ok || !data?.ok || !data?.stack_id) {
-        throw new Error("refresh_unavailable");
+        throw new Error(data?.error ?? "refresh_unavailable");
       }
       window.location.assign(`/blueprints/${encodeURIComponent(data.stack_id)}?refreshed=1`);
-    } catch {
+    } catch (refreshError) {
+      const validationFailed = refreshError instanceof Error && refreshError.message === "blueprint_refresh_validation_failed";
       setRefreshIssue(
-        "We could not create an updated version right now. Your saved changes and current Blueprint are still available. This is a service issue, so there is nothing you need to correct. Please try again in a few minutes."
+        validationFailed
+          ? "We protected your saved health information because the updated report did not match it exactly. Your current Blueprint is unchanged. This is an internal report issue, not something you need to correct."
+          : "We could not create an updated version right now. Your saved changes and current Blueprint are still available. This is a service issue, so there is nothing you need to correct. Please try again in a few minutes."
       );
       setRefreshing(false);
     }
@@ -362,7 +365,7 @@ export default function BlueprintWorkspaceClient({
                 className="mt-4 inline-flex min-h-11 items-center rounded-xl bg-amber-800 px-5 py-3 text-sm font-bold text-white hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />}
-                {refreshing ? "Refreshing Blueprint..." : refreshIssue ? "Try Blueprint refresh again" : "Refresh Blueprint and safety review"}
+                {refreshing ? "Building your updated Blueprint (usually under a minute)..." : refreshIssue ? "Try Blueprint refresh again" : "Refresh Blueprint and safety review"}
               </button>
             </div>
           </div>

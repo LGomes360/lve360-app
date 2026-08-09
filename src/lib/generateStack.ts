@@ -37,7 +37,7 @@ import {
 import { blueprintInputSnapshotHash } from "@/lib/blueprintWorkspace";
 import { ensureCurrentRegimen } from "@/lib/currentRegimen";
 import { extractReportRecommendationProposals } from "@/lib/reportRecommendationProposals";
-import { healthItemIdentityKey, validateGeneratedHealthItemIntegrity } from "@/lib/healthItemIdentity";
+import { canonicalHealthItemDisplayName, healthItemIdentityKey, validateGeneratedHealthItemIntegrity } from "@/lib/healthItemIdentity";
 import {
   BLUEPRINT_MIN_RECOMMENDATIONS,
   BLUEPRINT_TARGET_RECOMMENDATIONS,
@@ -1060,7 +1060,7 @@ function normalizeSupplementName(name: string): string {
   if (collapsed.includes("vitamin b complex") || collapsed.includes("b complex") || collapsed.includes("b-vitamins")) return "B-Vitamins";
   if (collapsed.startsWith("omega")) return "Omega-3";
   if (collapsed.startsWith("vitamin d")) return "Vitamin D";
-  if (collapsed.startsWith("mag")) return "Magnesium";
+  if (collapsed.startsWith("mag")) return canonicalHealthItemDisplayName(name);
   if (collapsed.startsWith("ashwa")) return "Ashwagandha";
   if (collapsed.startsWith("bacopa")) return "Bacopa Monnieri";
   if (collapsed.startsWith("coq")) return "CoQ10";
@@ -2447,8 +2447,11 @@ const safetyInput = {
     const persistedItem: StackItem = {
       ...item,
       name: ledgerItem?.name ?? item.name,
-      dose: ledgerItem?.dose ?? item.dose ?? null,
-      timing: ledgerItem?.timing ?? item.timing ?? null,
+      // The member's current regimen is authoritative, including an
+      // intentionally blank dose or timing. Never replace missing member data
+      // with model-generated instructions.
+      dose: ledgerItem ? (ledgerItem.dose ?? null) : (item.dose ?? null),
+      timing: ledgerItem ? (ledgerItem.timing ?? null) : (item.timing ?? null),
       is_current: Boolean(ledgerItem) || item.is_current,
       notes: ledgerItem
         ? `Current ${currentStackKindLabel(ledgerItem.kind).toLowerCase()} reported in intake.${ledgerItem.purpose ? ` Purpose: ${ledgerItem.purpose}` : ""}`

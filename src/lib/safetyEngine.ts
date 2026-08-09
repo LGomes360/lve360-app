@@ -1,3 +1,5 @@
+import { healthItemIdentityKey } from "./healthItemIdentity.ts";
+
 export type SafetySeverity = "info" | "warning" | "danger";
 export type SafetyDecision = "clear" | "review" | "blocked";
 export type SafetySource = "interactions" | "rules" | "intake" | "system";
@@ -237,7 +239,16 @@ export function evaluateSafetyCandidates(
   const hasUpcomingProcedure = contextMatches([...procedures, ...conditions], /\b(?:surgery|procedure|operation|colonoscopy|endoscopy|dental\s+extraction)\b/i);
   const unknownMedications = medications.filter((medication) => !RECOGNIZED_MED_RE.test(medication));
 
-  const candidateResults = candidates.map((candidate): SafetyCandidateResult => {
+  const candidatesByIdentity = new Map<string, SafetyCandidate>();
+  for (const candidate of candidates) {
+    const key = healthItemIdentityKey(candidate.name);
+    if (!key) continue;
+    const existing = candidatesByIdentity.get(key);
+    if (!existing || candidate.is_current === true) candidatesByIdentity.set(key, candidate);
+  }
+  const uniqueCandidates = Array.from(candidatesByIdentity.values());
+
+  const candidateResults = uniqueCandidates.map((candidate): SafetyCandidateResult => {
     const findings: SafetyFinding[] = [];
     const match = mergedInteraction(candidate.name, sources.interactions);
 
@@ -248,7 +259,9 @@ export function evaluateSafetyCandidates(
     }
 
     if (!match) {
-      addFinding(findings, finding("interaction_record_missing", candidate.name, `No structured interaction record matched ${candidate.name}. A clinician or pharmacist should review it before a new start.`, "warning", "system"));
+      if (candidate.is_current !== true) {
+        addFinding(findings, finding("interaction_record_missing", candidate.name, `No structured interaction record matched ${candidate.name}. A clinician or pharmacist should review it before a new start.`, "warning", "system"));
+      }
     } else {
       if (hasThyroidMedication && match.binds_thyroid_meds) {
         addFinding(findings, finding("thyroid_spacing", candidate.name, `Separate ${candidate.name} from thyroid medication by at least ${match.sep_hours_thyroid ?? 4} hours, or follow the pharmacist's timing instructions.`, "warning", "interactions"));
@@ -318,7 +331,7 @@ export function evaluateSafetyCandidates(
       }
     }
 
-    if (unknownMedications.length) {
+    if (unknownMedications.length && candidate.is_current !== true) {
       addFinding(findings, finding("unknown_medication", candidate.name, `The interaction library did not classify ${unknownMedications.join(", ")}. Proposed supplements require pharmacist or clinician review before use.`, "warning", "system"));
     }
 
