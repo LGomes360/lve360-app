@@ -3,7 +3,7 @@
 // Central, single-source parser for converting the Markdown report into
 // normalized stack items used by the DB/UI.
 
-import { normalizeSupplementName } from "@/lib/evidence";
+import { canonicalHealthItemDisplayName } from "@/lib/healthItemIdentity";
 
 export type ParsedItem = {
   name: string;
@@ -118,7 +118,7 @@ export function parseMarkdownToItems(md: string): ParsedItem[] {
       const cleaned = cleanName(rawName);
       if (!cleaned || SEE_DN.test(cleaned)) return;
 
-      const canonical = normalizeSupplementName(cleaned);
+      const canonical = canonicalHealthItemDisplayName(cleaned);
       const rationale = whyIndex >= 0 && cols[whyIndex] ? String(cols[whyIndex]).trim() : null;
       const status = statusIndex >= 0 && cols[statusIndex] ? String(cols[statusIndex]).trim() : null;
 
@@ -152,7 +152,7 @@ export function parseMarkdownToItems(md: string): ParsedItem[] {
       const cleaned = cleanName(raw);
       if (!cleaned || SEE_DN.test(cleaned)) return;
 
-      const canonical = normalizeSupplementName(cleaned);
+      const canonical = canonicalHealthItemDisplayName(cleaned);
       const key = canonical.toLowerCase();
       const purpose = purposeIndex >= 0 ? cols[purposeIndex] || null : null;
       const dose = doseIndex >= 0 ? cols[doseIndex] || null : null;
@@ -205,7 +205,7 @@ export function parseMarkdownToItems(md: string): ParsedItem[] {
       const cleaned = cleanName(nameRaw);
       if (!cleaned || SEE_DN.test(cleaned)) continue;
 
-      const canonical = normalizeSupplementName(cleaned);
+      const canonical = canonicalHealthItemDisplayName(cleaned);
       const firstSentence = (remainder.split(/[.!?]/)[0] || remainder).trim();
       const doseCandidate = firstSentence.replace(/\s+/g, " ").replace(/^[–—-]\s*/, "").trim();
 

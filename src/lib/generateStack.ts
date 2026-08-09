@@ -37,6 +37,7 @@ import {
 import { blueprintInputSnapshotHash } from "@/lib/blueprintWorkspace";
 import { ensureCurrentRegimen } from "@/lib/currentRegimen";
 import { extractReportRecommendationProposals } from "@/lib/reportRecommendationProposals";
+import { healthItemIdentityKey, validateGeneratedHealthItemIntegrity } from "@/lib/healthItemIdentity";
 import {
   BLUEPRINT_MIN_RECOMMENDATIONS,
   BLUEPRINT_TARGET_RECOMMENDATIONS,
@@ -481,9 +482,9 @@ function sanitizeBlueprintTable(
 ): string {
   const rows = blueprintTable.split(/\r?\n/).filter((line) => /^\s*\|\s*\d+\s*\|/.test(line));
   const allowed = new Set(allowedNames.map((name) => name.toLowerCase()));
-  const currentSupplements = new Set(currentLedger
-    .filter((item) => item.kind === "supplement")
-    .map((item) => normalizeSupplementName(item.name).toLowerCase()));
+  const currentSupplementsByIdentity = new Map(currentLedger
+    .filter((item) => item.kind === "supplement" || item.kind === "endocrine_active_supplement")
+    .map((item) => [healthItemIdentityKey(item.name), item] as const));
   const parsedItems = rows.flatMap((row) => {
     const cells = row.split("|").slice(1, -1).map((cell) => cell.trim());
     const name = validItemName(cells[1]);
@@ -501,17 +502,21 @@ function sanitizeBlueprintTable(
   }
   const candidateNames = new Set<string>();
   const deduped = candidates.filter((item) => {
-    const key = normalizeSupplementName(item.name).toLowerCase();
+    const key = healthItemIdentityKey(item.name);
     if (candidateNames.has(key)) return false;
     candidateNames.add(key);
     return true;
   });
-  const classified = deduped.map((item) => ({
-    ...item,
-    status: currentSupplements.has(normalizeSupplementName(item.name).toLowerCase())
+  const classified = deduped.map((item) => {
+    const current = currentSupplementsByIdentity.get(healthItemIdentityKey(item.name));
+    return {
+      ...item,
+      name: current?.name ?? item.name,
+      status: current
         ? "Current - optimize" as const
         : "New - consider" as const,
-  }));
+    };
+  });
   const currentPool = classified.filter((item) => item.status === "Current - optimize").slice(0, 5);
   const clinicianPool: typeof classified = [];
   const newPool = classified.filter((item) => item.status === "New - consider");
@@ -521,8 +526,8 @@ function sanitizeBlueprintTable(
   selected.push(...newPool.slice(0, requiredNew));
   selected.push(...clinicianPool);
   if (selected.length < minRows) {
-    const selectedNames = new Set(selected.map((item) => normalizeSupplementName(item.name).toLowerCase()));
-    selected.push(...newPool.filter((item) => !selectedNames.has(normalizeSupplementName(item.name).toLowerCase())).slice(0, minRows - selected.length));
+    const selectedNames = new Set(selected.map((item) => healthItemIdentityKey(item.name)));
+    selected.push(...newPool.filter((item) => !selectedNames.has(healthItemIdentityKey(item.name))).slice(0, minRows - selected.length));
   }
   const items = selected.slice(0, minRows);
   const header = "| Rank | Supplement | Status | Why it Matters |\n| --- | --- | --- | --- |";
@@ -2344,7 +2349,7 @@ const safetyInput = {
   is_premium: mode === "premium",
 };
 
-  const itemKey = (name: string) => normalizeSupplementName(name).toLowerCase();
+  const itemKey = (name: string) => healthItemIdentityKey(name);
   const currentKindByName = new Map(currentStackLedger.map((item) => [itemKey(item.name), item.kind]));
   const safetyCandidates = filteredItems.filter((item) => {
     const currentKind = currentKindByName.get(itemKey(item.name));
@@ -2420,7 +2425,9 @@ const safetyInput = {
     return attachEvidence({
       ...source,
       name,
-      is_current: currentStackLedger.some((item) => item.kind === "supplement" && itemKey(item.name) === itemKey(name)),
+      is_current: currentStackLedger.some((item) =>
+        (item.kind === "supplement" || item.kind === "endocrine_active_supplement") && itemKey(item.name) === itemKey(name)
+      ),
     });
   });
   const missingBlueprintEvidence = evidenceAlignedItems
@@ -2433,12 +2440,15 @@ const safetyInput = {
   const withEvidence: StackItem[] = finalStack.map((item) => evidenceByName.get(itemKey(item.name)) ?? item);
   const persistedItemsByName = new Map<string, StackItem>();
   for (const item of withEvidence) {
-    const key = normalizeSupplementName(item.name).toLowerCase();
+    const key = itemKey(item.name);
     const ledgerItem = currentStackLedger.find((current) =>
-      normalizeSupplementName(current.name).toLowerCase() === key
+      itemKey(current.name) === key
     );
     const persistedItem: StackItem = {
       ...item,
+      name: ledgerItem?.name ?? item.name,
+      dose: ledgerItem?.dose ?? item.dose ?? null,
+      timing: ledgerItem?.timing ?? item.timing ?? null,
       is_current: Boolean(ledgerItem) || item.is_current,
       notes: ledgerItem
         ? `Current ${currentStackKindLabel(ledgerItem.kind).toLowerCase()} reported in intake.${ledgerItem.purpose ? ` Purpose: ${ledgerItem.purpose}` : ""}`
@@ -2447,7 +2457,7 @@ const safetyInput = {
     persistedItemsByName.set(key, ledgerItem && ledgerItem.kind !== "supplement" ? clearShoppingLinks(persistedItem) : persistedItem);
   }
   for (const item of currentStackLedger) {
-    const key = normalizeSupplementName(item.name).toLowerCase();
+    const key = itemKey(item.name);
     if (!persistedItemsByName.has(key)) {
       persistedItemsByName.set(key, {
         name: item.name,
@@ -2484,12 +2494,18 @@ const safetyInput = {
     console.warn("[validation] canonical report issues", canonicalIssues);
     throw new Error(`Refusing to persist invalid canonical report: ${canonicalIssues.join(", ")}`);
   }
-  const persistedNames = new Set(itemsForPersistence.map((item) => normalizeSupplementName(item.name).toLowerCase()));
-  for (const proposal of extractReportRecommendationProposals(
+  const reportProposals = extractReportRecommendationProposals(
     canonicalReport.canonicalMarkdown,
     currentStackLedger.map((item) => item.name),
-  )) {
-    const key = normalizeSupplementName(proposal.name).toLowerCase();
+  );
+  const integrityIssues = validateGeneratedHealthItemIntegrity(currentStackLedger, itemsForPersistence, reportProposals);
+  if (integrityIssues.length) {
+    console.warn("[validation] health item integrity issues", integrityIssues);
+    throw new Error(`Refusing to persist health-item integrity failure: ${integrityIssues.join(", ")}`);
+  }
+  const persistedNames = new Set(itemsForPersistence.map((item) => itemKey(item.name)));
+  for (const proposal of reportProposals) {
+    const key = itemKey(proposal.name);
     if (persistedNames.has(key)) continue;
     itemsForPersistence.push({ ...proposal, is_current: false });
     persistedNames.add(key);

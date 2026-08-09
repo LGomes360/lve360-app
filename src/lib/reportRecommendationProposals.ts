@@ -1,4 +1,4 @@
-import { normalizeRegimenName } from "@/lib/currentRegimenModel";
+import { healthItemIdentityKey } from "@/lib/healthItemIdentity";
 import { parseMarkdownToItems, type ParsedItem } from "@/lib/parseMarkdownToItems";
 import { isEligibleSupplementName, isMedicationOrHormoneName } from "@/lib/supplementEligibility";
 
@@ -25,7 +25,7 @@ export function extractReportRecommendationProposals(
   reportMarkdown: string,
   currentItemNames: string[],
 ): ReportRecommendationProposal[] {
-  const currentNames = new Set(currentItemNames.map(normalizeRegimenName).filter(Boolean));
+  const currentNames = new Set(currentItemNames.map(healthItemIdentityKey).filter(Boolean));
 
   return parseMarkdownToItems(reportMarkdown).filter((item): item is ParsedItem & { name: string } => {
     const name = item.name?.trim();
@@ -35,7 +35,7 @@ export function extractReportRecommendationProposals(
       && ACTIONABLE_REPORT_STATUS.test(reportStatus(item.notes))
       && isEligibleSupplementName(name)
       && !isMedicationOrHormoneName(name)
-      && !currentNames.has(normalizeRegimenName(name))
+      && !currentNames.has(healthItemIdentityKey(name))
     );
   });
 }
