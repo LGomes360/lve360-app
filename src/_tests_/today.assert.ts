@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { completionCount, isCompletionKind, parseLocalDate, weekBounds } from "../lib/today";
+import { completionCount, isCompletionKind, parseLocalDate, returnedAfterGap, weeklyMomentum, weekBounds } from "../lib/today.ts";
 
 const now = new Date("2026-07-21T23:30:00.000Z");
 
@@ -29,5 +29,23 @@ assert.equal(completionCount([
   { completion_date: "2026-07-20", completion_kind: "full" },
   { completion_date: "2026-07-21", completion_kind: "full" },
 ]), 2);
+
+assert.deepEqual(weeklyMomentum(0, 5), {
+  stage: "ready",
+  label: "Ready",
+  message: "Complete the full or minimum version when your cue appears.",
+  remaining: 5,
+});
+assert.equal(weeklyMomentum(2, 5).stage, "building");
+assert.equal(weeklyMomentum(5, 5).stage, "kept");
+
+assert.equal(returnedAfterGap("2026-07-23", [
+  { completion_date: "2026-07-20", completion_kind: "full" },
+  { completion_date: "2026-07-23", completion_kind: "minimum" },
+]), true);
+assert.equal(returnedAfterGap("2026-07-21", [
+  { completion_date: "2026-07-20", completion_kind: "full" },
+  { completion_date: "2026-07-21", completion_kind: "full" },
+]), false);
 
 console.log("today assertions passed");

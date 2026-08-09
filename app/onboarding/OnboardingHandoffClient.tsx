@@ -118,8 +118,8 @@ export default function OnboardingHandoffClient() {
     <Shell>
       <div className="mb-8 flex items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#087F72]">Your first week</p>
-          <p className="mt-1 text-sm text-slate-500">About three minutes</p>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#087F72]">{active ? "Your weekly practice" : "Your first weekly practice"}</p>
+          <p className="mt-1 text-sm text-slate-500">{active ? "Update what needs to change" : "About three minutes"}</p>
         </div>
         <div className="text-right">
           <p className="text-sm font-semibold text-[#041B2D]">{active && step === 6 ? "Ready" : `Step ${step} of 6`}</p>

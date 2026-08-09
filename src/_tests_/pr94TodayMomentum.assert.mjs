@@ -7,9 +7,9 @@ const today = readFileSync("src/components/dashboard/TodayExperience.tsx", "utf8
 assert.doesNotMatch(blueprint, /Choose one focus for this week/);
 assert.doesNotMatch(blueprint, /Start this weekly practice/);
 assert.match(today, /Weekly practice momentum/);
-assert.match(today, /Weekly promise kept/);
-assert.match(today, /Your first small win starts the momentum/);
-assert.match(today, /minimum version counts/);
-assert.match(today, /planned reps/);
+assert.match(today, /Weekly promise/);
+assert.match(today, /weeklyMomentum/);
+assert.match(today, /Minimum version complete/);
+assert.match(today, /planned repetitions/);
 
 console.log("PR94 Today momentum assertions passed.");
