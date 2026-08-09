@@ -14,6 +14,9 @@ import {
 
 export const MAX_MEMBER_SUPPLEMENTS = 30;
 export const MEMBER_SUPPLEMENT_OVERRIDE_KEY = "member_current_supplements";
+// Increment only when a report or safety-engine change requires members to
+// regenerate an otherwise unchanged Blueprint.
+export const BLUEPRINT_ENGINE_VERSION = "2026-08-09.3";
 
 export type MemberSupplement = {
   id: string;
@@ -162,8 +165,12 @@ export function blueprintInputSnapshotHash(
         payload_json: submission.payload_json ?? null,
       };
   const source = typeof canonicalRegimen === "undefined"
-    ? submissionSource
-    : { ...submissionSource, canonical_current_regimen: canonicalRegimen };
+    ? { ...submissionSource, blueprint_engine_version: BLUEPRINT_ENGINE_VERSION }
+    : {
+        ...submissionSource,
+        canonical_current_regimen: canonicalRegimen,
+        blueprint_engine_version: BLUEPRINT_ENGINE_VERSION,
+      };
   return createHash("sha256")
     .update(JSON.stringify(stableValue(source)))
     .digest("hex");

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 
 import {
   BLUEPRINT_MIN_RECOMMENDATIONS,
@@ -8,6 +9,10 @@ import {
 
 assert.equal(BLUEPRINT_MIN_RECOMMENDATIONS, 5);
 assert.equal(BLUEPRINT_TARGET_RECOMMENDATIONS, 10);
+
+const workspaceSource = fs.readFileSync("src/lib/blueprintWorkspace.ts", "utf8");
+assert.match(workspaceSource, /BLUEPRINT_ENGINE_VERSION/);
+assert.match(workspaceSource, /blueprint_engine_version:\s*BLUEPRINT_ENGINE_VERSION/g);
 
 assert.equal(validateBlueprintRecommendationMix([
   "Current - optimize",
