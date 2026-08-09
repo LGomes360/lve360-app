@@ -7,13 +7,14 @@ import {
   Check,
   CheckCircle2,
   Circle,
+  Goal,
   Loader2,
   RotateCcw,
   Sparkles,
 } from "lucide-react";
 
 import { identityLabel, type WeeklyExperiment } from "@/lib/activation";
-import type { CompletionKind, DailyPracticeCompletion } from "@/lib/today";
+import { returnedAfterGap, weeklyMomentum, type CompletionKind, type DailyPracticeCompletion } from "@/lib/today";
 import { isReviewDue, reviewDueDate } from "@/lib/weeklyReview";
 import {
   blueprintSafetyLabel,
@@ -150,7 +151,8 @@ export default function TodayExperience({
   const target = experiment.frequency_per_week ?? 1;
   const recordingPastDate = !!initialCompletionDate && initialCompletionDate !== toLocalDate(new Date());
   const progressPercent = Math.min(100, Math.round((completedCount / target) * 100));
-  const momentumMessage = weeklyMomentumMessage(completedCount, target);
+  const momentum = weeklyMomentum(completedCount, target);
+  const returnWin = !!localDate && returnedAfterGap(localDate, completions);
   const reviewDue = !!localDate && isReviewDue(experiment.week_start, localDate);
   const weekEnded = !!localDate && localDate > reviewDueDate(experiment.week_start);
   const weekNotStarted = !!localDate && localDate < experiment.week_start;
@@ -204,7 +206,7 @@ export default function TodayExperience({
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
             <p className="flex items-center gap-2 text-sm font-semibold text-[#087F72]">
-              <Sparkles className="h-4 w-4" /> {identityLabel(experiment.identity_direction)}
+              <Sparkles className="h-4 w-4" /> This week&apos;s direction: {identityLabel(experiment.identity_direction)}
             </p>
             <h2 className="mt-3 text-3xl font-bold leading-tight text-[#041B2D] sm:text-4xl">{experiment.action_label}</h2>
             <p className="mt-4 text-base leading-7 text-slate-600">
@@ -236,9 +238,17 @@ export default function TodayExperience({
                 <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-[#087F72]" />
                 <div>
                   <p className="font-bold text-[#041B2D]">
-                    {todayCompletion.completion_kind === "minimum" ? "Your minimum version counts." : recordingPastDate ? "That practice is recorded." : "Today's practice is complete."}
+                    {todayCompletion.completion_kind === "minimum" ? "Minimum version complete." : recordingPastDate ? "That practice is recorded." : returnWin ? "You came back today." : "Full version complete."}
                   </p>
-                  <p className="mt-1 text-sm text-slate-600">You kept the promise small and moved your identity forward.</p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {todayCompletion.completion_kind === "minimum"
+                      ? "You protected the routine on a hard day. That repetition counts fully toward this week's plan."
+                      : returnWin
+                        ? "Returning after a gap is a consistency win. Your progress continues from here."
+                        : completedCount >= target
+                          ? "This completion kept your weekly promise. Extra repetitions are optional."
+                          : `Repetition ${completedCount} of ${target} is recorded for this week.`}
+                  </p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -265,17 +275,21 @@ export default function TodayExperience({
           {error ? <p className="mt-3 text-sm font-medium text-rose-700">{error}</p> : null}
         </div>
 
-        <div className="mt-8 border-t border-slate-200 pt-6">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:p-6" aria-live="polite">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">This week</p>
-              <p className="mt-1 text-lg font-bold text-[#041B2D]">{completedCount} of {target} planned reps</p>
+              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]"><Goal className="h-4 w-4" /> Weekly promise</p>
+              <p className="mt-2 text-2xl font-bold text-[#041B2D]">{completedCount} of {target}</p>
+              <p className="mt-1 text-sm text-slate-600">planned repetitions completed</p>
             </div>
-            <p className="text-sm font-medium text-slate-600">{momentumMessage}</p>
+            <div className={`w-fit rounded-full px-3 py-1.5 text-xs font-bold ${momentum.stage === "kept" ? "bg-emerald-100 text-emerald-800" : momentum.stage === "building" ? "bg-teal-100 text-teal-800" : "bg-white text-slate-700 ring-1 ring-slate-200"}`}>
+              {momentum.label}
+            </div>
           </div>
           <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label="Weekly practice momentum" aria-valuemin={0} aria-valuemax={target} aria-valuenow={Math.min(completedCount, target)}>
             <div className="h-full rounded-full bg-gradient-to-r from-[#08A88A] to-[#58CDB8] transition-[width] duration-500" style={{ width: `${progressPercent}%` }} />
           </div>
+          <p className="mt-3 text-sm font-medium leading-6 text-slate-700">{momentum.message}</p>
           <div className="mt-4 grid grid-cols-7 gap-2" aria-label={`${completedCount} weekly completions`}>
             {weekDays.map((day) => {
               const completion = completions.find((item) => item.completion_date === day);
@@ -295,14 +309,6 @@ export default function TodayExperience({
       </div>
     </section>
   );
-}
-
-function weeklyMomentumMessage(completed: number, target: number): string {
-  if (completed >= target) return "Weekly promise kept. Anything extra is a bonus.";
-  if (completed === 0) return "Your first small win starts the momentum.";
-  if (completed === 1) return "Momentum started. Repeat when your cue appears.";
-  const remaining = target - completed;
-  return `${remaining} ${remaining === 1 ? "repetition" : "repetitions"} left to keep this week's promise.`;
 }
 
 function CurrentBlueprintPanel({
