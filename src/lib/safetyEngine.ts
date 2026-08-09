@@ -187,7 +187,8 @@ function comparableRuleUnit(unit?: string | null): string {
 function magnesiumDoseBasisIsExplicit(candidate: SafetyCandidate): boolean {
   const identity = healthItemIdentityKey(candidate.name);
   if (!identity.startsWith("magnesium-") || identity === "magnesium-unspecified") return true;
-  return /\belemental\b/i.test(String(candidate.dose ?? ""));
+  const dose = String(candidate.dose ?? "");
+  return /(?:\b\d+(?:\.\d+)?\s*(?:mcg|mg|g)\s+(?:of\s+)?elemental(?:\s+magnesium)?\b|\belemental(?:\s+magnesium)?\s*:?\s*\d+(?:\.\d+)?\s*(?:mcg|mg|g)\b)/i.test(dose);
 }
 
 function worstDecision(findings: SafetyFinding[]): SafetyDecision {

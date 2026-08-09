@@ -96,7 +96,7 @@ const magnesiumUpperLimitRule = {
 };
 const ambiguousCompoundDose = evaluateSafetyCandidates(
   {},
-  [{ name: "Magnesium Threonate", dose: "2000 mg", is_current: true }],
+  [{ name: "Magnesium Threonate", dose: "2000mg compound weight; elemental amount not recorded", is_current: true }],
   { interactions: [], rules: [magnesiumUpperLimitRule] },
 );
 assert.equal(ambiguousCompoundDose.status, "review", "A magnesium compound weight must not be treated as an elemental overdose");
