@@ -1,4 +1,4 @@
-import { healthItemIdentityKey } from "./healthItemIdentity.ts";
+import { canonicalHealthItemDisplayName, healthItemIdentityKey } from "./healthItemIdentity.ts";
 
 export type SafetySeverity = "info" | "warning" | "danger";
 export type SafetyDecision = "clear" | "review" | "blocked";
@@ -184,6 +184,12 @@ function comparableRuleUnit(unit?: string | null): string {
   return "";
 }
 
+function magnesiumDoseBasisIsExplicit(candidate: SafetyCandidate): boolean {
+  const identity = healthItemIdentityKey(candidate.name);
+  if (!identity.startsWith("magnesium-") || identity === "magnesium-unspecified") return true;
+  return /\belemental\b/i.test(String(candidate.dose ?? ""));
+}
+
 function worstDecision(findings: SafetyFinding[]): SafetyDecision {
   return findings.some((finding) => finding.decision === "blocked")
     ? "blocked"
@@ -322,7 +328,18 @@ export function evaluateSafetyCandidates(
         const max = Number(rule.max_daily_amount);
         const unit = comparableRuleUnit(rule.unit);
         if (dose && Number.isFinite(max) && unit && dose.unit === unit && dose.amount > max) {
-          addFinding(findings, finding("upper_limit", candidate.name, rule.message || `${candidate.name} exceeds the structured adult upper limit.`, "danger", "rules", rule.source_url));
+          if (!magnesiumDoseBasisIsExplicit(candidate)) {
+            addFinding(findings, finding(
+              "dose_basis_unclear",
+              candidate.name,
+              `The recorded ${candidate.dose} may describe the full compound rather than elemental magnesium. Check the Supplement Facts line for the elemental magnesium amount before comparing it with the supplemental upper limit.`,
+              "warning",
+              "rules",
+              rule.source_url,
+            ));
+          } else {
+            addFinding(findings, finding("upper_limit", candidate.name, rule.message || `${candidate.name} exceeds the structured adult upper limit.`, "danger", "rules", rule.source_url));
+          }
         }
       }
 
@@ -370,15 +387,22 @@ export function unavailableSafetyEvaluation(candidates: SafetyCandidate[], reaso
   };
 }
 
-function findingLabel(finding: SafetyFinding): string {
-  return finding.decision === "blocked" ? "Stop and review" : "Clinician review";
-}
-
 export function safetySectionFromEvaluation(evaluation: SafetyEvaluation): string {
   const uniqueFindings: SafetyFinding[] = [];
   for (const item of evaluation.findings) addFinding(uniqueFindings, item);
-  const bullets = uniqueFindings.length
-    ? uniqueFindings.map((item) => `- **${findingLabel(item)}: ${item.item}:** ${item.message}`)
+  const findingsByItem = new Map<string, SafetyFinding[]>();
+  for (const item of uniqueFindings) {
+    const key = healthItemIdentityKey(item.item) || normalize(item.item);
+    findingsByItem.set(key, [...(findingsByItem.get(key) ?? []), item]);
+  }
+  const bullets = findingsByItem.size
+    ? Array.from(findingsByItem.values()).map((items) => {
+      const decision = worstDecision(items);
+      const label = decision === "blocked" ? "Stop and review" : "Clinician review";
+      const name = canonicalHealthItemDisplayName(items[0].item);
+      const messages = Array.from(new Set(items.map((item) => item.message.trim()))).join(" ");
+      return `- **${label}: ${name}:** ${messages}`;
+    })
     : ["- **No material flags identified:** No specific interaction requiring action was identified from the reported information and structured rules. Recheck whenever medications, supplements, pregnancy status, conditions, or procedures change."];
   return [
     "## Contraindications & Med Interactions",

@@ -86,4 +86,46 @@ const duplicateCandidates = evaluateSafetyCandidates(
 assert.equal(duplicateCandidates.candidates.length, 1, "Canonical duplicate candidates should be evaluated once");
 assert.equal(duplicateCandidates.findings.length, 0, "A missing library row should not warn repeatedly about an existing routine item");
 
+const magnesiumUpperLimitRule = {
+  rule_type: "UL",
+  entity_a_name: "Magnesium",
+  max_daily_amount: 350,
+  unit: "mg",
+  message: "Do not exceed 350 mg/day of magnesium from supplements.",
+  severity: "danger",
+};
+const ambiguousCompoundDose = evaluateSafetyCandidates(
+  {},
+  [{ name: "Magnesium Threonate", dose: "2000 mg", is_current: true }],
+  { interactions: [], rules: [magnesiumUpperLimitRule] },
+);
+assert.equal(ambiguousCompoundDose.status, "review", "A magnesium compound weight must not be treated as an elemental overdose");
+assert.equal(ambiguousCompoundDose.findings[0]?.code, "dose_basis_unclear");
+assert.match(ambiguousCompoundDose.findings[0]?.message ?? "", /elemental magnesium/i);
+
+const explicitElementalDose = evaluateSafetyCandidates(
+  {},
+  [{ name: "Magnesium Threonate", dose: "400 mg elemental magnesium", is_current: true }],
+  { interactions: [], rules: [magnesiumUpperLimitRule] },
+);
+assert.equal(explicitElementalDose.status, "blocked", "An explicitly elemental magnesium dose above the limit must remain blocked");
+assert.equal(explicitElementalDose.findings[0]?.code, "upper_limit");
+
+const groupedSafety = evaluateSafetyCandidates(
+  { medications: ["Levothyroxine"] },
+  [{ name: "Magnesium Glycinate", dose: "210 mg", is_current: true }],
+  {
+    interactions,
+    rules: [{
+      rule_type: "SPACING",
+      entity_a_name: "Levothyroxine",
+      message: "Separate calcium, iron, and magnesium supplements by at least 4 hours.",
+    }],
+  },
+);
+const groupedSection = applySafetyEvaluationToMarkdown(report, groupedSafety);
+assert.equal((groupedSection.match(/Clinician review: Magnesium Glycinate:/g) ?? []).length, 1, "Distinct concerns for one item should render under one heading");
+assert.match(groupedSection, /thyroid medication by at least 4 hours/);
+assert.match(groupedSection, /calcium, iron, and magnesium supplements/);
+
 console.log("Safety engine assertions passed.");
