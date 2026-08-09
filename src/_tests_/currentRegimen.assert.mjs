@@ -15,9 +15,11 @@ assert.match(writePrivileges, /revoke update[^;]*from authenticated/i, "Member r
 const combined = read("app/api/stacks/combined/route.ts");
 assert.match(combined, /getRoutineData/, "Today must read the canonical routine data service.");
 const routineData = read("src/lib/routineData.ts");
+const recommendationData = read("src/lib/recommendationDecisionData.ts");
 assert.match(routineData, /getCurrentRegimen/, "Routine data must read the canonical current regimen.");
-assert.match(routineData, /\.eq\("stack_id", latestStack\.id\)/, "Only the newest Blueprint may provide proposals.");
-assert.match(routineData, /\.eq\("is_current", false\)/, "Blueprint recommendations must remain proposals until adopted.");
+assert.match(routineData, /getStackRecommendationDecisions\([\s\S]*latestStack\.id/, "Only the newest Blueprint may provide proposals.");
+assert.match(recommendationData, /\.eq\("stack_id", stackId\)/, "Recommendation loading must remain scoped to the selected Blueprint.");
+assert.match(recommendationData, /\.eq\("is_current", false\)/, "Blueprint recommendations must remain proposals until adopted.");
 assert.doesNotMatch(routineData, /\.eq\("user_id", userId\)[\s\S]*\.eq\("is_current", true\)/, "Historical current flags must not drive Today.");
 
 const supplements = read("app/api/blueprints/[stackId]/supplements/route.ts");

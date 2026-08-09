@@ -8,7 +8,7 @@ import {
   type RecommendationDecisionSeed,
   type RecommendationProposalInput,
 } from "@/lib/recommendationDecision";
-import { normalizeRegimenName } from "@/lib/currentRegimenModel";
+import { healthItemIdentityKey } from "@/lib/healthItemIdentity";
 import { isEligibleSupplementName, isMedicationOrHormoneName } from "@/lib/supplementEligibility";
 import { extractReportRecommendationProposals } from "@/lib/reportRecommendationProposals";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
@@ -85,11 +85,11 @@ export async function getStackRecommendationDecisions(
     .eq("is_current", false);
   if (error) throw error;
 
-  const storedNames = new Set((data ?? []).map((item) => normalizeRegimenName(item.name)));
+  const storedNames = new Set((data ?? []).map((item) => healthItemIdentityKey(item.name)));
   const reportProposals = extractReportRecommendationProposals(
     reportMarkdown,
     currentItems.map((item) => item.name),
-  ).filter((item) => !storedNames.has(normalizeRegimenName(item.name)));
+  ).filter((item) => !storedNames.has(healthItemIdentityKey(item.name)));
 
   if (reportProposals.length) {
     for (const proposal of reportProposals) {
@@ -118,7 +118,7 @@ export async function getStackRecommendationDecisions(
     data = refreshed.data;
   }
 
-  const currentNames = new Set(currentItems.map((item) => normalizeRegimenName(item.name)));
+  const currentNames = new Set(currentItems.map((item) => healthItemIdentityKey(item.name)));
   const proposals = (data ?? [])
     .filter((item) => {
       const name = typeof item.name === "string" ? item.name.trim() : "";
@@ -126,7 +126,7 @@ export async function getStackRecommendationDecisions(
         name
         && isEligibleSupplementName(name)
         && !isMedicationOrHormoneName(name)
-        && !currentNames.has(normalizeRegimenName(name))
+        && !currentNames.has(healthItemIdentityKey(name))
       );
     })
     .map((item) => ({
