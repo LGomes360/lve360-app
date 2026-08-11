@@ -40,6 +40,7 @@
     "qa:pr95": "node src/_tests_/pr95WeeklyPracticeControl.assert.mjs",
     "qa:pr96": "node --experimental-strip-types src/_tests_/today.assert.ts && node src/_tests_/pr96MeaningfulEngagement.assert.mjs",
     "qa:pr97": "node src/_tests_/pr97UnifiedDailyAgenda.assert.mjs",
+    "qa:pr99": "node src/_tests_/pr99AiGateway.assert.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
     "qa:all": "npm run qa:env && npm run qa:build"

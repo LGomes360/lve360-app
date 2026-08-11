@@ -19,7 +19,8 @@ import { applySafetyChecks } from "@/lib/safetyCheck";
 import { applySafetyEvaluationToMarkdown } from "@/lib/safetyEngine";
 import { enrichAffiliateLinks, buildAmazonSearchLink } from "@/lib/affiliateLinks";
 import { getTopCitationsFor } from "@/lib/evidence";
-import { callOpenAI } from "@/lib/openai";
+import { generateAI } from "@/lib/ai/gateway";
+import { candidateModels, type AiTask } from "@/lib/ai/modelConfig";
 import {
   buildNormalizedCurrentStackLedger,
   currentStackKindLabel,
@@ -119,61 +120,20 @@ const LLM_TIMEOUT_MS = 95_000; // 95s to prevent Pass B timeouts seen in logs
 const wait = (ms:number)=>new Promise(res=>setTimeout(res, ms));
 
 // ----------------------------------------------------------------------------
-// Model resolution + safe caller
+// Task-aware AI caller
 // ----------------------------------------------------------------------------
-const MODEL_ALIASES: Record<string, string> = {
-  // requested → actual
-  "gpt-5-mini": "gpt-4o-mini",
-  "gpt-5": "gpt-4o",
-  // alternates
-  "o4-mini": "gpt-4o-mini",
-  "o4": "gpt-4o",
-};
-
-const ENV_MINI = process.env.OPENAI_MINI_MODEL?.trim();
-const ENV_MAIN = process.env.OPENAI_MAIN_MODEL?.trim();
-
-function normalizeModel(requested: "mini" | "main" | string): string {
-  if (requested === "mini") return ENV_MINI || "gpt-4o-mini";
-  if (requested === "main") return ENV_MAIN || "gpt-4o";
-  return MODEL_ALIASES[requested] || requested;
-}
-
-function candidateModels(kind: "mini" | "main", fallbackRequested?: string): string[] {
-  const primary = normalizeModel(kind);
-  const byAlias = fallbackRequested ? MODEL_ALIASES[fallbackRequested] || fallbackRequested : undefined;
-  const tail = kind === "mini" ? ["gpt-4o-mini", "gpt-4o"] : ["gpt-4o", "gpt-4o-mini"];
-  return Array.from(new Set([primary, byAlias, ...tail].filter(Boolean))) as string[];
-}
-
-type AnyCaller = (model: string, input: any, options?: any) => Promise<any>;
-
-// Accept messages[] or joined string, and rotate candidates on 400/404/timeouts
 async function callChatWithRetry(
-  requestedModelKind: "mini" | "main",
+  task: AiTask,
   msgs: ChatMsg[],
-  opts?: { maxTokens?: number; timeoutMs?: number }
+  opts?: { maxTokens?: number; timeoutMs?: number; userId?: string | null }
 ): Promise<any> {
-  const fn = callOpenAI as unknown as (model: string, input: any, options?: any) => Promise<any>;
-  const models = candidateModels(requestedModelKind);
-  let lastErr: any = null;
-  for (const model of models) {
-    try {
-      try {
-        return await fn(model, msgs, { maxTokens: opts?.maxTokens ?? 1200, timeoutMs: opts?.timeoutMs ?? LLM_DEFAULT_TIMEOUT_MS });
-      } catch {
-        const joined = msgs.map(m => `[${m.role.toUpperCase()}]\n${m.content}`).join("\n\n");
-        return await fn(model, joined, { maxTokens: opts?.maxTokens ?? 1200, timeoutMs: opts?.timeoutMs ?? LLM_DEFAULT_TIMEOUT_MS });
-      }
-    } catch (e: any) {
-      lastErr = e;
-      const msg = String(e?.message || e);
-      const code = (e?.status ?? e?.code ?? "").toString();
-      if (!/invalid model|model_not_found|400|404|timeout|ETIMEDOUT/i.test(msg) && code !== "400" && code !== "404") break;
-      console.warn(`[llm.retry] ${model} failed: ${msg}`);
-    }
-  }
-  throw lastErr || new Error("All model candidates failed");
+  return generateAI({
+    task,
+    messages: msgs,
+    userId: opts?.userId,
+    maxTokens: opts?.maxTokens ?? 1200,
+    timeoutMs: opts?.timeoutMs ?? LLM_DEFAULT_TIMEOUT_MS,
+  });
 }
 
 
@@ -1878,10 +1838,10 @@ console.info("[gen.intake.check]", {
 // PASS A: Blueprint Table (mini first)
 console.info("[gen.passA:start]", { candidates: candidateModels("mini") });
 
-const resA = await callChatWithRetry("mini", [
+const resA = await callChatWithRetry("blueprint_recommendations", [
   { role: "system", content: systemPromptA_TableOnly() },
   { role: "user", content: tableOnlyPrompt(compactClient, recommendableSupplementLedger, berberineRequiresReview) },
-]);
+], { userId: user_id });
 
 const rawA = stripCodeFences(String(resA?.text ?? "").trim());
 let tableMd = extractBlueprintTable(rawA) || extractBlueprintTableLoose(rawA);
@@ -1902,10 +1862,10 @@ ${rawA}
 `.trim();
 
   try {
-    const resARepair = await callChatWithRetry("mini", [
+    const resARepair = await callChatWithRetry("blueprint_repair", [
       { role: "system", content: systemPromptA_TableOnly() },
       { role: "user", content: repairPromptA },
-    ], { maxTokens: 600, timeoutMs: 45_000 });
+    ], { maxTokens: 600, timeoutMs: 45_000, userId: user_id });
 
     const repaired = stripCodeFences(String(resARepair?.text ?? "").trim());
     tableMd = extractBlueprintTable(repaired) || extractBlueprintTableLoose(repaired) || null;
@@ -2008,12 +1968,12 @@ function synthesizePassBFromLocal(sub: any, blueprintTable: string) {
 console.info("[gen.passB:start]", { candidates: candidateModels("mini") });
 
 const resB = await callChatWithRetry(
-  "mini",
+  "blueprint_safety",
   [
     { role: "system", content: systemPromptB_SafetyDosing() },
     { role: "user", content: safetyAndDosingPrompt(fullClient, tableMd) },
   ],
-  { maxTokens: 1600, timeoutMs: LLM_TIMEOUT_MS }
+  { maxTokens: 1600, timeoutMs: LLM_TIMEOUT_MS, userId: user_id }
 );
 
 
@@ -2071,10 +2031,10 @@ Rules:
 
   await wait(700);
 
-  const resRepairMini = await callChatWithRetry("mini", [
+  const resRepairMini = await callChatWithRetry("blueprint_repair", [
     { role: "system", content: systemPromptB_SafetyDosing() },
     { role: "user", content: repairPrompt },
-  ]);
+  ], { userId: user_id });
 
   const repairedMini = _normalizeB(stripCodeFences(String(resRepairMini?.text ?? "").trim()));
   if (_hasContra(repairedMini) && _hasDosing(repairedMini)) {
@@ -2084,10 +2044,10 @@ Rules:
     await wait(700);
 
     // Try once with main model
-    const resRepairMain = await callChatWithRetry("main", [
+    const resRepairMain = await callChatWithRetry("blueprint_repair_main", [
       { role: "system", content: systemPromptB_SafetyDosing() },
       { role: "user", content: repairPrompt },
-    ]);
+    ], { userId: user_id });
     const repairedMain = _normalizeB(stripCodeFences(String(resRepairMain?.text ?? "").trim()));
     if (_hasContra(repairedMain) && _hasDosing(repairedMain)) {
       dosingMd = repairedMain;
@@ -2139,12 +2099,12 @@ modelUsed = resB?.modelUsed ?? modelUsed;
 console.info("[gen.passC:start]", { candidates: candidateModels("main") });
 
 let resC = await callChatWithRetry(
-  "main", // we’ll ask for main and pass a GPT-5 model name explicitly
+  "blueprint_narrative",
   [
     { role: "system", content: systemPromptC_Strict() },
     { role: "user", content: remainingSectionsPrompt(compactForPassC(baseClient), tableMd, dosingMd) },
   ],
-  { maxTokens: 2000, timeoutMs: 120_000 } // a bit more room for 9 narrative sections
+  { maxTokens: 2000, timeoutMs: 120_000, userId: user_id }
 );
 
 
@@ -2171,10 +2131,10 @@ Context (do not alter):
 - Keep consistent with the Blueprint table and Dosing section.
 `.trim();
 
-  const resRepairMini = await callChatWithRetry("mini", [
+  const resRepairMini = await callChatWithRetry("blueprint_repair", [
     { role: "system", content: systemPromptC_Strict() },
     { role: "user", content: repairPrompt },
-  ], { maxTokens: 700, timeoutMs: 90_000 });
+  ], { maxTokens: 700, timeoutMs: 90_000, userId: user_id });
 
   const addMini = normalizePassCHeadings(stripCodeFences(String(resRepairMini?.text ?? "").trim()));
   restMd = (restMd + "\n\n" + addMini).trim();
@@ -2193,10 +2153,10 @@ Keep consistent with the earlier Blueprint and Dosing.
 No other sections, no code fences.
 `.trim();
 
-  const resRepairMain = await callChatWithRetry("main", [
+  const resRepairMain = await callChatWithRetry("blueprint_repair_main", [
     { role: "system", content: systemPromptC_Strict() },
     { role: "user", content: repairPromptMain },
-  ], { maxTokens: 900, timeoutMs: 120_000 });
+  ], { maxTokens: 900, timeoutMs: 120_000, userId: user_id });
 
   const addMain = normalizePassCHeadings(stripCodeFences(String(resRepairMain?.text ?? "").trim()));
   restMd = (restMd + "\n\n" + addMain).trim();
