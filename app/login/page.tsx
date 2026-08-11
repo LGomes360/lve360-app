@@ -21,16 +21,16 @@ function LoginInner() {
     return "/today";
   }, [searchParams]);
 
-  // Build a robust base URL: env first, then runtime origin
-  const appUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (typeof window !== "undefined" ? window.location.origin : "");
-
   const callbackUrl = useMemo(() => {
+    // Auth must return to the host that initiated it. This keeps Vercel Preview
+    // PKCE cookies on the same origin while preserving app.lve360.com in production.
+    const appUrl = typeof window !== "undefined"
+      ? window.location.origin
+      : process.env.NEXT_PUBLIC_APP_URL || "";
     const u = new URL("/auth/callback", appUrl || "http://localhost:3000");
     u.searchParams.set("next", nextPath);
     return u.toString();
-  }, [appUrl, nextPath]);
+  }, [nextPath]);
 
   // --- Email Magic Link ---
   const handleLogin = async (e: React.FormEvent) => {

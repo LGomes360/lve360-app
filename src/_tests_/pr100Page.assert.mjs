@@ -8,6 +8,7 @@ const data = read("src/lib/ai/todayBriefData.ts");
 const component = read("src/components/dashboard/AiTodayBrief.tsx");
 const modelConfig = read("src/lib/ai/modelConfig.ts");
 const migration = read("supabase/migrations/20260811024500_pr100_ai_today_briefs.sql");
+const login = read("app/login/page.tsx");
 
 assert.match(modelConfig, /today_brief:[\s\S]*capability: "mini"/, "The daily brief must use the cost-conscious task router.");
 assert.match(data, /contextHash/, "The brief must be cached by meaningful context.");
@@ -21,5 +22,6 @@ assert.doesNotMatch(component, /\/api\/stacks\/combined/, "The brief must not du
 assert.match(migration, /unique \(user_id, local_date, context_hash\)/, "The database must enforce one brief per context.");
 assert.match(migration, /revoke all on table public\.ai_today_briefs from public, anon, authenticated/, "Brief storage must remain server-mediated.");
 assert.match(migration, /Rollback notes:/, "The schema change needs an explicit rollback path.");
+assert.match(login, /typeof window !== "undefined"[\s\S]*window\.location\.origin[\s\S]*NEXT_PUBLIC_APP_URL/, "Preview auth must return to the origin that initiated the PKCE flow.");
 
 console.log("PR100 Today Brief page and storage assertions passed");
