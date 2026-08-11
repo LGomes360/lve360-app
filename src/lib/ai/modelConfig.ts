@@ -52,7 +52,7 @@ const TASK_PROFILES: Record<AiTask, AiTaskProfile> = {
   },
   today_brief: {
     capability: "mini",
-    promptVersion: "today-brief-v1",
+    promptVersion: "today-brief-v2",
     reasoningEffort: "low",
   },
   weekly_insight: {

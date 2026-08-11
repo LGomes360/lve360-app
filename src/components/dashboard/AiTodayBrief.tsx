@@ -154,7 +154,7 @@ export default function AiTodayBrief({
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
           <p className="text-xs leading-5 text-slate-500">
-            {brief.source === "ai" ? "Personalized from your current week." : "Based on your saved plan while AI coaching is unavailable."} Educational wellness support only.
+            {brief.source === "ai" ? "Personalized from your current week." : "Based on your saved plan."} Educational wellness support only.
           </p>
           <div className="flex items-center gap-1" aria-label="Rate this brief">
             <span className="mr-1 text-xs text-slate-500">Useful?</span>

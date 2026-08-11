@@ -33,19 +33,23 @@ assert.equal(deterministicTodayBrief(active).primaryAction, "mark_complete");
 const valid = parseGeneratedTodayBrief(JSON.stringify({
   noticed: "You have three repetitions recorded and two left this week.",
   why_it_matters: "A small morning win keeps the practice connected to your real routine.",
-  next_action: "Do 10 pushups after you wake up this morning.",
-  minimum_version: "Complete one repetition.",
 }), active);
 assert.ok(valid, "A bounded lifestyle brief should be accepted.");
 assert.equal(valid?.primaryAction, "mark_complete", "The model must not control product actions.");
+assert.equal(valid?.nextAction, active.experiment?.actionLabel, "The saved action must remain authoritative.");
+assert.equal(valid?.minimumVersion, active.experiment?.minimumVersion, "The saved minimum version must remain authoritative.");
 
 const leftField = parseGeneratedTodayBrief(JSON.stringify({
   noticed: "Your B12 may need attention.",
   why_it_matters: "It could change your energy.",
-  next_action: "Add B12 today.",
-  minimum_version: "Start with B12.",
 }), active);
 assert.equal(leftField, null, "Unintroduced supplements and doses must be rejected.");
+
+const discouraging = parseGeneratedTodayBrief(JSON.stringify({
+  noticed: "You missed your practice despite a goal of five.",
+  why_it_matters: "You should have done more by now.",
+}), active);
+assert.equal(discouraging, null, "Shaming or misframed progress language must fall back to deterministic copy.");
 
 const safetyContext: TodayBriefContext = {
   ...active,

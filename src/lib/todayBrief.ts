@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const TODAY_BRIEF_PROMPT_VERSION = "today-brief-v1";
+export const TODAY_BRIEF_PROMPT_VERSION = "today-brief-v2";
 
 export type TodayBriefPrimaryAction =
   | "mark_complete"
@@ -40,12 +40,11 @@ export type TodayBriefContent = {
 const GeneratedBriefSchema = z.object({
   noticed: z.string().trim().min(8).max(180),
   why_it_matters: z.string().trim().min(8).max(220),
-  next_action: z.string().trim().min(4).max(180),
-  minimum_version: z.string().trim().min(2).max(160),
 }).strict();
 
 const INTERVENTION_PATTERN = /\b(?:b[- ]?12|supplement|vitamin|mineral|magnesium|creatine|omega[- ]?3|fish oil|ashwagandha|melatonin|probiotic|medication|medicine|drug|dose|dosage|prescription|clinician|physician|doctor|pharmacist|blood test|lab(?:oratory)?|mg|mcg|iu|tablet|capsule)\b/i;
 const MEDICAL_CLAIM_PATTERN = /\b(?:diagnos|treat|cure|prevent|reverse|manage)\w*\s+(?:a\s+|an\s+|your\s+)?(?:disease|condition|disorder|syndrome|symptom)/i;
+const DISCOURAGING_PATTERN = /\b(?:despite|failed|failure|missed|behind|should have|haven't|have not)\b/i;
 
 function safeGeneratedText(value: string) {
   return value.trim().length >= 2
@@ -71,16 +70,16 @@ export function parseGeneratedTodayBrief(
   if (
     !safeGeneratedText(text.noticed)
     || !safeGeneratedText(text.why_it_matters)
-    || !safeGeneratedText(text.next_action)
-    || !safeGeneratedText(text.minimum_version)
+    || DISCOURAGING_PATTERN.test(text.noticed)
+    || DISCOURAGING_PATTERN.test(text.why_it_matters)
   ) return null;
 
   const fallback = deterministicTodayBrief(context);
   return {
     noticed: text.noticed,
     whyItMatters: text.why_it_matters,
-    nextAction: text.next_action,
-    minimumVersion: text.minimum_version,
+    nextAction: fallback.nextAction,
+    minimumVersion: fallback.minimumVersion,
     primaryAction: fallback.primaryAction,
     primaryHref: fallback.primaryHref,
   };
