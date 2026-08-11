@@ -8,6 +8,7 @@ export type AiTask =
   | "blueprint_narrative"
   | "blueprint_repair"
   | "blueprint_repair_main"
+  | "today_brief"
   | "weekly_insight";
 
 export type AiTaskProfile = {
@@ -49,6 +50,11 @@ const TASK_PROFILES: Record<AiTask, AiTaskProfile> = {
     promptVersion: "blueprint-repair-main-v1",
     reasoningEffort: "low",
   },
+  today_brief: {
+    capability: "mini",
+    promptVersion: "today-brief-v2",
+    reasoningEffort: "low",
+  },
   weekly_insight: {
     capability: "mini",
     promptVersion: "weekly-insight-v1",
@@ -81,4 +87,3 @@ export function candidateModels(capability: AiCapability) {
 export function taskProfile(task: AiTask): AiTaskProfile {
   return TASK_PROFILES[task];
 }
-

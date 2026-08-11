@@ -8,6 +8,7 @@ import type { WeeklyExperiment } from "@/lib/activation";
 import type { CurrentBlueprintContext, ExperimentBlueprintContext } from "@/lib/blueprintContext";
 import type { PremiumActivationProgress } from "@/lib/premiumActivation";
 import PremiumActivationChecklist from "@/components/activation/PremiumActivationChecklist";
+import AiTodayBrief from "@/components/dashboard/AiTodayBrief";
 
 export default function TodayClient({
   experiment,
@@ -23,6 +24,7 @@ export default function TodayClient({
   activationProgress: PremiumActivationProgress;
 }) {
   const [firstActionComplete, setFirstActionComplete] = useState(activationProgress.firstActionComplete);
+  const [practiceRefreshKey, setPracticeRefreshKey] = useState(0);
   const visibleProgress = { ...activationProgress, firstActionComplete };
 
   useEffect(() => {
@@ -42,7 +44,16 @@ export default function TodayClient({
 
         {experiment?.status === "active" || firstActionComplete ? (
           <>
+            <AiTodayBrief
+              date={checkinDate}
+              onPracticeCompleted={() => {
+                setFirstActionComplete(true);
+                setPracticeRefreshKey((value) => value + 1);
+              }}
+            />
+
             <TodayExperience
+              key={`${experiment?.id ?? "none"}:${practiceRefreshKey}`}
               initialExperiment={experiment}
               blueprint={blueprint}
               experimentBlueprint={experimentBlueprint}
