@@ -112,8 +112,19 @@ export default function RoutineClient({
   }, [toast]);
 
   useEffect(() => {
-    if (window.location.hash === "#routine-ideas") setActiveView("supplements");
-  }, []);
+    const hash = window.location.hash;
+    if (hash === "#routine-ideas") {
+      setActiveView("supplements");
+      return;
+    }
+    const prefix = "#edit-routine-item-";
+    if (!hash.startsWith(prefix)) return;
+    const itemId = decodeURIComponent(hash.slice(prefix.length));
+    const item = initialItems.find((candidate) => candidate.id === itemId);
+    if (!item) return;
+    setActiveView(item.item_kind === "medication" ? "medications" : item.item_kind === "hormone" ? "hormones" : "supplements");
+    setEditing(item);
+  }, [initialItems]);
 
   async function refreshRoutine() {
     const response = await fetch("/api/stacks/combined", { cache: "no-store" });
