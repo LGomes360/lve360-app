@@ -3,7 +3,8 @@ import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 
 import type { WeeklyExperiment } from "@/lib/activation";
-import { isReviewDecision, isReviewDue, validateNextPlan } from "@/lib/weeklyReview";
+import { isReviewDecision, isReviewDue, validateNextPlan, type NextWeekPlan } from "@/lib/weeklyReview";
+import { synthesisResponseState, type WeeklySynthesisContent } from "@/lib/weeklySynthesis";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 
@@ -117,6 +118,10 @@ export async function POST(req: NextRequest) {
       if (/already_completed/i.test(error.message)) return NextResponse.json({ ok: false, error: "review_already_completed" }, { status: 409 });
       throw error;
     }
+    const synthesisId = typeof body?.synthesis_id === "string" ? body.synthesis_id : null;
+    if (synthesisId) {
+      await recordSynthesisResponse(auth.user.id, synthesisId, decision, nextPlan, typeof data === "string" ? data : null);
+    }
     await recordProductEventSafely({
       event_name: "weekly_review_completed",
       source: "weekly_review",
@@ -129,6 +134,39 @@ export async function POST(req: NextRequest) {
     console.error("[weekly-review] save failed", error);
     return NextResponse.json({ ok: false, error: "review_unavailable" }, { status: 500 });
   }
+}
+
+async function recordSynthesisResponse(
+  userId: string,
+  synthesisId: string,
+  decision: Parameters<typeof synthesisResponseState>[1],
+  plan: NextWeekPlan | null,
+  nextExperimentId: string | null,
+) {
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin.from("ai_weekly_syntheses")
+    .select("suggested_decision,suggested_action_label,suggested_cue,suggested_frequency_per_week,suggested_minimum_version")
+    .eq("id", synthesisId).eq("user_id", userId).maybeSingle();
+  if (error || !data) {
+    console.warn("[weekly-review] synthesis response not recorded", error?.message ?? "not_found");
+    return;
+  }
+  const suggestedPlan = data.suggested_decision === "pause" ? null : {
+    action_label: data.suggested_action_label ?? "",
+    cue: data.suggested_cue ?? "",
+    frequency_per_week: data.suggested_frequency_per_week ?? 1,
+    minimum_version: data.suggested_minimum_version ?? "",
+  };
+  const state = synthesisResponseState({
+    suggestedDecision: data.suggested_decision as WeeklySynthesisContent["suggestedDecision"],
+    suggestedPlan,
+  }, decision, plan);
+  const { error: updateError } = await admin.from("ai_weekly_syntheses").update({
+    response_state: state,
+    next_experiment_id: nextExperimentId,
+    updated_at: new Date().toISOString(),
+  }).eq("id", synthesisId).eq("user_id", userId);
+  if (updateError) console.warn("[weekly-review] synthesis response update failed", updateError.message);
 }
 
 function todayUtc(): string {

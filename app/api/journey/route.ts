@@ -7,6 +7,7 @@ import type {
   JourneyCompletion,
   JourneyExperiment,
   JourneyReview,
+  JourneySynthesis,
 } from "@/lib/journey";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCurrentBlueprintContext, getExperimentBlueprintContexts } from "@/lib/currentBlueprintContext";
@@ -43,7 +44,7 @@ export async function GET() {
 
     const admin = getSupabaseAdmin();
     const blueprintPromise = getCurrentBlueprintContext(auth.user.id);
-    const [{ data: experiments, error: experimentError }, { data: reviews, error: reviewError }, { data: checkIns, error: checkInError }] = await Promise.all([
+    const [{ data: experiments, error: experimentError }, { data: reviews, error: reviewError }, { data: checkIns, error: checkInError }, { data: syntheses, error: synthesisError }] = await Promise.all([
       admin
         .from("weekly_experiments")
         .select("id, source_stack_id, source_action_id, identity_direction, action_label, cue, frequency_per_week, minimum_version, status, week_start, activated_at, completed_at")
@@ -62,9 +63,16 @@ export async function GET() {
         .eq("user_id", auth.user.id)
         .order("log_date", { ascending: true })
         .limit(90),
+      admin
+        .from("ai_weekly_syntheses")
+        .select("id,experiment_id,observation,hypothesis,evidence,confidence,response_state,created_at")
+        .eq("user_id", auth.user.id)
+        .in("generation_status", ["succeeded", "failed", "skipped"])
+        .order("created_at", { ascending: false })
+        .limit(52),
     ]);
-    if (experimentError || reviewError || checkInError) {
-      throw experimentError ?? reviewError ?? checkInError;
+    if (experimentError || reviewError || checkInError || synthesisError) {
+      throw experimentError ?? reviewError ?? checkInError ?? synthesisError;
     }
 
     const experimentRows = (experiments ?? []) as JourneyExperiment[];
@@ -94,6 +102,7 @@ export async function GET() {
       reviews: (reviews ?? []) as JourneyReview[],
       completions,
       check_ins: (checkIns ?? []) as JourneyCheckIn[],
+      syntheses: (syntheses ?? []) as JourneySynthesis[],
       blueprint,
       experiment_blueprints: experimentBlueprints,
     });

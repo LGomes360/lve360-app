@@ -148,7 +148,7 @@ export default function AiTodayBrief({
             Open Routine
           </Link>
           <button type="button" onClick={() => void handleQuietAction("remind_later")} disabled={Boolean(busy)} className="inline-flex min-h-11 items-center px-3 py-2 text-sm font-semibold text-slate-600 hover:text-[#041B2D] disabled:opacity-60">
-            <Clock3 className="mr-2 h-4 w-4" aria-hidden="true" /> Remind later
+            <Clock3 className="mr-2 h-4 w-4" aria-hidden="true" /> Hide for 3 hours
           </button>
         </div>
 
