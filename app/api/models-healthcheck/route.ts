@@ -43,7 +43,7 @@ export async function GET() {
 
   const [{ callOpenAI }, { resolvedModels }] = await Promise.all([
     import("@/lib/openai"),
-    import("@/lib/models"),
+    import("@/lib/ai/modelConfig"),
   ]);
   const key_present = Boolean(process.env.OPENAI_API_KEY);
   const resolved = resolvedModels();
