@@ -25,6 +25,7 @@ import {
   type JourneyExperiment,
   type JourneyResponse,
   type JourneyReview,
+  type JourneySynthesis,
 } from "@/lib/journey";
 import { blueprintSafetyLabel, type CurrentBlueprintContext, type ExperimentBlueprintContext } from "@/lib/blueprintContext";
 
@@ -206,6 +207,7 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
           reviews={completedReviews}
           experiments={data.experiments}
           experimentBlueprints={data.experiment_blueprints}
+          syntheses={data.syntheses}
         />
       </div>
     </div>
@@ -477,7 +479,8 @@ function WinsTimeline({ reviews, completionTotal }: { reviews: JourneyReview[]; 
   );
 }
 
-function LearningLoop({ reviews, experiments, experimentBlueprints }: { reviews: JourneyReview[]; experiments: JourneyExperiment[]; experimentBlueprints: Record<string, ExperimentBlueprintContext> }) {
+function LearningLoop({ reviews, experiments, experimentBlueprints, syntheses }: { reviews: JourneyReview[]; experiments: JourneyExperiment[]; experimentBlueprints: Record<string, ExperimentBlueprintContext>; syntheses: JourneySynthesis[] }) {
+  const synthesisByExperiment = new Map(syntheses.map((item) => [item.experiment_id, item]));
   return (
     <section aria-labelledby="review-history-title" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex items-center gap-2"><Compass className="h-5 w-5 text-[#087F72]" aria-hidden="true" /><h2 id="review-history-title" className="text-xl font-bold text-[#041B2D]">Your learning loop</h2></div>
@@ -486,11 +489,13 @@ function LearningLoop({ reviews, experiments, experimentBlueprints }: { reviews:
           const experiment = experiments.find((item) => item.id === review.experiment_id);
           const nextExperiment = experiments.find((item) => item.id === review.next_experiment_id) ?? null;
           const context = experiment ? experimentBlueprints[experiment.id] ?? null : null;
+          const synthesis = synthesisByExperiment.get(review.experiment_id) ?? null;
           return <li key={review.experiment_id} className="rounded-2xl bg-slate-50 p-4">
             <dl className="space-y-3 text-sm leading-6">
               <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Tried</dt><dd className="font-semibold text-[#041B2D]">{experiment?.action_label || "Weekly practice"}</dd></div>
               <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Why it mattered</dt><dd className="text-slate-600">{context?.priority_label || `${domainLabel(experiment?.identity_direction ?? null)} was your chosen focus.`}</dd></div>
               <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Noticed</dt><dd className="text-slate-600">You reported usefulness {review.value_rating}/5 and difficulty {review.difficulty}/5 after {review.completion_count} of {review.target_count} planned reps.</dd></div>
+              {synthesis ? <><div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Recorded observation</dt><dd className="text-slate-600">{synthesis.observation}</dd></div><div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Working hypothesis</dt><dd className="text-slate-600">{synthesis.hypothesis} <span className="font-semibold">This is a {synthesis.confidence}-confidence idea to test, not proof.</span></dd></div></> : null}
               <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Chose next</dt><dd className="text-slate-600">{review.decision ? DECISION_LABELS[review.decision] : "Reviewed"}{nextExperiment?.action_label ? `: ${nextExperiment.action_label}` : "."}</dd></div>
             </dl>
           </li>;

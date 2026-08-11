@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, Loader2, Pause, RefreshCw, Repeat2, TrendingUp } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, Pause, RefreshCw, Repeat2, Sparkles, TrendingUp } from "lucide-react";
 
 import type { WeeklyExperiment } from "@/lib/activation";
 import { suggestedNextPlan, type NextWeekPlan, type ReviewDecision } from "@/lib/weeklyReview";
+import type { WeeklySynthesis } from "@/lib/weeklySynthesis";
 
 type ReviewResponse = {
   ok: boolean;
@@ -32,6 +33,8 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
   const [nextPlan, setNextPlan] = useState<NextWeekPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [synthesisLoading, setSynthesisLoading] = useState(false);
+  const [synthesis, setSynthesis] = useState<WeeklySynthesis | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -60,6 +63,32 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
     setNextPlan(experiment ? suggestedNextPlan(experiment, value) : null);
   }
 
+  async function requestSuggestion() {
+    if (!difficulty || !valueRating) return;
+    setSynthesisLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/weekly-review/synthesis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ experiment_id: experimentId, difficulty, value_rating: valueRating }),
+      });
+      const json = await response.json().catch(() => null) as { ok?: boolean; synthesis?: WeeklySynthesis; error?: string } | null;
+      if (!response.ok || !json?.ok || !json.synthesis) throw new Error(reviewError(json?.error));
+      setSynthesis(json.synthesis);
+    } catch (suggestionError) {
+      setError(suggestionError instanceof Error ? suggestionError.message : "The suggestion is unavailable right now.");
+    } finally {
+      setSynthesisLoading(false);
+    }
+  }
+
+  function useSuggestion() {
+    if (!synthesis) return;
+    setDecision(synthesis.suggestedDecision);
+    setNextPlan(synthesis.suggestedPlan);
+  }
+
   async function finishReview() {
     if (!ready || !decision) return;
     setSaving(true);
@@ -68,7 +97,7 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
       const response = await fetch("/api/weekly-review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ experiment_id: experimentId, difficulty, value_rating: valueRating, decision, next_plan: nextPlan }),
+        body: JSON.stringify({ experiment_id: experimentId, difficulty, value_rating: valueRating, decision, next_plan: nextPlan, synthesis_id: synthesis?.id ?? null }),
       });
       const json = await response.json().catch(() => null) as ReviewResponse | null;
       if (!response.ok || !json?.ok) throw new Error(reviewError(json?.error));
@@ -96,8 +125,17 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
         <p className="mt-2 text-sm text-white/70">Every completed repetition counts, including the minimum version.</p>
       </section>
 
-      <Rating title="How difficult was this practice to repeat?" low="Very easy" high="Very hard" value={difficulty} onChange={setDifficulty} />
-      <Rating title="How useful did this practice feel?" low="Not useful" high="Very useful" value={valueRating} onChange={setValueRating} />
+      <Rating title="How difficult was this practice to repeat?" low="Very easy" high="Very hard" value={difficulty} onChange={(value) => { setDifficulty(value); setSynthesis(null); }} />
+      <Rating title="How useful did this practice feel?" low="Not useful" high="Very useful" value={valueRating} onChange={(value) => { setValueRating(value); setSynthesis(null); }} />
+
+      {difficulty && valueRating ? (
+        synthesis ? <SynthesisCard synthesis={synthesis} onUse={useSuggestion} /> : (
+          <section className="mt-8 rounded-3xl border border-[#BCE3DA] bg-[#F4FAF8] p-6">
+            <div className="flex items-start gap-3"><Sparkles className="mt-1 h-5 w-5 shrink-0 text-[#087F72]" aria-hidden="true" /><div><h2 className="text-xl font-bold text-[#041B2D]">Want a grounded suggestion?</h2><p className="mt-2 text-sm leading-6 text-slate-600">LVE360 can reflect your recorded repetitions and ratings, then suggest one adjustable experiment for next week.</p></div></div>
+            <button type="button" onClick={() => void requestSuggestion()} disabled={synthesisLoading} className="mt-5 inline-flex min-h-11 items-center rounded-xl border border-[#087F72] bg-white px-4 py-2 text-sm font-bold text-[#087F72] hover:bg-[#EAFBF8] disabled:opacity-60">{synthesisLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />} Get a grounded suggestion</button>
+          </section>
+        )
+      ) : null}
 
       <section className="mt-10">
         <h2 className="text-2xl font-bold text-[#041B2D]">What should happen next?</h2>
@@ -123,6 +161,23 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
         {saving ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Check className="mr-2 h-5 w-5" />} Finish review <ArrowRight className="ml-2 h-4 w-4" />
       </button>
     </ReviewShell>
+  );
+}
+
+function SynthesisCard({ synthesis, onUse }: { synthesis: WeeklySynthesis; onUse: () => void }) {
+  const decisionLabel = decisions.find((item) => item.value === synthesis.suggestedDecision)?.title ?? "Try the suggestion";
+  return (
+    <section className="mt-8 rounded-3xl border border-[#9DCFC3] bg-[#EAFBF8] p-6 sm:p-8">
+      <div className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-[#087F72]" aria-hidden="true" /><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">LVE360 weekly reflection</p></div>
+      <div className="mt-5 grid gap-5 sm:grid-cols-2">
+        <div><h3 className="font-bold text-[#041B2D]">What the record shows</h3><p className="mt-2 text-sm leading-6 text-slate-700">{synthesis.observation}</p></div>
+        <div><h3 className="font-bold text-[#041B2D]">A hypothesis to test</h3><p className="mt-2 text-sm leading-6 text-slate-700">{synthesis.hypothesis}</p><p className="mt-2 text-xs font-semibold text-slate-500">{synthesis.confidence === "low" ? "Low confidence. More repetitions may change this view." : "Moderate confidence. This is still not proof of cause and effect."}</p></div>
+      </div>
+      <div className="mt-5 rounded-2xl bg-white p-4"><h3 className="text-sm font-bold text-[#041B2D]">Evidence used</h3><ul className="mt-2 space-y-1 text-sm text-slate-600">{synthesis.evidence.map((item) => <li key={item.label}><span className="font-semibold text-slate-700">{item.label}:</span> {item.value}</li>)}</ul></div>
+      <div className="mt-5"><p className="text-sm font-bold text-[#041B2D]">Suggested next step: {decisionLabel}</p>{synthesis.suggestedPlan ? <p className="mt-1 text-sm text-slate-600">{synthesis.suggestedPlan.action_label}, {synthesis.suggestedPlan.frequency_per_week} times next week.</p> : <p className="mt-1 text-sm text-slate-600">Pause this practice and choose your next focus when ready.</p>}</div>
+      <button type="button" onClick={onUse} className="mt-5 inline-flex min-h-11 items-center rounded-xl bg-[#087F72] px-4 py-2 text-sm font-bold text-white hover:bg-[#06695F]"><Check className="mr-2 h-4 w-4" /> Use this suggestion</button>
+      <p className="mt-3 text-xs leading-5 text-slate-500">You can edit every field below or choose a different option. Your choice always controls the next week.</p>
+    </section>
   );
 }
 
@@ -160,5 +215,6 @@ function reviewError(error?: string): string {
   if (error === "review_not_due") return "Your weekly review opens on the final day of this focused week.";
   if (error === "review_already_completed") return "This week has already been reviewed.";
   if (error === "invalid_next_plan") return "Check your next practice, cue, target, and minimum version.";
+  if (error === "weekly_synthesis_unavailable") return "The grounded suggestion is unavailable right now. You can still complete the review yourself.";
   return "Your weekly review is unavailable right now. Please try again.";
 }

@@ -46,12 +46,24 @@ export type JourneyCheckIn = {
   energy: number | null;
 };
 
+export type JourneySynthesis = {
+  id: string;
+  experiment_id: string;
+  observation: string;
+  hypothesis: string;
+  evidence: Array<{ label: string; value: string }>;
+  confidence: "low" | "moderate";
+  response_state: "none" | "accepted" | "edited" | "rejected";
+  created_at: string;
+};
+
 export type JourneyResponse = {
   ok: boolean;
   experiments: JourneyExperiment[];
   reviews: JourneyReview[];
   completions: JourneyCompletion[];
   check_ins: JourneyCheckIn[];
+  syntheses: JourneySynthesis[];
   blueprint: import("@/lib/blueprintContext").CurrentBlueprintContext | null;
   experiment_blueprints: Record<string, import("@/lib/blueprintContext").ExperimentBlueprintContext>;
   error?: string;

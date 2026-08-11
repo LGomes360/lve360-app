@@ -25,7 +25,10 @@ export function isReviewDecision(value: unknown): value is ReviewDecision {
   return typeof value === "string" && REVIEW_DECISIONS.includes(value as ReviewDecision);
 }
 
-export function suggestedNextPlan(experiment: WeeklyExperiment, decision: ReviewDecision): NextWeekPlan | null {
+export function suggestedNextPlan(
+  experiment: Pick<WeeklyExperiment, "action_label" | "cue" | "frequency_per_week" | "minimum_version">,
+  decision: ReviewDecision,
+): NextWeekPlan | null {
   if (decision === "pause") return null;
   const frequency = experiment.frequency_per_week ?? 1;
   return {
