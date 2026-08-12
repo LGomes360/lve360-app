@@ -4,6 +4,7 @@ import { ExternalLink, MessageCircle, Send, Sparkles, ThumbsDown, ThumbsUp, X } 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   coachPageFromPath,
@@ -130,7 +131,7 @@ export default function AskLve360Coach() {
         <span className="sr-only lg:hidden">Ask LVE360</span>
       </button>
 
-      {open ? (
+      {open ? createPortal((
         <div className="fixed inset-0 z-[80] flex items-stretch justify-end bg-[#041B2D]/45 sm:p-4 lg:p-6" role="presentation" onMouseDown={(event) => {
           if (event.currentTarget === event.target) closeCoach();
         }}>
@@ -234,7 +235,7 @@ export default function AskLve360Coach() {
             </footer>
           </section>
         </div>
-      ) : null}
+      ), document.body) : null}
     </>
   );
 }
