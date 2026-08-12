@@ -9,18 +9,21 @@ import type { CurrentBlueprintContext, ExperimentBlueprintContext } from "@/lib/
 import type { PremiumActivationProgress } from "@/lib/premiumActivation";
 import PremiumActivationChecklist from "@/components/activation/PremiumActivationChecklist";
 import AiTodayBrief from "@/components/dashboard/AiTodayBrief";
+import ReminderArrivalFeedback from "@/components/dashboard/ReminderArrivalFeedback";
 
 export default function TodayClient({
   experiment,
   blueprint,
   experimentBlueprint,
   checkinDate,
+  reminderDeliveryId,
   activationProgress,
 }: {
   experiment: WeeklyExperiment | null;
   blueprint: CurrentBlueprintContext | null;
   experimentBlueprint: ExperimentBlueprintContext | null;
   checkinDate: string | null;
+  reminderDeliveryId: string | null;
   activationProgress: PremiumActivationProgress;
 }) {
   const [firstActionComplete, setFirstActionComplete] = useState(activationProgress.firstActionComplete);
@@ -44,6 +47,8 @@ export default function TodayClient({
 
         {experiment?.status === "active" || firstActionComplete ? (
           <>
+            <ReminderArrivalFeedback deliveryId={reminderDeliveryId} />
+
             <AiTodayBrief
               date={checkinDate}
               onPracticeCompleted={() => {

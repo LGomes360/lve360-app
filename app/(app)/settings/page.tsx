@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import type { AccountSettings } from "@/lib/accountSettings";
+import ReminderBehaviorCard from "@/components/settings/ReminderBehaviorCard";
 
 type AccountResponse = {
   ok: boolean;
@@ -245,6 +246,7 @@ export default function SettingsPage() {
             </>
           )}
         </div>
+        {account.reminder_preference === "email" && paid ? <ReminderBehaviorCard /> : null}
         <div className="mt-6 flex justify-end">
           <button
             onClick={() => void savePreferences()}

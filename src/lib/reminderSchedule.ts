@@ -15,7 +15,8 @@ export type ReminderSkipReason =
   | "review_complete"
   | "completed_today"
   | "completed_target"
-  | "target_met";
+  | "target_met"
+  | "daily_limit";
 
 export type ReminderDecision = {
   kind: ReminderKind;
@@ -144,5 +145,5 @@ export function skippedReminderIdempotencyKey(
 }
 
 export function shouldLedgerSkip(reason: ReminderSkipReason): boolean {
-  return ["quiet_hours", "review_complete", "completed_today", "completed_target", "target_met"].includes(reason);
+  return ["quiet_hours", "review_complete", "completed_today", "completed_target", "target_met", "daily_limit"].includes(reason);
 }

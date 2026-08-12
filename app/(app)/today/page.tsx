@@ -12,11 +12,14 @@ import { getPremiumActivationProgress } from "@/lib/premiumActivation";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function Page({ searchParams }: { searchParams: Promise<{ checkin?: string }> }) {
+export default async function Page({ searchParams }: { searchParams: Promise<{ checkin?: string; reminder_delivery?: string }> }) {
   // Keep your existing gating (premium or trial)
   await requireTier(["premium", "trial"]);
   const params = await searchParams;
   const checkinDate = parseLocalDate(params.checkin ?? null);
+  const reminderDeliveryId = typeof params.reminder_delivery === "string" && /^[0-9a-f-]{36}$/i.test(params.reminder_delivery)
+    ? params.reminder_delivery
+    : null;
 
   // Server-side: fetch current user + goals (no changes to your client)
   const supabase = createServerComponentClient({ cookies });
@@ -59,6 +62,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ c
         blueprint={blueprint}
         experimentBlueprint={activeExperiment ? experimentBlueprints[activeExperiment.id] ?? null : null}
         checkinDate={checkinDate}
+        reminderDeliveryId={reminderDeliveryId}
         activationProgress={activationProgress}
       />
 
