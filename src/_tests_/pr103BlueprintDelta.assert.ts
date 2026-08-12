@@ -51,6 +51,25 @@ assert.equal(snapshots.length, 3, "Only explicit recommendation-table entries sh
 assert.equal(snapshots.filter((item) => item.key === "vitamin-b12").length, 1);
 assert.equal(snapshots.filter((item) => item.key === "magnesium-glycinate").length, 1);
 
+const currentOptimizeMarkdown = [
+  "## Current Stack",
+  "",
+  "| Supplement | Purpose | Dose | Timing |",
+  "| --- | --- | --- | --- |",
+  "| Omega-3 | Cardiovascular wellness | 1000 mg | Evening |",
+  "",
+  "## Your Blueprint Recommendations",
+  "",
+  "| Rank | Supplement | Status | Why It Matters |",
+  "| --- | --- | --- | --- |",
+  "| 1 | Omega-3 | Current - optimize | Supports cardiovascular wellness. |",
+].join("\n");
+assert.equal(
+  extractBlueprintRecommendationSnapshots(currentOptimizeMarkdown).find((item) => item.key === "omega-3")?.status,
+  "Current - optimize",
+  "Current, optimize rows are still explicit Blueprint recommendations and must be compared.",
+);
+
 const delta = buildBlueprintDelta({
   previousStackId: "stack-previous",
   previousCreatedAt: "2026-08-01T12:00:00.000Z",

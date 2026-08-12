@@ -77,7 +77,11 @@ function reportStatus(notes: string | null | undefined): string | null {
 
 export function extractBlueprintRecommendationSnapshots(markdown: string): BlueprintRecommendationSnapshot[] {
   const snapshots = parseMarkdownToItems(markdown)
-    .filter((item) => item.is_current === false && REPORT_STATUS_PREFIX.test(item.notes ?? ""))
+    // A recommendation-table row may also appear in Current Stack and will
+    // therefore be marked current by the shared report parser. The explicit
+    // Blueprint status prefix is the authoritative signal that the row came
+    // from the recommendations table.
+    .filter((item) => REPORT_STATUS_PREFIX.test(item.notes ?? ""))
     .map((item) => ({
       key: healthItemIdentityKey(item.name),
       name: cleanValue(item.name) ?? "Recommendation",
