@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { requireTier } from "@/app/_auth/requireTier";
+import { buildBlueprintDelta } from "@/lib/blueprintDelta";
 import { parseBlueprintReport } from "@/lib/blueprintReport";
 import {
   blueprintMarkdownFromStack,
@@ -86,6 +87,20 @@ export default async function BlueprintPage({ params }: PageProps) {
     ? !stack.input_snapshot_hash || stack.input_snapshot_hash !== currentInputHash
     : false;
   const latestId = history?.[0]?.id ?? stack.id;
+  const currentVersionIndex = (history ?? []).findIndex((version) => version.id === stack.id);
+  const previousStack = (history ?? []).find((version) => version.id === stack.supersedes_stack_id)
+    ?? (currentVersionIndex >= 0 ? history?.[currentVersionIndex + 1] : null)
+    ?? null;
+  const delta = previousStack
+    ? buildBlueprintDelta({
+        previousStackId: previousStack.id,
+        previousCreatedAt: previousStack.created_at,
+        currentCreatedAt: stack.created_at,
+        generationReason: stack.generation_reason,
+        previousMarkdown: blueprintMarkdownFromStack(previousStack),
+        currentMarkdown: markdown,
+      })
+    : null;
 
   return (
     <BlueprintWorkspaceClient
@@ -112,6 +127,7 @@ export default async function BlueprintPage({ params }: PageProps) {
         safetyStatus: deriveBlueprintSafetyStatus(blueprintMarkdownFromStack(version)),
         generationReason: version.generation_reason,
       }))}
+      delta={delta}
     />
   );
 }
