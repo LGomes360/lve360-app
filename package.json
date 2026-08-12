@@ -46,6 +46,7 @@
     "qa:pr102": "node --experimental-strip-types src/_tests_/pr102RoutineCopilot.assert.ts && node src/_tests_/pr102Page.assert.mjs",
     "qa:pr103": "node --experimental-strip-types src/_tests_/pr103BlueprintDelta.assert.ts && node src/_tests_/pr103Page.assert.mjs",
     "qa:pr104": "node --experimental-strip-types src/_tests_/pr104ReminderBehavior.assert.ts && node src/_tests_/pr104Page.assert.mjs",
+    "qa:pr105": "node --experimental-strip-types src/_tests_/pr105ContextualCoach.assert.ts && node src/_tests_/pr105Page.assert.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
     "qa:all": "npm run qa:env && npm run qa:build"

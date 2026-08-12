@@ -12,6 +12,7 @@ import {
   AUTHENTICATED_NAV_ITEMS,
   isAuthenticatedRouteActive,
 } from "@/lib/authenticatedNavigation";
+import AskLve360Coach from "@/components/coach/AskLve360Coach";
 
 type Props = {
   tier?: "free" | "trial" | "premium";
@@ -53,30 +54,33 @@ export default function DashboardHeader({ tier = "free" }: Props) {
           />
         </Link>
 
+        <div className="flex items-center gap-2">
         <nav className="hidden items-center gap-1 text-sm font-semibold text-[#041B2D] md:flex" aria-label="Member navigation">
           {navigationItems.map((item) => (
             <NavLink key={item.href} href={item.href} pathname={pathname}>
               {item.label}
             </NavLink>
           ))}
-          <span className="mx-2 h-6 w-px bg-slate-200" aria-hidden="true" />
-          <span className="sr-only">Current plan: {tier}</span>
-          {!paid ? (
-            <Link
-              href="/upgrade"
-              className="rounded-lg border border-[#6D36C9] px-3 py-2 text-[#6D36C9] transition hover:bg-purple-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6D36C9] focus-visible:ring-offset-2"
-            >
-              Join LVE360
-            </Link>
-          ) : null}
-          <button
-            type="button"
-            onClick={handleSignOut}
-            className="rounded-lg bg-[#087F72] px-3 py-2 text-white transition hover:bg-[#06695F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] focus-visible:ring-offset-2"
-          >
-            Sign out
-          </button>
         </nav>
+
+        {paid ? <AskLve360Coach /> : null}
+        <span className="hidden h-6 w-px bg-slate-200 md:block" aria-hidden="true" />
+        <span className="sr-only">Current plan: {tier}</span>
+        {!paid ? (
+          <Link
+            href="/upgrade"
+            className="hidden rounded-lg border border-[#6D36C9] px-3 py-2 text-sm font-semibold text-[#6D36C9] transition hover:bg-purple-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6D36C9] focus-visible:ring-offset-2 md:inline-flex"
+          >
+            Join LVE360
+          </Link>
+        ) : null}
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="hidden rounded-lg bg-[#087F72] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#06695F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] focus-visible:ring-offset-2 md:inline-flex"
+        >
+          Sign out
+        </button>
 
         <button
           type="button"
@@ -88,6 +92,7 @@ export default function DashboardHeader({ tier = "free" }: Props) {
         >
           {menuOpen ? <X size={24} aria-hidden="true" /> : <Menu size={24} aria-hidden="true" />}
         </button>
+        </div>
       </div>
 
       <AnimatePresence>

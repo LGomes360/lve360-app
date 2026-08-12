@@ -35,6 +35,7 @@ export async function GET() {
     { label: "ai_summaries", table: "ai_summaries", column: "user_id", value: user.id },
     { label: "ai_generation_ledger", table: "ai_generation_ledger", column: "user_id", value: user.id },
     { label: "ai_weekly_syntheses", table: "ai_weekly_syntheses", column: "user_id", value: user.id },
+    { label: "ai_coaching_turns", table: "ai_coaching_turns", column: "user_id", value: user.id },
     { label: "weekly_experiments", table: "weekly_experiments", column: "user_id", value: user.id },
     { label: "weekly_reviews", table: "weekly_experiment_reviews", column: "user_id", value: user.id },
     { label: "practice_completions", table: "daily_practice_completions", column: "user_id", value: user.id },

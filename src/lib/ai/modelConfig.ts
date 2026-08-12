@@ -11,7 +11,8 @@ export type AiTask =
   | "today_brief"
   | "routine_label_parser"
   | "weekly_review_synthesis"
-  | "weekly_insight";
+  | "weekly_insight"
+  | "contextual_coach";
 
 export type AiTaskProfile = {
   capability: AiCapability;
@@ -70,6 +71,11 @@ const TASK_PROFILES: Record<AiTask, AiTaskProfile> = {
   weekly_insight: {
     capability: "mini",
     promptVersion: "weekly-insight-v1",
+    reasoningEffort: "low",
+  },
+  contextual_coach: {
+    capability: "mini",
+    promptVersion: "contextual-coach-v1",
     reasoningEffort: "low",
   },
 };
