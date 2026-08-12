@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { clinicianRoutineChanges, clinicianRoutineQuestions } from "../lib/clinicianRoutineSummary.ts";
+import { clinicianRoutineQuestions } from "../lib/clinicianRoutineSummary.ts";
 import { addRoutineScheduleContext, buildRoutineCopilotProposal } from "../lib/routineCopilot.ts";
 import type { RoutineItem } from "../lib/routine.ts";
 
@@ -85,7 +85,6 @@ const baseItem: RoutineItem = {
   refill_days_left: null,
   last_refilled_at: null,
 };
-assert.match(clinicianRoutineChanges([baseItem])[0].description, /Member reports updating/i);
 const questions = clinicianRoutineQuestions([baseItem]).map((item) => item.question).join(" ");
 assert.match(questions, /amount and unit/i);
 assert.match(questions, /cadence/i);

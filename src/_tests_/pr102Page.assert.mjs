@@ -16,7 +16,8 @@ assert.match(client, /RoutineCopilotPanel/, "Add and edit flows must expose the 
 assert.match(client, /Save record/, "The existing save confirmation must remain in place.");
 assert.match(client, /Add reported \{label\}/, "The existing add confirmation must remain in place.");
 assert.match(modelConfig, /routine_label_parser[\s\S]*capability: "mini"/, "The parser must use the cost-conscious mini capability.");
-assert.match(printPage, /Member-recorded changes/, "The printout must label member-entered facts.");
+assert.doesNotMatch(printPage, /Member-recorded changes/, "The printout must not spend space on repetitive change provenance.");
+assert.match(printPage, /LVE360 member record/, "The printout must still identify the regimen as a member record.");
 assert.match(printPage, /LVE360-organized questions for review/, "The printout must distinguish organized questions from facts.");
 assert.match(printPage, /not treatment or dosing recommendations/, "The clinician questions must state their boundary.");
 

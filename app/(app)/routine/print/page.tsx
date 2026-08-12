@@ -4,7 +4,7 @@ import { requireTier } from "@/app/_auth/requireTier";
 import { groupRoutineItems, ROUTINE_SECTION_LABELS, ROUTINE_SECTION_ORDER, routineInstructionAuthorityLabel, routineScheduleLabel } from "@/lib/routine";
 import { getRoutineData } from "@/lib/routineData";
 import { doseIntegrityIssue } from "@/lib/doseIntegrity";
-import { clinicianRoutineChanges, clinicianRoutineQuestions } from "@/lib/clinicianRoutineSummary";
+import { clinicianRoutineQuestions } from "@/lib/clinicianRoutineSummary";
 
 import PrintButton from "./PrintButton";
 
@@ -16,7 +16,6 @@ export default async function RoutinePrintPage() {
   const data = await getRoutineData(user.id);
   const grouped = groupRoutineItems(data.items);
   const generatedAt = new Date();
-  const changes = clinicianRoutineChanges(grouped.current);
   const questions = clinicianRoutineQuestions(grouped.current);
 
   return (
@@ -38,17 +37,7 @@ export default async function RoutinePrintPage() {
         </p>
       </header>
 
-      <section className="mt-6 break-inside-avoid rounded-xl border border-slate-300 p-4 print:rounded-none" aria-labelledby="member-change-summary">
-        <h2 id="member-change-summary" className="text-lg font-bold text-[#041B2D]">Member-recorded changes</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">These statements describe how the member’s LVE360 record was created or updated. They do not verify a clinical change.</p>
-        {changes.length ? (
-          <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-700">
-            {changes.map((change) => <li key={`${change.itemId}-${change.description}`}><strong>{change.itemName}:</strong> {change.description}</li>)}
-          </ol>
-        ) : <p className="mt-3 text-sm text-slate-700">No member-added or member-updated items are identified in the current record.</p>}
-      </section>
-
-      <section className="mt-5 break-inside-avoid rounded-xl border border-amber-300 bg-amber-50 p-4 print:rounded-none" aria-labelledby="organized-review-questions">
+      <section className="mt-6 break-inside-avoid rounded-xl border border-amber-300 bg-amber-50 p-4 print:rounded-none" aria-labelledby="organized-review-questions">
         <h2 id="organized-review-questions" className="text-lg font-bold text-[#041B2D]">LVE360-organized questions for review</h2>
         <p className="mt-1 text-sm leading-6 text-amber-950">These questions are generated from missing or potentially unclear member-entered fields. They are not treatment or dosing recommendations.</p>
         {questions.length ? (
