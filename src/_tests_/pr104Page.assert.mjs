@@ -25,6 +25,8 @@ assert.match(arrival, /Too late/);
 assert.match(arrival, /Not useful/);
 assert.match(arrival, /Dismiss reminder timing question/);
 assert.match(todayPage, /reminder_delivery/);
+assert.match(todayPage, /existingFeedback/, "Today must suppress a feedback prompt that was already answered.");
+assert.match(todayPage, /feedbackLookupError/, "Today must fail closed when prior feedback cannot be verified.");
 assert.match(migration, /alter table public\.reminder_feedback enable row level security/i);
 assert.match(migration, /alter table public\.reminder_adjustments enable row level security/i);
 assert.match(migration, /grant select on public\.reminder_feedback to authenticated/i);

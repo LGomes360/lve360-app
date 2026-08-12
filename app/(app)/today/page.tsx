@@ -17,7 +17,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ c
   await requireTier(["premium", "trial"]);
   const params = await searchParams;
   const checkinDate = parseLocalDate(params.checkin ?? null);
-  const reminderDeliveryId = typeof params.reminder_delivery === "string" && /^[0-9a-f-]{36}$/i.test(params.reminder_delivery)
+  const reminderDeliveryId = typeof params.reminder_delivery === "string"
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(params.reminder_delivery)
     ? params.reminder_delivery
     : null;
 
@@ -30,6 +31,19 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ c
   if (!user?.id) {
     // You can redirect to /login if you prefer
     return null;
+  }
+
+  let unratedReminderDeliveryId: string | null = null;
+  if (reminderDeliveryId) {
+    const { data: existingFeedback, error: feedbackLookupError } = await supabase
+      .from("reminder_feedback")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("delivery_id", reminderDeliveryId)
+      .maybeSingle();
+    // Fail closed if feedback state cannot be verified. A transient read error
+    // should not make a member answer the same timing question repeatedly.
+    if (!feedbackLookupError && !existingFeedback) unratedReminderDeliveryId = reminderDeliveryId;
   }
 
   const blueprintPromise = getCurrentBlueprintContext(user.id);
@@ -62,7 +76,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ c
         blueprint={blueprint}
         experimentBlueprint={activeExperiment ? experimentBlueprints[activeExperiment.id] ?? null : null}
         checkinDate={checkinDate}
-        reminderDeliveryId={reminderDeliveryId}
+        reminderDeliveryId={unratedReminderDeliveryId}
         activationProgress={activationProgress}
       />
 
