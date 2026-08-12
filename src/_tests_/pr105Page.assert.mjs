@@ -15,6 +15,8 @@ assert.match(coach, /cannot diagnose or change medications, hormones, supplement
 assert.match(coach, /useful/);
 assert.match(coach, /not_useful/);
 assert.match(context, /Use only the supplied member facts/i);
+assert.match(context, /Do not add health benefits, mechanisms, or expected outcomes/i);
+assert.match(context, /deterministicTodayStep/, "Today's smallest-step prompt must prefer the active weekly practice deterministically.");
 assert.match(context, /generateAI\(\{[\s\S]*task: "contextual_coach"/, "Coaching must use the canonical AI gateway.");
 assert.match(modelConfig, /contextual_coach:[\s\S]*capability: "mini"/, "Coaching must default to the cost-efficient model capability.");
 assert.match(api, /LVE_AI_COACH_MONTHLY_TURNS|coachBudget/);

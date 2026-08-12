@@ -8,7 +8,7 @@ import type { CoachPage, CoachSource } from "@/lib/contextualCoach";
 import { parseCoachAnswer } from "@/lib/contextualCoach";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
-type CoachContext = {
+export type CoachContext = {
   page: CoachPage;
   sources: CoachSource[];
   facts: Record<string, unknown>;
@@ -109,6 +109,8 @@ function prompt(question: string, context: CoachContext) {
         "Use only the supplied member facts. Never invent a fact, diagnosis, symptom, causal claim, interaction, contraindication, or evidence finding.",
         "You may help with small lifestyle actions, reflection, organization, adherence, and questions to discuss with a qualified professional.",
         "Never tell the member to start, stop, add, remove, change, or dose a medication, hormone, or supplement. Never diagnose or claim to treat, cure, prevent, or manage disease.",
+        "Do not add health benefits, mechanisms, or expected outcomes. Explain choices only through the supplied record, feasibility, consistency, or the member's explicit weekly target.",
+        "Do not call something the member's goal unless an explicit goal is present in the supplied facts.",
         "If the records do not support an answer, say what is missing and point to the relevant record to review.",
         "Use supportive plain language and no shame. Keep the answer under 180 words.",
         "Return only valid JSON with fields answer (string) and source_ids (array of source id strings). Include every source used for a personalized claim.",
@@ -118,7 +120,24 @@ function prompt(question: string, context: CoachContext) {
   ];
 }
 
+function deterministicTodayStep(question: string, context: CoachContext) {
+  if (context.page !== "today" || !/\b(?:smallest|next|today|right now)\b/i.test(question)) return null;
+  const practice = context.facts.weekly_practice as {
+    action?: unknown;
+    minimum_version?: unknown;
+  } | undefined;
+  const action = typeof practice?.action === "string" ? practice.action : null;
+  const minimum = typeof practice?.minimum_version === "string" ? practice.minimum_version : null;
+  if (!action || !minimum) return null;
+  return {
+    answer: `Use the minimum version of your current weekly practice: ${minimum}. This is the smallest version you already chose for “${action}.” Completing that version keeps today's decision tied to your active plan without adding another task.`,
+    sourceIds: ["weekly_practice"],
+  };
+}
+
 export async function generateCoachAnswer(userId: string, question: string, context: CoachContext) {
+  const deterministic = deterministicTodayStep(question, context);
+  if (deterministic) return deterministic;
   const response = await generateAI({
     task: "contextual_coach",
     userId,
@@ -127,5 +146,7 @@ export async function generateCoachAnswer(userId: string, question: string, cont
     timeoutMs: 20_000,
     temperature: 0.2,
   });
-  return parseCoachAnswer(response.text, new Set(context.sources.map((source) => source.id)));
+  const parsed = parseCoachAnswer(response.text, new Set(context.sources.map((source) => source.id)));
+  if (parsed && /\byour goal\b/i.test(parsed.answer) && !("goals" in context.facts)) return null;
+  return parsed;
 }

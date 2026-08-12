@@ -91,7 +91,10 @@ export function isCoachAnswerSafe(answer: string) {
   if (/\b(you have|this is|you are suffering from)\s+(?:a\s+)?(?:disease|condition|cancer|diabetes|depression|anxiety|hypertension)\b/.test(value)) return false;
   const directive = /\b(?:you should|i recommend|go ahead and|please)\s+(?:start|begin|stop|quit|add|remove|increase|decrease|double|halve|change|adjust|skip|replace|switch|take|use)\b/;
   const healthItem = /\b(medication|medicine|prescription|dose|dosage|hormone|supplement|vitamin|b\s?12|magnesium|creatine|melatonin|omega-?3|zepbound|insulin|thyroid)\b/;
-  return !(directive.test(value) && healthItem.test(value));
+  if (directive.test(value) && healthItem.test(value)) return false;
+  const benefitClaim = /\b(?:can|may|will|helps?|supports?)\s+(?:help\s+)?(?:improve|boost|reduce|lower|increase|prevent|support|enhance)\b/;
+  const healthOutcome = /\b(?:digestion|energy levels?|sleep quality|blood pressure|blood sugar|weight loss|mood|cognition|memory|symptoms?|inflammation|disease|longevity)\b/;
+  return !(benefitClaim.test(value) && healthOutcome.test(value));
 }
 
 export function coachSuggestedPrompts(page: CoachPage): string[] {

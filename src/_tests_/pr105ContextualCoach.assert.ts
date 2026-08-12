@@ -27,6 +27,8 @@ assert.match(coachBoundaryAnswer("diagnosis"), /cannot diagnose/i);
 assert.equal(isCoachAnswerSafe("You should increase your medication dose."), false);
 assert.equal(isCoachAnswerSafe("You should take a 10-minute walk after lunch."), true);
 assert.equal(isCoachAnswerSafe("You have diabetes."), false);
+assert.equal(isCoachAnswerSafe("This can help improve digestion and energy levels."), false);
+assert.equal(isCoachAnswerSafe("This keeps the step tied to your weekly plan."), true);
 
 const parsed = parseCoachAnswer(
   JSON.stringify({ answer: "Your recorded weekly practice is the best place to begin.", source_ids: ["weekly_practice", "invented"] }),
