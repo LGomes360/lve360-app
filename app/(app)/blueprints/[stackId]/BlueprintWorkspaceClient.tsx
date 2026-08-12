@@ -22,6 +22,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import type { BlueprintDelta } from "@/lib/blueprintDelta";
 import type { MemberSupplement } from "@/lib/blueprintWorkspace";
 import { doseIntegrityIssue } from "@/lib/doseIntegrity";
 import { trackProductEvent } from "@/lib/productAnalyticsClient";
@@ -30,6 +31,8 @@ import type {
   MemberRecommendationDecision,
   RecommendationDecisionRecord,
 } from "@/lib/recommendationDecision";
+
+import BlueprintDeltaPanel from "./BlueprintDeltaPanel";
 
 type StackSummary = {
   id: string;
@@ -70,6 +73,7 @@ type Props = {
   versioningReady: boolean;
   isLatest: boolean;
   history: VersionSummary[];
+  delta: BlueprintDelta | null;
 };
 
 export default function BlueprintWorkspaceClient({
@@ -82,6 +86,7 @@ export default function BlueprintWorkspaceClient({
   versioningReady,
   isLatest,
   history,
+  delta,
 }: Props) {
   const router = useRouter();
   const [supplements, setSupplements] = useState(initialSupplements);
@@ -363,6 +368,8 @@ export default function BlueprintWorkspaceClient({
       {message ? <p role="status" className="mt-5 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900">{message}</p> : null}
       {error ? <p role="alert" className="mt-5 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{error}</p> : null}
 
+      {delta ? <BlueprintDeltaPanel delta={delta} stale={stale} /> : null}
+
       <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6" aria-labelledby="blueprint-next-steps-title">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Your decision map</p>
         <h2 id="blueprint-next-steps-title" className="mt-1 text-2xl font-bold text-[#041B2D]">What needs your attention</h2>
@@ -461,7 +468,7 @@ export default function BlueprintWorkspaceClient({
         </main>
 
         <aside className="space-y-6">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <section id="version-history" className="scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2">
               <History className="h-5 w-5 text-[#087F72]" aria-hidden="true" />
               <h2 className="font-bold text-[#041B2D]">Version history</h2>
