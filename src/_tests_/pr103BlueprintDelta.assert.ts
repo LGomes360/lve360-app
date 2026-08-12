@@ -70,6 +70,19 @@ assert.equal(
   "Current, optimize rows are still explicit Blueprint recommendations and must be compared.",
 );
 
+const currentOptimizeDelta = buildBlueprintDelta({
+  previousStackId: "stack-before-current-item",
+  previousCreatedAt: "2026-08-01T12:00:00.000Z",
+  currentCreatedAt: "2026-08-11T12:00:00.000Z",
+  generationReason: "member-refresh",
+  previousMarkdown: "## Your Blueprint Recommendations\n\nNo recommendations recorded.",
+  currentMarkdown: currentOptimizeMarkdown,
+});
+const currentOmega = currentOptimizeDelta.recommendations.find((item) => item.key === "omega-3");
+assert.equal(currentOmega?.attention, "informational");
+assert.equal(currentOmega?.actionHref, "/routine");
+assert.equal(currentOmega?.actionLabel, "Open in Routine");
+
 const delta = buildBlueprintDelta({
   previousStackId: "stack-previous",
   previousCreatedAt: "2026-08-01T12:00:00.000Z",

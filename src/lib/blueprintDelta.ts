@@ -105,6 +105,7 @@ function attentionFor(
 ): BlueprintDeltaAttention {
   if (kind === "removed" || kind === "unchanged") return "informational";
   if (/clinician review/i.test(current?.status ?? "")) return "clinician_review";
+  if (/^current\b/i.test(current?.status ?? "")) return "informational";
   return "decision";
 }
 
@@ -156,10 +157,12 @@ function explanationFor(
 function actionFor(
   kind: BlueprintDeltaKind,
   attention: BlueprintDeltaAttention,
+  current: BlueprintRecommendationSnapshot | null,
 ): Pick<BlueprintRecommendationDelta, "actionHref" | "actionLabel"> {
   if (kind === "removed") return { actionHref: "#version-history", actionLabel: "Open prior Blueprint" };
   if (kind === "unchanged") return { actionHref: "#recommendation-report", actionLabel: "Review report detail" };
   if (attention === "clinician_review") return { actionHref: "#recommendation-report", actionLabel: "Review before discussing" };
+  if (/^current\b/i.test(current?.status ?? "")) return { actionHref: "/routine", actionLabel: "Open in Routine" };
   return { actionHref: "#recommendation-decisions", actionLabel: "Make a decision" };
 }
 
@@ -207,7 +210,7 @@ export function buildBlueprintDelta(input: BuildBlueprintDeltaInput): BlueprintD
       previous: previousItem,
       current: currentItem,
       explanation: explanationFor(kind, previousItem, currentItem, fields),
-      ...actionFor(kind, attention),
+      ...actionFor(kind, attention, currentItem),
     };
   }).sort((left, right) => {
     const order: Record<BlueprintDeltaKind, number> = { added: 0, changed: 1, removed: 2, unchanged: 3 };
