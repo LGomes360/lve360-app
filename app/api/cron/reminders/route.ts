@@ -15,6 +15,7 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+const MAX_EMAIL_REMINDERS_PER_LOCAL_DAY = 1;
 
 type ExperimentRow = {
   id: string;
@@ -179,6 +180,32 @@ export async function GET(req: NextRequest) {
       }
       const decision = evaluation.decision;
 
+      const { count: remindersToday, error: dailyLimitError } = await admin
+        .from("reminder_deliveries")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", experiment.user_id)
+        .eq("local_date", decision.localDate)
+        .in("status", ["queued", "accepted", "delivered"]);
+      if (dailyLimitError) throw dailyLimitError;
+      if ((remindersToday ?? 0) >= MAX_EMAIL_REMINDERS_PER_LOCAL_DAY) {
+        countSkip("daily_limit");
+        const skipKey = skippedReminderIdempotencyKey(experiment.id, decision.localDate, "daily_limit");
+        const { error: skipError } = await admin.from("reminder_deliveries").insert({
+          user_id: experiment.user_id,
+          experiment_id: experiment.id,
+          reminder_kind: decision.kind,
+          reminder_timing: timing,
+          local_date: decision.localDate,
+          target_date: decision.targetDate,
+          idempotency_key: skipKey,
+          status: "skipped",
+          skip_reason: "daily_limit",
+          attempted_at: new Date().toISOString(),
+        });
+        if (skipError && skipError.code !== "23505") throw skipError;
+        continue;
+      }
+
       const key = reminderIdempotencyKey(
         decision.kind,
         experiment.id,
@@ -204,19 +231,60 @@ export async function GET(req: NextRequest) {
       }
       if (claimError || !delivery) throw claimError ?? new Error("delivery_claim_failed");
 
+      if (decision.kind === "weekly_review") {
+        const { data: resolvedReview, error: resolvedReviewError } = await admin
+          .from("weekly_experiment_reviews")
+          .select("id")
+          .eq("experiment_id", experiment.id)
+          .eq("status", "completed")
+          .maybeSingle();
+        if (resolvedReviewError) throw resolvedReviewError;
+        if (resolvedReview) {
+          await admin.from("reminder_deliveries").update({
+            status: "skipped",
+            skip_reason: "resolved_before_send",
+            attempted_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }).eq("id", delivery.id);
+          countSkip("resolved_before_send");
+          continue;
+        }
+      } else {
+        const { data: resolvedCompletion, error: resolvedError } = await admin
+          .from("daily_practice_completions")
+          .select("id")
+          .eq("user_id", experiment.user_id)
+          .eq("experiment_id", experiment.id)
+          .eq("completion_date", decision.targetDate)
+          .maybeSingle();
+        if (resolvedError) throw resolvedError;
+        if (resolvedCompletion) {
+          await admin.from("reminder_deliveries").update({
+            status: "skipped",
+            skip_reason: "resolved_before_send",
+            attempted_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }).eq("id", delivery.id);
+          countSkip("resolved_before_send");
+          continue;
+        }
+      }
+
       const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://lve360.com").replace(/\/$/, "");
       const path = decision.kind === "weekly_review"
         ? `/review?experiment=${encodeURIComponent(experiment.id)}&source=reminder`
         : decision.kind === "next_day_checkin"
           ? `/today?checkin=${encodeURIComponent(decision.targetDate)}&source=reminder`
           : `/today?experiment=${encodeURIComponent(experiment.id)}&source=reminder`;
+      const deepLink = new URL(path, `${appUrl}/`);
+      if (decision.kind !== "weekly_review") deepLink.searchParams.set("reminder_delivery", delivery.id);
       const result = await sendReminderEmail({
         to: profile.email,
         kind: decision.kind,
         timing,
         actionLabel: experiment.action_label || "Your focused weekly practice",
         minimumVersion: experiment.minimum_version || "Take the smallest useful step",
-        deepLink: `${appUrl}${path}`,
+        deepLink: deepLink.toString(),
         idempotencyKey: key,
       });
       await admin.from("reminder_deliveries").update({
