@@ -24,6 +24,7 @@ import {
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
+import RoutineCopilotPanel from "@/components/routine/RoutineCopilotPanel";
 import {
   groupRoutineItems,
   isClinicianReviewProposal,
@@ -57,6 +58,7 @@ type ToastState = { message: string; undo?: () => Promise<void> } | null;
 type RoutineView = "today" | "medications" | "hormones" | "supplements";
 type RoutineEditPatch = {
   dose?: string | null;
+  timing?: string | null;
   doseConfirmed?: boolean;
   schedule?: RoutineItem["schedule"];
   instructionAuthority?: RegimenInstructionAuthority;
@@ -148,6 +150,7 @@ export default function RoutineClient({
     setBusyId(item.id);
     const previous = {
       dose: item.dose,
+      timing: item.timing,
       doseConfirmed: Boolean(doseIntegrityIssue(item.name, item.dose)),
       schedule: item.schedule ?? null,
       instructionAuthority: item.instruction_authority ?? undefined,
@@ -666,6 +669,7 @@ function IdeasSection({
 function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineItem; saving: boolean; onClose: () => void; onSave: (item: RoutineItem, patch: RoutineEditPatch) => void }) {
   const prescribedItem = item.item_kind === "medication" || item.item_kind === "hormone";
   const [dose, setDose] = useState(item.dose ?? "");
+  const [timing, setTiming] = useState(item.timing ?? "");
   const [brand, setBrand] = useState(item.brand ?? "");
   const [reorderUrl, setReorderUrl] = useState(item.reorder_url ?? "");
   const [schedule, setSchedule] = useState<ScheduleDraft>(() => scheduleDraft(item.schedule));
@@ -688,6 +692,18 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
           ? "Use this only to record a change you received from your clinician, pharmacist, or current prescription label. LVE360 is not changing or recommending your prescription."
           : "Record what you currently do. This does not create a medical instruction or replace a product label."}
       </p>
+      <RoutineCopilotPanel
+        kind={item.item_kind}
+        existingName={item.name}
+        onApply={(proposal) => {
+          if (proposal.dose) {
+            setDose(proposal.dose);
+            setDoseConfirmed(false);
+          }
+          if (proposal.timing) setTiming(proposal.timing);
+          if (proposal.schedule) setSchedule(scheduleDraft(proposal.schedule));
+        }}
+      />
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">{prescribedItem ? "Prescribed dose at each scheduled time" : "Amount at each scheduled time"}<input autoFocus value={dose} onChange={(event) => { setDose(event.target.value); setDoseConfirmed(false); }} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={item.item_kind === "hormone" ? "For example, 80 mg" : "For example, 2 capsules"} /></label>
       {item.schedule && item.schedule.times.length > 1 ? <p className="mt-2 text-sm leading-6 text-slate-600">This amount is shown for every scheduled time. If the amount is a full-day total, enter the amount you take at one scheduled time instead.</p> : null}
       {doseIssue ? (
@@ -706,7 +722,7 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
           {!reorderUrlReady ? <p className="text-sm font-semibold text-rose-700 sm:col-span-2">Use a complete secure link that begins with https://.</p> : null}
         </div>
       ) : null}
-      {!item.schedule && item.timing ? <p className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700"><span className="font-bold">Current written schedule:</span> {item.timing}. Choose a structured cadence below to use the daily checklist.</p> : null}
+      <label className="mt-5 block text-sm font-bold text-[#041B2D]">Written schedule <span className="font-normal text-slate-500">(copied from your current instructions)</span><input value={timing} onChange={(event) => setTiming(event.target.value)} maxLength={160} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder="For example, once weekly on Sunday" /></label>
       <ScheduleEditor value={schedule} onChange={setSchedule} />
       {sourceRequired ? (
         <label className="mt-5 block text-sm font-bold text-[#041B2D]">
@@ -721,6 +737,7 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
         <button type="button" onClick={onClose} disabled={saving} className="min-h-12 rounded-xl border border-slate-300 px-4 py-3 font-bold text-slate-700">Cancel</button>
         <button type="button" disabled={saving || !scheduleReady || !reorderUrlReady || Boolean(doseIssue && !doseConfirmed) || (sourceRequired && !instructionAuthority)} onClick={() => onSave(item, {
           dose: dose.trim() || null,
+          timing: timing.trim() || null,
           ...(doseIssue ? { doseConfirmed } : {}),
           ...(!prescribedItem ? { brand: brand.trim() || null, reorderUrl: reorderUrl.trim() || null } : {}),
           ...(hasStructuredSchedule ? { schedule: scheduleDraftPayload(schedule) } : {}),
@@ -776,6 +793,15 @@ function AddPrescribedItemDialog({ kind, onClose, onAdded }: { kind: "medication
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
         Record only what you currently take based on your clinician, pharmacist, or prescription label. This does not ask LVE360 to recommend a {label} or dose.
       </div>
+      <RoutineCopilotPanel
+        kind={kind}
+        onApply={(proposal) => {
+          if (proposal.name) setName(proposal.name);
+          if (proposal.dose) setDose(proposal.dose);
+          if (proposal.timing) setTiming(proposal.timing);
+          if (proposal.schedule) setSchedule(scheduleDraft(proposal.schedule));
+        }}
+      />
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">{kind === "hormone" ? "Hormone name" : "Medication name"}<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={kind === "hormone" ? "For example, testosterone cypionate" : "For example, Zepbound"} /></label>
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">Prescribed dose<input value={dose} onChange={(event) => setDose(event.target.value)} maxLength={120} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={kind === "hormone" ? "For example, 80 mg" : "For example, 10 mg / 0.5 mL"} /></label>
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">Schedule<input value={timing} onChange={(event) => setTiming(event.target.value)} maxLength={160} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder={kind === "hormone" ? "For example, Monday and Thursday evenings" : "For example, once weekly on Sunday"} /></label>

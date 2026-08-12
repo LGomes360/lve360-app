@@ -9,6 +9,7 @@ export type AiTask =
   | "blueprint_repair"
   | "blueprint_repair_main"
   | "today_brief"
+  | "routine_label_parser"
   | "weekly_review_synthesis"
   | "weekly_insight";
 
@@ -54,6 +55,11 @@ const TASK_PROFILES: Record<AiTask, AiTaskProfile> = {
   today_brief: {
     capability: "mini",
     promptVersion: "today-brief-v2",
+    reasoningEffort: "low",
+  },
+  routine_label_parser: {
+    capability: "mini",
+    promptVersion: "routine-label-parser-v1",
     reasoningEffort: "low",
   },
   weekly_review_synthesis: {
