@@ -189,8 +189,39 @@ function deterministicRoutineOverview(question: string, context: CoachContext) {
   };
 }
 
+function deterministicJourneyPattern(question: string, context: CoachContext) {
+  if (context.page !== "journey" || !/\b(?:pattern|recent progress|small win|build on)\b/i.test(question)) return null;
+  const checkIns = Array.isArray(context.facts.recent_check_ins)
+    ? context.facts.recent_check_ins as Array<Record<string, unknown>>
+    : [];
+  const sleepRatings = checkIns.map((item) => Number(item.sleep_rating_out_of_5)).filter((value) => Number.isFinite(value) && value >= 0 && value <= 5);
+  const energyRatings = checkIns.map((item) => Number(item.energy_rating_out_of_10)).filter((value) => Number.isFinite(value) && value >= 0 && value <= 10);
+  if (!sleepRatings.length && !energyRatings.length) return null;
+  const average = (values: number[]) => (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1).replace(/\.0$/, "");
+  const observations = [
+    sleepRatings.length ? `an average sleep rating of ${average(sleepRatings)}/5 across ${sleepRatings.length} check-in${sleepRatings.length === 1 ? "" : "s"}` : null,
+    energyRatings.length ? `an average energy rating of ${average(energyRatings)}/10 across ${energyRatings.length} check-in${energyRatings.length === 1 ? "" : "s"}` : null,
+  ].filter(Boolean);
+  const practice = context.facts.weekly_practice as { completions?: unknown; target?: unknown } | undefined;
+  const completions = Number(practice?.completions);
+  const target = Number(practice?.target);
+  const practiceObservation = Number.isFinite(completions) && Number.isFinite(target)
+    ? ` Your active weekly practice shows ${completions} of ${target} planned repetitions completed.`
+    : "";
+  return {
+    answer: `Your recent records show ${observations.join(" and ")}.${practiceObservation} These are recorded observations, not evidence that the practice caused either rating. Keep logging on both practice and non-practice days so future reviews can compare like with like.`,
+    sourceIds: [
+      ...(checkIns.length ? ["recent_check_ins"] : []),
+      ...(practiceObservation ? ["weekly_practice"] : []),
+    ],
+    responseSource: "deterministic" as const,
+  };
+}
+
 export async function generateCoachAnswer(userId: string, question: string, context: CoachContext) {
-  const deterministic = deterministicTodayStep(question, context) ?? deterministicRoutineOverview(question, context);
+  const deterministic = deterministicTodayStep(question, context)
+    ?? deterministicRoutineOverview(question, context)
+    ?? deterministicJourneyPattern(question, context);
   if (deterministic) return deterministic;
   const response = await generateAI({
     task: "contextual_coach",
