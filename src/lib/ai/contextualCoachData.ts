@@ -14,6 +14,33 @@ export type CoachContext = {
   facts: Record<string, unknown>;
 };
 
+const PAGE_SOURCE_IDS: Record<CoachPage, string[]> = {
+  today: ["weekly_practice", "current_blueprint", "recent_check_ins"],
+  routine: ["current_routine"],
+  blueprint: ["current_blueprint", "current_routine"],
+  journey: ["weekly_practice", "recent_check_ins"],
+  review: ["weekly_practice", "recent_check_ins", "current_blueprint"],
+  settings: ["current_blueprint", "current_routine", "weekly_practice", "recent_check_ins"],
+  other: ["current_blueprint", "current_routine", "weekly_practice", "recent_check_ins"],
+};
+
+const FACT_KEY_BY_SOURCE: Record<string, string> = {
+  current_blueprint: "blueprint",
+  current_routine: "routine",
+  weekly_practice: "weekly_practice",
+  recent_check_ins: "recent_check_ins",
+};
+
+function scopeContext(page: CoachPage, sources: CoachSource[], facts: Record<string, unknown>): CoachContext {
+  const allowed = new Set(PAGE_SOURCE_IDS[page]);
+  const scopedSources = sources.filter((source) => allowed.has(source.id));
+  const scopedFacts = Object.fromEntries(scopedSources.flatMap((source) => {
+    const key = FACT_KEY_BY_SOURCE[source.id];
+    return key && key in facts ? [[key, facts[key]]] : [];
+  }));
+  return { page, sources: scopedSources, facts: scopedFacts };
+}
+
 function compact(value: string | null | undefined, length = 160) {
   return value?.replace(/\s+/g, " ").trim().slice(0, length) || null;
 }
@@ -95,9 +122,14 @@ export async function buildCoachContext(userId: string, page: CoachPage): Promis
       summary: `${checkIns.length} recent weight, sleep, or energy entries.`,
       href: "/journey",
     });
-    facts.recent_check_ins = checkIns;
+    facts.recent_check_ins = checkIns.map((item) => ({
+      date: item.log_date,
+      weight: item.weight,
+      sleep_rating_out_of_5: item.sleep,
+      energy_rating_out_of_10: item.energy,
+    }));
   }
-  return { page, sources, facts };
+  return scopeContext(page, sources, facts);
 }
 
 function prompt(question: string, context: CoachContext) {
@@ -111,6 +143,8 @@ function prompt(question: string, context: CoachContext) {
         "Never tell the member to start, stop, add, remove, change, or dose a medication, hormone, or supplement. Never diagnose or claim to treat, cure, prevent, or manage disease.",
         "Do not add health benefits, mechanisms, or expected outcomes. Explain choices only through the supplied record, feasibility, consistency, or the member's explicit weekly target.",
         "Do not call something the member's goal unless an explicit goal is present in the supplied facts.",
+        "Stay within the supplied context for the current page. Do not pull in or imply information from another dashboard area.",
+        "A sleep rating is a score out of 5, not hours slept. An energy rating is a score out of 10.",
         "If the records do not support an answer, say what is missing and point to the relevant record to review.",
         "Use supportive plain language and no shame. Keep the answer under 180 words.",
         "Return only valid JSON with fields answer (string) and source_ids (array of source id strings). Include every source used for a personalized claim.",
@@ -130,13 +164,31 @@ function deterministicTodayStep(question: string, context: CoachContext) {
   const minimum = typeof practice?.minimum_version === "string" ? practice.minimum_version : null;
   if (!action || !minimum) return null;
   return {
-    answer: `Use the minimum version of your current weekly practice: ${minimum}. This is the smallest version you already chose for “${action}.” Completing that version keeps today's decision tied to your active plan without adding another task.`,
+    answer: `Use the minimum version of your current weekly practice: ${minimum}. That is the smallest version you already chose for your active practice: ${action} Completing it keeps today's decision tied to your active plan without adding another task.`,
     sourceIds: ["weekly_practice"],
   };
 }
 
+function deterministicRoutineOverview(question: string, context: CoachContext) {
+  if (context.page !== "routine" || !/\b(?:recorded routine|routine fits|routine fit|routine work together)\b/i.test(question)) return null;
+  const items = Array.isArray(context.facts.routine) ? context.facts.routine as Array<Record<string, unknown>> : [];
+  if (!items.length) return null;
+  const counts = items.reduce<{ medications: number; hormones: number; supplements: number; withTiming: number }>((result, item) => {
+    const kind = String(item.kind ?? "");
+    if (kind === "medication") result.medications += 1;
+    else if (kind === "hormone") result.hormones += 1;
+    else result.supplements += 1;
+    if (typeof item.timing === "string" && item.timing.trim()) result.withTiming += 1;
+    return result;
+  }, { medications: 0, hormones: 0, supplements: 0, withTiming: 0 });
+  return {
+    answer: `Your current Routine records ${counts.medications} medication${counts.medications === 1 ? "" : "s"}, ${counts.hormones} hormone${counts.hormones === 1 ? "" : "s"}, and ${counts.supplements} supplement${counts.supplements === 1 ? "" : "s"}. ${counts.withTiming} of those records include timing details. LVE360 is organizing the schedule you entered, not deciding whether the items are safe together. The most useful review is to confirm each name, dose, and timing against your current clinician or pharmacist instructions.`,
+    sourceIds: ["current_routine"],
+  };
+}
+
 export async function generateCoachAnswer(userId: string, question: string, context: CoachContext) {
-  const deterministic = deterministicTodayStep(question, context);
+  const deterministic = deterministicTodayStep(question, context) ?? deterministicRoutineOverview(question, context);
   if (deterministic) return deterministic;
   const response = await generateAI({
     task: "contextual_coach",
