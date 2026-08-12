@@ -4,6 +4,7 @@ import { requireTier } from "@/app/_auth/requireTier";
 import { groupRoutineItems, ROUTINE_SECTION_LABELS, ROUTINE_SECTION_ORDER, routineInstructionAuthorityLabel, routineScheduleLabel } from "@/lib/routine";
 import { getRoutineData } from "@/lib/routineData";
 import { doseIntegrityIssue } from "@/lib/doseIntegrity";
+import { clinicianRoutineQuestions } from "@/lib/clinicianRoutineSummary";
 
 import PrintButton from "./PrintButton";
 
@@ -15,6 +16,7 @@ export default async function RoutinePrintPage() {
   const data = await getRoutineData(user.id);
   const grouped = groupRoutineItems(data.items);
   const generatedAt = new Date();
+  const questions = clinicianRoutineQuestions(grouped.current);
 
   return (
     <article className="mx-auto max-w-4xl rounded-2xl bg-white p-5 shadow-sm print:max-w-none print:rounded-none print:p-0 print:shadow-none sm:p-8">
@@ -34,6 +36,16 @@ export default async function RoutinePrintPage() {
           This list reflects information recorded by the member. It is provided to support review and reconciliation. LVE360 does not prescribe, change, or verify medication, hormone, or supplement instructions.
         </p>
       </header>
+
+      <section className="mt-6 break-inside-avoid rounded-xl border border-amber-300 bg-amber-50 p-4 print:rounded-none" aria-labelledby="organized-review-questions">
+        <h2 id="organized-review-questions" className="text-lg font-bold text-[#041B2D]">LVE360-organized questions for review</h2>
+        <p className="mt-1 text-sm leading-6 text-amber-950">These questions are generated from missing or potentially unclear member-entered fields. They are not treatment or dosing recommendations.</p>
+        {questions.length ? (
+          <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-amber-950">
+            {questions.map((question) => <li key={`${question.itemId}-${question.question}`}><strong>{question.itemName}:</strong> {question.question}</li>)}
+          </ol>
+        ) : <p className="mt-3 text-sm text-amber-950">No clarification questions were generated from the recorded fields.</p>}
+      </section>
 
       <div className="mt-6 space-y-7">
         {ROUTINE_SECTION_ORDER.map((kind) => {
