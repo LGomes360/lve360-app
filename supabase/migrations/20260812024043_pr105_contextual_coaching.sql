@@ -14,7 +14,7 @@ create table public.ai_coaching_turns (
   constraint ai_coaching_turns_page_context check (page_context in ('today', 'routine', 'blueprint', 'journey', 'review', 'settings', 'other')),
   constraint ai_coaching_turns_question_length check (char_length(question) between 4 and 500),
   constraint ai_coaching_turns_answer_length check (char_length(answer) <= 4000),
-  constraint ai_coaching_turns_response_source check (response_source in ('ai', 'fallback', 'safety', 'budget')),
+  constraint ai_coaching_turns_response_source check (response_source in ('ai', 'deterministic', 'fallback', 'safety', 'budget')),
   constraint ai_coaching_turns_generation_status check (generation_status in ('pending', 'succeeded', 'failed', 'blocked', 'limited')),
   constraint ai_coaching_turns_feedback check (feedback is null or feedback in ('useful', 'not_useful')),
   constraint ai_coaching_turns_source_refs_array check (jsonb_typeof(source_refs) = 'array')

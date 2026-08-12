@@ -166,6 +166,7 @@ function deterministicTodayStep(question: string, context: CoachContext) {
   return {
     answer: `Use the minimum version of your current weekly practice: ${minimum}. That is the smallest version you already chose for your active practice: ${action} Completing it keeps today's decision tied to your active plan without adding another task.`,
     sourceIds: ["weekly_practice"],
+    responseSource: "deterministic" as const,
   };
 }
 
@@ -184,6 +185,7 @@ function deterministicRoutineOverview(question: string, context: CoachContext) {
   return {
     answer: `Your current Routine records ${counts.medications} medication${counts.medications === 1 ? "" : "s"}, ${counts.hormones} hormone${counts.hormones === 1 ? "" : "s"}, and ${counts.supplements} supplement${counts.supplements === 1 ? "" : "s"}. ${counts.withTiming} of those records include timing details. LVE360 is organizing the schedule you entered, not deciding whether the items are safe together. The most useful review is to confirm each name, dose, and timing against your current clinician or pharmacist instructions.`,
     sourceIds: ["current_routine"],
+    responseSource: "deterministic" as const,
   };
 }
 
@@ -200,5 +202,5 @@ export async function generateCoachAnswer(userId: string, question: string, cont
   });
   const parsed = parseCoachAnswer(response.text, new Set(context.sources.map((source) => source.id)));
   if (parsed && /\byour goal\b/i.test(parsed.answer) && !("goals" in context.facts)) return null;
-  return parsed;
+  return parsed ? { ...parsed, responseSource: "ai" as const } : null;
 }

@@ -15,7 +15,7 @@ export type CoachTurn = {
   page_context: CoachPage;
   question: string;
   answer: string;
-  response_source: "ai" | "fallback" | "safety" | "budget";
+  response_source: "ai" | "deterministic" | "fallback" | "safety" | "budget";
   generation_status: "pending" | "succeeded" | "failed" | "blocked" | "limited";
   source_refs: CoachSource[];
   feedback: CoachFeedback | null;

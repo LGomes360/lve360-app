@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
       if (generated) {
         answer = generated.answer;
         sourceRefs = context.sources.filter((source) => generated.sourceIds.includes(source.id));
-        responseSource = "ai";
+        responseSource = generated.responseSource;
         generationStatus = "succeeded";
       }
     } catch (error) {

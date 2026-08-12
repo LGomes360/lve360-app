@@ -8,6 +8,7 @@ const header = fs.readFileSync("src/components/DashboardHeader.tsx", "utf8");
 const modelConfig = fs.readFileSync("src/lib/ai/modelConfig.ts", "utf8");
 const accountExport = fs.readFileSync("app/api/account/export/route.ts", "utf8");
 const migration = fs.readFileSync("supabase/migrations/20260812024043_pr105_contextual_coaching.sql", "utf8");
+const sourceMigration = fs.readFileSync("supabase/migrations/20260812030448_pr105_deterministic_coaching_source.sql", "utf8");
 
 assert.match(header, /AskLve360Coach/, "The paid dashboard must expose coaching globally.");
 assert.match(coach, /What I used/, "Every grounded answer must let the member inspect its sources.");
@@ -31,5 +32,6 @@ assert.match(migration, /using \(\(select auth\.uid\(\)\) = user_id\)/i);
 assert.match(migration, /revoke all on table public\.ai_coaching_turns from public, anon, authenticated/i);
 assert.match(migration, /grant select on table public\.ai_coaching_turns to authenticated/i);
 assert.match(migration, /grant select, insert, update, delete on table public\.ai_coaching_turns to service_role/i);
+assert.match(sourceMigration, /'ai', 'deterministic', 'fallback', 'safety', 'budget'/, "Deterministic answers must not be misreported as paid AI generations.");
 
 console.log("PR105 paid coach UI, budget, privacy, and RLS assertions passed.");
