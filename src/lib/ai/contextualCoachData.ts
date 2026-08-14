@@ -459,7 +459,16 @@ async function postValidate(context: CoachContext, answer: StructuredCoachAnswer
   const requiresReviewBeforeStart = Boolean(recommendationSafety
     && !recommendationSafety.isCurrent
     && recommendationSafety.decision === "review");
-  const reviewedAnswer = requiresReviewBeforeStart && recommendation
+  const isCurrentRecommendation = Boolean(recommendationSafety?.isCurrent);
+  const reviewedAnswer = isCurrentRecommendation && recommendation
+    ? {
+        ...answer,
+        directAnswer: `${recommendation.candidate} is already in your current Routine, so I would not add it again. The useful question is whether its recorded form, dose, and timing fit your sleep goal.`,
+        options,
+        recommendation,
+        nextStep: `Review the saved form, dose, and timing for ${recommendation.candidate}, then track the outcomes below without adding a duplicate.`,
+      }
+    : requiresReviewBeforeStart && recommendation
     ? {
         ...answer,
         directAnswer: `I would not start a new supplement from this answer alone. ${recommendation.candidate} is an evidence-informed option to discuss with a qualified professional, but LVE360 flagged a safety review before any new start.`,
