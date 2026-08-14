@@ -146,7 +146,7 @@ export default function AskLve360Coach() {
                 <div className="min-w-0">
                   <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-[#087F72]"><MessageCircle className="h-4 w-4" aria-hidden="true" /> Contextual coaching</p>
                   <h2 id="coach-title" className="mt-1 text-2xl font-black text-[#041B2D]">Ask LVE360</h2>
-                  <p className="mt-1 text-sm text-[#486170]">Grounded in the records you have saved in LVE360.</p>
+                  <p className="mt-1 text-sm text-[#486170]">Personalized using your LVE360 health record, evidence library, and safety rules.</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {remaining !== null ? <span className="hidden rounded-full bg-[#EAFBF8] px-3 py-1.5 text-xs font-bold text-[#06695F] sm:inline">{remaining} left this month</span> : null}
@@ -185,14 +185,23 @@ export default function AskLve360Coach() {
                         <details className="mt-4 border-t border-slate-100 pt-3">
                           <summary className="cursor-pointer text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">What I used</summary>
                           <ul className="mt-3 space-y-2">
-                            {turn.source_refs.map((source) => (
-                              <li key={source.id} className="rounded-xl bg-[#F3F8F7] p-3 text-xs leading-5 text-[#486170]">
-                                <Link href={source.href} onClick={() => setOpen(false)} className="inline-flex items-center gap-1 font-bold text-[#06695F] hover:underline">
-                                  {source.label}<ExternalLink className="h-3 w-3" aria-hidden="true" />
-                                </Link>
-                                <p>{source.summary}</p>
-                              </li>
-                            ))}
+                            {turn.source_refs.map((source) => {
+                              const external = /^https?:\/\//i.test(source.href);
+                              return (
+                                <li key={source.id} className="rounded-xl bg-[#F3F8F7] p-3 text-xs leading-5 text-[#486170]">
+                                  <Link
+                                    href={source.href}
+                                    target={external ? "_blank" : undefined}
+                                    rel={external ? "noopener noreferrer" : undefined}
+                                    onClick={() => { if (!external) setOpen(false); }}
+                                    className="inline-flex items-center gap-1 font-bold text-[#06695F] hover:underline"
+                                  >
+                                    {source.label}<ExternalLink className="h-3 w-3" aria-hidden="true" />
+                                  </Link>
+                                  <p>{source.summary}</p>
+                                </li>
+                              );
+                            })}
                           </ul>
                         </details>
                       ) : null}
@@ -231,7 +240,7 @@ export default function AskLve360Coach() {
                   <Send className="h-5 w-5" aria-hidden="true" />
                 </button>
               </form>
-              <p className="mx-auto mt-2 w-full max-w-5xl text-[11px] leading-4 text-[#60798A]">Educational wellness support only. Ask LVE360 cannot diagnose or change medications, hormones, supplements, reminders, or saved records. Review health decisions with a qualified professional.</p>
+              <p className="mx-auto mt-2 w-full max-w-5xl text-[11px] leading-4 text-[#60798A]">Educational wellness coaching. Ask LVE360 can explain and compare options, but it cannot diagnose or silently change saved records. Medication and hormone changes require qualified professional guidance.</p>
             </footer>
           </section>
         </div>

@@ -16,6 +16,6 @@ assert.match(coach, /document\.body\.style\.overflow = "hidden"/, "The dashboard
 assert.match(coach, /transcriptRef\.current\?\.scrollTo/, "Opening and receiving an answer must surface the newest coaching turn.");
 assert.match(coach, /createPortal\([\s\S]*document\.body/, "The modal must escape the sticky, backdrop-filtered dashboard header's containing block.");
 assert.match(coach, /What I used/, "The larger workspace must preserve source inspection.");
-assert.match(coach, /cannot diagnose or change medications, hormones, supplements, reminders, or saved records/i, "The workspace redesign must preserve the safety boundary.");
+assert.match(coach, /cannot diagnose or silently change saved records/i, "The workspace redesign must preserve the safety boundary without suppressing normal coaching.");
 
 console.log("PR106 coaching workspace assertions passed.");

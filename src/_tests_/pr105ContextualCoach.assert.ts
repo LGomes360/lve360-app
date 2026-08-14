@@ -18,16 +18,16 @@ assert.equal(cleanCoachQuestion("no"), null);
 
 assert.equal(coachSafetyBoundary("Do I have diabetes?"), "diagnosis");
 assert.equal(coachSafetyBoundary("Should I increase my medication dose?"), "regimen_change");
-assert.equal(coachSafetyBoundary("Should I take B12?"), "regimen_change");
+assert.equal(coachSafetyBoundary("Should I take B12?"), null);
 assert.equal(coachSafetyBoundary("Help me prepare questions about my medication."), null);
 assert.equal(coachSafetyBoundary("Do I have a weekly practice?"), null);
 assert.equal(coachSafetyBoundary("I have chest pain and can't breathe"), "emergency");
-assert.match(coachBoundaryAnswer("regimen_change"), /cannot tell you to start, stop, or change/i);
+assert.match(coachBoundaryAnswer("regimen_change"), /cannot direct a medication or hormone change/i);
 assert.match(coachBoundaryAnswer("diagnosis"), /cannot diagnose/i);
 assert.equal(isCoachAnswerSafe("You should increase your medication dose."), false);
 assert.equal(isCoachAnswerSafe("You should take a 10-minute walk after lunch."), true);
 assert.equal(isCoachAnswerSafe("You have diabetes."), false);
-assert.equal(isCoachAnswerSafe("This can help improve digestion and energy levels."), false);
+assert.equal(isCoachAnswerSafe("This can help improve digestion and energy levels."), true);
 assert.equal(isCoachAnswerSafe("This keeps the step tied to your weekly plan."), true);
 
 const parsed = parseCoachAnswer(
