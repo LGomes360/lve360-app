@@ -321,6 +321,17 @@ function prompt(question: string, context: CoachContext, repair = false) {
 function deterministicRecordMutation(question: string, context: CoachContext) {
   if (context.intent !== "REQUEST_TO_CHANGE_RECORD") return null;
   const option = context.evidenceOptions[0];
+  const routine = Array.isArray(context.facts.routine) ? context.facts.routine as Array<Record<string, unknown>> : [];
+  const existing = option
+    ? routine.find((item) => healthItemIdentityKey(String(item.name ?? "")) === healthItemIdentityKey(option.name))
+    : null;
+  if (option && existing) {
+    return {
+      answer: `${option.name} is already in your current Routine${existing.dose ? ` at ${String(existing.dose)}` : ""}${existing.timing ? `, recorded for ${String(existing.timing)}` : ""}. I have not changed your saved records or added a duplicate. Use the controlled edit action on Routine if you need to review its exact form, dose, timing, or schedule.`,
+      sourceIds: context.sources.filter((source) => source.id === "current_routine" || source.id === option.id).map((source) => source.id),
+      responseSource: "deterministic" as const,
+    };
+  }
   const itemText = option ? ` Before adding ${option.name}, I can compare it with your current routine and run the LVE360 safety rules.` : " I can first explain the likely implications and review the relevant safety context.";
   return {
     answer: `I have not changed your saved records.${itemText} When you are ready, use the controlled add or edit action on Routine so you can review the exact name, dose, timing, and schedule before saving.`,
@@ -442,7 +453,22 @@ async function postValidate(context: CoachContext, answer: StructuredCoachAnswer
   const recommendation = answer.recommendation && options.some((option) => option.name === answer.recommendation?.candidate)
     ? answer.recommendation
     : null;
-  return { answer: { ...answer, options, recommendation }, safety, removed: answer.options.length - options.length };
+  const recommendationSafety = recommendation
+    ? decisions.get(healthItemIdentityKey(recommendation.candidate))
+    : null;
+  const requiresReviewBeforeStart = Boolean(recommendationSafety
+    && !recommendationSafety.isCurrent
+    && recommendationSafety.decision === "review");
+  const reviewedAnswer = requiresReviewBeforeStart && recommendation
+    ? {
+        ...answer,
+        directAnswer: `I would not start a new supplement from this answer alone. ${recommendation.candidate} is an evidence-informed option to discuss with a qualified professional, but LVE360 flagged a safety review before any new start.`,
+        options,
+        recommendation,
+        nextStep: `Review ${recommendation.candidate} and the safety note above with your clinician or pharmacist before starting it. Keep your saved Routine unchanged until that review is complete.`,
+      }
+    : { ...answer, options, recommendation };
+  return { answer: reviewedAnswer, safety, removed: answer.options.length - options.length };
 }
 
 function renderAnswer(answer: StructuredCoachAnswer, context: CoachContext, safety: AppliedSafetyResult | null) {
