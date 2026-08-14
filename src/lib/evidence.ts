@@ -122,7 +122,17 @@ export function normalizeSupplementName(name: string): string {
 }
 
 /** Build a normalized index from the evidence JSON: keyOf(human-key) -> array of entries */
-type EvidenceEntry = { url: string; [k: string]: any };
+export type EvidenceEntry = {
+  url: string;
+  supplement?: string | null;
+  study_type?: string | null;
+  year?: number | null;
+  quality?: string | null;
+  outcome?: string | null;
+  tag?: string | null;
+  journal?: string | null;
+  [k: string]: any;
+};
 const curatedIndex: Record<string, EvidenceEntry[]> = (() => {
   const out: Record<string, EvidenceEntry[]> = {};
   for (const [humanKey, arr] of Object.entries(
@@ -167,6 +177,25 @@ export function getTopCitationsFor(name: string, limit = 2): string[] {
 
   if (!arr || arr.length === 0) return [];
   return sanitizeCitations(arr.slice(0, limit).map((e) => e.url));
+}
+
+/** Curated evidence metadata for server-side retrieval and structured coaching. */
+export function getEvidenceEntriesFor(name: string, limit = 3): EvidenceEntry[] {
+  if (!name) return [];
+  const lowered = name.toLowerCase().trim();
+  if (IGNORE_FOR_EVIDENCE.has(lowered)) return [];
+
+  const canonical = normalizeSupplementName(name);
+  const canonicalKey = keyOf(canonical);
+  const rawKey = keyOf(name);
+  const arr = curatedIndex[canonicalKey]
+    ?? curatedIndex[rawKey]
+    ?? curatedIndex[Object.keys(curatedIndex).find((candidate) => candidate.includes(canonicalKey) || canonicalKey.includes(candidate)) ?? ""];
+
+  return (arr ?? []).slice(0, limit).flatMap((entry) => {
+    const urls = sanitizeCitations([entry.url]);
+    return urls.length ? [{ ...entry, url: urls[0] }] : [];
+  });
 }
 
 /** Keep the same curated-source policy used by report generation. */

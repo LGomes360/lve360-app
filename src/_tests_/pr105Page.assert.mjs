@@ -12,16 +12,16 @@ const sourceMigration = fs.readFileSync("supabase/migrations/20260812030448_pr10
 
 assert.match(header, /AskLve360Coach/, "The paid dashboard must expose coaching globally.");
 assert.match(coach, /What I used/, "Every grounded answer must let the member inspect its sources.");
-assert.match(coach, /cannot diagnose or change medications, hormones, supplements, reminders, or saved records/i);
+assert.match(coach, /cannot diagnose or silently change saved records/i);
 assert.match(coach, /useful/);
 assert.match(coach, /not_useful/);
-assert.match(context, /Use only the supplied member facts/i);
-assert.match(context, /Do not add health benefits, mechanisms, or expected outcomes/i);
+assert.match(context, /Saved LVE360 records describe this member/i);
+assert.match(context, /Use the supplied curated evidence_options/i);
 assert.match(context, /deterministicTodayStep/, "Today's smallest-step prompt must prefer the active weekly practice deterministically.");
-assert.match(context, /deterministicRoutineOverview/, "The Routine overview must organize current records without inventing health effects.");
+assert.match(context, /deterministicPlanLookup/, "Routine lookups must organize current records without inventing health effects.");
 assert.match(context, /deterministicJourneyPattern/, "Common Journey questions must use transparent recorded averages rather than causal inference.");
 assert.match(context, /sleep_rating_out_of_5/, "Check-in scales must be explicit so ratings cannot be misread as hours.");
-assert.match(context, /PAGE_SOURCE_IDS/, "Each dashboard page must receive only relevant source context.");
+assert.match(context, /INTENT_SOURCE_IDS/, "Each intent must receive only relevant source context.");
 assert.match(context, /generateAI\(\{[\s\S]*task: "contextual_coach"/, "Coaching must use the canonical AI gateway.");
 assert.match(modelConfig, /contextual_coach:[\s\S]*capability: "mini"/, "Coaching must default to the cost-efficient model capability.");
 assert.match(api, /LVE_AI_COACH_MONTHLY_TURNS|coachBudget/);

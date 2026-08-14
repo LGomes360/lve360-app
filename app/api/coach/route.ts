@@ -2,9 +2,10 @@ import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { buildCoachContext, generateCoachAnswer } from "@/lib/ai/contextualCoachData";
+import { buildCoachContext, generateCoachAnswer, type CoachDiagnostics } from "@/lib/ai/contextualCoachData";
 import {
   COACH_PROMPT_VERSION,
+  classifyCoachIntent,
   cleanCoachQuestion,
   coachBoundaryAnswer,
   coachPageFromPath,
@@ -94,15 +95,19 @@ export async function POST(req: NextRequest) {
     const question = cleanCoachQuestion(body?.question);
     if (!question) return NextResponse.json({ ok: false, error: "invalid_question" }, { status: 400 });
     const page = coachPageFromPath(body?.pathname);
+    const intent = classifyCoachIntent(question);
     const boundary = coachSafetyBoundary(question);
-    if (boundary) {
+    if (boundary || intent === "POTENTIAL_MEDICAL_RED_FLAG") {
       const turn = await saveTurn(auth.user.id, {
         page_context: page,
         question,
-        answer: coachBoundaryAnswer(boundary),
+        answer: coachBoundaryAnswer(boundary ?? "emergency"),
         response_source: "safety",
         generation_status: "blocked",
         source_refs: [],
+        intent,
+        quality_score: 100,
+        safety_rule_count: 1,
       });
       return NextResponse.json({ ok: true, turn, usage: await usage(auth.user.id) });
     }
@@ -116,11 +121,12 @@ export async function POST(req: NextRequest) {
         response_source: "budget",
         generation_status: "limited",
         source_refs: [],
+        intent,
       });
       return NextResponse.json({ ok: true, turn, usage: await usage(auth.user.id) });
     }
 
-    const context = await buildCoachContext(auth.user.id, page);
+    const context = await buildCoachContext(auth.user.id, page, question, intent);
     const { data: pending, error: pendingError } = await getSupabaseAdmin().from("ai_coaching_turns").insert({
       user_id: auth.user.id,
       page_context: page,
@@ -130,6 +136,8 @@ export async function POST(req: NextRequest) {
       generation_status: "pending",
       prompt_version: COACH_PROMPT_VERSION,
       source_refs: context.sources,
+      intent,
+      evidence_ids: context.evidenceOptions.map((option) => option.id),
     }).select("id").single();
     if (pendingError) throw pendingError;
 
@@ -137,6 +145,14 @@ export async function POST(req: NextRequest) {
     let sourceRefs: CoachSource[] = context.sources;
     let responseSource: CoachTurn["response_source"] = "fallback";
     let generationStatus: CoachTurn["generation_status"] = "failed";
+    let diagnostics: CoachDiagnostics = {
+      intent,
+      qualityScore: 0,
+      safetyRuleCount: context.preSafety?.findings.length ?? 0,
+      recommendationsRemoved: 0,
+      regenerationCount: 0,
+      evidenceIds: context.evidenceOptions.map((option) => option.id),
+    };
     try {
       const generated = await generateCoachAnswer(auth.user.id, question, context);
       if (generated) {
@@ -144,6 +160,7 @@ export async function POST(req: NextRequest) {
         sourceRefs = context.sources.filter((source) => generated.sourceIds.includes(source.id));
         responseSource = generated.responseSource;
         generationStatus = "succeeded";
+        diagnostics = generated.diagnostics;
       }
     } catch (error) {
       console.warn("[coach] generation unavailable; returning grounded fallback", error);
@@ -154,6 +171,12 @@ export async function POST(req: NextRequest) {
       source_refs: sourceRefs,
       response_source: responseSource,
       generation_status: generationStatus,
+      intent: diagnostics.intent,
+      quality_score: diagnostics.qualityScore,
+      safety_rule_count: diagnostics.safetyRuleCount,
+      recommendations_removed: diagnostics.recommendationsRemoved,
+      regeneration_count: diagnostics.regenerationCount,
+      evidence_ids: diagnostics.evidenceIds,
       updated_at: new Date().toISOString(),
     }).eq("id", pending.id).eq("user_id", auth.user.id)
       .select("id,page_context,question,answer,response_source,generation_status,source_refs,feedback,created_at").single();
