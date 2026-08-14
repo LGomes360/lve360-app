@@ -110,6 +110,16 @@ function supplementItems(regimen: Awaited<ReturnType<typeof getCurrentRegimen>>)
   return regimen.filter((item) => item.item_kind === "supplement" || item.item_kind === "endocrine_active_supplement");
 }
 
+function explicitlyNamedEvidenceOption(question: string, options: CoachEvidenceOption[]) {
+  const normalizedQuestion = question.toLowerCase();
+  return options.find((option) => {
+    const normalizedName = option.name.toLowerCase();
+    const firstWord = normalizedName.split(/\s+/)[0];
+    return normalizedQuestion.includes(normalizedName)
+      || (firstWord.length >= 4 && normalizedQuestion.includes(firstWord));
+  }) ?? null;
+}
+
 function isCurrentSupplement(name: string, regimen: Awaited<ReturnType<typeof getCurrentRegimen>>) {
   const identity = healthItemIdentityKey(name);
   return supplementItems(regimen).some((item) => healthItemIdentityKey(item.name) === identity);
@@ -437,7 +447,7 @@ function fallbackStructured(question: string, context: CoachContext): Structured
   };
 }
 
-async function postValidate(context: CoachContext, answer: StructuredCoachAnswer) {
+async function postValidate(question: string, context: CoachContext, answer: StructuredCoachAnswer) {
   if (!answer.options.length) return { answer, safety: context.preSafety, removed: 0 };
   const routine = Array.isArray(context.facts.routine) ? context.facts.routine as Array<Record<string, unknown>> : [];
   const candidates = answer.options.map((option) => {
@@ -450,9 +460,21 @@ async function postValidate(context: CoachContext, answer: StructuredCoachAnswer
   const safety = await applySafetyChecks(context.safetyContext, candidates);
   const decisions = new Map(safety.candidates.map((candidate) => [healthItemIdentityKey(candidate.name), candidate]));
   const options = answer.options.filter((option) => decisions.get(healthItemIdentityKey(option.name))?.decision !== "blocked");
-  const recommendation = answer.recommendation && options.some((option) => option.name === answer.recommendation?.candidate)
+  let recommendation = answer.recommendation && options.some((option) => option.name === answer.recommendation?.candidate)
     ? answer.recommendation
     : null;
+  const explicitlyNamed = explicitlyNamedEvidenceOption(question, context.evidenceOptions);
+  const namedAnswerOption = explicitlyNamed
+    ? options.find((option) => healthItemIdentityKey(option.name) === healthItemIdentityKey(explicitlyNamed.name))
+    : null;
+  if (namedAnswerOption && recommendation?.candidate !== namedAnswerOption.name) {
+    recommendation = {
+      candidate: namedAnswerOption.name,
+      reason: namedAnswerOption.reason,
+      trialPeriodDays: recommendation?.trialPeriodDays ?? null,
+      metrics: recommendation?.metrics ?? [],
+    };
+  }
   const recommendationSafety = recommendation
     ? decisions.get(healthItemIdentityKey(recommendation.candidate))
     : null;
@@ -555,7 +577,7 @@ export async function generateCoachAnswer(userId: string, question: string, cont
     }
   }
   proposal ??= fallbackStructured(question, context);
-  let validated = await postValidate(context, proposal);
+  let validated = await postValidate(question, context, proposal);
   let rendered = renderAnswer(validated.answer, context, validated.safety);
   let quality: CoachQualityReport = assessCoachAnswerQuality({
     answer: validated.answer,
@@ -566,7 +588,7 @@ export async function generateCoachAnswer(userId: string, question: string, cont
   });
   if (!quality.passed) {
     regenerationCount = Math.max(regenerationCount, 1);
-    validated = await postValidate(context, fallbackStructured(question, context));
+    validated = await postValidate(question, context, fallbackStructured(question, context));
     rendered = renderAnswer(validated.answer, context, validated.safety);
     quality = assessCoachAnswerQuality({
       answer: validated.answer,

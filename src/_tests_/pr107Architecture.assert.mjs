@@ -16,6 +16,7 @@ assert.match(data, /Recommendation is not mutation/i, "The prompt must separate 
 assert.match(data, /is already in your current Routine/, "A mutation request for an existing item must identify it instead of offering to add a duplicate.");
 assert.match(data, /requiresReviewBeforeStart/, "A non-current recommendation with a safety-review finding must not become a self-start instruction.");
 assert.match(data, /isCurrentRecommendation/, "An already-recorded recommendation must not become an instruction to add a duplicate.");
+assert.match(data, /explicitlyNamedEvidenceOption/, "A direct question about a named option must stay focused on that option.");
 assert.match(data, /Keep your saved Routine unchanged until that review is complete/, "Safety-review recommendations must hand off to a clinician or pharmacist before a new start.");
 assert.match(route, /classifyCoachIntent\(question\)/, "The API must classify intent before context assembly.");
 assert.match(route, /quality_score/, "The API must persist privacy-safe quality diagnostics.");
