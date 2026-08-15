@@ -5,12 +5,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { buildCoachContext, generateCoachAnswer, type CoachDiagnostics } from "@/lib/ai/contextualCoachData";
 import {
   COACH_PROMPT_VERSION,
-  classifyCoachIntent,
+  classifyCoachRequest,
   cleanCoachQuestion,
   coachBoundaryAnswer,
   coachPageFromPath,
   coachSafetyBoundary,
   isCoachFeedback,
+  storedCoachIntent,
   type CoachSource,
   type CoachTurn,
 } from "@/lib/contextualCoach";
@@ -95,7 +96,15 @@ export async function POST(req: NextRequest) {
     const question = cleanCoachQuestion(body?.question);
     if (!question) return NextResponse.json({ ok: false, error: "invalid_question" }, { status: 400 });
     const page = coachPageFromPath(body?.pathname);
-    const intent = classifyCoachIntent(question);
+    const routing = classifyCoachRequest(question);
+    const intent = routing.intent;
+    const persistedIntent = storedCoachIntent(intent);
+    console.info("[coach.route]", {
+      intent,
+      constraints: routing.constraints,
+      requestedRegimenKinds: routing.requestedRegimenKinds,
+      page,
+    });
     const boundary = coachSafetyBoundary(question);
     if (boundary || intent === "POTENTIAL_MEDICAL_RED_FLAG") {
       const turn = await saveTurn(auth.user.id, {
@@ -105,7 +114,7 @@ export async function POST(req: NextRequest) {
         response_source: "safety",
         generation_status: "blocked",
         source_refs: [],
-        intent,
+        intent: persistedIntent,
         quality_score: 100,
         safety_rule_count: 1,
       });
@@ -121,12 +130,12 @@ export async function POST(req: NextRequest) {
         response_source: "budget",
         generation_status: "limited",
         source_refs: [],
-        intent,
+        intent: persistedIntent,
       });
       return NextResponse.json({ ok: true, turn, usage: await usage(auth.user.id) });
     }
 
-    const context = await buildCoachContext(auth.user.id, page, question, intent);
+    const context = await buildCoachContext(auth.user.id, page, question, routing);
     const { data: pending, error: pendingError } = await getSupabaseAdmin().from("ai_coaching_turns").insert({
       user_id: auth.user.id,
       page_context: page,
@@ -136,7 +145,7 @@ export async function POST(req: NextRequest) {
       generation_status: "pending",
       prompt_version: COACH_PROMPT_VERSION,
       source_refs: context.sources,
-      intent,
+      intent: persistedIntent,
       evidence_ids: context.evidenceOptions.map((option) => option.id),
     }).select("id").single();
     if (pendingError) throw pendingError;
@@ -147,6 +156,7 @@ export async function POST(req: NextRequest) {
     let generationStatus: CoachTurn["generation_status"] = "failed";
     let diagnostics: CoachDiagnostics = {
       intent,
+      constraints: routing.constraints,
       qualityScore: 0,
       safetyRuleCount: context.preSafety?.findings.length ?? 0,
       recommendationsRemoved: 0,
@@ -171,7 +181,7 @@ export async function POST(req: NextRequest) {
       source_refs: sourceRefs,
       response_source: responseSource,
       generation_status: generationStatus,
-      intent: diagnostics.intent,
+      intent: storedCoachIntent(diagnostics.intent),
       quality_score: diagnostics.qualityScore,
       safety_rule_count: diagnostics.safetyRuleCount,
       recommendations_removed: diagnostics.recommendationsRemoved,

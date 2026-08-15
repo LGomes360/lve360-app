@@ -67,7 +67,7 @@ const missingDataButUseful: StructuredCoachAnswer = {
 };
 assert.equal(assessCoachAnswerQuality({ answer: missingDataButUseful, supplementQuestion: true, safetyChecked: true, usedMemberContext: false }).passed, true, "Scenario 5: missing user data must not force an abstention.");
 
-assert.equal(classifyCoachIntent("What supplements am I currently taking at night?"), "CURRENT_PLAN_LOOKUP", "Scenario 6: current-plan lookup must stay record-based.");
+assert.equal(classifyCoachIntent("What supplements am I currently taking at night?"), "SUPPLEMENT_LOOKUP", "Scenario 6: current-plan lookup must stay record-based and type-specific.");
 assert.equal(classifyCoachIntent("Add glycine to my stack."), "REQUEST_TO_CHANGE_RECORD", "Scenario 7: mutation language must enter the controlled workflow.");
 assert.equal(coachSafetyBoundary("Add glycine to my stack."), null, "Scenario 7: discussing a supplement record request must not be mistaken for a prescribed-plan change.");
 assert.equal(classifyCoachIntent("I have chest pain and can't breathe"), "POTENTIAL_MEDICAL_RED_FLAG", "Scenario 8: a serious issue must stop normal coaching.");

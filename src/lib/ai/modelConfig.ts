@@ -75,7 +75,7 @@ const TASK_PROFILES: Record<AiTask, AiTaskProfile> = {
   },
   contextual_coach: {
     capability: "mini",
-    promptVersion: "contextual-coach-v1",
+    promptVersion: "contextual-coach-v3",
     reasoningEffort: "low",
   },
 };
