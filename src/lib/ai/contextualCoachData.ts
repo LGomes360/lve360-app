@@ -4,17 +4,20 @@ import { generateAI } from "@/lib/ai/gateway";
 import { evidenceOptionByName, retrieveCoachEvidence, type CoachEvidenceOption } from "@/lib/coachEvidence";
 import { deterministicCoachTask } from "@/lib/coachIntent";
 import {
-  assessCoachAnswerQuality,
   parseStructuredCoachAnswer,
   type CoachConstraints,
   type CoachIntent,
   type CoachPage,
-  type CoachQualityReport,
   type CoachRegimenKind,
   type CoachRoutingDecision,
   type CoachSource,
   type StructuredCoachAnswer,
 } from "@/lib/contextualCoach";
+import {
+  validateCoachTaskSuccess,
+  type CoachTaskSuccessReport,
+  type CoachTaskValidatorId,
+} from "@/lib/coachTaskValidation";
 import { healthItemIdentityKey } from "@/lib/healthItemIdentity";
 import type { MemberIntelligenceContext, MemberRegimenItemContext } from "@/lib/memberContext";
 import { getMemberIntelligenceContext } from "@/lib/memberContextData";
@@ -43,6 +46,14 @@ export type CoachDiagnostics = {
   recommendationsRemoved: number;
   regenerationCount: number;
   evidenceIds: string[];
+  taskPassed: boolean;
+  taskCompleteness: number;
+  factualCoverage: number;
+  failedValidators: CoachTaskValidatorId[];
+  missingRequirementCount: number;
+  constraintViolationCount: number;
+  repairReason: "parse_failed" | "task_validation_failed" | null;
+  fallbackReason: "model_unavailable" | "repair_failed" | "deterministic_validation_failed" | null;
 };
 
 const INTENT_SOURCE_IDS: Record<CoachIntent, string[]> = {
@@ -345,11 +356,13 @@ export async function buildCoachContext(
   };
 }
 
-function supplementQuestion(question: string, context: CoachContext) {
-  return context.evidenceOptions.length > 0 || /\b(?:supplement|vitamin|mineral|magnesium|glycine|melatonin|theanine|creatine|coq10|b[- ]?12|omega[- ]?3|ashwagandha)\b/i.test(question);
-}
+type CoachRepairInstruction = {
+  failedValidators: CoachTaskValidatorId[];
+  missingRequirements: string[];
+  constraintViolations: string[];
+};
 
-function prompt(question: string, context: CoachContext, repair = false) {
+function prompt(question: string, context: CoachContext, repair: CoachRepairInstruction | null = null) {
   return [
     {
       role: "system" as const,
@@ -366,7 +379,9 @@ function prompt(question: string, context: CoachContext, repair = false) {
         "Do not recommend adding an already_in_stack item again. Discuss its recorded form, dose, or timing instead when available.",
         "Do not recommend an option whose safety_status is REMOVE. An ALLOW_WITH_NOTE option must retain its supplied safety note.",
         "Use supportive plain language and no shame. Keep the result concise enough for mobile use.",
-        repair ? "The previous candidate failed the quality gate. Be concrete, name supported options when asked, and include a useful next step." : "",
+        repair
+          ? "The previous candidate failed task-success validation. Correct every supplied failed validator, missing requirement, and constraint violation. Do not merely rephrase the previous answer."
+          : "",
         "Return only valid JSON with: intent, direct_answer, options, recommendation, next_step, source_ids.",
         "options is an array of {name, fit: strong|neutral|weak, reason}; use only exact names from evidence_options. recommendation is null or {candidate, reason, trial_period_days, metrics}. source_ids must use only supplied source IDs.",
       ].filter(Boolean).join(" "),
@@ -380,6 +395,7 @@ function prompt(question: string, context: CoachContext, repair = false) {
         current_page: context.page,
         available_sources: context.sources.map(({ id, label, summary }) => ({ id, label, summary })),
         member_context_and_evidence: context.facts,
+        repair_requirements: repair,
       }),
     },
   ];
@@ -482,9 +498,15 @@ function fallbackStructured(question: string, context: CoachContext): Structured
   const safetyByName = new Map(context.preSafety?.candidates.map((candidate) => [healthItemIdentityKey(candidate.name), candidate]) ?? []);
   const available = context.evidenceOptions.filter((option) => safetyByName.get(healthItemIdentityKey(option.name))?.decision !== "blocked").slice(0, 3);
   const topic = /\bsleep\b/i.test(question) ? "sleep" : /\benergy|fatigue|tired\b/i.test(question) ? "energy" : "your goal";
-  const directAnswer = available.length
+  const recordedGoal = context.memberContext.goals.saved.value[0]?.label
+    ?? context.memberContext.goals.blueprint.value[0]
+    ?? null;
+  const directAnswerBase = available.length
     ? `Several evidence-informed options may fit ${topic}, but they are useful for different reasons. The best choice depends on your current routine, the outcome you want, and the LVE360 safety checks.`
     : `The available LVE360 evidence options for ${topic} all require a higher level of review based on the information currently saved, so I would not select one as a new experiment yet.`;
+  const directAnswer = recordedGoal
+    ? `${directAnswerBase} Your recorded goal is ${recordedGoal}.`
+    : directAnswerBase;
   const current = available.find((option) => safetyByName.get(healthItemIdentityKey(option.name))?.isCurrent);
   const selected = current ?? available[0] ?? null;
   return {
@@ -590,6 +612,79 @@ function renderAnswer(answer: StructuredCoachAnswer, context: CoachContext, safe
   return lines.join("\n");
 }
 
+function validateRenderedTask(
+  routing: CoachRoutingDecision,
+  question: string,
+  context: CoachContext,
+  answerText: string,
+  structuredAnswer: StructuredCoachAnswer | null,
+  safetyChecked: boolean,
+) {
+  return validateCoachTaskSuccess({
+    route: routing,
+    question,
+    answerText,
+    memberContext: context.memberContext,
+    structuredAnswer,
+    evidenceOptionNames: context.evidenceOptions.map((option) => option.name),
+    safetyChecked,
+    allCandidatesBlocked: Boolean(
+      context.preSafety?.candidates.length
+      && context.preSafety.candidates.every((candidate) => candidate.decision === "blocked"),
+    ),
+  });
+}
+
+function repairInstruction(report: CoachTaskSuccessReport): CoachRepairInstruction {
+  return {
+    failedValidators: report.failedValidators,
+    missingRequirements: report.missingRequirements,
+    constraintViolations: report.constraintViolations,
+  };
+}
+
+function narrowSafeFallback(context: CoachContext) {
+  const sourceIds = context.sources
+    .filter((source) => !source.id.startsWith("evidence_"))
+    .map((source) => source.id);
+  return {
+    answer: "I could not verify a complete, grounded answer to this request, so I will not guess. Your saved information and Routine are unchanged. Review the linked LVE360 record, then try one narrower question.",
+    sourceIds,
+    responseSource: "fallback" as const,
+  };
+}
+
+function diagnosticsFromReport(
+  context: CoachContext,
+  report: CoachTaskSuccessReport,
+  values: {
+    safetyRuleCount: number;
+    recommendationsRemoved: number;
+    regenerationCount: number;
+    evidenceIds: string[];
+    repairReason: CoachDiagnostics["repairReason"];
+    fallbackReason: CoachDiagnostics["fallbackReason"];
+  },
+): CoachDiagnostics {
+  return {
+    intent: context.intent,
+    constraints: context.constraints,
+    qualityScore: report.score,
+    safetyRuleCount: values.safetyRuleCount,
+    recommendationsRemoved: values.recommendationsRemoved,
+    regenerationCount: values.regenerationCount,
+    evidenceIds: values.evidenceIds,
+    taskPassed: report.passed,
+    taskCompleteness: report.completeness,
+    factualCoverage: report.factualCoverage,
+    failedValidators: report.failedValidators,
+    missingRequirementCount: report.missingRequirements.length,
+    constraintViolationCount: report.constraintViolations.length,
+    repairReason: values.repairReason,
+    fallbackReason: values.fallbackReason,
+  };
+}
+
 export async function generateCoachAnswer(userId: string, question: string, context: CoachContext) {
   const routing: CoachRoutingDecision = {
     intent: context.intent,
@@ -602,87 +697,157 @@ export async function generateCoachAnswer(userId: string, question: string, cont
     ?? deterministicTodayStep(question, context)
     ?? deterministicJourneyPattern(question, context);
   if (deterministic) {
+    const taskReport = validateRenderedTask(routing, question, context, deterministic.answer, null, true);
+    if (!taskReport.passed) {
+      const fallback = narrowSafeFallback(context);
+      return {
+        ...fallback,
+        diagnostics: diagnosticsFromReport(context, taskReport, {
+          safetyRuleCount: context.preSafety?.findings.length ?? 0,
+          recommendationsRemoved: 0,
+          regenerationCount: 0,
+          evidenceIds: context.evidenceOptions.map((option) => option.id),
+          repairReason: null,
+          fallbackReason: "deterministic_validation_failed",
+        }),
+      };
+    }
     return {
       ...deterministic,
-      diagnostics: {
-        intent: context.intent,
-        constraints: context.constraints,
-        qualityScore: 100,
+      diagnostics: diagnosticsFromReport(context, taskReport, {
         safetyRuleCount: context.preSafety?.findings.length ?? 0,
         recommendationsRemoved: 0,
         regenerationCount: 0,
         evidenceIds: context.evidenceOptions.map((option) => option.id),
-      } satisfies CoachDiagnostics,
+        repairReason: null,
+        fallbackReason: null,
+      }),
     };
   }
 
   const validSourceIds = new Set(context.sources.map((source) => source.id));
   const allowedNames = new Set(context.evidenceOptions.map((option) => option.name.toLowerCase()));
-  const isSupplementQuestion = supplementQuestion(question, context);
+  const safetyChecked = !context.evidenceOptions.length || Boolean(context.preSafety?.complete);
   let regenerationCount = 0;
-  let proposal: StructuredCoachAnswer | null = null;
-  let generatedByModel = false;
-  for (let attempt = 0; attempt < 2 && !proposal; attempt += 1) {
+  let repairReason: CoachDiagnostics["repairReason"] = null;
+  let fallbackReason: CoachDiagnostics["fallbackReason"] = null;
+  let finalValidated: Awaited<ReturnType<typeof postValidate>> | null = null;
+  let finalRendered = "";
+  let finalReport: CoachTaskSuccessReport | null = null;
+  let responseSource: "ai" | "fallback" = "ai";
+
+  const evaluateProposal = async (proposal: StructuredCoachAnswer) => {
+    const validated = await postValidate(question, context, proposal);
+    const rendered = renderAnswer(validated.answer, context, validated.safety);
+    const report = validateRenderedTask(
+      routing,
+      question,
+      context,
+      rendered,
+      validated.answer,
+      validated.answer.options.length === 0 || Boolean(validated.safety?.complete),
+    );
+    return { validated, rendered, report };
+  };
+
+  let firstProposal: StructuredCoachAnswer | null = null;
+  try {
+    const response = await generateAI({
+      task: "contextual_coach",
+      userId,
+      messages: prompt(question, context),
+      maxTokens: 650,
+      timeoutMs: 20_000,
+      temperature: 0.2,
+    });
+    firstProposal = parseStructuredCoachAnswer(response.text, context.intent, validSourceIds, allowedNames);
+  } catch (error) {
+    fallbackReason = "model_unavailable";
+    console.warn("[coach.v4] model unavailable; using grounded fallback", error);
+  }
+
+  if (firstProposal) {
+    const evaluated = await evaluateProposal(firstProposal);
+    finalValidated = evaluated.validated;
+    finalRendered = evaluated.rendered;
+    finalReport = evaluated.report;
+  } else if (!fallbackReason) {
+    finalReport = validateRenderedTask(routing, question, context, "", null, safetyChecked);
+    repairReason = "parse_failed";
+  }
+
+  if (!fallbackReason && finalReport && !finalReport.passed) {
+    regenerationCount = 1;
+    repairReason ??= "task_validation_failed";
     try {
-      const response = await generateAI({
+      const repairResponse = await generateAI({
         task: "contextual_coach",
         userId,
-        messages: prompt(question, context, attempt > 0),
+        messages: prompt(question, context, repairInstruction(finalReport)),
         maxTokens: 650,
         timeoutMs: 20_000,
-        temperature: 0.2,
+        temperature: 0.1,
       });
-      proposal = parseStructuredCoachAnswer(response.text, context.intent, validSourceIds, allowedNames);
-      if (proposal) generatedByModel = true;
-      if (!proposal && attempt === 0) regenerationCount = 1;
+      const repairedProposal = parseStructuredCoachAnswer(repairResponse.text, context.intent, validSourceIds, allowedNames);
+      if (repairedProposal) {
+        const repaired = await evaluateProposal(repairedProposal);
+        finalValidated = repaired.validated;
+        finalRendered = repaired.rendered;
+        finalReport = repaired.report;
+      } else {
+        fallbackReason = "repair_failed";
+      }
     } catch (error) {
-      console.warn("[coach.v3] model unavailable; using deterministic evidence repair", error);
-      break;
+      fallbackReason = "repair_failed";
+      console.warn("[coach.v4] bounded repair unavailable; using grounded fallback", error);
     }
   }
-  proposal ??= fallbackStructured(question, context);
-  let validated = await postValidate(question, context, proposal);
-  let rendered = renderAnswer(validated.answer, context, validated.safety);
-  let quality: CoachQualityReport = assessCoachAnswerQuality({
-    answer: validated.answer,
-    supplementQuestion: isSupplementQuestion,
-    safetyChecked: !isSupplementQuestion || Boolean(validated.safety?.complete),
-    usedMemberContext: context.intent !== "GENERAL_EDUCATION",
-    allCandidatesBlocked: Boolean(context.preSafety?.candidates.length && context.preSafety.candidates.every((candidate) => candidate.decision === "blocked")),
-  });
-  if (!quality.passed) {
-    regenerationCount = Math.max(regenerationCount, 1);
-    validated = await postValidate(question, context, fallbackStructured(question, context));
-    rendered = renderAnswer(validated.answer, context, validated.safety);
-    quality = assessCoachAnswerQuality({
-      answer: validated.answer,
-      supplementQuestion: isSupplementQuestion,
-      safetyChecked: !isSupplementQuestion || Boolean(validated.safety?.complete),
-      usedMemberContext: context.intent !== "GENERAL_EDUCATION",
-      allCandidatesBlocked: Boolean(context.preSafety?.candidates.length && context.preSafety.candidates.every((candidate) => candidate.decision === "blocked")),
-    });
+
+  if (!finalReport?.passed) {
+    responseSource = "fallback";
+    fallbackReason ??= "repair_failed";
+    const fallback = await evaluateProposal(fallbackStructured(question, context));
+    finalValidated = fallback.validated;
+    finalRendered = fallback.rendered;
+    finalReport = fallback.report;
   }
-  const evidenceIds = validated.answer.options
+
+  if (!finalValidated || !finalReport || !finalReport.passed) {
+    const safe = narrowSafeFallback(context);
+    const report = finalReport ?? validateRenderedTask(routing, question, context, safe.answer, null, safetyChecked);
+    return {
+      ...safe,
+      diagnostics: diagnosticsFromReport(context, report, {
+        safetyRuleCount: context.preSafety?.findings.length ?? 0,
+        recommendationsRemoved: finalValidated?.removed ?? 0,
+        regenerationCount,
+        evidenceIds: [],
+        repairReason,
+        fallbackReason: fallbackReason ?? "repair_failed",
+      }),
+    };
+  }
+
+  const evidenceIds = finalValidated.answer.options
     .map((option) => evidenceOptionByName(context.evidenceOptions, option.name)?.id)
     .filter((id): id is string => Boolean(id));
   const sourceIds = [...new Set([
-    ...validated.answer.sourceIds,
+    ...finalValidated.answer.sourceIds,
     ...evidenceIds,
-    ...(validated.safety?.findings.length && validSourceIds.has("current_routine") ? ["current_routine"] : []),
-    ...(validated.safety?.findings.length && validSourceIds.has("health_profile") ? ["health_profile"] : []),
+    ...(finalValidated.safety?.findings.length && validSourceIds.has("current_routine") ? ["current_routine"] : []),
+    ...(finalValidated.safety?.findings.length && validSourceIds.has("health_profile") ? ["health_profile"] : []),
   ])].filter((id) => validSourceIds.has(id));
   return {
-    answer: rendered,
+    answer: finalRendered,
     sourceIds,
-    responseSource: generatedByModel ? "ai" as const : "fallback" as const,
-    diagnostics: {
-      intent: context.intent,
-      constraints: context.constraints,
-      qualityScore: quality.score,
-      safetyRuleCount: validated.safety?.findings.length ?? 0,
-      recommendationsRemoved: validated.removed,
+    responseSource,
+    diagnostics: diagnosticsFromReport(context, finalReport, {
+      safetyRuleCount: finalValidated.safety?.findings.length ?? 0,
+      recommendationsRemoved: finalValidated.removed,
       regenerationCount,
       evidenceIds,
-    } satisfies CoachDiagnostics,
+      repairReason,
+      fallbackReason,
+    }),
   };
 }

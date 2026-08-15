@@ -22,7 +22,7 @@ assert.match(intent, /preserveMedicationPlan/);
 assert.match(intent, /preserveSupplementPlan/);
 assert.match(intent, /CURRENT_REGIMEN_LOOKUP/);
 assert.match(intent, /OUT_OF_SCOPE/);
-assert.match(intent, /contextual-coach-v3/);
-assert.match(modelConfig, /promptVersion:\s*"contextual-coach-v3"/, "Runtime ledger and saved-turn prompt versions must agree.");
+assert.match(intent, /contextual-coach-v4/);
+assert.match(modelConfig, /promptVersion:\s*"contextual-coach-v4"/, "Runtime ledger and saved-turn prompt versions must agree.");
 
 console.log("PR109 intent-first coaching architecture checks passed.");

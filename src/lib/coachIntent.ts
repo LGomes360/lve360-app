@@ -6,6 +6,7 @@ import type {
   MemberIntelligenceContext,
   MemberRegimenItemContext,
 } from "./memberContext";
+import { missingContextRequirements } from "./coachTaskValidation.ts";
 import { regimenScheduleLabel } from "./regimenSchedule.ts";
 
 export type DeterministicCoachTaskResult = {
@@ -96,23 +97,7 @@ function safetyReview(context: MemberIntelligenceContext): DeterministicCoachTas
 }
 
 function missingContext(context: MemberIntelligenceContext): DeterministicCoachTaskResult {
-  const gaps: string[] = [];
-  const regimen = [
-    ...context.regimen.medications.value,
-    ...context.regimen.hormones.value,
-    ...context.regimen.supplements.value,
-    ...context.regimen.endocrineActiveSupplements.value,
-  ];
-  const missingDose = regimen.filter((item) => !item.dose?.trim()).map((item) => item.name);
-  const missingTiming = regimen.filter((item) => !item.timing?.trim()).map((item) => item.name);
-  if (missingDose.length) gaps.push(`Add the missing dose for ${missingDose.join(", ")}.`);
-  if (missingTiming.length) gaps.push(`Add the missing timing for ${missingTiming.join(", ")}.`);
-  if (context.healthProfile.status === "missing") gaps.push("Complete the intake health profile so conditions, allergies, procedures, and life-stage context can be checked.");
-  if (context.goals.saved.status === "missing" && context.goals.blueprint.status === "missing") gaps.push("Record at least one current goal so coaching can prioritize the outcome that matters most.");
-  if (context.recentCheckIns.status === "missing") gaps.push("Record a few sleep, energy, or weight check-ins so LVE360 can distinguish a one-day issue from a pattern.");
-  if (context.activePractice.status === "missing") gaps.push("Choose one active weekly practice so daily coaching can support a specific action.");
-  if (context.preferences.status === "missing") gaps.push("Save timezone and reminder preferences so timing guidance matches your day.");
-  const selected = gaps.slice(0, 5);
+  const selected = missingContextRequirements(context).map((requirement) => requirement.label);
   return {
     answer: selected.length
       ? `The most useful missing information is:\n\n${selected.map((item, index) => `${index + 1}. ${item}`).join("\n")}\n\nI only listed fields that are actually absent from your current LVE360 context.`
@@ -157,7 +142,9 @@ function behavioralAdjustment(route: CoachRoutingDecision, context: MemberIntell
   const practice = context.activePractice.value;
   const practiceStep = practice?.minimumVersion
     ? `Use the minimum version of your weekly practice if energy is low: ${practice.minimumVersion}.`
-    : "Choose a lighter version of planned activity if you feel unusually tired.";
+    : practice?.actionLabel
+      ? `Choose a lighter version of your current weekly practice, ${practice.actionLabel}, if you feel unusually tired.`
+      : "Choose a lighter version of planned activity if you feel unusually tired.";
   return {
     answer: `${preserveText} Tomorrow, keep your usual wake time, get outdoor light and gentle movement early in the day, and avoid turning one poor night into an all-or-nothing day. ${practiceStep} In the evening, return to your normal wind-down and record sleep and energy so LVE360 can see whether this was a one-night event or part of a pattern.`,
     sourceIds: ["weekly_practice", "recent_check_ins", "goals", "preferences"],

@@ -162,6 +162,14 @@ export async function POST(req: NextRequest) {
       recommendationsRemoved: 0,
       regenerationCount: 0,
       evidenceIds: context.evidenceOptions.map((option) => option.id),
+      taskPassed: false,
+      taskCompleteness: 0,
+      factualCoverage: 0,
+      failedValidators: [],
+      missingRequirementCount: 0,
+      constraintViolationCount: 0,
+      repairReason: null,
+      fallbackReason: "model_unavailable",
     };
     try {
       const generated = await generateCoachAnswer(auth.user.id, question, context);
@@ -169,12 +177,27 @@ export async function POST(req: NextRequest) {
         answer = generated.answer;
         sourceRefs = context.sources.filter((source) => generated.sourceIds.includes(source.id));
         responseSource = generated.responseSource;
-        generationStatus = "succeeded";
         diagnostics = generated.diagnostics;
+        generationStatus = diagnostics.taskPassed ? "succeeded" : "failed";
       }
     } catch (error) {
       console.warn("[coach] generation unavailable; returning grounded fallback", error);
     }
+
+    console.info("[coach.validation]", {
+      intent: diagnostics.intent,
+      taskPassed: diagnostics.taskPassed,
+      qualityScore: diagnostics.qualityScore,
+      taskCompleteness: diagnostics.taskCompleteness,
+      factualCoverage: diagnostics.factualCoverage,
+      failedValidators: diagnostics.failedValidators,
+      missingRequirementCount: diagnostics.missingRequirementCount,
+      constraintViolationCount: diagnostics.constraintViolationCount,
+      regenerationCount: diagnostics.regenerationCount,
+      repairReason: diagnostics.repairReason,
+      fallbackReason: diagnostics.fallbackReason,
+      responseSource,
+    });
 
     const { data: turn, error: updateError } = await getSupabaseAdmin().from("ai_coaching_turns").update({
       answer,
