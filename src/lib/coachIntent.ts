@@ -88,7 +88,11 @@ function safetyReview(context: MemberIntelligenceContext): DeterministicCoachTas
   }
   const rank = { danger: 0, warning: 1, info: 2 } as const;
   const findings = unique.sort((left, right) => rank[left.severity] - rank[right.severity]);
-  const lines = findings.map((item, index) => `${index + 1}. ${item.item}: ${item.message}`);
+  const lines = findings.map((item, index) => {
+    const source = item.evidence.sourceLabel ?? (item.evidence.provenanceStatus === "reviewed" ? "Reviewed LVE360 rule" : "Legacy rule with incomplete provenance");
+    const qualification = item.evidence.qualification ? ` Important context: ${item.evidence.qualification}` : "";
+    return `${index + 1}. ${item.item}: ${item.message}\n   Evidence: ${source}. Confidence: ${item.evidence.confidence}.${qualification}`;
+  });
   return {
     answer: `These saved Routine items currently need clinician or pharmacist review:\n\n${lines.join("\n")}\n\nThese are review signals from LVE360's deterministic rules, not instructions to change a medication, hormone, or supplement.`,
     sourceIds: ["safety_review", "current_routine", "health_profile"],

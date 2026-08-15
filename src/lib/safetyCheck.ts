@@ -34,6 +34,18 @@ const INTERACTION_COLUMNS = [
   "liver_caution",
   "kidney_caution",
   "notes",
+  "source_label",
+  "source_url",
+  "source_type",
+  "source_date",
+  "last_reviewed_on",
+  "exact_ingredient_form",
+  "interaction_mechanism",
+  "severity_rationale",
+  "confidence",
+  "user_qualification",
+  "rule_version",
+  "provenance_status",
 ].join(",");
 
 const RULE_COLUMNS = [
@@ -49,6 +61,17 @@ const RULE_COLUMNS = [
   "severity",
   "notes",
   "caution",
+  "source_label",
+  "source_type",
+  "source_date",
+  "last_reviewed_on",
+  "exact_ingredient_form",
+  "interaction_mechanism",
+  "severity_rationale",
+  "confidence",
+  "user_qualification",
+  "rule_version",
+  "provenance_status",
 ].join(",");
 
 function applyFindingsToItems(items: SafetyItem[], evaluation: SafetyEvaluation): SafetyItem[] {

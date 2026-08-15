@@ -105,11 +105,6 @@ function explicitlyNamedEvidenceOption(question: string, options: CoachEvidenceO
   }) ?? null;
 }
 
-function isCurrentSupplement(name: string, context: MemberIntelligenceContext) {
-  const identity = healthItemIdentityKey(name);
-  return supplementItems(context).some((item) => healthItemIdentityKey(item.name) === identity);
-}
-
 export async function buildCoachContext(
   userId: string,
   page: CoachPage,
@@ -308,11 +303,15 @@ export async function buildCoachContext(
     pregnant: profile?.pregnant ?? null,
   };
   const preSafety = needsEvidence && evidenceOptions.length
-    ? await applySafetyChecks(safetyContext, evidenceOptions.map((option) => ({
-      name: option.name,
-      dose: option.doseGuidance?.startingDose ?? null,
-      is_current: isCurrentSupplement(option.name, memberContext),
-    })))
+    ? await applySafetyChecks(safetyContext, evidenceOptions.map((option) => {
+      const current = supplementItems(memberContext).find((item) => healthItemIdentityKey(item.name) === healthItemIdentityKey(option.name));
+      return {
+        name: option.name,
+        dose: current?.dose ?? option.doseGuidance?.startingDose ?? null,
+        is_current: Boolean(current),
+        instruction_authority: current?.instruction_authority ?? null,
+      };
+    }))
     : null;
   const safetyByName = new Map(preSafety?.candidates.map((candidate) => [healthItemIdentityKey(candidate.name), candidate]) ?? []);
   facts.evidence_options = evidenceOptions.map((option) => {
@@ -534,7 +533,12 @@ async function postValidate(question: string, context: CoachContext, answer: Str
     const identity = healthItemIdentityKey(option.name);
     const current = routine.find((item) => healthItemIdentityKey(String(item.name ?? "")) === identity
       && ["supplement", "endocrine_active_supplement"].includes(String(item.kind ?? "")));
-    return { name: option.name, dose: current?.dose ? String(current.dose) : evidence?.doseGuidance?.startingDose ?? null, is_current: Boolean(current) };
+    return {
+      name: option.name,
+      dose: current?.dose ? String(current.dose) : evidence?.doseGuidance?.startingDose ?? null,
+      is_current: Boolean(current),
+      instruction_authority: current?.instruction_authority ? String(current.instruction_authority) : null,
+    };
   });
   const safety = await applySafetyChecks(context.safetyContext, candidates);
   const decisions = new Map(safety.candidates.map((candidate) => [healthItemIdentityKey(candidate.name), candidate]));
