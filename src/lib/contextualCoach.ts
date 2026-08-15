@@ -1,6 +1,41 @@
-export const COACH_PROMPT_VERSION = "contextual-coach-v2";
+export const COACH_PROMPT_VERSION = "contextual-coach-v3";
 
 export type CoachIntent =
+  | "GENERAL_EDUCATION"
+  | "PERSONALIZED_RECOMMENDATION"
+  | "CURRENT_REGIMEN_LOOKUP"
+  | "MEDICATION_LOOKUP"
+  | "HORMONE_LOOKUP"
+  | "SUPPLEMENT_LOOKUP"
+  | "CURRENT_PLAN_LOOKUP"
+  | "SAFETY_REVIEW"
+  | "BEHAVIORAL_COACHING"
+  | "PRIORITIZATION"
+  | "MISSING_CONTEXT"
+  | "EVIDENCE_COMPARISON"
+  | "OUT_OF_SCOPE"
+  | "OPTION_COMPARISON"
+  | "PLAN_EXPLANATION"
+  | "TIMING_OR_DOSING"
+  | "PROGRESS_COACHING"
+  | "REQUEST_TO_CHANGE_RECORD"
+  | "POTENTIAL_MEDICAL_RED_FLAG";
+
+export type CoachRegimenKind = "medication" | "hormone" | "supplement" | "endocrine_active_supplement";
+
+export type CoachConstraints = {
+  preserveMedicationPlan: boolean;
+  preserveHormonePlan: boolean;
+  preserveSupplementPlan: boolean;
+};
+
+export type CoachRoutingDecision = {
+  intent: CoachIntent;
+  constraints: CoachConstraints;
+  requestedRegimenKinds: CoachRegimenKind[];
+};
+
+export type StoredCoachIntent =
   | "GENERAL_EDUCATION"
   | "PERSONALIZED_RECOMMENDATION"
   | "CURRENT_PLAN_LOOKUP"
@@ -10,6 +45,17 @@ export type CoachIntent =
   | "PROGRESS_COACHING"
   | "REQUEST_TO_CHANGE_RECORD"
   | "POTENTIAL_MEDICAL_RED_FLAG";
+
+export function storedCoachIntent(intent: CoachIntent): StoredCoachIntent {
+  if (intent === "CURRENT_REGIMEN_LOOKUP" || intent === "MEDICATION_LOOKUP" || intent === "HORMONE_LOOKUP" || intent === "SUPPLEMENT_LOOKUP") {
+    return "CURRENT_PLAN_LOOKUP";
+  }
+  if (intent === "SAFETY_REVIEW") return "PLAN_EXPLANATION";
+  if (intent === "BEHAVIORAL_COACHING" || intent === "PRIORITIZATION" || intent === "MISSING_CONTEXT") return "PROGRESS_COACHING";
+  if (intent === "EVIDENCE_COMPARISON") return "OPTION_COMPARISON";
+  if (intent === "OUT_OF_SCOPE") return "GENERAL_EDUCATION";
+  return intent;
+}
 
 export type ProposedCoachOption = {
   name: string;
@@ -87,36 +133,93 @@ export function isCoachFeedback(value: unknown): value is CoachFeedback {
   return value === "useful" || value === "not_useful";
 }
 
-export function classifyCoachIntent(question: string): CoachIntent {
+function explicitCoachConstraints(question: string): CoachConstraints {
   const value = question.toLowerCase();
+  const withoutChange = /\b(?:without|do not|don't|not)\b[\s\S]{0,50}\b(?:chang|adjust|start|stop|add|remove|switch)/.test(value)
+    || /\bkeep\b[\s\S]{0,40}\b(?:unchanged|the same)/.test(value);
+  const allRegimen = withoutChange && /\b(?:routine|regimen|stack|anything i take)\b/.test(value);
+  return {
+    preserveMedicationPlan: allRegimen || (withoutChange && /\b(?:medications?|meds?|medicines?|prescriptions?|prescribed drugs?)\b/.test(value)),
+    preserveHormonePlan: allRegimen || (withoutChange && /\bhormon(?:e|es|s)?\b/.test(value)),
+    preserveSupplementPlan: allRegimen || (withoutChange && /\b(?:supplements?|supplments?|vitamins?|minerals?|stack)\b/.test(value)),
+  };
+}
+
+function requestedRegimenKinds(question: string): CoachRegimenKind[] {
+  const value = question.toLowerCase();
+  const result: CoachRegimenKind[] = [];
+  if (/\b(?:medications?|meds?|medicines?|prescriptions?|prescribed drugs?)\b/.test(value)) result.push("medication");
+  if (/\bhormon(?:e|es|s)?\b/.test(value)) result.push("hormone");
+  if (/\b(?:supplements?|supplments?|vitamins?|minerals?)\b/.test(value)) result.push("supplement", "endocrine_active_supplement");
+  return [...new Set(result)];
+}
+
+export function classifyCoachRequest(question: string): CoachRoutingDecision {
+  const value = question.toLowerCase();
+  const constraints = explicitCoachConstraints(question);
+  const requestedKinds = requestedRegimenKinds(question);
+  const route = (intent: CoachIntent, kinds: CoachRegimenKind[] = requestedKinds): CoachRoutingDecision => ({
+    intent,
+    constraints,
+    requestedRegimenKinds: kinds,
+  });
   if (/\b(suicid|kill myself|overdose|chest pain|can(?:not|'t) breathe|stroke|severe allergic|anaphyl|fainted|unconscious|medical emergency|vomiting blood|face (?:is )?swelling|tongue (?:is )?swelling|black stools?|severe confusion)\b/.test(value)) {
-    return "POTENTIAL_MEDICAL_RED_FLAG";
+    return route("POTENTIAL_MEDICAL_RED_FLAG");
   }
   if (/\b(?:add|save|record|remove|delete)\b[\s\S]{0,80}\b(?:my|the)\s+(?:stack|routine|record|reminder|medication|hormone|supplement)\b/.test(value)
     || /\b(?:add|remove|delete)\b[\s\S]{0,60}\b(?:to|from)\s+(?:my\s+)?(?:stack|routine|records?)\b/.test(value)) {
-    return "REQUEST_TO_CHANGE_RECORD";
+    return route("REQUEST_TO_CHANGE_RECORD");
+  }
+  if (/\b(?:capital of|president of|prime minister of|weather|stock price|sports score|who won|recipe for|write (?:me )?a poem)\b/.test(value)) {
+    return route("OUT_OF_SCOPE", []);
+  }
+  if (/\b(?:clinician|pharmacist|pharmasist|doctor|professional)\b[\s\S]{0,50}\b(?:review|discuss|check|attention)\b/.test(value)
+    || /\b(?:need|needs|requiring?|deserve|flagged? for)\b[\s\S]{0,50}\b(?:clinician|pharmacist|pharmasist|doctor|professional)\b/.test(value)
+    || /\b(?:safety|interaction|contraindication|conflict|warning)s?\b[\s\S]{0,50}\b(?:routine|regimen|stack|review|item)\b/.test(value)) {
+    return route("SAFETY_REVIEW");
+  }
+  if (/\b(?:what|which)\b[\s\S]{0,80}\b(?:missing|incomplete|not (?:saved|recorded)|need(?:ed)? from me)\b/.test(value)
+    || /\b(?:missing|incomplete)\b[\s\S]{0,50}\b(?:profile|context|information|data|record)\b/.test(value)) {
+    return route("MISSING_CONTEXT", []);
+  }
+  if (/\b(?:highest[- ]value|most important|best next|single (?:best|most useful)|prioriti[sz]e|focus on this week|what should i focus)\b/.test(value)) {
+    return route("PRIORITIZATION", []);
+  }
+  if (/\b(?:slept poorly|poor sleep|bad night|rough night|low energy|hard day|off track|missed my|make (?:it|this) easier|adjust tomorrow|adjust today)\b/.test(value)
+    || /\b(?:how (?:can|should) i|help me)\b[\s\S]{0,70}\b(?:sleep|eat|exercise|move|walk|meditat|recover|habit|practice|routine tomorrow)\b/.test(value)) {
+    return route("BEHAVIORAL_COACHING", []);
   }
   if (/\b(?:what|which|list|show|am i|do i)\b[\s\S]{0,70}\b(?:taking|take|currently|current|recorded|in my stack|in my routine)\b/.test(value)
-    || /\bis\s+[a-z0-9 -]+\s+(?:already\s+)?in my (?:stack|routine|records?)\b/.test(value)) {
-    return "CURRENT_PLAN_LOOKUP";
+    || /\bis\s+[a-z0-9 -]+\s+(?:already\s+)?in my (?:stack|routine|records?)\b/.test(value)
+    || /\b(?:show|list)\b[\s\S]{0,50}\b(?:medications?|meds?|hormon(?:e|es|s)?|supplements?|supplments?)\b/.test(value)) {
+    if (requestedKinds.length === 1 && requestedKinds[0] === "medication") return route("MEDICATION_LOOKUP");
+    if (requestedKinds.length === 1 && requestedKinds[0] === "hormone") return route("HORMONE_LOOKUP");
+    if (requestedKinds.length && requestedKinds.every((kind) => kind === "supplement" || kind === "endocrine_active_supplement")) {
+      return route("SUPPLEMENT_LOOKUP");
+    }
+    return route("CURRENT_REGIMEN_LOOKUP", requestedKinds.length ? requestedKinds : ["medication", "hormone", "supplement", "endocrine_active_supplement"]);
   }
   if (/\b(?:compare|versus|vs\.?|difference between|better for me|or)\b/.test(value)
     && /\b(?:supplement|vitamin|mineral|magnesium|glycine|melatonin|theanine|creatine|coq10|b[- ]?12|omega[- ]?3|ashwagandha)\b/.test(value)) {
-    return "OPTION_COMPARISON";
+    return route("EVIDENCE_COMPARISON", ["supplement", "endocrine_active_supplement"]);
   }
   if (/\b(?:when should|what time|morning or evening|with food|without food|dose|dosage|how much|timing|space|spacing)\b/.test(value)) {
-    return "TIMING_OR_DOSING";
+    return route("TIMING_OR_DOSING");
   }
   if (/\b(?:why|explain|what does|how does)\b[\s\S]{0,80}\b(?:blueprint|plan|priority|recommendation|routine)\b/.test(value)) {
-    return "PLAN_EXPLANATION";
+    return route("PLAN_EXPLANATION");
   }
   if (/\b(?:this week|progress|trend|recent|check[- ]?ins?|small win|next habit|weekly practice|focus on)\b/.test(value)) {
-    return "PROGRESS_COACHING";
+    return route("PROGRESS_COACHING", []);
   }
   if (/\b(?:for me|my\s+(?:sleep|energy|goals?|stack|medications?|routine)|should i|what should i try|best for my|makes? sense for me|fit my)\b/.test(value)) {
-    return "PERSONALIZED_RECOMMENDATION";
+    return route("PERSONALIZED_RECOMMENDATION");
   }
-  return "GENERAL_EDUCATION";
+  return route("GENERAL_EDUCATION", []);
+}
+
+export function classifyCoachIntent(question: string): CoachIntent {
+  return classifyCoachRequest(question).intent;
 }
 
 export type CoachSafetyBoundary = "emergency" | "diagnosis" | "regimen_change" | null;
@@ -150,8 +253,10 @@ function cleanText(value: unknown, max = 1000) {
 
 function isCoachIntent(value: unknown): value is CoachIntent {
   return [
-    "GENERAL_EDUCATION", "PERSONALIZED_RECOMMENDATION", "CURRENT_PLAN_LOOKUP",
-    "OPTION_COMPARISON", "PLAN_EXPLANATION", "TIMING_OR_DOSING",
+    "GENERAL_EDUCATION", "PERSONALIZED_RECOMMENDATION", "CURRENT_REGIMEN_LOOKUP",
+    "MEDICATION_LOOKUP", "HORMONE_LOOKUP", "SUPPLEMENT_LOOKUP", "CURRENT_PLAN_LOOKUP",
+    "SAFETY_REVIEW", "BEHAVIORAL_COACHING", "PRIORITIZATION", "MISSING_CONTEXT",
+    "EVIDENCE_COMPARISON", "OUT_OF_SCOPE", "OPTION_COMPARISON", "PLAN_EXPLANATION", "TIMING_OR_DOSING",
     "PROGRESS_COACHING", "REQUEST_TO_CHANGE_RECORD", "POTENTIAL_MEDICAL_RED_FLAG",
   ].includes(String(value));
 }

@@ -18,7 +18,7 @@ assert.match(data, /requiresReviewBeforeStart/, "A non-current recommendation wi
 assert.match(data, /isCurrentRecommendation/, "An already-recorded recommendation must not become an instruction to add a duplicate.");
 assert.match(data, /explicitlyNamedEvidenceOption/, "A direct question about a named option must stay focused on that option.");
 assert.match(data, /Keep your saved Routine unchanged until that review is complete/, "Safety-review recommendations must hand off to a clinician or pharmacist before a new start.");
-assert.match(route, /classifyCoachIntent\(question\)/, "The API must classify intent before context assembly.");
+assert.match(route, /classifyCoachRequest\(question\)/, "The API must classify intent and constraints before context assembly.");
 assert.match(route, /quality_score/, "The API must persist privacy-safe quality diagnostics.");
 assert.match(migration, /service-role only/i, "The additive migration must preserve server-only writes and existing RLS.");
 assert.match(coach, /health record, evidence library, and safety rules/i, "The UI must describe all four product layers accurately.");

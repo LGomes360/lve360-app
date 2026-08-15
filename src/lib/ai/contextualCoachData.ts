@@ -1,20 +1,23 @@
 import "server-only";
 
-import { identityLabel, type WeeklyExperiment } from "@/lib/activation";
 import { generateAI } from "@/lib/ai/gateway";
 import { evidenceOptionByName, retrieveCoachEvidence, type CoachEvidenceOption } from "@/lib/coachEvidence";
+import { deterministicCoachTask } from "@/lib/coachIntent";
 import {
   assessCoachAnswerQuality,
   parseStructuredCoachAnswer,
+  type CoachConstraints,
   type CoachIntent,
   type CoachPage,
   type CoachQualityReport,
+  type CoachRegimenKind,
+  type CoachRoutingDecision,
   type CoachSource,
   type StructuredCoachAnswer,
 } from "@/lib/contextualCoach";
-import { getCurrentBlueprintContext } from "@/lib/currentBlueprintContext";
-import { getCurrentRegimen } from "@/lib/currentRegimen";
 import { healthItemIdentityKey } from "@/lib/healthItemIdentity";
+import type { MemberIntelligenceContext, MemberRegimenItemContext } from "@/lib/memberContext";
+import { getMemberIntelligenceContext } from "@/lib/memberContextData";
 import { applySafetyChecks, type AppliedSafetyResult } from "@/lib/safetyCheck";
 import type { SafetyContext } from "@/lib/safetyEngine";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
@@ -22,6 +25,9 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 export type CoachContext = {
   page: CoachPage;
   intent: CoachIntent;
+  constraints: CoachConstraints;
+  requestedRegimenKinds: CoachRegimenKind[];
+  memberContext: MemberIntelligenceContext;
   sources: CoachSource[];
   facts: Record<string, unknown>;
   evidenceOptions: CoachEvidenceOption[];
@@ -31,6 +37,7 @@ export type CoachContext = {
 
 export type CoachDiagnostics = {
   intent: CoachIntent;
+  constraints: CoachConstraints;
   qualityScore: number;
   safetyRuleCount: number;
   recommendationsRemoved: number;
@@ -41,7 +48,17 @@ export type CoachDiagnostics = {
 const INTENT_SOURCE_IDS: Record<CoachIntent, string[]> = {
   GENERAL_EDUCATION: ["evidence", "current_routine", "health_profile", "recent_coaching"],
   PERSONALIZED_RECOMMENDATION: ["evidence", "current_routine", "health_profile", "goals", "recent_check_ins", "current_blueprint", "recent_coaching"],
+  CURRENT_REGIMEN_LOOKUP: ["current_routine"],
+  MEDICATION_LOOKUP: ["current_routine"],
+  HORMONE_LOOKUP: ["current_routine"],
+  SUPPLEMENT_LOOKUP: ["current_routine"],
   CURRENT_PLAN_LOOKUP: ["current_routine"],
+  SAFETY_REVIEW: ["safety_review", "current_routine", "health_profile"],
+  BEHAVIORAL_COACHING: ["weekly_practice", "recent_check_ins", "goals", "preferences", "recent_coaching"],
+  PRIORITIZATION: ["weekly_practice", "recent_check_ins", "goals", "current_blueprint"],
+  MISSING_CONTEXT: ["context_status", "current_routine", "goals", "health_profile", "weekly_practice", "recent_check_ins", "preferences"],
+  EVIDENCE_COMPARISON: ["evidence", "current_routine", "health_profile", "goals", "recent_coaching"],
+  OUT_OF_SCOPE: [],
   OPTION_COMPARISON: ["evidence", "current_routine", "health_profile", "goals", "recent_check_ins", "recent_coaching"],
   PLAN_EXPLANATION: ["current_blueprint", "current_routine", "goals", "recent_coaching"],
   TIMING_OR_DOSING: ["evidence", "current_routine", "health_profile", "recent_coaching"],
@@ -50,64 +67,21 @@ const INTENT_SOURCE_IDS: Record<CoachIntent, string[]> = {
   POTENTIAL_MEDICAL_RED_FLAG: [],
 };
 
-const FACT_KEY_BY_SOURCE: Record<string, string> = {
-  current_blueprint: "blueprint",
-  current_routine: "routine",
-  weekly_practice: "weekly_practice",
-  recent_check_ins: "recent_check_ins",
-  goals: "goals",
-  health_profile: "health_profile",
-  recent_coaching: "recent_coaching",
-};
-
 function compact(value: string | null | undefined, length = 160) {
   return value?.replace(/\s+/g, " ").trim().slice(0, length) || null;
 }
 
-function objectValue(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+function regimenItems(context: MemberIntelligenceContext): MemberRegimenItemContext[] {
+  return [
+    ...context.regimen.medications.value,
+    ...context.regimen.hormones.value,
+    ...context.regimen.supplements.value,
+    ...context.regimen.endocrineActiveSupplements.value,
+  ];
 }
 
-function readableValues(value: unknown): string[] {
-  if (value == null) return [];
-  if (typeof value === "string" || typeof value === "number") {
-    return String(value).split(/[,;|\n]/).map((item) => item.replace(/\s+/g, " ").trim())
-      .filter((item) => item.length > 0 && !/^(?:none|no|n\/?a|not provided|unknown)$/i.test(item));
-  }
-  if (Array.isArray(value)) return [...new Set(value.flatMap(readableValues))];
-  const source = objectValue(value);
-  const named = source.name ?? source.label ?? source.text ?? source.value ?? source.answer
-    ?? source.condition_name ?? source.allergy_name ?? source.med_name;
-  if (named != null) return readableValues(named);
-  return [...new Set(Object.values(source).flatMap(readableValues))];
-}
-
-function calculateAge(dob: unknown) {
-  if (typeof dob !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dob)) return null;
-  const born = new Date(`${dob}T00:00:00Z`);
-  if (Number.isNaN(born.getTime())) return null;
-  const now = new Date();
-  let age = now.getUTCFullYear() - born.getUTCFullYear();
-  const beforeBirthday = now.getUTCMonth() < born.getUTCMonth()
-    || (now.getUTCMonth() === born.getUTCMonth() && now.getUTCDate() < born.getUTCDate());
-  if (beforeBirthday) age -= 1;
-  return age >= 13 && age <= 120 ? age : null;
-}
-
-function scopeContext(context: CoachContext): CoachContext {
-  const allowed = new Set(INTENT_SOURCE_IDS[context.intent]);
-  const sources = context.sources.filter((source) => source.id.startsWith("evidence_") ? allowed.has("evidence") : allowed.has(source.id));
-  const facts = Object.fromEntries(sources.flatMap((source) => {
-    if (source.id.startsWith("evidence_")) return [];
-    const key = FACT_KEY_BY_SOURCE[source.id];
-    return key && key in context.facts ? [[key, context.facts[key]]] : [];
-  }));
-  if (allowed.has("evidence")) facts.evidence_options = context.facts.evidence_options;
-  return { ...context, sources, facts };
-}
-
-function supplementItems(regimen: Awaited<ReturnType<typeof getCurrentRegimen>>) {
-  return regimen.filter((item) => item.item_kind === "supplement" || item.item_kind === "endocrine_active_supplement");
+function supplementItems(context: MemberIntelligenceContext) {
+  return [...context.regimen.supplements.value, ...context.regimen.endocrineActiveSupplements.value];
 }
 
 function explicitlyNamedEvidenceOption(question: string, options: CoachEvidenceOption[]) {
@@ -120,128 +94,190 @@ function explicitlyNamedEvidenceOption(question: string, options: CoachEvidenceO
   }) ?? null;
 }
 
-function isCurrentSupplement(name: string, regimen: Awaited<ReturnType<typeof getCurrentRegimen>>) {
+function isCurrentSupplement(name: string, context: MemberIntelligenceContext) {
   const identity = healthItemIdentityKey(name);
-  return supplementItems(regimen).some((item) => healthItemIdentityKey(item.name) === identity);
+  return supplementItems(context).some((item) => healthItemIdentityKey(item.name) === identity);
 }
 
-export async function buildCoachContext(userId: string, page: CoachPage, question: string, intent: CoachIntent): Promise<CoachContext> {
-  const admin = getSupabaseAdmin();
-  const requested = new Set(INTENT_SOURCE_IDS[intent]);
+export async function buildCoachContext(
+  userId: string,
+  page: CoachPage,
+  question: string,
+  routing: CoachRoutingDecision,
+): Promise<CoachContext> {
+  const requested = new Set(INTENT_SOURCE_IDS[routing.intent]);
   const needsEvidence = requested.has("evidence");
-  const emptyResult = { data: null, error: null };
-  const [blueprint, regimen, experimentResult, checkInsResult, goalsResult, submissionResult, recentTurnsResult] = await Promise.all([
-    requested.has("current_blueprint") ? getCurrentBlueprintContext(userId) : Promise.resolve(null),
-    requested.has("current_routine") || needsEvidence ? getCurrentRegimen(userId) : Promise.resolve([]),
-    requested.has("weekly_practice") ? admin.from("weekly_experiments")
-      .select("id,identity_direction,action_label,cue,frequency_per_week,minimum_version,week_start,status")
-      .eq("user_id", userId).eq("status", "active").order("updated_at", { ascending: false }).limit(1).maybeSingle() : Promise.resolve(emptyResult),
-    requested.has("recent_check_ins") ? admin.from("logs").select("log_date,weight,sleep,energy")
-      .eq("user_id", userId).order("log_date", { ascending: false }).limit(7) : Promise.resolve({ data: [], error: null }),
-    requested.has("goals") ? admin.from("goals").select("goals,custom_goal,target_weight,target_sleep,target_energy")
-      .eq("user_id", userId).maybeSingle() : Promise.resolve(emptyResult),
-    requested.has("health_profile") || needsEvidence ? admin.from("submissions")
-      .select("dob,sex,gender,conditions,allergies,pregnant,dosing_pref,brand_pref,engine_input_json,goals")
-      .eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle() : Promise.resolve(emptyResult),
-    requested.has("recent_coaching") ? admin.from("ai_coaching_turns")
-      .select("question,answer,created_at").eq("user_id", userId).neq("generation_status", "pending")
-      .order("created_at", { ascending: false }).limit(3) : Promise.resolve({ data: [], error: null }),
+  const needsRecentCoaching = requested.has("recent_coaching");
+  const admin = getSupabaseAdmin();
+  const [memberContext, recentTurnsResult] = await Promise.all([
+    getMemberIntelligenceContext(userId),
+    needsRecentCoaching
+      ? admin.from("ai_coaching_turns")
+        .select("question,answer,created_at").eq("user_id", userId).neq("generation_status", "pending")
+        .order("created_at", { ascending: false }).limit(3)
+      : Promise.resolve({ data: [], error: null }),
   ]);
-  for (const result of [experimentResult, checkInsResult, goalsResult, submissionResult, recentTurnsResult]) {
-    if (result.error) throw result.error;
-  }
+  if (recentTurnsResult.error) throw recentTurnsResult.error;
 
+  const allRegimen = regimenItems(memberContext);
   const sources: CoachSource[] = [];
   const facts: Record<string, unknown> = {};
-  if (blueprint) {
+
+  if (requested.has("current_blueprint")) {
+    const blueprint = memberContext.blueprint.value;
     sources.push({
       id: "current_blueprint",
       label: "Current Blueprint",
-      summary: `${blueprint.priorities.length} priorities; ${blueprint.needs_refresh ? "saved changes await review" : "current with saved information"}.`,
-      href: `/blueprints/${blueprint.stack_id}`,
+      summary: blueprint
+        ? `${blueprint.priorities.length} priorities; ${memberContext.blueprint.status === "stale" ? "saved changes await review" : "current with saved information"}.`
+        : "No current Blueprint is recorded.",
+      href: blueprint ? `/blueprints/${blueprint.stack_id}` : "/blueprints",
     });
-    facts.blueprint = {
+    facts.blueprint = blueprint ? {
       generated_at: blueprint.created_at,
       safety_status: blueprint.safety_status,
       safety_acknowledged: blueprint.safety_acknowledged,
       needs_refresh: blueprint.needs_refresh,
       priorities: blueprint.priorities.slice(0, 8).map((item) => ({ label: compact(item.label), category: item.category, kind: item.kind })),
-    };
+    } : null;
   }
-  if (regimen.length) {
-    sources.push({ id: "current_routine", label: "Current Routine", summary: `${regimen.length} active medication, hormone, and supplement records.`, href: "/routine" });
-    facts.routine = regimen.slice(0, 40).map((item) => ({
+
+  if (requested.has("current_routine")) {
+    sources.push({
+      id: "current_routine",
+      label: "Current Routine",
+      summary: `${allRegimen.length} active medication, hormone, and supplement records.`,
+      href: "/routine",
+    });
+    facts.routine = allRegimen.map((item) => ({
+      id: item.id,
       kind: item.item_kind,
-      name: compact(item.name, 100),
-      dose: compact(item.dose, 80),
-      timing: compact(item.timing, 100),
-      purpose: compact(item.purpose, 120),
+      name: item.name,
+      purpose: item.purpose,
+      dose: item.dose,
+      timing: item.timing,
+      schedule: item.schedule,
+      instruction_source: item.instruction_source,
       instruction_authority: item.instruction_authority,
+      updated_at: item.updated_at,
     }));
   }
 
-  const experiment = experimentResult.data as Partial<WeeklyExperiment> | null;
-  if (experiment?.id) {
-    const completionResult = await admin.from("daily_practice_completions")
-      .select("id", { count: "exact", head: true }).eq("user_id", userId).eq("experiment_id", experiment.id);
-    if (completionResult.error) throw completionResult.error;
-    sources.push({ id: "weekly_practice", label: "Weekly Practice", summary: `${completionResult.count ?? 0} completions recorded toward this week's ${experiment.frequency_per_week ?? 0}-day target.`, href: "/today" });
-    facts.weekly_practice = {
-      identity: identityLabel(experiment.identity_direction ?? null),
-      action: compact(experiment.action_label),
-      cue: compact(experiment.cue),
-      minimum_version: compact(experiment.minimum_version),
-      target: experiment.frequency_per_week,
-      completions: completionResult.count ?? 0,
-      week_start: experiment.week_start,
-    };
+  if (requested.has("weekly_practice")) {
+    const practice = memberContext.activePractice.value;
+    sources.push({
+      id: "weekly_practice",
+      label: "Weekly Practice",
+      summary: practice
+        ? `${practice.completionCount} completions recorded toward this week's ${practice.frequencyPerWeek ?? 0}-day target.`
+        : "No active weekly practice is recorded.",
+      href: "/today",
+    });
+    facts.weekly_practice = practice ? {
+      identity: practice.identityDirection,
+      action: practice.actionLabel,
+      cue: practice.cue,
+      minimum_version: practice.minimumVersion,
+      target: practice.frequencyPerWeek,
+      completions: practice.completionCount,
+      week_start: practice.weekStart,
+      blueprint_link: practice.blueprintLink,
+      goal_link: practice.goalLink,
+    } : null;
   }
 
-  const checkIns = checkInsResult.data ?? [];
-  if (checkIns.length) {
-    sources.push({ id: "recent_check_ins", label: "Recent check-ins", summary: `${checkIns.length} recent weight, sleep, or energy entries.`, href: "/journey" });
-    facts.recent_check_ins = checkIns.map((item) => ({ date: item.log_date, weight: item.weight, sleep_rating_out_of_5: item.sleep, energy_rating_out_of_10: item.energy }));
+  if (requested.has("recent_check_ins")) {
+    const checkIns = memberContext.recentCheckIns.value;
+    sources.push({
+      id: "recent_check_ins",
+      label: "Recent check-ins",
+      summary: `${checkIns.length} recent weight, sleep, or energy entries.`,
+      href: "/journey",
+    });
+    facts.recent_check_ins = checkIns.map((item) => ({
+      date: item.date,
+      weight: item.weight,
+      sleep_rating_out_of_5: item.sleep,
+      energy_rating_out_of_10: item.energy,
+    }));
   }
 
-  const goals = goalsResult.data;
-  const goalNames = [...new Set([
-    ...readableValues(goals?.goals),
-    ...readableValues(goals?.custom_goal),
-  ])].slice(0, 8);
-  if (goalNames.length || goals?.target_weight != null || goals?.target_sleep != null || goals?.target_energy != null) {
-    sources.push({ id: "goals", label: "Goals", summary: `${goalNames.length} saved goal${goalNames.length === 1 ? "" : "s"} and dashboard targets.`, href: "/settings" });
+  if (requested.has("goals")) {
+    const saved = memberContext.goals.saved.value;
+    const blueprintGoals = memberContext.goals.blueprint.value;
+    sources.push({
+      id: "goals",
+      label: "Goals",
+      summary: `${saved.length} saved goals and ${blueprintGoals.length} Blueprint goals.`,
+      href: "/settings",
+    });
     facts.goals = {
-      names: goalNames,
-      target_weight: goals?.target_weight ?? null,
-      target_sleep_out_of_5: goals?.target_sleep ?? null,
-      target_energy_out_of_10: goals?.target_energy ?? null,
+      saved: saved.map((goal) => ({ label: goal.label, kind: goal.kind, target_value: goal.targetValue })),
+      blueprint: blueprintGoals,
+      alignment: memberContext.goals.alignment,
     };
   }
 
-  const submission = submissionResult.data;
-  const engine = objectValue(submission?.engine_input_json);
-  const client = objectValue(engine.client ?? engine);
-  const conditions = [...new Set(readableValues(client.conditions ?? submission?.conditions))].slice(0, 12);
-  const allergies = [...new Set(readableValues(client.allergies ?? submission?.allergies))].slice(0, 12);
-  const procedures = [...new Set(readableValues(client.procedures ?? client.upcoming_procedures ?? client.surgeries))].slice(0, 8);
-  const healthProfile = {
-    age: calculateAge(submission?.dob),
-    sex: compact(String(submission?.sex ?? submission?.gender ?? client.sex ?? client.gender ?? ""), 40),
-    conditions,
-    allergies,
-    procedures,
-    pregnant: client.pregnant ?? submission?.pregnant ?? null,
-    dosing_preference: compact(String(submission?.dosing_pref ?? client.dosing_pref ?? ""), 100),
-    brand_preference: compact(String(submission?.brand_pref ?? client.brand_pref ?? ""), 100),
-  };
-  if (Object.values(healthProfile).some((value) => Array.isArray(value) ? value.length > 0 : value != null && value !== "")) {
-    sources.push({ id: "health_profile", label: "Health profile", summary: "Saved age/life-stage, conditions, allergies, procedures, and preferences used only when relevant.", href: "/settings" });
-    facts.health_profile = healthProfile;
+  if (requested.has("health_profile")) {
+    sources.push({
+      id: "health_profile",
+      label: "Health profile",
+      summary: memberContext.healthProfile.status === "present"
+        ? "Saved age/life-stage, conditions, allergies, procedures, and preferences used only when relevant."
+        : "No intake health profile is currently available.",
+      href: "/settings",
+    });
+    facts.health_profile = memberContext.healthProfile.value;
+  }
+
+  if (requested.has("preferences")) {
+    sources.push({
+      id: "preferences",
+      label: "Preferences",
+      summary: memberContext.preferences.status === "present"
+        ? "Saved timezone, reminder, quiet-hour, and unit preferences."
+        : "No member preferences are currently recorded.",
+      href: "/settings",
+    });
+    facts.preferences = memberContext.preferences.value;
+  }
+
+  if (requested.has("safety_review")) {
+    const safetyItems = memberContext.unresolvedSafetyItems.value;
+    sources.push({
+      id: "safety_review",
+      label: "Deterministic safety review",
+      summary: memberContext.unresolvedSafetyItems.status === "missing"
+        ? "The current safety evaluation was unavailable."
+        : `${safetyItems.length} unresolved finding${safetyItems.length === 1 ? "" : "s"} from the current Routine.`,
+      href: "/blueprints",
+    });
+    facts.safety_items = safetyItems;
+  }
+
+  if (requested.has("context_status")) {
+    sources.push({
+      id: "context_status",
+      label: "Member context status",
+      summary: `${memberContext.contextFreshness.missingSections.length} missing and ${memberContext.contextFreshness.staleSections.length} stale context sections.`,
+      href: "/settings",
+    });
+    facts.context_status = {
+      missing_sections: memberContext.contextFreshness.missingSections,
+      stale_sections: memberContext.contextFreshness.staleSections,
+      generated_at: memberContext.contextFreshness.generatedAt,
+      latest_recorded_update: memberContext.contextFreshness.latestRecordedUpdate,
+    };
   }
 
   const recentTurns = recentTurnsResult.data ?? [];
-  if (recentTurns.length) {
-    sources.push({ id: "recent_coaching", label: "Recent coaching", summary: `${recentTurns.length} recent Ask LVE360 turn${recentTurns.length === 1 ? "" : "s"} used to understand follow-up wording.`, href: page === "other" ? "/today" : page === "blueprint" ? "/blueprints" : `/${page}` });
+  if (needsRecentCoaching && recentTurns.length) {
+    sources.push({
+      id: "recent_coaching",
+      label: "Recent coaching",
+      summary: `${recentTurns.length} recent Ask LVE360 turn${recentTurns.length === 1 ? "" : "s"} used to understand follow-up wording.`,
+      href: page === "other" ? "/today" : page === "blueprint" ? "/blueprints" : `/${page}`,
+    });
     facts.recent_coaching = recentTurns.map((turn) => ({
       question: compact(turn.question, 240),
       answer: compact(turn.answer, 500),
@@ -251,23 +287,26 @@ export async function buildCoachContext(userId: string, page: CoachPage, questio
   const followUpContext = /\b(?:this|that|it|the first|the second|that option|those)\b/i.test(question)
     ? recentTurns.map((turn) => `${turn.question} ${turn.answer}`).join(" ").slice(0, 1200)
     : "";
-  const evidenceOptions = retrieveCoachEvidence(`${question} ${followUpContext}`.trim());
+  const evidenceOptions = needsEvidence ? retrieveCoachEvidence(`${question} ${followUpContext}`.trim()) : [];
+  const profile = memberContext.healthProfile.value;
   const safetyContext: SafetyContext = {
-    medications: regimen.filter((item) => item.item_kind === "medication").map((item) => item.name),
-    conditions,
-    allergies,
-    procedures,
-    pregnant: typeof healthProfile.pregnant === "boolean" || typeof healthProfile.pregnant === "string" ? healthProfile.pregnant : null,
+    medications: memberContext.regimen.medications.value.map((item) => item.name),
+    conditions: profile?.conditions ?? [],
+    allergies: profile?.allergies ?? [],
+    procedures: profile?.procedures ?? [],
+    pregnant: profile?.pregnant ?? null,
   };
-  const preSafety = needsEvidence && evidenceOptions.length ? await applySafetyChecks(safetyContext, evidenceOptions.map((option) => ({
-    name: option.name,
-    dose: option.doseGuidance?.startingDose ?? null,
-    is_current: isCurrentSupplement(option.name, regimen),
-  }))) : null;
+  const preSafety = needsEvidence && evidenceOptions.length
+    ? await applySafetyChecks(safetyContext, evidenceOptions.map((option) => ({
+      name: option.name,
+      dose: option.doseGuidance?.startingDose ?? null,
+      is_current: isCurrentSupplement(option.name, memberContext),
+    })))
+    : null;
   const safetyByName = new Map(preSafety?.candidates.map((candidate) => [healthItemIdentityKey(candidate.name), candidate]) ?? []);
   facts.evidence_options = evidenceOptions.map((option) => {
     const safety = safetyByName.get(healthItemIdentityKey(option.name));
-    const current = supplementItems(regimen).find((item) => healthItemIdentityKey(item.name) === healthItemIdentityKey(option.name));
+    const current = supplementItems(memberContext).find((item) => healthItemIdentityKey(item.name) === healthItemIdentityKey(option.name));
     return {
       id: option.id,
       name: option.name,
@@ -280,14 +319,30 @@ export async function buildCoachContext(userId: string, page: CoachPage, questio
       current_timing: current?.timing ?? null,
       safety_status: safety?.decision === "blocked" ? "REMOVE" : safety?.decision === "review" ? "ALLOW_WITH_NOTE" : "ALLOW",
       safety_notes: safety?.findings.map((finding) => finding.message).slice(0, 3) ?? [],
-      dose_guidance: intent === "TIMING_OR_DOSING" ? option.doseGuidance : null,
+      dose_guidance: routing.intent === "TIMING_OR_DOSING" ? option.doseGuidance : null,
     };
   });
   for (const option of evidenceOptions) {
-    sources.push({ id: option.id, label: `${option.name} evidence`, summary: `${option.evidenceStrength}: ${option.citationLabel}`, href: option.citationUrl });
+    sources.push({
+      id: option.id,
+      label: `${option.name} evidence`,
+      summary: `${option.evidenceStrength}: ${option.citationLabel}`,
+      href: option.citationUrl,
+    });
   }
 
-  return scopeContext({ page, intent, sources, facts, evidenceOptions, safetyContext, preSafety });
+  return {
+    page,
+    intent: routing.intent,
+    constraints: routing.constraints,
+    requestedRegimenKinds: routing.requestedRegimenKinds,
+    memberContext,
+    sources,
+    facts,
+    evidenceOptions,
+    safetyContext,
+    preSafety,
+  };
 }
 
 function supplementQuestion(question: string, context: CoachContext) {
@@ -306,6 +361,7 @@ function prompt(question: string, context: CoachContext, repair = false) {
         "You may explain, compare, rank, and recommend considering a supplement when the supplied evidence and safety status support it. You may explain dose or timing only when dose_guidance is supplied.",
         "Never direct a medication or hormone change. Never claim to diagnose, treat, cure, prevent, or manage disease. Never claim that a supplement is absolutely safe.",
         "Recommendation is not mutation: do not say a record, stack, routine, reminder, medication, hormone, or supplement was changed.",
+        "The supplied explicit_constraints are hard limits. Do not propose changing a preserved medication, hormone, or supplement plan.",
         "For personalized recommendations, materially use relevant member facts, recognize already_in_stack items, prefer one change at a time, and end with a measurable next step.",
         "Do not recommend adding an already_in_stack item again. Discuss its recorded form, dose, or timing instead when available.",
         "Do not recommend an option whose safety_status is REMOVE. An ALLOW_WITH_NOTE option must retain its supplied safety note.",
@@ -320,6 +376,7 @@ function prompt(question: string, context: CoachContext, repair = false) {
       content: JSON.stringify({
         question,
         classified_intent: context.intent,
+        explicit_constraints: context.constraints,
         current_page: context.page,
         available_sources: context.sources.map(({ id, label, summary }) => ({ id, label, summary })),
         member_context_and_evidence: context.facts,
@@ -534,7 +591,13 @@ function renderAnswer(answer: StructuredCoachAnswer, context: CoachContext, safe
 }
 
 export async function generateCoachAnswer(userId: string, question: string, context: CoachContext) {
-  const deterministic = deterministicRecordMutation(question, context)
+  const routing: CoachRoutingDecision = {
+    intent: context.intent,
+    constraints: context.constraints,
+    requestedRegimenKinds: context.requestedRegimenKinds,
+  };
+  const deterministic = deterministicCoachTask(routing, context.memberContext, question)
+    ?? deterministicRecordMutation(question, context)
     ?? deterministicPlanLookup(question, context)
     ?? deterministicTodayStep(question, context)
     ?? deterministicJourneyPattern(question, context);
@@ -543,6 +606,7 @@ export async function generateCoachAnswer(userId: string, question: string, cont
       ...deterministic,
       diagnostics: {
         intent: context.intent,
+        constraints: context.constraints,
         qualityScore: 100,
         safetyRuleCount: context.preSafety?.findings.length ?? 0,
         recommendationsRemoved: 0,
@@ -572,7 +636,7 @@ export async function generateCoachAnswer(userId: string, question: string, cont
       if (proposal) generatedByModel = true;
       if (!proposal && attempt === 0) regenerationCount = 1;
     } catch (error) {
-      console.warn("[coach.v2] model unavailable; using deterministic evidence repair", error);
+      console.warn("[coach.v3] model unavailable; using deterministic evidence repair", error);
       break;
     }
   }
@@ -613,6 +677,7 @@ export async function generateCoachAnswer(userId: string, question: string, cont
     responseSource: generatedByModel ? "ai" as const : "fallback" as const,
     diagnostics: {
       intent: context.intent,
+      constraints: context.constraints,
       qualityScore: quality.score,
       safetyRuleCount: validated.safety?.findings.length ?? 0,
       recommendationsRemoved: validated.removed,
