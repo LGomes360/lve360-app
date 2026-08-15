@@ -11,6 +11,7 @@ export type BlueprintPriorityContext = {
 export type CurrentBlueprintContext = {
   stack_id: string;
   created_at: string;
+  goals?: string[];
   safety_status: BlueprintSafetyStatus;
   safety_acknowledged: boolean;
   needs_refresh: boolean;
