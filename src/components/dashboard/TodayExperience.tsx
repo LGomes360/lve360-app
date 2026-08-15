@@ -6,6 +6,7 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
+  ChevronDown,
   Circle,
   Goal,
   Loader2,
@@ -15,12 +16,12 @@ import {
 
 import { identityLabel, type WeeklyExperiment } from "@/lib/activation";
 import { returnedAfterGap, weeklyMomentum, type CompletionKind, type DailyPracticeCompletion } from "@/lib/today";
-import { isReviewDue, reviewDueDate } from "@/lib/weeklyReview";
+import { reviewDueDate } from "@/lib/weeklyReview";
 import {
-  blueprintSafetyLabel,
   type CurrentBlueprintContext,
   type ExperimentBlueprintContext,
 } from "@/lib/blueprintContext";
+import { deriveTodayBlueprintNotice, type TodayBlueprintNotice } from "@/lib/todaySurface";
 
 type TodayResponse = {
   ok: boolean;
@@ -153,9 +154,9 @@ export default function TodayExperience({
   const progressPercent = Math.min(100, Math.round((completedCount / target) * 100));
   const momentum = weeklyMomentum(completedCount, target);
   const returnWin = !!localDate && returnedAfterGap(localDate, completions);
-  const reviewDue = !!localDate && isReviewDue(experiment.week_start, localDate);
   const weekEnded = !!localDate && localDate > reviewDueDate(experiment.week_start);
   const weekNotStarted = !!localDate && localDate < experiment.week_start;
+  const blueprintNotice = deriveTodayBlueprintNotice(blueprint, experimentBlueprint);
 
   return (
     <section id="focused-practice" className="overflow-hidden rounded-3xl border border-[#9DCFC3] bg-white shadow-sm" aria-labelledby="today-heading">
@@ -169,32 +170,7 @@ export default function TodayExperience({
         </div>
       </div>
 
-      {blueprint && (blueprint.needs_refresh || (blueprint.safety_status !== "safe" && !blueprint.safety_acknowledged)) ? (
-        <a href={`/blueprints/${blueprint.stack_id}#safety-notes`} className="flex items-start gap-3 border-b border-amber-200 bg-amber-50 px-6 py-4 text-amber-950 hover:bg-amber-100 sm:px-8">
-          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
-          <span className="text-sm leading-6">
-            <strong>{blueprintSafetyLabel(blueprint)}.</strong>{" "}
-            Open the exact current Blueprint before acting on safety-sensitive items.
-          </span>
-          <ArrowRight className="ml-auto mt-1 h-4 w-4 shrink-0" />
-        </a>
-      ) : null}
-
-      {experimentBlueprint?.needs_review ? (
-        <a href={`/blueprints/${blueprint?.stack_id ?? experimentBlueprint.source_stack_id}`} className="flex items-start gap-3 border-b border-violet-200 bg-violet-50 px-6 py-4 text-violet-950 hover:bg-violet-100 sm:px-8">
-          <RotateCcw className="mt-0.5 h-5 w-5 shrink-0 text-violet-700" />
-          <span className="text-sm leading-6"><strong>Your Blueprint changed after this practice was chosen.</strong> Review the current priorities. Your active practice has not been overwritten.</span>
-          <ArrowRight className="ml-auto mt-1 h-4 w-4 shrink-0" />
-        </a>
-      ) : null}
-
-      {reviewDue ? (
-        <a href={`/review?experiment=${encodeURIComponent(experiment.id)}`} className="flex items-start gap-3 border-b border-[#9DCFC3] bg-[#EAFBF8] px-6 py-4 text-[#041B2D] hover:bg-[#DDF7F1] sm:px-8">
-          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#087F72]" />
-          <span className="text-sm leading-6"><strong>Your weekly review is ready.</strong> Notice what worked and shape your next focused week.</span>
-          <ArrowRight className="ml-auto mt-1 h-4 w-4 shrink-0" />
-        </a>
-      ) : null}
+      {blueprintNotice?.tone === "urgent" ? <TodayBlueprintNoticeBanner notice={blueprintNotice} /> : null}
 
       <div className="p-6 sm:p-8">
         {recordingPastDate ? (
@@ -202,7 +178,6 @@ export default function TodayExperience({
             <strong>Phone-free check-in:</strong> Record whether the practice happened on {formatCheckinDate(localDate)}. You did not need to reopen LVE360 after the habit.
           </div>
         ) : null}
-        {blueprint ? <CurrentBlueprintPanel blueprint={blueprint} experimentBlueprint={experimentBlueprint} /> : null}
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
             <p className="flex items-center gap-2 text-sm font-semibold text-[#087F72]">
@@ -275,6 +250,8 @@ export default function TodayExperience({
           {error ? <p className="mt-3 text-sm font-medium text-rose-700">{error}</p> : null}
         </div>
 
+        {blueprintNotice?.tone === "maintenance" ? <TodayBlueprintNoticeBanner notice={blueprintNotice} /> : null}
+
         <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:p-6" aria-live="polite">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -306,38 +283,55 @@ export default function TodayExperience({
           </div>
           {loadingState ? <p className="mt-3 text-xs text-slate-500">Loading this week's progress...</p> : null}
         </div>
+
+        {blueprint ? <BlueprintConnectionDetails blueprint={blueprint} experimentBlueprint={experimentBlueprint} /> : null}
       </div>
     </section>
   );
 }
 
-function CurrentBlueprintPanel({
+function TodayBlueprintNoticeBanner({ notice }: { notice: TodayBlueprintNotice }) {
+  const urgent = notice.tone === "urgent";
+  return (
+    <aside className={`${urgent ? "border-rose-200 bg-rose-50 text-rose-950" : "border-amber-200 bg-amber-50 text-amber-950"} ${urgent ? "border-b px-6 py-4 sm:px-8" : "mt-7 rounded-2xl border p-4 sm:p-5"}`} aria-label={urgent ? "Urgent Blueprint safety notice" : "Blueprint maintenance notice"}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className={`mt-0.5 h-5 w-5 shrink-0 ${urgent ? "text-rose-700" : "text-amber-700"}`} aria-hidden="true" />
+          <div>
+            <p className="font-bold">{notice.title}</p>
+            <p className="mt-1 text-sm leading-6 opacity-80">{notice.detail}</p>
+          </div>
+        </div>
+        <a href={notice.href} className={`inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border bg-white px-4 py-2 text-sm font-bold hover:bg-white/70 ${urgent ? "border-rose-300 text-rose-800" : "border-amber-300 text-amber-900"}`}>
+          {notice.actionLabel} <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+        </a>
+      </div>
+    </aside>
+  );
+}
+
+function BlueprintConnectionDetails({
   blueprint,
   experimentBlueprint,
 }: {
   blueprint: CurrentBlueprintContext;
   experimentBlueprint: ExperimentBlueprintContext | null;
 }) {
+  if (!experimentBlueprint?.priority_label && !blueprint.priorities.length) return null;
   return (
-    <aside className="mb-7 rounded-2xl border border-[#BCE3DA] bg-[#F4FAF8] p-4 sm:p-5" aria-label="Current Blueprint context">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">Current Blueprint</p>
-          <p className="mt-1 text-sm font-semibold text-[#041B2D]">Refreshed {formatBlueprintDate(blueprint.created_at)}</p>
-          <p className={`mt-1 text-sm ${blueprint.needs_refresh || (blueprint.safety_status !== "safe" && !blueprint.safety_acknowledged) ? "font-semibold text-amber-800" : "text-slate-600"}`}>
-            {blueprintSafetyLabel(blueprint)}
-          </p>
-        </div>
-        <a href={`/blueprints/${blueprint.stack_id}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#9DCFC3] bg-white px-4 py-2 text-sm font-bold text-[#06695F] hover:bg-[#EAFBF8]">
-          Open Blueprint <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
-        </a>
-      </div>
+    <details className="mt-5 rounded-2xl border border-slate-200 bg-white">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-[#06695F] marker:content-none">
+        <span>Blueprint connection</span>
+        <ChevronDown className="h-4 w-4 shrink-0" aria-hidden="true" />
+      </summary>
+      <div className="border-t border-slate-100 px-4 py-4 text-sm text-slate-700">
       {experimentBlueprint?.priority_label ? (
-        <p className="mt-4 rounded-xl bg-white p-3 text-sm leading-6 text-slate-700">
+        <p className="rounded-xl bg-[#F4FAF8] p-3 leading-6">
           <strong className="text-[#041B2D]">This focused week came from:</strong> {experimentBlueprint.priority_label}
         </p>
       ) : null}
-      <div className="mt-4">
+      {experimentBlueprint?.needs_review ? <p className="mt-3 text-amber-900">Your active practice has not been overwritten.</p> : null}
+      {blueprint.priorities.length ? <div className="mt-4">
         <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Current priorities</p>
         <ul className="mt-2 space-y-2 text-sm text-slate-700">
           {blueprint.priorities.slice(0, 3).map((priority) => (
@@ -353,8 +347,12 @@ function CurrentBlueprintPanel({
             </li>
           ))}
         </ul>
+      </div> : null}
+      <a href={`/blueprints/${blueprint.stack_id}`} className="mt-4 inline-flex min-h-11 items-center font-bold text-[#087F72] hover:underline">
+        Open current Blueprint <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+      </a>
       </div>
-    </aside>
+    </details>
   );
 }
 
@@ -363,10 +361,6 @@ function toLocalDate(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function formatBlueprintDate(value: string): string {
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
 }
 
 function formatCheckinDate(value: string): string {

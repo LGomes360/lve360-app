@@ -49,14 +49,6 @@ export default function TodayClient({
           <>
             <ReminderArrivalFeedback deliveryId={reminderDeliveryId} />
 
-            <AiTodayBrief
-              date={checkinDate}
-              onPracticeCompleted={() => {
-                setFirstActionComplete(true);
-                setPracticeRefreshKey((value) => value + 1);
-              }}
-            />
-
             <TodayExperience
               key={`${experiment?.id ?? "none"}:${practiceRefreshKey}`}
               initialExperiment={experiment}
@@ -64,6 +56,14 @@ export default function TodayClient({
               experimentBlueprint={experimentBlueprint}
               initialCompletionDate={checkinDate}
               onCompletionStateChange={setFirstActionComplete}
+            />
+
+            <AiTodayBrief
+              date={checkinDate}
+              onPracticeCompleted={() => {
+                setFirstActionComplete(true);
+                setPracticeRefreshKey((value) => value + 1);
+              }}
             />
 
             <TodayRoutineAgenda />

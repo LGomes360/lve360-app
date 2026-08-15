@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const TODAY_BRIEF_PROMPT_VERSION = "today-brief-v2";
+export const TODAY_BRIEF_PROMPT_VERSION = "today-brief-v3";
 
 export type TodayBriefPrimaryAction =
   | "mark_complete"
@@ -24,6 +24,7 @@ export type TodayBriefContext = {
     stackId: string;
     needsRefresh: boolean;
     safetyNeedsAttention: boolean;
+    urgentSafetyInterruption?: boolean;
   } | null;
   reviewDue: boolean;
 };
@@ -90,22 +91,19 @@ export function shouldGenerateTodayBrief(context: TodayBriefContext): boolean {
     context.experiment
     && !context.experiment.completedToday
     && !context.reviewDue
-    && !context.blueprint?.needsRefresh
-    && !context.blueprint?.safetyNeedsAttention,
+    && !context.blueprint?.urgentSafetyInterruption,
   );
 }
 
 export function deterministicTodayBrief(context: TodayBriefContext): TodayBriefContent {
-  if (context.blueprint?.needsRefresh || context.blueprint?.safetyNeedsAttention) {
+  if (context.blueprint?.urgentSafetyInterruption) {
     return {
-      noticed: context.blueprint.needsRefresh
-        ? "Your health information changed after this Blueprint was created."
-        : "Your current Blueprint has safety notes awaiting review.",
-      whyItMatters: "Review the current source before acting on health-sensitive guidance.",
-      nextAction: "Open your current Blueprint and review the highlighted changes or safety notes.",
-      minimumVersion: "Open the Blueprint and read the first highlighted item.",
+      noticed: "LVE360 could not confirm the current Blueprint safety section.",
+      whyItMatters: "Review the current source before using health-sensitive guidance.",
+      nextAction: "Open your current Blueprint and review the safety section.",
+      minimumVersion: "Open the Blueprint and read the first safety item.",
       primaryAction: "open_blueprint",
-      primaryHref: `/blueprints/${context.blueprint.stackId}`,
+      primaryHref: `/blueprints/${context.blueprint.stackId}#safety-notes`,
     };
   }
 

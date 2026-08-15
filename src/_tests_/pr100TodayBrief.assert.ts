@@ -55,8 +55,15 @@ const safetyContext: TodayBriefContext = {
   ...active,
   blueprint: { ...active.blueprint!, safetyNeedsAttention: true },
 };
-assert.equal(shouldGenerateTodayBrief(safetyContext), false, "Safety review must remain deterministic.");
-assert.equal(deterministicTodayBrief(safetyContext).primaryAction, "open_blueprint");
+assert.equal(shouldGenerateTodayBrief(safetyContext), true, "A normal acknowledged-or-reviewable warning must not suppress the useful lifestyle brief.");
+assert.equal(deterministicTodayBrief(safetyContext).primaryAction, "mark_complete");
+
+const urgentSafetyContext: TodayBriefContext = {
+  ...safetyContext,
+  blueprint: { ...safetyContext.blueprint!, urgentSafetyInterruption: true },
+};
+assert.equal(shouldGenerateTodayBrief(urgentSafetyContext), false, "An unavailable safety evaluation must remain deterministic.");
+assert.equal(deterministicTodayBrief(urgentSafetyContext).primaryAction, "open_blueprint");
 
 const completeContext: TodayBriefContext = {
   ...active,
