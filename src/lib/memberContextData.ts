@@ -210,7 +210,12 @@ export async function getMemberIntelligenceContext(userId: string): Promise<Memb
   };
   const currentSupplementCandidates = regimen
     .filter((item) => item.item_kind === "supplement" || item.item_kind === "endocrine_active_supplement")
-    .map((item) => ({ name: item.name, dose: item.dose, is_current: true }));
+    .map((item) => ({
+      name: item.name,
+      dose: item.dose,
+      is_current: true,
+      instruction_authority: item.instruction_authority,
+    }));
   const [safety, practiceBlueprintContexts] = await Promise.all([
     currentSupplementCandidates.length
       ? applySafetyChecks(safetyContext, currentSupplementCandidates)

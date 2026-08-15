@@ -258,7 +258,7 @@ export default function RoutineClient({
       if (!response.ok || !body?.ok) throw new Error(body?.error ?? "recommendation_decision_failed");
       await refreshRoutine();
       const message = decision === "clinician_review"
-        ? `${item.name} is marked for clinician or pharmacist review.`
+        ? `${item.name} is marked for clinician or healthcare provider review.`
         : decision === "deferred"
           ? `${item.name} was moved out of your active ideas for now.`
           : decision === "dismissed"
@@ -635,7 +635,7 @@ function IdeasSection({
                     <strong>Check what you already take:</strong> Your current routine includes {item.recommendation_overlaps.join(", ")}. Review the ingredient label before adding another source.
                   </p>
                 ) : null}
-                {clinicianReview ? <p className="mt-3 flex items-start rounded-xl bg-amber-100 p-3 text-sm font-semibold text-amber-900"><AlertTriangle className="mr-2 mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> Clinician or pharmacist review is recommended before adding this.</p> : null}
+                {clinicianReview ? <p className="mt-3 flex items-start rounded-xl bg-amber-100 p-3 text-sm font-semibold text-amber-900"><AlertTriangle className="mr-2 mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> Clinician or healthcare provider review is recommended before adding this.</p> : null}
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
                   <button
                     type="button"
@@ -689,7 +689,7 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
     <DialogShell title={prescribedItem ? `Record a prescribed change for ${item.name}` : `Update ${item.name}`} onClose={onClose}>
       <p className="text-sm leading-6 text-slate-600">
         {prescribedItem
-          ? "Use this only to record a change you received from your clinician, pharmacist, or current prescription label. LVE360 is not changing or recommending your prescription."
+          ? "Use this only to record a change you received from your clinician, healthcare provider, or current prescription label. LVE360 is not changing or recommending your prescription."
           : "Record what you currently do. This does not create a medical instruction or replace a product label."}
       </p>
       <RoutineCopilotPanel
@@ -791,7 +791,7 @@ function AddPrescribedItemDialog({ kind, onClose, onAdded }: { kind: "medication
   return (
     <DialogShell title={`Add a prescribed ${label}`} onClose={onClose}>
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
-        Record only what you currently take based on your clinician, pharmacist, or prescription label. This does not ask LVE360 to recommend a {label} or dose.
+        Record only what you currently take based on your clinician, healthcare provider, or prescription label. This does not ask LVE360 to recommend a {label} or dose.
       </div>
       <RoutineCopilotPanel
         kind={kind}

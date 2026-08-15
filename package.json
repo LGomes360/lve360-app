@@ -52,6 +52,7 @@
     "qa:pr108": "node --experimental-strip-types src/_tests_/pr108MemberContext.assert.ts && node src/_tests_/pr108Architecture.assert.mjs",
     "qa:pr109": "node --experimental-strip-types src/_tests_/pr109IntentRouting.assert.ts && node src/_tests_/pr109Architecture.assert.mjs",
     "qa:pr110": "node --experimental-strip-types src/_tests_/pr110TaskSuccess.assert.ts && node src/_tests_/pr110Architecture.assert.mjs",
+    "qa:pr111": "node --experimental-strip-types src/_tests_/pr111SafetyIntegrity.assert.ts && node src/_tests_/pr111Architecture.assert.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
     "qa:all": "npm run qa:env && npm run qa:build"

@@ -1,6 +1,6 @@
 import type { CurrentBlueprintContext, ExperimentBlueprintContext } from "./blueprintContext";
 import type { CurrentRegimenItem } from "./currentRegimenModel";
-import type { SafetyFinding } from "./safetyEngine";
+import { unknownSafetyEvidence, type SafetyEvidenceProvenance, type SafetyFinding } from "./safetyEngine.ts";
 
 export const MEMBER_CONTEXT_VERSION = "member-intelligence-context-v1";
 
@@ -152,6 +152,7 @@ export type MemberSafetyItemContext = {
   severity: "info" | "warning" | "danger";
   decision: "review" | "blocked";
   sourceUrl: string | null;
+  evidence: SafetyEvidenceProvenance;
   provenance: MemberContextProvenance;
 };
 
@@ -481,6 +482,7 @@ export function buildMemberIntelligenceContext(input: MemberIntelligenceContextI
     severity: finding.severity,
     decision: finding.decision,
     sourceUrl: finding.sourceUrl ?? null,
+    evidence: finding.evidence ?? unknownSafetyEvidence(finding.sourceUrl),
     provenance: {
       source: finding.source,
       recordId: null,

@@ -175,7 +175,9 @@ export function classifyCoachRequest(question: string): CoachRoutingDecision {
   }
   if (/\b(?:clinician|pharmacist|pharmasist|doctor|professional)\b[\s\S]{0,50}\b(?:review|discuss|check|attention)\b/.test(value)
     || /\b(?:need|needs|requiring?|deserve|flagged? for)\b[\s\S]{0,50}\b(?:clinician|pharmacist|pharmasist|doctor|professional)\b/.test(value)
-    || /\b(?:safety|interaction|contraindication|conflict|warning)s?\b[\s\S]{0,50}\b(?:routine|regimen|stack|review|item)\b/.test(value)) {
+    || /\b(?:safety|interaction|contraindication|conflict|warning)s?\b[\s\S]{0,50}\b(?:routine|regimen|stack|review|item)\b/.test(value)
+    || /\b(?:review|separate|spacing|interaction|interact)\b[\s\S]{0,100}\b(?:thyroid|levothyroxine|medication)\b/.test(value)
+    || /\b(?:upper[- ]?intake|upper limit|general threshold)\b/.test(value)) {
     return route("SAFETY_REVIEW");
   }
   if (/\b(?:what|which)\b[\s\S]{0,80}\b(?:missing|incomplete|not (?:saved|recorded)|need(?:ed)? from me)\b/.test(value)
@@ -244,7 +246,7 @@ export function coachBoundaryAnswer(boundary: Exclude<CoachSafetyBoundary, null>
   if (boundary === "diagnosis") {
     return "I can help you organize your recorded information and prepare questions for a qualified clinician, but I cannot diagnose a condition. If you describe what you want to understand, I can help you create a concise discussion list.";
   }
-  return "I cannot direct a medication or hormone change. I can summarize what LVE360 currently records, explain the relevant evidence and safety context, and help you prepare specific questions for your clinician or pharmacist before changing a prescribed plan.";
+  return "I cannot direct a medication or hormone change. I can summarize what LVE360 currently records, explain the relevant evidence and safety context, and help you prepare specific questions for your clinician or healthcare provider before changing a prescribed plan.";
 }
 
 function cleanText(value: unknown, max = 1000) {

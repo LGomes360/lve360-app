@@ -15,6 +15,9 @@ import { regimenToLedger } from "@/lib/currentRegimenModel";
 import { canonicalRegimenTiming } from "@/lib/regimenSchedule";
 import { extractBlueprintGoalNames } from "@/lib/recommendationDecision";
 import { getStackRecommendationDecisions } from "@/lib/recommendationDecisionData";
+import { getMemberIntelligenceContext } from "@/lib/memberContextData";
+import { applySafetyChecks } from "@/lib/safetyCheck";
+import { applySafetyEvaluationToMarkdown } from "@/lib/safetyEngine";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 import BlueprintWorkspaceClient from "./BlueprintWorkspaceClient";
@@ -58,10 +61,35 @@ export default async function BlueprintPage({ params }: PageProps) {
   if (historyError) throw historyError;
   if (!submission) notFound();
 
-  const markdown = blueprintMarkdownFromStack(stack);
-  const report = parseBlueprintReport(markdown);
+  const storedMarkdown = blueprintMarkdownFromStack(stack);
   await ensureCurrentRegimen(user.id, submission.id, submission);
   const regimen = await getCurrentRegimen(user.id);
+  const latestId = history?.[0]?.id ?? stack.id;
+  let markdown = storedMarkdown;
+  if (latestId === stack.id) {
+    const memberContext = await getMemberIntelligenceContext(user.id);
+    const profile = memberContext.healthProfile.value;
+    const liveSafety = await applySafetyChecks(
+      {
+        medications: memberContext.regimen.medications.value.map((item) => item.name),
+        conditions: profile?.conditions ?? [],
+        allergies: profile?.allergies ?? [],
+        procedures: profile?.procedures ?? [],
+        pregnant: profile?.pregnant ?? null,
+      },
+      [
+        ...memberContext.regimen.supplements.value,
+        ...memberContext.regimen.endocrineActiveSupplements.value,
+      ].map((item) => ({
+        name: item.name,
+        dose: item.dose,
+        is_current: true,
+        instruction_authority: item.instruction_authority,
+      })),
+    );
+    markdown = applySafetyEvaluationToMarkdown(storedMarkdown, liveSafety);
+  }
+  const report = parseBlueprintReport(markdown);
   const recommendations = await getStackRecommendationDecisions(
     user.id,
     stack.id,
@@ -86,7 +114,6 @@ export default async function BlueprintPage({ params }: PageProps) {
   const stale = versioningReady
     ? !stack.input_snapshot_hash || stack.input_snapshot_hash !== currentInputHash
     : false;
-  const latestId = history?.[0]?.id ?? stack.id;
   const currentVersionIndex = (history ?? []).findIndex((version) => version.id === stack.id);
   const previousStack = (history ?? []).find((version) => version.id === stack.supersedes_stack_id)
     ?? (currentVersionIndex >= 0 ? history?.[currentVersionIndex + 1] : null)
@@ -98,7 +125,7 @@ export default async function BlueprintPage({ params }: PageProps) {
         currentCreatedAt: stack.created_at,
         generationReason: stack.generation_reason,
         previousMarkdown: blueprintMarkdownFromStack(previousStack),
-        currentMarkdown: markdown,
+        currentMarkdown: storedMarkdown,
       })
     : null;
 

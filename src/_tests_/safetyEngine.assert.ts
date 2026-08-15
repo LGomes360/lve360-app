@@ -126,6 +126,6 @@ const groupedSafety = evaluateSafetyCandidates(
 const groupedSection = applySafetyEvaluationToMarkdown(report, groupedSafety);
 assert.equal((groupedSection.match(/Clinician review: Magnesium Glycinate:/g) ?? []).length, 1, "Distinct concerns for one item should render under one heading");
 assert.match(groupedSection, /thyroid medication by at least 4 hours/);
-assert.match(groupedSection, /calcium, iron, and magnesium supplements/);
+assert.doesNotMatch(groupedSection, /calcium, iron, and magnesium supplements/, "A specific evidence-backed finding must suppress the duplicate generic spacing rule.");
 
 console.log("Safety engine assertions passed.");

@@ -20,7 +20,7 @@ export default function MedicalDisclaimerPage() {
       <section>
         <h2>Not a medical professional relationship</h2>
         <p>
-          Using LVE360 does not create a physician-patient, pharmacist-patient, therapist-client, or
+          Using LVE360 does not create a physician-patient, clinician-patient, therapist-client, or
           other healthcare professional relationship. LVE360 does not diagnose, treat, cure, prevent,
           or manage any disease or medical condition.
         </p>
@@ -40,7 +40,7 @@ export default function MedicalDisclaimerPage() {
           Supplements can cause side effects and may interact with medications, procedures, health
           conditions, pregnancy, nursing, allergies, or each other. Do not start, stop, or change a
           medication or prescribed treatment based on LVE360. Discuss supplement changes with a
-          qualified clinician or pharmacist when appropriate.
+          qualified clinician or healthcare provider when appropriate.
         </p>
       </section>
 

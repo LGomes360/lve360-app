@@ -237,7 +237,7 @@ export default function BlueprintWorkspaceClient({
         item.proposal.id === itemId ? { ...item, decision: data.decision } : item
       ));
       const statusMessage = decision === "clinician_review"
-        ? "Marked for a clinician or pharmacist conversation."
+        ? "Marked for a clinician or healthcare provider conversation."
         : decision === "deferred"
           ? "Moved out of your active ideas for now."
           : decision === "dismissed"

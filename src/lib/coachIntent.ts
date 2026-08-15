@@ -70,7 +70,7 @@ function safetyReview(context: MemberIntelligenceContext): DeterministicCoachTas
   const section = context.unresolvedSafetyItems;
   if (section.status === "missing") {
     return {
-      answer: "I could not complete the deterministic safety review from the saved data right now. Your Routine is unchanged. Try again before relying on this view for a clinician or pharmacist discussion.",
+      answer: "I could not complete the deterministic safety review from the saved data right now. Your Routine is unchanged. Try again before relying on this view for a clinician or healthcare provider discussion.",
       sourceIds: ["safety_review", "current_routine", "health_profile"],
       responseSource: "deterministic",
     };
@@ -81,16 +81,20 @@ function safetyReview(context: MemberIntelligenceContext): DeterministicCoachTas
   ])).values()];
   if (!unique.length) {
     return {
-      answer: "LVE360 did not identify an unresolved clinician- or pharmacist-review finding in the current deterministic safety check. That means no rule matched the information currently saved; it is not a guarantee that every combination is risk-free. Review any new symptoms, diagnoses, prescriptions, or incomplete Routine details with a qualified professional.",
+      answer: "LVE360 did not identify an unresolved clinician- or healthcare-provider-review finding in the current deterministic safety check. That means no rule matched the information currently saved; it is not a guarantee that every combination is risk-free. Review any new symptoms, diagnoses, prescriptions, or incomplete Routine details with a qualified healthcare provider.",
       sourceIds: ["safety_review", "current_routine", "health_profile"],
       responseSource: "deterministic",
     };
   }
   const rank = { danger: 0, warning: 1, info: 2 } as const;
   const findings = unique.sort((left, right) => rank[left.severity] - rank[right.severity]);
-  const lines = findings.map((item, index) => `${index + 1}. ${item.item}: ${item.message}`);
+  const lines = findings.map((item, index) => {
+    const source = item.evidence.sourceLabel ?? (item.evidence.provenanceStatus === "reviewed" ? "Reviewed LVE360 rule" : "Legacy rule with incomplete provenance");
+    const qualification = item.evidence.qualification ? ` Important context: ${item.evidence.qualification}` : "";
+    return `${index + 1}. ${item.item}: ${item.message}\n   Evidence: ${source}. Confidence: ${item.evidence.confidence}.${qualification}`;
+  });
   return {
-    answer: `These saved Routine items currently need clinician or pharmacist review:\n\n${lines.join("\n")}\n\nThese are review signals from LVE360's deterministic rules, not instructions to change a medication, hormone, or supplement.`,
+    answer: `These saved Routine items currently need clinician or healthcare provider review:\n\n${lines.join("\n")}\n\nThese are review signals from LVE360's deterministic rules, not instructions to change a medication, hormone, or supplement.`,
     sourceIds: ["safety_review", "current_routine", "health_profile"],
     responseSource: "deterministic",
   };

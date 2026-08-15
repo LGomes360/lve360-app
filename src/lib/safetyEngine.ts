@@ -16,9 +16,40 @@ export interface SafetyCandidate {
   name: string;
   dose?: string | null;
   is_current?: boolean;
+  instruction_authority?: string | null;
 }
 
-export interface InteractionRow {
+export interface SafetyEvidenceProvenance {
+  sourceLabel: string | null;
+  sourceUrl: string | null;
+  sourceType: string;
+  sourceDate: string | null;
+  lastReviewedOn: string | null;
+  exactIngredientForm: string | null;
+  mechanism: string | null;
+  severityRationale: string | null;
+  confidence: "high" | "moderate" | "low" | "unknown";
+  qualification: string | null;
+  ruleVersion: string;
+  provenanceStatus: "reviewed" | "unreviewed";
+}
+
+interface SafetyProvenanceRow {
+  source_label?: string | null;
+  source_url?: string | null;
+  source_type?: string | null;
+  source_date?: string | null;
+  last_reviewed_on?: string | null;
+  exact_ingredient_form?: string | null;
+  interaction_mechanism?: string | null;
+  severity_rationale?: string | null;
+  confidence?: string | null;
+  user_qualification?: string | null;
+  rule_version?: string | null;
+  provenance_status?: string | null;
+}
+
+export interface InteractionRow extends SafetyProvenanceRow {
   ingredient: string;
   binds_thyroid_meds?: boolean | null;
   sep_hours_thyroid?: number | null;
@@ -36,7 +67,7 @@ export interface InteractionRow {
   notes?: string | null;
 }
 
-export interface SafetyRuleRow {
+export interface SafetyRuleRow extends SafetyProvenanceRow {
   rule_id?: string | null;
   rule_type?: string | null;
   action?: string | null;
@@ -59,6 +90,16 @@ export interface SafetyFinding {
   decision: Exclude<SafetyDecision, "clear">;
   source: SafetySource;
   sourceUrl?: string | null;
+  evidence?: SafetyEvidenceProvenance;
+  doseComparison?: {
+    recordedDose: string | null;
+    normalizedAmount: number;
+    normalizedUnit: string;
+    thresholdAmount: number;
+    thresholdUnit: string;
+    thresholdInRecordedUnit: number | null;
+    recordedUnit: string | null;
+  };
 }
 
 export interface SafetyCandidateResult {
@@ -66,6 +107,7 @@ export interface SafetyCandidateResult {
   isCurrent: boolean;
   decision: SafetyDecision;
   findings: SafetyFinding[];
+  evidence: SafetyEvidenceProvenance | null;
 }
 
 export interface SafetyEvaluation {
@@ -134,6 +176,11 @@ function interactionMatches(name: string, rows: InteractionRow[]): InteractionRo
 function mergedInteraction(name: string, rows: InteractionRow[]): InteractionRow | undefined {
   const matches = interactionMatches(name, rows);
   if (!matches.length) return undefined;
+  const evidenceRow = [...matches].sort((left, right) => {
+    const reviewed = Number(right.provenance_status === "reviewed") - Number(left.provenance_status === "reviewed");
+    if (reviewed) return reviewed;
+    return normalize(right.ingredient).length - normalize(left.ingredient).length;
+  })[0];
   const flag = (key: keyof InteractionRow) => matches.some((row) => row[key] === true);
   const spacing = matches.map((row) => row.sep_hours_thyroid).filter((value): value is number => typeof value === "number");
   return {
@@ -152,6 +199,18 @@ function mergedInteraction(name: string, rows: InteractionRow[]): InteractionRow
     liver_caution: flag("liver_caution"),
     kidney_caution: flag("kidney_caution"),
     notes: matches.map((row) => row.notes).filter(Boolean).join(" ") || null,
+    source_label: evidenceRow.source_label,
+    source_url: evidenceRow.source_url,
+    source_type: evidenceRow.source_type,
+    source_date: evidenceRow.source_date,
+    last_reviewed_on: evidenceRow.last_reviewed_on,
+    exact_ingredient_form: evidenceRow.exact_ingredient_form,
+    interaction_mechanism: evidenceRow.interaction_mechanism,
+    severity_rationale: evidenceRow.severity_rationale,
+    confidence: evidenceRow.confidence,
+    user_qualification: evidenceRow.user_qualification,
+    rule_version: evidenceRow.rule_version,
+    provenance_status: evidenceRow.provenance_status,
   };
 }
 
@@ -171,9 +230,9 @@ function allergyMatchesCandidate(allergy: string, candidate: string): boolean {
 }
 
 function parseDose(dose?: string | null): { amount: number; unit: string } | null {
-  const match = String(dose ?? "").match(/(\d+(?:\.\d+)?)\s*(mcg|µg|ug|mg|g|iu)\b/i);
+  const match = String(dose ?? "").match(/(\d+(?:\.\d+)?)\s*([a-zµμ]+)\b/i);
   if (!match) return null;
-  return { amount: Number(match[1]), unit: match[2].toLowerCase().replace("µg", "mcg").replace("ug", "mcg") };
+  return { amount: Number(match[1]), unit: match[2].toLowerCase().replace("µg", "mcg").replace("μg", "mcg").replace("ug", "mcg") };
 }
 
 function comparableRuleUnit(unit?: string | null): string {
@@ -182,6 +241,72 @@ function comparableRuleUnit(unit?: string | null): string {
   if (source.startsWith("mg")) return "mg";
   if (source === "g" || source === "iu") return source;
   return "";
+}
+
+type DoseComparison =
+  | { status: "comparable"; amount: number; unit: string }
+  | { status: "unsupported"; doseUnit: string; ruleUnit: string }
+  | { status: "not_recorded" };
+
+const DOSAGE_FORM_UNITS = new Set(["capsule", "capsules", "tablet", "tablets", "softgel", "softgels", "drop", "drops", "scoop", "scoops", "serving", "servings"]);
+
+function comparableDose(candidate: SafetyCandidate, rule: SafetyRuleRow): DoseComparison {
+  const dose = parseDose(candidate.dose);
+  const ruleUnit = comparableRuleUnit(rule.unit);
+  if (!dose || !ruleUnit || DOSAGE_FORM_UNITS.has(dose.unit)) return { status: "not_recorded" };
+  if (dose.unit === ruleUnit) return { status: "comparable", amount: dose.amount, unit: ruleUnit };
+
+  const massInMcg: Record<string, number> = { mcg: 1, mg: 1_000, g: 1_000_000 };
+  if (massInMcg[dose.unit] && massInMcg[ruleUnit]) {
+    return { status: "comparable", amount: dose.amount * massInMcg[dose.unit] / massInMcg[ruleUnit], unit: ruleUnit };
+  }
+
+  const identity = healthItemIdentityKey(candidate.name);
+  if (identity.startsWith("vitamin-d") && ((dose.unit === "iu" && ruleUnit === "mcg") || (dose.unit === "mcg" && ruleUnit === "iu"))) {
+    return { status: "comparable", amount: dose.unit === "iu" ? dose.amount / 40 : dose.amount * 40, unit: ruleUnit };
+  }
+  return { status: "unsupported", doseUnit: dose.unit, ruleUnit };
+}
+
+function thresholdInRecordedUnit(candidate: SafetyCandidate, rule: SafetyRuleRow, threshold: number): number | null {
+  const recorded = parseDose(candidate.dose);
+  const ruleUnit = comparableRuleUnit(rule.unit);
+  if (!recorded || !ruleUnit) return null;
+  if (recorded.unit === ruleUnit) return threshold;
+  const massInMcg: Record<string, number> = { mcg: 1, mg: 1_000, g: 1_000_000 };
+  if (massInMcg[recorded.unit] && massInMcg[ruleUnit]) {
+    return threshold * massInMcg[ruleUnit] / massInMcg[recorded.unit];
+  }
+  if (healthItemIdentityKey(candidate.name).startsWith("vitamin-d")) {
+    if (recorded.unit === "iu" && ruleUnit === "mcg") return threshold * 40;
+    if (recorded.unit === "mcg" && ruleUnit === "iu") return threshold / 40;
+  }
+  return null;
+}
+
+function confidence(value?: string | null): SafetyEvidenceProvenance["confidence"] {
+  return value === "high" || value === "moderate" || value === "low" ? value : "unknown";
+}
+
+function provenance(row?: SafetyProvenanceRow | null, fallbackUrl?: string | null): SafetyEvidenceProvenance {
+  return {
+    sourceLabel: row?.source_label ?? null,
+    sourceUrl: row?.source_url ?? fallbackUrl ?? null,
+    sourceType: row?.source_type ?? "legacy_unknown",
+    sourceDate: row?.source_date ?? null,
+    lastReviewedOn: row?.last_reviewed_on ?? null,
+    exactIngredientForm: row?.exact_ingredient_form ?? null,
+    mechanism: row?.interaction_mechanism ?? null,
+    severityRationale: row?.severity_rationale ?? null,
+    confidence: confidence(row?.confidence),
+    qualification: row?.user_qualification ?? null,
+    ruleVersion: row?.rule_version ?? "legacy-v1",
+    provenanceStatus: row?.provenance_status === "reviewed" ? "reviewed" : "unreviewed",
+  };
+}
+
+export function unknownSafetyEvidence(sourceUrl?: string | null): SafetyEvidenceProvenance {
+  return provenance(null, sourceUrl);
 }
 
 function magnesiumDoseBasisIsExplicit(candidate: SafetyCandidate): boolean {
@@ -210,16 +335,20 @@ function finding(
   message: string,
   severity: SafetySeverity,
   source: SafetySource,
-  sourceUrl?: string | null
+  sourceUrl?: string | null,
+  evidenceRow?: SafetyProvenanceRow | null,
+  decision?: Exclude<SafetyDecision, "clear">,
 ): SafetyFinding {
+  const evidence = provenance(evidenceRow, sourceUrl);
   return {
     code,
     item,
     message,
     severity,
-    decision: severity === "danger" ? "blocked" : "review",
+    decision: decision ?? (severity === "danger" ? "blocked" : "review"),
     source,
-    sourceUrl,
+    sourceUrl: evidence.sourceUrl,
+    evidence,
   };
 }
 
@@ -261,47 +390,50 @@ export function evaluateSafetyCandidates(
 
     for (const allergy of allergies) {
       if (allergyMatchesCandidate(allergy, candidate.name)) {
-        addFinding(findings, finding("allergy_match", candidate.name, `Reported allergy may match ${candidate.name}. Do not start or continue it until a clinician or pharmacist confirms the ingredient.`, "danger", "intake"));
+        addFinding(findings, finding("allergy_match", candidate.name, `Reported allergy may match ${candidate.name}. Do not start or continue it until a clinician or healthcare provider confirms the ingredient.`, "danger", "intake"));
       }
     }
 
     if (!match) {
       if (candidate.is_current !== true) {
-        addFinding(findings, finding("interaction_record_missing", candidate.name, `No structured interaction record matched ${candidate.name}. A clinician or pharmacist should review it before a new start.`, "warning", "system"));
+        addFinding(findings, finding("interaction_record_missing", candidate.name, `No structured interaction record matched ${candidate.name}. A clinician or healthcare provider should review it before a new start.`, "warning", "system"));
       }
     } else {
       if (hasThyroidMedication && match.binds_thyroid_meds) {
-        addFinding(findings, finding("thyroid_spacing", candidate.name, `Separate ${candidate.name} from thyroid medication by at least ${match.sep_hours_thyroid ?? 4} hours, or follow the pharmacist's timing instructions.`, "warning", "interactions"));
+        const timing = match.sep_hours_thyroid
+          ? `by at least ${match.sep_hours_thyroid} hours`
+          : "using the interval on the prescription label or provided by a clinician or healthcare provider";
+        addFinding(findings, finding("thyroid_spacing", candidate.name, `Keep ${candidate.name} separated from thyroid medication ${timing}. Do not change the medication itself.`, "warning", "interactions", match.source_url, match));
       }
       if (hasAnticoagulant && match.anticoagulants_bleeding_risk) {
-        addFinding(findings, finding("anticoagulant_bleeding", candidate.name, `${candidate.name} may change bleeding risk with the reported anticoagulant. Do not add or change it without coordinated review.`, "danger", "interactions"));
+        addFinding(findings, finding("anticoagulant_bleeding", candidate.name, `${candidate.name} may change bleeding risk with the reported anticoagulant. Do not add or change it without coordinated review.`, "danger", "interactions", match.source_url, match));
       }
       if (hasUpcomingProcedure && match.anticoagulants_bleeding_risk) {
-        addFinding(findings, finding("procedure_bleeding", candidate.name, `${candidate.name} may matter before the reported procedure. Confirm the plan with the procedure team before use.`, "danger", "interactions"));
+        addFinding(findings, finding("procedure_bleeding", candidate.name, `${candidate.name} may matter before the reported procedure. Confirm the plan with the procedure team before use.`, "danger", "interactions", match.source_url, match));
       }
       if (hasGlucoseMedication && match.diabetes_meds_additive) {
-        addFinding(findings, finding("glucose_lowering", candidate.name, `${candidate.name} may add to glucose-lowering effects. Review monitoring and timing before use.`, "warning", "interactions"));
+        addFinding(findings, finding("glucose_lowering", candidate.name, `${candidate.name} may add to glucose-lowering effects. Review monitoring and timing before use.`, "warning", "interactions", match.source_url, match));
       }
       if (hasSedative && match.sedatives_additive) {
-        addFinding(findings, finding("sedating_additive", candidate.name, `${candidate.name} may add to drowsiness from a reported medication. Review timing and avoid driving if drowsy.`, "warning", "interactions"));
+        addFinding(findings, finding("sedating_additive", candidate.name, `${candidate.name} may add to drowsiness from a reported medication. Review timing and avoid driving if drowsy.`, "warning", "interactions", match.source_url, match));
       }
       if (hasAntibiotic && match.antibiotics_interaction) {
-        addFinding(findings, finding("antibiotic_interaction", candidate.name, `${candidate.name} may interact with or need spacing from the reported antibiotic. Ask a pharmacist for exact timing.`, "warning", "interactions"));
+        addFinding(findings, finding("antibiotic_interaction", candidate.name, `${candidate.name} may interact with or need spacing from the reported antibiotic. Ask a clinician or healthcare provider for exact timing.`, "warning", "interactions", match.source_url, match));
       }
       if (isPregnant(context.pregnant) && match.pregnancy_caution) {
-        addFinding(findings, finding("pregnancy_caution", candidate.name, `${candidate.name} is flagged for pregnancy caution. Do not start it without obstetric clinician review.`, "danger", "interactions"));
+        addFinding(findings, finding("pregnancy_caution", candidate.name, `${candidate.name} is flagged for pregnancy caution. Do not start it without obstetric clinician review.`, "danger", "interactions", match.source_url, match));
       }
       if (hasLiverCondition && (match.liver_disease_caution || match.liver_caution)) {
-        addFinding(findings, finding("liver_caution", candidate.name, `${candidate.name} is flagged for caution with the reported liver context. Review it before use.`, "warning", "interactions"));
+        addFinding(findings, finding("liver_caution", candidate.name, `${candidate.name} is flagged for caution with the reported liver context. Review it before use.`, "warning", "interactions", match.source_url, match));
       }
       if (hasKidneyCondition && (match.kidney_disease_caution || match.kidney_caution)) {
-        addFinding(findings, finding("kidney_caution", candidate.name, `${candidate.name} is flagged for caution with the reported kidney context. Review dose and monitoring before use.`, "warning", "interactions"));
+        addFinding(findings, finding("kidney_caution", candidate.name, `${candidate.name} is flagged for caution with the reported kidney context. Review dose and monitoring before use.`, "warning", "interactions", match.source_url, match));
       }
       if ((isImmunocompromised || hasImmunosuppressant) && match.immunocompromised_caution) {
-        addFinding(findings, finding("immune_caution", candidate.name, `${candidate.name} is flagged for review with the reported immune context or medication.`, "warning", "interactions"));
+        addFinding(findings, finding("immune_caution", candidate.name, `${candidate.name} is flagged for review with the reported immune context or medication.`, "warning", "interactions", match.source_url, match));
       }
       if (hasStimulant && match.caffeine_stimulant_caution) {
-        addFinding(findings, finding("stimulant_additive", candidate.name, `${candidate.name} may add to stimulant effects. Review timing, sleep impact, heart rate, and blood pressure before use.`, "warning", "interactions"));
+        addFinding(findings, finding("stimulant_additive", candidate.name, `${candidate.name} may add to stimulant effects. Review timing, sleep impact, heart rate, and blood pressure before use.`, "warning", "interactions", match.source_url, match));
       }
     }
 
@@ -319,16 +451,26 @@ export function evaluateSafetyCandidates(
         (trigger === "liver impairment" && hasLiverCondition) ||
         (trigger === "kidney impairment" && hasKidneyCondition);
       const ruleText = `${rule.caution ?? ""} ${rule.message ?? ""}`.trim();
-      if (contextTrigger && nameAppearsInText(candidate.name, ruleText)) {
+      if (contextTrigger && nameAppearsInText(candidate.name, ruleText) && !(trigger === "thyroid med" && match?.binds_thyroid_meds)) {
         const severity = String(rule.severity ?? "warning").toLowerCase() === "danger" ? "danger" : "warning";
-        addFinding(findings, finding(`rule_${trigger.replace(/\s+/g, "_")}`, candidate.name, rule.caution || rule.message || "Clinician review is recommended.", severity, "rules", rule.source_url));
+        addFinding(findings, finding(`rule_${trigger.replace(/\s+/g, "_")}`, candidate.name, rule.caution || rule.message || "Clinician review is recommended.", severity, "rules", rule.source_url, rule));
       }
 
       if (String(rule.rule_type ?? "").toUpperCase() === "UL" && rule.entity_a_name && interactionMatches(candidate.name, [{ ingredient: rule.entity_a_name }]).length) {
-        const dose = parseDose(candidate.dose);
+        const dose = comparableDose(candidate, rule);
         const max = Number(rule.max_daily_amount);
-        const unit = comparableRuleUnit(rule.unit);
-        if (dose && Number.isFinite(max) && unit && dose.unit === unit && dose.amount > max) {
+        if (dose.status === "unsupported") {
+          addFinding(findings, finding(
+            "dose_unit_not_comparable",
+            candidate.name,
+            `The recorded dose uses ${dose.doseUnit}, while this safety threshold uses ${dose.ruleUnit}. LVE360 did not guess a conversion. Confirm the labeled amount and unit before relying on this comparison.`,
+            "warning",
+            "rules",
+            rule.source_url,
+            rule,
+          ));
+        }
+        if (dose.status === "comparable" && Number.isFinite(max) && dose.amount > max) {
           if (!magnesiumDoseBasisIsExplicit(candidate)) {
             addFinding(findings, finding(
               "dose_basis_unclear",
@@ -337,20 +479,45 @@ export function evaluateSafetyCandidates(
               "warning",
               "rules",
               rule.source_url,
+              rule,
             ));
           } else {
-            addFinding(findings, finding("upper_limit", candidate.name, rule.message || `${candidate.name} exceeds the structured adult upper limit.`, "danger", "rules", rule.source_url));
+            const isCurrent = candidate.is_current === true;
+            const clinicianDirected = ["clinician", "pharmacist"].includes(String(candidate.instruction_authority ?? "").toLowerCase());
+            const currentMessage = `${candidate.name} is recorded above the structured adult upper-intake threshold. ${clinicianDirected ? "It is marked as clinician- or healthcare-provider-directed. " : ""}Confirm the total intake, reason, and monitoring plan with the qualified healthcare provider who oversees it. Do not change it from this app warning alone.`;
+            const clinicianDirectedException = isCurrent && clinicianDirected;
+            const upperLimitFinding = finding(
+              "upper_limit",
+              candidate.name,
+              isCurrent ? currentMessage : rule.message || `${candidate.name} exceeds the structured adult upper limit. Review it before starting.`,
+              clinicianDirectedException ? "warning" : "danger",
+              "rules",
+              rule.source_url,
+              rule,
+              clinicianDirectedException ? "review" : "blocked",
+            );
+            const recorded = parseDose(candidate.dose);
+            upperLimitFinding.doseComparison = {
+              recordedDose: candidate.dose ?? null,
+              normalizedAmount: dose.amount,
+              normalizedUnit: dose.unit,
+              thresholdAmount: max,
+              thresholdUnit: comparableRuleUnit(rule.unit),
+              thresholdInRecordedUnit: thresholdInRecordedUnit(candidate, rule, max),
+              recordedUnit: recorded?.unit ?? null,
+            };
+            addFinding(findings, upperLimitFinding);
           }
         }
       }
 
-      if (String(rule.rule_type ?? "").toUpperCase() === "SPACING" && rule.entity_a_name && medications.some((medication) => normalize(medication).includes(normalize(rule.entity_a_name))) && nameAppearsInText(candidate.name, rule.message ?? "")) {
-        addFinding(findings, finding("medication_spacing", candidate.name, rule.message || `Separate ${candidate.name} from the reported medication.`, "warning", "rules", rule.source_url));
+      if (String(rule.rule_type ?? "").toUpperCase() === "SPACING" && !match?.binds_thyroid_meds && rule.entity_a_name && medications.some((medication) => normalize(medication).includes(normalize(rule.entity_a_name))) && nameAppearsInText(candidate.name, rule.message ?? "")) {
+        addFinding(findings, finding("medication_spacing", candidate.name, rule.message || `Separate ${candidate.name} from the reported medication.`, "warning", "rules", rule.source_url, rule));
       }
     }
 
     if (unknownMedications.length && candidate.is_current !== true) {
-      addFinding(findings, finding("unknown_medication", candidate.name, `The interaction library did not classify ${unknownMedications.join(", ")}. Proposed supplements require pharmacist or clinician review before use.`, "warning", "system"));
+      addFinding(findings, finding("unknown_medication", candidate.name, `The interaction library did not classify ${unknownMedications.join(", ")}. Proposed supplements require clinician or healthcare provider review before use.`, "warning", "system"));
     }
 
     return {
@@ -358,6 +525,7 @@ export function evaluateSafetyCandidates(
       isCurrent: candidate.is_current === true,
       decision: worstDecision(findings),
       findings,
+      evidence: match ? provenance(match) : null,
     };
   });
 
@@ -372,12 +540,13 @@ export function evaluateSafetyCandidates(
 
 export function unavailableSafetyEvaluation(candidates: SafetyCandidate[], reason = "Structured safety evaluation was unavailable."): SafetyEvaluation {
   const results = candidates.map((candidate): SafetyCandidateResult => {
-    const systemFinding = finding("evaluation_unavailable", candidate.name, `${reason} Do not start a proposed supplement until a clinician or pharmacist reviews it.`, "warning", "system");
+    const systemFinding = finding("evaluation_unavailable", candidate.name, `${reason} Do not start a proposed supplement until a clinician or healthcare provider reviews it.`, "warning", "system");
     return {
       name: candidate.name,
       isCurrent: candidate.is_current === true,
       decision: "review",
       findings: [systemFinding],
+      evidence: null,
     };
   });
   return {
@@ -397,12 +566,25 @@ export function safetySectionFromEvaluation(evaluation: SafetyEvaluation): strin
     findingsByItem.set(key, [...(findingsByItem.get(key) ?? []), item]);
   }
   const bullets = findingsByItem.size
-    ? Array.from(findingsByItem.values()).map((items) => {
+    ? Array.from(findingsByItem.values()).flatMap((items) => {
       const decision = worstDecision(items);
-      const label = decision === "blocked" ? "Stop and review" : "Clinician review";
+      const urgency = decision === "blocked" ? "Review before starting or making changes" : "Review, not an emergency";
       const name = canonicalHealthItemDisplayName(items[0].item);
       const messages = Array.from(new Set(items.map((item) => item.message.trim()))).join(" ");
-      return `- **${label}: ${name}:** ${messages}`;
+      const evidence = items.find((item) => item.evidence?.provenanceStatus === "reviewed")?.evidence
+        ?? items[0].evidence
+        ?? unknownSafetyEvidence(items[0].sourceUrl);
+      const source = evidence.sourceLabel
+        ? evidence.sourceUrl ? `[${evidence.sourceLabel}](${evidence.sourceUrl})` : evidence.sourceLabel
+        : evidence.provenanceStatus === "reviewed" ? "Reviewed LVE360 safety rule" : "Legacy rule; source details not yet curated";
+      return [
+        `- **Clinician review: ${name}:**`,
+        `  - **Urgency:** ${urgency}.`,
+        `  - **What to do:** ${messages}`,
+        `  - **Why this appeared:** ${evidence.mechanism ?? evidence.severityRationale ?? "A structured safety rule matched the information currently saved."}`,
+        `  - **Evidence:** ${source}. Confidence: ${evidence.confidence}. Rule version: ${evidence.ruleVersion}.`,
+        ...(evidence.qualification ? [`  - **Important context:** ${evidence.qualification}`] : []),
+      ];
     })
     : ["- **No material flags identified:** No specific interaction requiring action was identified from the reported information and structured rules. Recheck whenever medications, supplements, pregnancy status, conditions, or procedures change."];
   return [
