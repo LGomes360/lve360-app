@@ -1,4 +1,4 @@
-export const COACH_PROMPT_VERSION = "contextual-coach-v3";
+export const COACH_PROMPT_VERSION = "contextual-coach-v4";
 
 export type CoachIntent =
   | "GENERAL_EDUCATION"
@@ -314,6 +314,10 @@ export function parseStructuredCoachAnswer(
   }
 }
 
+/**
+ * @deprecated PR107 compatibility helper. Production coaching uses
+ * validateCoachTaskSuccess so the score reflects the requested job.
+ */
 export function assessCoachAnswerQuality(input: {
   answer: StructuredCoachAnswer;
   supplementQuestion: boolean;

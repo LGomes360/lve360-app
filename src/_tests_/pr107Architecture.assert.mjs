@@ -9,7 +9,7 @@ const migration = fs.readFileSync("supabase/migrations/20260813090000_pr107_coac
 assert.match(data, /classif(?:ied_intent|ied intent)/i, "The model must receive a deterministic intent.");
 assert.match(data, /curated evidence_options/i, "The prompt must distinguish LVE360 evidence from member records.");
 assert.match(data, /applySafetyChecks\(context\.safetyContext/, "Generated candidates must pass a deterministic post-generation safety check.");
-assert.match(data, /assessCoachAnswerQuality/, "A deterministic quality gate must run before display.");
+assert.match(data, /validateCoachTaskSuccess/, "A deterministic task-success gate must run before display.");
 assert.match(data, /fallbackStructured/, "A failed model or quality gate must have a useful evidence-bound repair path.");
 assert.match(data, /already_in_stack/, "The prompt context must explicitly identify existing Routine candidates.");
 assert.match(data, /Recommendation is not mutation/i, "The prompt must separate recommendations from stored-record changes.");

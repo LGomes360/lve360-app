@@ -33,6 +33,6 @@ Ask LVE360 now builds one `MemberIntelligenceContext` snapshot per request. The 
 
 ## Diagnostics compatibility
 
-Detailed routing metadata is emitted to privacy-safe server logs without the member's question or health facts. The database keeps the existing coarse intent values so PR109 does not require a migration or break current Preview and Production schemas. Prompt telemetry is aligned on `contextual-coach-v3`.
+Detailed routing metadata is emitted to privacy-safe server logs without the member's question or health facts. The database keeps the existing coarse intent values so PR109 does not require a migration or break current Preview and Production schemas. Prompt telemetry is aligned on `contextual-coach-v4` after PR110's task-success validator upgrade.
 
-Task-success scoring remains PR110. PR109 intentionally does not redesign the existing quality score.
+PR110 now applies intent-specific [task-success validation](./coach-task-success-validation.md) after this routing path.
