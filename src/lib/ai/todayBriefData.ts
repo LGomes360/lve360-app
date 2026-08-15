@@ -16,6 +16,7 @@ import {
   type TodayBriefContext,
 } from "@/lib/todayBrief";
 import { isReviewDue } from "@/lib/weeklyReview";
+import { isUrgentBlueprintSafety } from "@/lib/todaySurface";
 
 type TodayBriefRow = {
   id: string;
@@ -118,6 +119,7 @@ export async function buildTodayBriefContext(userId: string, localDate: string):
       stackId: blueprint.stack_id,
       needsRefresh: blueprint.needs_refresh,
       safetyNeedsAttention: blueprint.safety_status !== "safe" && !blueprint.safety_acknowledged,
+      urgentSafetyInterruption: isUrgentBlueprintSafety(blueprint),
     } : null,
     reviewDue: Boolean(experiment && isReviewDue(experiment.week_start, localDate)),
   };
