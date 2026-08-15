@@ -77,6 +77,7 @@ export async function getCurrentBlueprintContext(userId: string): Promise<Curren
   return {
     stack_id: stack.id,
     created_at: stack.created_at,
+    goals: extractBlueprintGoalNames(report.sections.Goals),
     safety_status: deriveBlueprintSafetyStatus(markdown),
     safety_acknowledged: Boolean(stack.safety_acknowledged_at),
     needs_refresh: needsRefresh,
