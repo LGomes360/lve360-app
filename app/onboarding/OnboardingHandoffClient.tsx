@@ -165,7 +165,7 @@ export default function OnboardingHandoffClient() {
       </div>
 
       <p className="mt-8 border-t border-slate-100 pt-5 text-xs leading-5 text-slate-500">
-        This setup is for lifestyle practices only. Supplement and medication changes remain in your Blueprint for clinician or pharmacist review.
+        This setup is for lifestyle practices only. Supplement and medication changes remain in your Blueprint for clinician or healthcare provider review.
       </p>
     </Shell>
   );

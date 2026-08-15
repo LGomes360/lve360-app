@@ -372,7 +372,7 @@ function ensureContraCurrentStackCoverage(
     if (sedationContext.test(line)) return false;
     return /interaction|caution|monitor|spacing|separat|avoid|risk|drows|sedat|bleed|glucose|blood sugar|thyroid|kidney|liver|anticoagul|procedure/i.test(line);
   }).map((line) => complianceSafeLanguage(line
-    .replace(/review with a qualified clinician or pharmacist before changing use\.?/gi, "")
+    .replace(/review with a qualified clinician or (?:pharmacist|healthcare provider) before changing use\.?/gi, "")
     .replace(/\s+([.,])/g, "$1")
     .replace(/\s{2,}/g, " ")
     .trim()));
@@ -384,7 +384,7 @@ function ensureContraCurrentStackCoverage(
   const thyroidItem = ledger.find((item) => /\b(?:armour thyroid|levothyroxine|synthroid|thyroid)\b/i.test(item.name));
   const spacingItems = ledger.filter((item) => /\b(?:magnesium|psyllium|fiber|calcium|iron)\b/i.test(item.name)).map((item) => item.name);
   if (thyroidItem && spacingItems.length) {
-    bullets.push(`- **Monitor — Thyroid medication spacing:** Keep ${spacingItems.join(", ")} separated from ${thyroidItem.name} according to its prescription or label instructions; ask a pharmacist if the timing is unclear.`);
+    bullets.push(`- **Monitor — Thyroid medication spacing:** Keep ${spacingItems.join(", ")} separated from ${thyroidItem.name} according to its prescription or label instructions; ask your clinician or healthcare provider if the timing is unclear.`);
   }
   if (berberineRequiresReview && berberineIsActive) {
     bullets.push("- **Clinician review — Berberine:** Glucose-lowering medication or blood-sugar context was reported. Do not add or change Berberine without coordinated review.");

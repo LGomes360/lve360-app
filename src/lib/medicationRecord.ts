@@ -17,7 +17,7 @@ export type RegimenInstructionAuthority = (typeof REGIMEN_INSTRUCTION_AUTHORITIE
 
 export const MEDICATION_AUTHORITY_LABELS: Record<MedicationInstructionAuthority, string> = {
   clinician: "My clinician or prescriber",
-  pharmacist: "My pharmacist",
+  pharmacist: "My healthcare provider",
   medication_label: "My current prescription label",
 };
 

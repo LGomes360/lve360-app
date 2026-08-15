@@ -7,6 +7,7 @@ import type {
   MemberIntelligenceContext,
   MemberRegimenItemContext,
 } from "./memberContext.ts";
+import { healthItemIdentityKey } from "./healthItemIdentity.ts";
 import { regimenScheduleLabel } from "./regimenSchedule.ts";
 
 export type CoachTaskValidatorId =
@@ -92,6 +93,18 @@ function normalized(value: string) {
 function containsValue(answer: string, value: string | null | undefined) {
   const expected = normalized(value ?? "");
   return Boolean(expected) && normalized(answer).includes(expected);
+}
+
+const GENERIC_REGIMEN_WORDS = new Set(["vitamin", "magnesium", "omega", "supplement", "medication", "hormone"]);
+
+function questionNamesItem(question: string, name: string) {
+  const query = normalized(question);
+  const item = normalized(name);
+  const identity = healthItemIdentityKey(name).replace(/-/g, " ");
+  const firstWord = item.split(" ")[0];
+  return Boolean(item && query.includes(item))
+    || Boolean(identity && query.includes(identity))
+    || Boolean(firstWord.length >= 5 && !GENERIC_REGIMEN_WORDS.has(firstWord) && query.includes(firstWord));
 }
 
 function ratio(passed: number, total: number) {
@@ -200,7 +213,12 @@ function safetyValidators(input: CoachTaskValidationInput) {
     `${item.code}|${normalized(item.item)}|${normalized(item.message)}`,
     item,
   ])).values()];
-  if (!unique.length) {
+  const namedRegimen = allRegimen(input.memberContext).filter((item) => questionNamesItem(input.question, item.name));
+  const namedKeys = new Set(namedRegimen.map((item) => healthItemIdentityKey(item.name)));
+  const relevant = namedKeys.size
+    ? unique.filter((item) => namedKeys.has(healthItemIdentityKey(item.item)))
+    : unique;
+  if (!relevant.length) {
     const noFinding = /\b(?:did not identify|no unresolved|no rule matched)\b/i.test(input.answerText);
     const limitation = /\b(?:not a guarantee|not absolute|information currently saved|risk[- ]free)\b/i.test(input.answerText);
     return [
@@ -209,15 +227,15 @@ function safetyValidators(input: CoachTaskValidationInput) {
     ];
   }
 
-  const surfaced = unique.filter((item) => containsValue(input.answerText, item.item));
-  const explained = unique.filter((item) => {
+  const surfaced = relevant.filter((item) => containsValue(input.answerText, item.item));
+  const explained = relevant.filter((item) => {
     if (!containsValue(input.answerText, item.item)) return false;
     const words = importantWords(item.message);
     return words.length === 0 || words.some((word) => normalized(input.answerText).includes(word));
   });
   return [
-    result("SAFETY_FINDINGS", ratio(surfaced.length, unique.length), unique.filter((item) => !surfaced.includes(item)).map((item) => `safety_item:${item.code}:${normalized(item.item)}`)),
-    result("SAFETY_REASONING", ratio(explained.length, unique.length), unique.filter((item) => !explained.includes(item)).map((item) => `safety_reason:${item.code}:${normalized(item.item)}`)),
+    result("SAFETY_FINDINGS", ratio(surfaced.length, relevant.length), relevant.filter((item) => !surfaced.includes(item)).map((item) => `safety_item:${item.code}:${normalized(item.item)}`)),
+    result("SAFETY_REASONING", ratio(explained.length, relevant.length), relevant.filter((item) => !explained.includes(item)).map((item) => `safety_reason:${item.code}:${normalized(item.item)}`)),
   ];
 }
 

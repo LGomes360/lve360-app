@@ -80,7 +80,7 @@ export default async function RoutinePrintPage() {
       </div>
 
       <section className="mt-8 break-inside-avoid border-t border-slate-300 pt-5">
-        <h2 className="text-lg font-bold text-[#041B2D]">Clinician or pharmacist notes</h2>
+        <h2 className="text-lg font-bold text-[#041B2D]">Clinician or healthcare provider notes</h2>
         <div className="mt-3 h-28 border-b border-dashed border-slate-400" />
         <div className="mt-4 h-10 border-b border-dashed border-slate-400" />
       </section>

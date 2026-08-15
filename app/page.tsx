@@ -124,7 +124,7 @@ export default function Home() {
         <h2 className="text-3xl font-bold text-[#041b2d]">A healthier life is built from small choices repeated.</h2>
         <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">Start with a free, personalized Blueprint. Choose one meaningful action. Build a week you can repeat.</p>
         <button onClick={openIntake} className="mt-8 rounded-xl bg-violet-600 px-6 py-3.5 font-semibold text-white shadow-lg shadow-violet-700/20 transition hover:bg-violet-700">Start your free Blueprint</button>
-        <p className="mx-auto mt-5 max-w-xl text-xs leading-5 text-slate-500">LVE360 provides educational wellness information, not medical diagnosis or treatment. Consult a qualified clinician or pharmacist for medical decisions.</p>
+        <p className="mx-auto mt-5 max-w-xl text-xs leading-5 text-slate-500">LVE360 provides educational wellness information, not medical diagnosis or treatment. Consult a qualified clinician or healthcare provider for medical decisions.</p>
       </section>
 
       <AnimatePresence>{showIntake && <IntakeModal onClose={() => setShowIntake(false)} />}</AnimatePresence>

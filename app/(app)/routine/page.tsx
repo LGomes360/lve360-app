@@ -16,7 +16,7 @@ export default async function RoutinePage() {
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8DE5D5]">Routine</p>
         <h1 className="mt-2 text-3xl font-extrabold tracking-tight sm:text-4xl">Organize what you take and when</h1>
         <p className="mt-3 max-w-3xl text-base leading-7 text-slate-200">
-          Keep your reported prescriptions, hormones, supplements, and timing in one place. Routine records your choices. It does not replace your prescriber, pharmacist, or product label.
+          Keep your reported prescriptions, hormones, supplements, and timing in one place. Routine records your choices. It does not replace your clinician, healthcare provider, or product label.
         </p>
       </header>
 

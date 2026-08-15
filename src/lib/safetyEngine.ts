@@ -91,6 +91,15 @@ export interface SafetyFinding {
   source: SafetySource;
   sourceUrl?: string | null;
   evidence?: SafetyEvidenceProvenance;
+  doseComparison?: {
+    recordedDose: string | null;
+    normalizedAmount: number;
+    normalizedUnit: string;
+    thresholdAmount: number;
+    thresholdUnit: string;
+    thresholdInRecordedUnit: number | null;
+    recordedUnit: string | null;
+  };
 }
 
 export interface SafetyCandidateResult {
@@ -98,6 +107,7 @@ export interface SafetyCandidateResult {
   isCurrent: boolean;
   decision: SafetyDecision;
   findings: SafetyFinding[];
+  evidence: SafetyEvidenceProvenance | null;
 }
 
 export interface SafetyEvaluation {
@@ -258,6 +268,22 @@ function comparableDose(candidate: SafetyCandidate, rule: SafetyRuleRow): DoseCo
   return { status: "unsupported", doseUnit: dose.unit, ruleUnit };
 }
 
+function thresholdInRecordedUnit(candidate: SafetyCandidate, rule: SafetyRuleRow, threshold: number): number | null {
+  const recorded = parseDose(candidate.dose);
+  const ruleUnit = comparableRuleUnit(rule.unit);
+  if (!recorded || !ruleUnit) return null;
+  if (recorded.unit === ruleUnit) return threshold;
+  const massInMcg: Record<string, number> = { mcg: 1, mg: 1_000, g: 1_000_000 };
+  if (massInMcg[recorded.unit] && massInMcg[ruleUnit]) {
+    return threshold * massInMcg[ruleUnit] / massInMcg[recorded.unit];
+  }
+  if (healthItemIdentityKey(candidate.name).startsWith("vitamin-d")) {
+    if (recorded.unit === "iu" && ruleUnit === "mcg") return threshold * 40;
+    if (recorded.unit === "mcg" && ruleUnit === "iu") return threshold / 40;
+  }
+  return null;
+}
+
 function confidence(value?: string | null): SafetyEvidenceProvenance["confidence"] {
   return value === "high" || value === "moderate" || value === "low" ? value : "unknown";
 }
@@ -364,19 +390,19 @@ export function evaluateSafetyCandidates(
 
     for (const allergy of allergies) {
       if (allergyMatchesCandidate(allergy, candidate.name)) {
-        addFinding(findings, finding("allergy_match", candidate.name, `Reported allergy may match ${candidate.name}. Do not start or continue it until a clinician or pharmacist confirms the ingredient.`, "danger", "intake"));
+        addFinding(findings, finding("allergy_match", candidate.name, `Reported allergy may match ${candidate.name}. Do not start or continue it until a clinician or healthcare provider confirms the ingredient.`, "danger", "intake"));
       }
     }
 
     if (!match) {
       if (candidate.is_current !== true) {
-        addFinding(findings, finding("interaction_record_missing", candidate.name, `No structured interaction record matched ${candidate.name}. A clinician or pharmacist should review it before a new start.`, "warning", "system"));
+        addFinding(findings, finding("interaction_record_missing", candidate.name, `No structured interaction record matched ${candidate.name}. A clinician or healthcare provider should review it before a new start.`, "warning", "system"));
       }
     } else {
       if (hasThyroidMedication && match.binds_thyroid_meds) {
         const timing = match.sep_hours_thyroid
           ? `by at least ${match.sep_hours_thyroid} hours`
-          : "using the interval on the prescription label or provided by a pharmacist";
+          : "using the interval on the prescription label or provided by a clinician or healthcare provider";
         addFinding(findings, finding("thyroid_spacing", candidate.name, `Keep ${candidate.name} separated from thyroid medication ${timing}. Do not change the medication itself.`, "warning", "interactions", match.source_url, match));
       }
       if (hasAnticoagulant && match.anticoagulants_bleeding_risk) {
@@ -392,7 +418,7 @@ export function evaluateSafetyCandidates(
         addFinding(findings, finding("sedating_additive", candidate.name, `${candidate.name} may add to drowsiness from a reported medication. Review timing and avoid driving if drowsy.`, "warning", "interactions", match.source_url, match));
       }
       if (hasAntibiotic && match.antibiotics_interaction) {
-        addFinding(findings, finding("antibiotic_interaction", candidate.name, `${candidate.name} may interact with or need spacing from the reported antibiotic. Ask a pharmacist for exact timing.`, "warning", "interactions", match.source_url, match));
+        addFinding(findings, finding("antibiotic_interaction", candidate.name, `${candidate.name} may interact with or need spacing from the reported antibiotic. Ask a clinician or healthcare provider for exact timing.`, "warning", "interactions", match.source_url, match));
       }
       if (isPregnant(context.pregnant) && match.pregnancy_caution) {
         addFinding(findings, finding("pregnancy_caution", candidate.name, `${candidate.name} is flagged for pregnancy caution. Do not start it without obstetric clinician review.`, "danger", "interactions", match.source_url, match));
@@ -458,9 +484,9 @@ export function evaluateSafetyCandidates(
           } else {
             const isCurrent = candidate.is_current === true;
             const clinicianDirected = ["clinician", "pharmacist"].includes(String(candidate.instruction_authority ?? "").toLowerCase());
-            const currentMessage = `${candidate.name} is recorded above the structured adult upper-intake threshold. ${clinicianDirected ? "It is marked as clinician- or pharmacist-directed. " : ""}Confirm the total intake, reason, and monitoring plan with the qualified professional who oversees it. Do not change it from this app warning alone.`;
+            const currentMessage = `${candidate.name} is recorded above the structured adult upper-intake threshold. ${clinicianDirected ? "It is marked as clinician- or healthcare-provider-directed. " : ""}Confirm the total intake, reason, and monitoring plan with the qualified healthcare provider who oversees it. Do not change it from this app warning alone.`;
             const clinicianDirectedException = isCurrent && clinicianDirected;
-            addFinding(findings, finding(
+            const upperLimitFinding = finding(
               "upper_limit",
               candidate.name,
               isCurrent ? currentMessage : rule.message || `${candidate.name} exceeds the structured adult upper limit. Review it before starting.`,
@@ -469,7 +495,18 @@ export function evaluateSafetyCandidates(
               rule.source_url,
               rule,
               clinicianDirectedException ? "review" : "blocked",
-            ));
+            );
+            const recorded = parseDose(candidate.dose);
+            upperLimitFinding.doseComparison = {
+              recordedDose: candidate.dose ?? null,
+              normalizedAmount: dose.amount,
+              normalizedUnit: dose.unit,
+              thresholdAmount: max,
+              thresholdUnit: comparableRuleUnit(rule.unit),
+              thresholdInRecordedUnit: thresholdInRecordedUnit(candidate, rule, max),
+              recordedUnit: recorded?.unit ?? null,
+            };
+            addFinding(findings, upperLimitFinding);
           }
         }
       }
@@ -480,7 +517,7 @@ export function evaluateSafetyCandidates(
     }
 
     if (unknownMedications.length && candidate.is_current !== true) {
-      addFinding(findings, finding("unknown_medication", candidate.name, `The interaction library did not classify ${unknownMedications.join(", ")}. Proposed supplements require pharmacist or clinician review before use.`, "warning", "system"));
+      addFinding(findings, finding("unknown_medication", candidate.name, `The interaction library did not classify ${unknownMedications.join(", ")}. Proposed supplements require clinician or healthcare provider review before use.`, "warning", "system"));
     }
 
     return {
@@ -488,6 +525,7 @@ export function evaluateSafetyCandidates(
       isCurrent: candidate.is_current === true,
       decision: worstDecision(findings),
       findings,
+      evidence: match ? provenance(match) : null,
     };
   });
 
@@ -502,12 +540,13 @@ export function evaluateSafetyCandidates(
 
 export function unavailableSafetyEvaluation(candidates: SafetyCandidate[], reason = "Structured safety evaluation was unavailable."): SafetyEvaluation {
   const results = candidates.map((candidate): SafetyCandidateResult => {
-    const systemFinding = finding("evaluation_unavailable", candidate.name, `${reason} Do not start a proposed supplement until a clinician or pharmacist reviews it.`, "warning", "system");
+    const systemFinding = finding("evaluation_unavailable", candidate.name, `${reason} Do not start a proposed supplement until a clinician or healthcare provider reviews it.`, "warning", "system");
     return {
       name: candidate.name,
       isCurrent: candidate.is_current === true,
       decision: "review",
       findings: [systemFinding],
+      evidence: null,
     };
   });
   return {

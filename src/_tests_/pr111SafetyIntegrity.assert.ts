@@ -6,6 +6,7 @@ import {
   type SafetyCandidate,
   type SafetyRuleRow,
 } from "../lib/safetyEngine.ts";
+import { classifyCoachRequest } from "../lib/contextualCoach.ts";
 
 const vitaminDSource = {
   source_label: "NIH Office of Dietary Supplements: Vitamin D Fact Sheet for Health Professionals",
@@ -68,7 +69,12 @@ const evaluateVitaminD = (candidate: SafetyCandidate, rule: SafetyRuleRow = vita
   { interactions, rules: [rule] },
 );
 
-assert.equal(evaluateVitaminD({ name: "Vitamin D3", dose: "5000 IU", is_current: false }).status, "blocked", "5,000 IU must compare against 100 mcg and exceed the adult UL.");
+const vitaminD5000 = evaluateVitaminD({ name: "Vitamin D3", dose: "5000 IU", is_current: false });
+assert.equal(vitaminD5000.status, "blocked", "5,000 IU must compare against 100 mcg and exceed the adult UL.");
+assert.equal(vitaminD5000.findings[0]?.doseComparison?.recordedDose, "5000 IU");
+assert.equal(vitaminD5000.findings[0]?.doseComparison?.normalizedAmount, 125);
+assert.equal(vitaminD5000.findings[0]?.doseComparison?.normalizedUnit, "mcg");
+assert.equal(vitaminD5000.findings[0]?.doseComparison?.thresholdInRecordedUnit, 4_000, "The deterministic answer must say 5,000 IU is above 4,000 IU, never below it.");
 assert.equal(evaluateVitaminD({ name: "Vitamin D3", dose: "4000 IU", is_current: false }).status, "clear", "4,000 IU must equal, not exceed, 100 mcg.");
 assert.equal(evaluateVitaminD(
   { name: "Vitamin D3", dose: "125 mcg", is_current: false },
@@ -139,5 +145,13 @@ assert.match(section, /Why this appeared:/);
 assert.match(section, /Confidence: high/);
 assert.match(section, /NIH Office of Dietary Supplements/);
 assert.match(section, /Important context:/);
+
+for (const question of [
+  "Is my current Vitamin D dose above the general upper-intake threshold?",
+  "Review magnesium glycinate with my thyroid medication.",
+  "Do I need to separate Vitamin D or my probiotic from levothyroxine?",
+]) {
+  assert.equal(classifyCoachRequest(question).intent, "SAFETY_REVIEW", `Screenshot regression must use the deterministic safety path: ${question}`);
+}
 
 console.log("PR111 unit-aware, evidence-grounded safety scenarios passed.");

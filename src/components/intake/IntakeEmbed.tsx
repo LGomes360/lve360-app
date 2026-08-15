@@ -85,7 +85,7 @@ export function IntakePrivacyNotice() {
     <div className="border-b border-slate-200 bg-slate-50 px-6 py-4 pr-14 text-sm leading-6 text-slate-600">
       <p>
         <strong className="text-slate-900">Why we ask:</strong> Your answers help create your
-        personalized Blueprint and identify items that may need clinician or pharmacist review.
+        personalized Blueprint and identify items that may need clinician or healthcare provider review.
       </p>
       <p className="mt-1">
         We use this information to provide your LVE360 experience. We do not sell your health

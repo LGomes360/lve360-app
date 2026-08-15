@@ -120,7 +120,7 @@ export function routineSourceLabel(source: RoutineItem["instruction_source"]): s
 
 export function routineInstructionAuthorityLabel(authority: RoutineItem["instruction_authority"]): string | null {
   if (authority === "clinician") return "Instruction reported from your clinician or prescriber";
-  if (authority === "pharmacist") return "Instruction reported from your pharmacist";
+  if (authority === "pharmacist") return "Instruction reported from your healthcare provider";
   if (authority === "medication_label") return "Instruction recorded from your medication label";
   if (authority === "product_label") return "Instruction recorded from your product label";
   return null;

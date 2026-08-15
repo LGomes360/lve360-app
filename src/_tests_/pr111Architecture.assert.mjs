@@ -6,6 +6,8 @@ const loader = readFileSync("src/lib/safetyCheck.ts", "utf8");
 const memberData = readFileSync("src/lib/memberContextData.ts", "utf8");
 const coachData = readFileSync("src/lib/ai/contextualCoachData.ts", "utf8");
 const coachIntent = readFileSync("src/lib/coachIntent.ts", "utf8");
+const coachValidation = readFileSync("src/lib/coachTaskValidation.ts", "utf8");
+const blueprintPage = readFileSync("app/(app)/blueprints/[stackId]/page.tsx", "utf8");
 const migration = readFileSync("supabase/migrations/20260815135335_safety_provenance_unit_normalization.sql", "utf8");
 
 for (const field of [
@@ -44,5 +46,12 @@ assert.match(engine, /Confidence:/);
 assert.match(memberData, /instruction_authority: item\.instruction_authority/);
 assert.match(coachData, /instruction_authority: current\?\.instruction_authority/);
 assert.match(coachIntent, /item\.evidence\.confidence/);
+assert.match(coachData, /deterministicNamedSafetyAnswer/);
+assert.match(coachData, /namedCurrentSupplements/);
+assert.match(coachData, /namedSafetyCandidateKeys/);
+assert.match(coachData, /GENERIC_REGIMEN_WORDS/, "Named-item matching must not broaden Vitamin D to every vitamin or magnesium form.");
+assert.match(coachValidation, /namedRegimen/, "Safety validation must be scoped to the regimen items the member actually named.");
+assert.match(blueprintPage, /applySafetyEvaluationToMarkdown/, "The latest Blueprint must overlay a fresh deterministic safety review.");
+assert.match(blueprintPage, /if \(latestId === stack\.id\)/, "Historical Blueprint versions must remain historical snapshots.");
 
 console.log("PR111 safety provenance architecture checks passed.");

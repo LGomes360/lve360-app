@@ -31,7 +31,7 @@ export default function TermsPage() {
           LVE360 organizes information about wellness goals, routines, supplements, medications,
           and lifestyle practices. It provides educational information and planning tools. It does
           not provide medical care, diagnosis, treatment, prescribing, emergency services, or a
-          substitute for a physician, pharmacist, dietitian, therapist, or other qualified
+          substitute for a physician, clinician, dietitian, therapist, or other qualified
           professional.
         </p>
         <p>

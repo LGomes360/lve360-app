@@ -36,6 +36,7 @@ export type CoachContext = {
   evidenceOptions: CoachEvidenceOption[];
   safetyContext: SafetyContext;
   preSafety: AppliedSafetyResult | null;
+  namedSafetyCandidateKeys: string[];
 };
 
 export type CoachDiagnostics = {
@@ -93,6 +94,30 @@ function regimenItems(context: MemberIntelligenceContext): MemberRegimenItemCont
 
 function supplementItems(context: MemberIntelligenceContext) {
   return [...context.regimen.supplements.value, ...context.regimen.endocrineActiveSupplements.value];
+}
+
+function searchableText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+const GENERIC_REGIMEN_WORDS = new Set(["vitamin", "magnesium", "omega", "supplement", "medication", "hormone"]);
+
+function questionNamesRegimenItem(question: string, name: string) {
+  const query = searchableText(question);
+  const item = searchableText(name);
+  const identity = healthItemIdentityKey(name).replace(/-/g, " ");
+  const firstWord = item.split(" ")[0];
+  return Boolean(item && query.includes(item))
+    || Boolean(identity && query.includes(identity))
+    || Boolean(firstWord.length >= 5 && !GENERIC_REGIMEN_WORDS.has(firstWord) && query.includes(firstWord));
+}
+
+function namedCurrentSupplements(question: string, context: MemberIntelligenceContext) {
+  return supplementItems(context).filter((item) => questionNamesRegimenItem(question, item.name));
+}
+
+function isSafetySensitiveQuestion(question: string) {
+  return /\b(?:safe|safety|interact|interaction|contraindicat|conflict|warning|separat|spacing|thyroid|levothyroxine|upper[- ]?intake|upper limit|threshold|review)\b/i.test(question);
 }
 
 function explicitlyNamedEvidenceOption(question: string, options: CoachEvidenceOption[]) {
@@ -294,6 +319,7 @@ export async function buildCoachContext(
     ? recentTurns.map((turn) => `${turn.question} ${turn.answer}`).join(" ").slice(0, 1200)
     : "";
   const evidenceOptions = needsEvidence ? retrieveCoachEvidence(`${question} ${followUpContext}`.trim()) : [];
+  const namedCurrent = namedCurrentSupplements(question, memberContext);
   const profile = memberContext.healthProfile.value;
   const safetyContext: SafetyContext = {
     medications: memberContext.regimen.medications.value.map((item) => item.name),
@@ -302,16 +328,32 @@ export async function buildCoachContext(
     procedures: profile?.procedures ?? [],
     pregnant: profile?.pregnant ?? null,
   };
-  const preSafety = needsEvidence && evidenceOptions.length
-    ? await applySafetyChecks(safetyContext, evidenceOptions.map((option) => {
+  const safetyCandidates = new Map<string, {
+    name: string;
+    dose: string | null;
+    is_current: boolean;
+    instruction_authority: string | null;
+  }>();
+  for (const option of evidenceOptions) {
       const current = supplementItems(memberContext).find((item) => healthItemIdentityKey(item.name) === healthItemIdentityKey(option.name));
-      return {
+      safetyCandidates.set(healthItemIdentityKey(option.name), {
         name: option.name,
         dose: current?.dose ?? option.doseGuidance?.startingDose ?? null,
         is_current: Boolean(current),
         instruction_authority: current?.instruction_authority ?? null,
-      };
-    }))
+      });
+  }
+  for (const current of namedCurrent) {
+    safetyCandidates.set(healthItemIdentityKey(current.name), {
+      name: current.name,
+      dose: current.dose,
+      is_current: true,
+      instruction_authority: current.instruction_authority,
+    });
+  }
+  const shouldRunNamedSafety = isSafetySensitiveQuestion(question) && namedCurrent.length > 0;
+  const preSafety = (needsEvidence && evidenceOptions.length) || shouldRunNamedSafety
+    ? await applySafetyChecks(safetyContext, [...safetyCandidates.values()])
     : null;
   const safetyByName = new Map(preSafety?.candidates.map((candidate) => [healthItemIdentityKey(candidate.name), candidate]) ?? []);
   facts.evidence_options = evidenceOptions.map((option) => {
@@ -340,6 +382,18 @@ export async function buildCoachContext(
       href: option.citationUrl,
     });
   }
+  for (const candidate of preSafety?.candidates ?? []) {
+    const evidence = candidate.evidence;
+    if (!evidence?.sourceUrl || !evidence.sourceLabel) continue;
+    const id = `safety_${healthItemIdentityKey(candidate.name)}`;
+    if (sources.some((source) => source.id === id)) continue;
+    sources.push({
+      id,
+      label: evidence.sourceLabel,
+      summary: `${candidate.name} safety rule. Confidence: ${evidence.confidence}.`,
+      href: evidence.sourceUrl,
+    });
+  }
 
   return {
     page,
@@ -352,6 +406,7 @@ export async function buildCoachContext(
     evidenceOptions,
     safetyContext,
     preSafety,
+    namedSafetyCandidateKeys: namedCurrent.map((item) => healthItemIdentityKey(item.name)),
   };
 }
 
@@ -579,7 +634,7 @@ async function postValidate(question: string, context: CoachContext, answer: Str
         directAnswer: `I would not start a new supplement from this answer alone. ${recommendation.candidate} is an evidence-informed option to discuss with a qualified professional, but LVE360 flagged a safety review before any new start.`,
         options,
         recommendation,
-        nextStep: `Review ${recommendation.candidate} and the safety note above with your clinician or pharmacist before starting it. Keep your saved Routine unchanged until that review is complete.`,
+        nextStep: `Review ${recommendation.candidate} and the safety note above with your clinician or healthcare provider before starting it. Keep your saved Routine unchanged until that review is complete.`,
       }
     : { ...answer, options, recommendation };
   return { answer: reviewedAnswer, safety, removed: answer.options.length - options.length };
@@ -689,13 +744,78 @@ function diagnosticsFromReport(
   };
 }
 
+function formatSafetyNumber(value: number) {
+  return Number.isInteger(value) ? value.toLocaleString("en-US") : Number(value.toFixed(2)).toLocaleString("en-US");
+}
+
+function evidenceDetail(candidate: AppliedSafetyResult["candidates"][number]) {
+  const evidence = candidate.findings.find((finding) => finding.evidence?.provenanceStatus === "reviewed")?.evidence
+    ?? candidate.evidence;
+  if (!evidence) return "Evidence provenance for this exact item is not yet fully reviewed.";
+  const qualification = evidence.qualification ? ` Important context: ${evidence.qualification}` : "";
+  return `Evidence: ${evidence.sourceLabel ?? "LVE360 structured safety rule"}. Confidence: ${evidence.confidence}.${qualification}`;
+}
+
+function deterministicNamedSafetyAnswer(question: string, context: CoachContext) {
+  if (!isSafetySensitiveQuestion(question) || !context.preSafety?.complete || !context.namedSafetyCandidateKeys.length) return null;
+  const named = new Set(context.namedSafetyCandidateKeys);
+  const candidates = context.preSafety.candidates.filter((candidate) => named.has(healthItemIdentityKey(candidate.name)));
+  if (!candidates.length) return null;
+  const sourceIds = [
+    "current_routine",
+    "health_profile",
+    ...candidates.map((candidate) => `safety_${healthItemIdentityKey(candidate.name)}`),
+  ].filter((id) => context.sources.some((source) => source.id === id));
+
+  if (/\b(?:upper[- ]?intake|upper limit|threshold|above the general)\b/i.test(question)) {
+    const candidate = candidates.find((item) => item.findings.some((finding) => finding.code === "upper_limit"));
+    const finding = candidate?.findings.find((item) => item.code === "upper_limit");
+    if (candidate && finding?.doseComparison) {
+      const comparison = finding.doseComparison;
+      const threshold = comparison.thresholdInRecordedUnit != null && comparison.recordedUnit
+        ? `${formatSafetyNumber(comparison.thresholdInRecordedUnit)} ${comparison.recordedUnit.toUpperCase()}`
+        : `${formatSafetyNumber(comparison.thresholdAmount)} ${comparison.thresholdUnit}`;
+      const equivalent = comparison.thresholdInRecordedUnit != null
+        && comparison.recordedUnit !== comparison.thresholdUnit
+        ? ` (${formatSafetyNumber(comparison.thresholdAmount)} ${comparison.thresholdUnit})`
+        : "";
+      return {
+        answer: `Yes. Your current ${candidate.name} dose is recorded as ${comparison.recordedDose}. The general adult upper-intake threshold in LVE360's reviewed rule is ${threshold}${equivalent}, so the recorded dose is above that general threshold.\n\n${finding.message}\n\n${evidenceDetail(candidate)}`,
+        sourceIds,
+        responseSource: "deterministic" as const,
+      };
+    }
+  }
+
+  if (/\b(?:thyroid|levothyroxine|separat|spacing|interact|interaction|review)\b/i.test(question)) {
+    const lines = candidates.map((candidate) => {
+      const timingFindings = candidate.findings.filter((finding) => ["thyroid_spacing", "medication_spacing"].includes(finding.code));
+      if (timingFindings.length) {
+        return `- ${candidate.name}: ${timingFindings.map((finding) => finding.message).join(" ")} ${evidenceDetail(candidate)}`;
+      }
+      if (candidate.evidence?.provenanceStatus === "reviewed") {
+        return `- ${candidate.name}: LVE360's reviewed structured rule did not identify a general requirement to separate this recorded form from thyroid medication. ${evidenceDetail(candidate)}`;
+      }
+      return `- ${candidate.name}: LVE360 did not identify a thyroid-spacing rule, but provenance for this exact form is incomplete, so this is not a clearance.`;
+    });
+    const hasTimingFinding = candidates.some((candidate) => candidate.findings.some((finding) => ["thyroid_spacing", "medication_spacing"].includes(finding.code)));
+    return {
+      answer: `${hasTimingFinding ? "Here is the current deterministic timing review" : "LVE360 did not identify a general thyroid-spacing requirement for the exact Routine items you named"}:\n\n${lines.join("\n")}\n\nThis is not a guarantee that every product or circumstance is risk-free. Keep prescription instructions unchanged and confirm any conflicting product label or new clinical circumstance with your clinician or healthcare provider.`,
+      sourceIds,
+      responseSource: "deterministic" as const,
+    };
+  }
+  return null;
+}
+
 export async function generateCoachAnswer(userId: string, question: string, context: CoachContext) {
   const routing: CoachRoutingDecision = {
     intent: context.intent,
     constraints: context.constraints,
     requestedRegimenKinds: context.requestedRegimenKinds,
   };
-  const deterministic = deterministicCoachTask(routing, context.memberContext, question)
+  const deterministic = deterministicNamedSafetyAnswer(question, context)
+    ?? deterministicCoachTask(routing, context.memberContext, question)
     ?? deterministicRecordMutation(question, context)
     ?? deterministicPlanLookup(question, context)
     ?? deterministicTodayStep(question, context)

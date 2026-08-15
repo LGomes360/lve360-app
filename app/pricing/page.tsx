@@ -92,7 +92,7 @@ export default function Pricing() {
           {[
             ["A focused loop", "A clear weekly practice, a lightweight check-in, and a review of progress. It is not an endless list of tasks."],
             ["A grounded second look", "Organize your stack and questions so you can make better-informed decisions and know when to involve a clinician."],
-            ["Not medical care", "LVE360 is educational wellness guidance. It does not diagnose, treat, or replace a clinician or pharmacist."],
+            ["Not medical care", "LVE360 is educational wellness guidance. It does not diagnose, treat, or replace a clinician or healthcare provider."],
           ].map(([title, description]) => (
             <article key={title} className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
               <h3 className="font-bold text-[#041b2d]">{title}</h3>
