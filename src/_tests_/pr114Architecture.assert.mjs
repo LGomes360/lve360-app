@@ -7,7 +7,7 @@ const coachRoute = read("../../app/api/coach/route.ts");
 const actionRoute = read("../../app/api/coach/actions/route.ts");
 const review = read("../components/review/WeeklyReviewClient.tsx");
 const reviewRoute = read("../../app/api/weekly-review/route.ts");
-const migration = read("../../supabase/migrations/20260816022115_pr114_controlled_coach_actions.sql");
+const migration = read("../../supabase/migrations/20260816023219_pr114_controlled_coach_actions.sql");
 
 assert.match(coach, /Preview as next week&apos;s practice/);
 assert.match(coach, /Save for weekly review/);
