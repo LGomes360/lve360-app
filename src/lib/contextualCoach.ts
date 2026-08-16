@@ -1,4 +1,6 @@
-export const COACH_PROMPT_VERSION = "contextual-coach-v4";
+import type { CoachActionProposal, ProposedWeeklyPractice } from "./coachActions";
+
+export const COACH_PROMPT_VERSION = "contextual-coach-v5";
 
 export type CoachIntent =
   | "GENERAL_EDUCATION"
@@ -70,6 +72,7 @@ export type StructuredCoachAnswer = {
   recommendation: { candidate: string; reason: string; trialPeriodDays: number | null; metrics: string[] } | null;
   nextStep: string;
   sourceIds: string[];
+  proposedAction?: ProposedWeeklyPractice | null;
 };
 
 export type CoachQualityReport = {
@@ -107,6 +110,7 @@ export type CoachTurn = {
   source_refs: CoachSource[];
   feedback: CoachFeedback | null;
   created_at: string;
+  action_proposal?: CoachActionProposal | null;
 };
 
 const PAGE_MAP: Array<[RegExp, CoachPage]> = [
@@ -253,6 +257,31 @@ function cleanText(value: unknown, max = 1000) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
 }
 
+const COACH_ACTION_INTENTS = new Set<CoachIntent>(["BEHAVIORAL_COACHING", "PRIORITIZATION", "PROGRESS_COACHING"]);
+const COACH_ACTION_IDENTITIES = new Set(["movement", "nutrition", "sleep", "emotional_health", "relationships", "focus", "career", "happiness", "overall_health"]);
+const CONTROLLED_ACTION_BLOCKLIST = /\b(?:supplement|vitamin|magnesium|creatine|omega[- ]?3|fish oil|ashwagandha|melatonin|probiotic|medication|medicine|prescription|dose|dosage|capsule|tablet|softgel|hormone|clinician|healthcare provider|physician|doctor|pharmacist|blood test|lab(?:oratory)?|reminder|saved record|\d+(?:\.\d+)?\s*(?:mg|mcg|µg|iu))\b/i;
+
+function controlledActionText(value: unknown, min: number, max: number): string | null {
+  const text = cleanText(value, max);
+  return text.length >= min && !CONTROLLED_ACTION_BLOCKLIST.test(text) ? text : null;
+}
+
+export function parseProposedWeeklyPractice(value: unknown, intent: CoachIntent): ProposedWeeklyPractice | null {
+  if (!COACH_ACTION_INTENTS.has(intent) || !value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const identity = typeof raw.identity_direction === "string" && COACH_ACTION_IDENTITIES.has(raw.identity_direction)
+    ? raw.identity_direction as ProposedWeeklyPractice["identityDirection"]
+    : null;
+  const actionLabel = controlledActionText(raw.action_label, 4, 240);
+  const cue = controlledActionText(raw.cue, 2, 160);
+  const minimumVersion = controlledActionText(raw.minimum_version, 4, 160);
+  const rationale = controlledActionText(raw.rationale, 4, 300);
+  const frequencyPerWeek = Number(raw.frequency_per_week);
+  if (raw.type !== "weekly_practice" || !identity || !actionLabel || !cue || !minimumVersion || !rationale) return null;
+  if (!Number.isInteger(frequencyPerWeek) || frequencyPerWeek < 1 || frequencyPerWeek > 7) return null;
+  return { type: "weekly_practice", identityDirection: identity, actionLabel, cue, frequencyPerWeek, minimumVersion, rationale };
+}
+
 function isCoachIntent(value: unknown): value is CoachIntent {
   return [
     "GENERAL_EDUCATION", "PERSONALIZED_RECOMMENDATION", "CURRENT_REGIMEN_LOOKUP",
@@ -310,7 +339,8 @@ export function parseStructuredCoachAnswer(
     const sourceIds = Array.isArray(value.source_ids)
       ? [...new Set(value.source_ids.filter((id): id is string => typeof id === "string" && validSourceIds.has(id)))]
       : [];
-    return { intent, directAnswer, options, recommendation, nextStep, sourceIds };
+    const proposedAction = parseProposedWeeklyPractice(value.proposed_action, intent);
+    return { intent, directAnswer, options, recommendation, nextStep, sourceIds, proposedAction };
   } catch {
     return null;
   }

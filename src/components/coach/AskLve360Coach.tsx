@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, MessageCircle, Send, Sparkles, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { CalendarPlus, Check, ExternalLink, Loader2, MessageCircle, Send, Sparkles, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -12,6 +12,8 @@ import {
   type CoachFeedback,
   type CoachTurn,
 } from "@/lib/contextualCoach";
+import { identityLabel } from "@/lib/activation";
+import type { CoachActionProposal } from "@/lib/coachActions";
 
 type Usage = {
   turns: number;
@@ -30,6 +32,8 @@ export default function AskLve360Coach() {
   const [turns, setTurns] = useState<CoachTurn[]>([]);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [previewingId, setPreviewingId] = useState<string | null>(null);
+  const [actionBusyId, setActionBusyId] = useState<string | null>(null);
   const launchButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -115,6 +119,28 @@ export default function AskLve360Coach() {
     }
   }
 
+  async function updateAction(proposalId: string, action: "confirm" | "cancel") {
+    setActionBusyId(proposalId);
+    setError(null);
+    try {
+      const response = await fetch("/api/coach/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proposal_id: proposalId, action }),
+      });
+      const payload = await response.json().catch(() => null) as { ok?: boolean; proposal?: CoachActionProposal; error?: string } | null;
+      if (!response.ok || !payload?.ok || !payload.proposal) throw new Error(payload?.error ?? "coach_action_unavailable");
+      setTurns((current) => current.map((turn) => turn.action_proposal?.id === proposalId
+        ? { ...turn, action_proposal: payload.proposal }
+        : turn));
+      setPreviewingId(null);
+    } catch {
+      setError(action === "confirm" ? "That practice was not saved. Please try again." : "That suggestion was not removed. Please try again.");
+    } finally {
+      setActionBusyId(null);
+    }
+  }
+
   const remaining = usage ? Math.max(0, usage.limit.monthlyTurns - usage.turns) : null;
 
   return (
@@ -181,6 +207,16 @@ export default function AskLve360Coach() {
                     <div className="ml-auto max-w-[88%] rounded-2xl rounded-br-md bg-[#041B2D] px-4 py-3 text-sm leading-6 text-white sm:max-w-[78%]">{turn.question}</div>
                     <div className="mr-auto w-full rounded-2xl rounded-bl-md border border-[#9DCFC3] bg-white p-4 shadow-sm sm:p-5">
                       <p className="whitespace-pre-wrap text-[15px] leading-7 text-[#17384A]">{turn.answer}</p>
+                      {turn.action_proposal ? (
+                        <CoachActionCard
+                          proposal={turn.action_proposal}
+                          previewing={previewingId === turn.action_proposal.id}
+                          busy={actionBusyId === turn.action_proposal.id}
+                          onPreview={() => setPreviewingId(turn.action_proposal?.id ?? null)}
+                          onConfirm={() => void updateAction(turn.action_proposal!.id, "confirm")}
+                          onCancel={() => void updateAction(turn.action_proposal!.id, "cancel")}
+                        />
+                      ) : null}
                       {turn.source_refs?.length ? (
                         <details className="mt-4 border-t border-slate-100 pt-3">
                           <summary className="cursor-pointer text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">What I used</summary>
@@ -246,5 +282,67 @@ export default function AskLve360Coach() {
         </div>
       ), document.body) : null}
     </>
+  );
+}
+
+function CoachActionCard({
+  proposal,
+  previewing,
+  busy,
+  onPreview,
+  onConfirm,
+  onCancel,
+}: {
+  proposal: CoachActionProposal;
+  previewing: boolean;
+  busy: boolean;
+  onPreview: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (proposal.status === "cancelled") {
+    return <p className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-sm text-[#60798A]">Suggestion not saved. Your weekly practice is unchanged.</p>;
+  }
+  if (proposal.status === "applied") {
+    return <p className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[#EAFBF8] px-4 py-3 text-sm font-bold text-[#06695F]"><Check className="h-4 w-4" /> Added to your weekly practice</p>;
+  }
+  if (proposal.status === "confirmed") {
+    return (
+      <section className="mt-4 rounded-2xl border border-[#9DCFC3] bg-[#F4FAF8] p-4">
+        <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]"><Check className="h-4 w-4" /> Saved for your weekly review</p>
+        <p className="mt-2 font-bold text-[#041B2D]">{proposal.actionLabel}</p>
+        <p className="mt-1 text-sm leading-6 text-[#486170]">Nothing changes this week. You can use or edit this idea when you shape your next week.</p>
+        <button type="button" onClick={onCancel} disabled={busy} className="mt-3 text-sm font-bold text-[#486170] underline decoration-slate-300 underline-offset-4 hover:text-[#041B2D] disabled:opacity-50">
+          {busy ? "Removing..." : "Remove from weekly review"}
+        </button>
+      </section>
+    );
+  }
+  if (!previewing) {
+    return (
+      <button type="button" onClick={onPreview} className="mt-4 inline-flex min-h-11 items-center rounded-xl border border-[#087F72] bg-[#EAFBF8] px-4 py-2 text-sm font-bold text-[#06695F] hover:bg-[#DDF7F1]">
+        <CalendarPlus className="mr-2 h-4 w-4" /> Preview as next week&apos;s practice
+      </button>
+    );
+  }
+  return (
+    <section className="mt-4 rounded-2xl border-2 border-[#087F72] bg-[#F4FAF8] p-4 sm:p-5">
+      <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">Preview only</p>
+      <h3 className="mt-2 text-lg font-black text-[#041B2D]">{proposal.actionLabel}</h3>
+      <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+        <div><dt className="font-bold text-[#486170]">Identity</dt><dd className="mt-1 text-[#041B2D]">{identityLabel(proposal.identityDirection)}</dd></div>
+        <div><dt className="font-bold text-[#486170]">Cue</dt><dd className="mt-1 text-[#041B2D]">{proposal.cue}</dd></div>
+        <div><dt className="font-bold text-[#486170]">Weekly target</dt><dd className="mt-1 text-[#041B2D]">{proposal.frequencyPerWeek} days</dd></div>
+        <div><dt className="font-bold text-[#486170]">On a hard day</dt><dd className="mt-1 text-[#041B2D]">{proposal.minimumVersion}</dd></div>
+      </dl>
+      <p className="mt-4 text-sm leading-6 text-[#486170]">{proposal.rationale}</p>
+      <p className="mt-3 text-xs font-semibold text-[#60798A]">Saving this queues the idea for your weekly review. It does not change your current week or any saved health record.</p>
+      <div className="mt-4 flex flex-wrap gap-3">
+        <button type="button" onClick={onConfirm} disabled={busy} className="inline-flex min-h-11 items-center rounded-xl bg-[#087F72] px-4 py-2 text-sm font-bold text-white hover:bg-[#06695F] disabled:opacity-50">
+          {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />} Save for weekly review
+        </button>
+        <button type="button" onClick={onCancel} disabled={busy} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-[#486170] hover:border-slate-400 disabled:opacity-50">Not now</button>
+      </div>
+    </section>
   );
 }

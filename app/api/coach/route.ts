@@ -16,6 +16,7 @@ import {
   type CoachTurn,
 } from "@/lib/contextualCoach";
 import { coachBudget } from "@/lib/contextualCoachBudget";
+import { coachActionFromRow, type ProposedWeeklyPractice } from "@/lib/coachActions";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
@@ -65,7 +66,40 @@ async function saveTurn(userId: string, values: Record<string, unknown>) {
     .select("id,page_context,question,answer,response_source,generation_status,source_refs,feedback,created_at")
     .single();
   if (error) throw error;
-  return data as CoachTurn;
+  return { ...(data as CoachTurn), action_proposal: null };
+}
+
+const ACTION_PROPOSAL_COLUMNS = "id,source_turn_id,status,identity_direction,action_label,cue,frequency_per_week,minimum_version,rationale,confirmed_at,cancelled_at,applied_at,applied_experiment_id,created_at";
+
+async function attachActionProposals(userId: string, turns: CoachTurn[]): Promise<CoachTurn[]> {
+  if (!turns.length) return turns;
+  const { data, error } = await getSupabaseAdmin().from("coach_action_proposals")
+    .select(ACTION_PROPOSAL_COLUMNS)
+    .eq("user_id", userId)
+    .in("source_turn_id", turns.map((turn) => turn.id));
+  if (error) throw error;
+  const proposals = new Map((data ?? []).map((row) => [String(row.source_turn_id), coachActionFromRow(row)]));
+  return turns.map((turn) => ({ ...turn, action_proposal: proposals.get(turn.id) ?? null }));
+}
+
+async function saveActionProposal(userId: string, turnId: string, proposal: ProposedWeeklyPractice | null) {
+  if (!proposal) return null;
+  const { data, error } = await getSupabaseAdmin().from("coach_action_proposals").upsert({
+    user_id: userId,
+    source_turn_id: turnId,
+    action_type: proposal.type,
+    status: "proposed",
+    identity_direction: proposal.identityDirection,
+    action_label: proposal.actionLabel,
+    cue: proposal.cue,
+    frequency_per_week: proposal.frequencyPerWeek,
+    minimum_version: proposal.minimumVersion,
+    rationale: proposal.rationale,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "source_turn_id", ignoreDuplicates: true })
+    .select(ACTION_PROPOSAL_COLUMNS).single();
+  if (error) throw error;
+  return coachActionFromRow(data);
 }
 
 export async function GET() {
@@ -81,7 +115,8 @@ export async function GET() {
       usage(auth.user.id),
     ]);
     if (error) throw error;
-    return NextResponse.json({ ok: true, turns: (data ?? []) as CoachTurn[], usage: currentUsage });
+    const turns = await attachActionProposals(auth.user.id, (data ?? []) as CoachTurn[]);
+    return NextResponse.json({ ok: true, turns, usage: currentUsage });
   } catch (error) {
     console.error("[coach] load failed", error);
     return NextResponse.json({ ok: false, error: "coach_unavailable" }, { status: 500 });
@@ -154,6 +189,7 @@ export async function POST(req: NextRequest) {
     let sourceRefs: CoachSource[] = context.sources;
     let responseSource: CoachTurn["response_source"] = "fallback";
     let generationStatus: CoachTurn["generation_status"] = "failed";
+    let generatedResult: Awaited<ReturnType<typeof generateCoachAnswer>> | undefined;
     let diagnostics: CoachDiagnostics = {
       intent,
       constraints: routing.constraints,
@@ -173,6 +209,7 @@ export async function POST(req: NextRequest) {
     };
     try {
       const generated = await generateCoachAnswer(auth.user.id, question, context);
+      generatedResult = generated;
       if (generated) {
         answer = generated.answer;
         sourceRefs = context.sources.filter((source) => generated.sourceIds.includes(source.id));
@@ -214,11 +251,19 @@ export async function POST(req: NextRequest) {
     }).eq("id", pending.id).eq("user_id", auth.user.id)
       .select("id,page_context,question,answer,response_source,generation_status,source_refs,feedback,created_at").single();
     if (updateError) throw updateError;
-    return NextResponse.json({ ok: true, turn: turn as CoachTurn, usage: await usage(auth.user.id) });
+    const actionProposal = await saveActionProposal(auth.user.id, turn.id, generatedActionProposal(generationStatus, generatedResult));
+    return NextResponse.json({ ok: true, turn: { ...(turn as CoachTurn), action_proposal: actionProposal }, usage: await usage(auth.user.id) });
   } catch (error) {
     console.error("[coach] answer failed", error);
     return NextResponse.json({ ok: false, error: "coach_unavailable" }, { status: 500 });
   }
+}
+
+function generatedActionProposal(
+  generationStatus: CoachTurn["generation_status"],
+  generated: Awaited<ReturnType<typeof generateCoachAnswer>> | undefined,
+): ProposedWeeklyPractice | null {
+  return generationStatus === "succeeded" ? generated?.proposedAction ?? null : null;
 }
 
 export async function PATCH(req: NextRequest) {
