@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const TODAY_BRIEF_PROMPT_VERSION = "today-brief-v3";
+export const TODAY_BRIEF_PROMPT_VERSION = "today-brief-v4";
 
 export type TodayBriefPrimaryAction =
   | "mark_complete"
@@ -19,6 +19,7 @@ export type TodayBriefContext = {
     target: number;
     completed: number;
     completedToday: boolean;
+    connectionSummary: string;
   } | null;
   blueprint: {
     stackId: string;
@@ -145,7 +146,7 @@ export function deterministicTodayBrief(context: TodayBriefContext): TodayBriefC
     noticed: remaining === 1
       ? "One more repetition will keep your promise for this week."
       : `You have completed ${context.experiment.completed} of ${context.experiment.target} planned repetitions this week.`,
-    whyItMatters: `This is one vote for ${context.experiment.identity.toLowerCase()}.`,
+    whyItMatters: context.experiment.connectionSummary,
     nextAction: context.experiment.actionLabel,
     minimumVersion: context.experiment.minimumVersion,
     primaryAction: "mark_complete",

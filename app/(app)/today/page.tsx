@@ -8,6 +8,7 @@ import type { WeeklyExperiment } from "@/lib/activation";
 import { getCurrentBlueprintContext, getExperimentBlueprintContexts } from "@/lib/currentBlueprintContext";
 import { parseLocalDate } from "@/lib/today";
 import { getPremiumActivationProgress } from "@/lib/premiumActivation";
+import { practiceGoalOptions, resolvePracticeConnection, type PracticeGoalRow } from "@/lib/practiceConnection";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -64,6 +65,10 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ c
   const experimentBlueprints = activeExperiment
     ? await getExperimentBlueprintContexts(user.id, [activeExperiment], blueprint)
     : {};
+  const experimentBlueprint = activeExperiment ? experimentBlueprints[activeExperiment.id] ?? null : null;
+  const practiceConnection = activeExperiment
+    ? resolvePracticeConnection(activeExperiment, practiceGoalOptions((goals as PracticeGoalRow | null) ?? null), experimentBlueprint)
+    : null;
 
   const targetWeight = goals?.target_weight ?? null;
   const targetSleep = goals?.target_sleep ?? null;
@@ -74,7 +79,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ c
       <TodayClient
         experiment={activeExperiment}
         blueprint={blueprint}
-        experimentBlueprint={activeExperiment ? experimentBlueprints[activeExperiment.id] ?? null : null}
+        experimentBlueprint={experimentBlueprint}
+        practiceConnection={practiceConnection}
         checkinDate={checkinDate}
         reminderDeliveryId={unratedReminderDeliveryId}
         activationProgress={activationProgress}
