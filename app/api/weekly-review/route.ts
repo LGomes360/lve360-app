@@ -9,10 +9,13 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 import { getCurrentBlueprintContext, getExperimentBlueprintContexts } from "@/lib/currentBlueprintContext";
 import { practiceGoalOptions, resolvePracticeConnection, type PracticeGoalRow } from "@/lib/practiceConnection";
+import { coachActionFromRow, type CoachActionProposal } from "@/lib/coachActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const fetchCache = "force-no-store";
+
+const COACH_ACTION_COLUMNS = "id,source_turn_id,status,identity_direction,action_label,cue,frequency_per_week,minimum_version,rationale,confirmed_at,cancelled_at,applied_at,applied_experiment_id,created_at";
 
 async function requirePaidUser() {
   const supabase = createRouteHandlerClient({ cookies });
@@ -62,12 +65,16 @@ export async function GET(req: NextRequest) {
     if (!isReviewDue(experiment.week_start, todayUtc())) {
       return NextResponse.json({ ok: false, error: "review_not_due" }, { status: 409 });
     }
-    const [completed, blueprint, { data: goals, error: goalsError }] = await Promise.all([
+    const [completed, blueprint, { data: goals, error: goalsError }, { data: queuedAction, error: queuedActionError }] = await Promise.all([
       countCompletions(auth.user.id, experiment),
       getCurrentBlueprintContext(auth.user.id),
       getSupabaseAdmin().from("goals").select("id,goals,custom_goal,target_weight,target_sleep,target_energy").eq("user_id", auth.user.id).maybeSingle(),
+      getSupabaseAdmin().from("coach_action_proposals").select(COACH_ACTION_COLUMNS)
+        .eq("user_id", auth.user.id).eq("status", "confirmed")
+        .order("confirmed_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
     if (goalsError) throw goalsError;
+    if (queuedActionError) throw queuedActionError;
     const blueprintContexts = await getExperimentBlueprintContexts(auth.user.id, [experiment], blueprint);
     const practiceConnection = resolvePracticeConnection(
       experiment,
@@ -91,7 +98,14 @@ export async function GET(req: NextRequest) {
       experiment_id: experiment.id,
       event_key: `review:opened:${experiment.id}`,
     });
-    return NextResponse.json({ ok: true, experiment, completed, target: experiment.frequency_per_week ?? 1, practice_connection: practiceConnection });
+    return NextResponse.json({
+      ok: true,
+      experiment,
+      completed,
+      target: experiment.frequency_per_week ?? 1,
+      practice_connection: practiceConnection,
+      queued_coach_action: queuedAction ? coachActionFromRow(queuedAction) : null,
+    });
   } catch (error) {
     console.error("[weekly-review] load failed", error);
     return NextResponse.json({ ok: false, error: "review_unavailable" }, { status: 500 });
@@ -113,6 +127,11 @@ export async function POST(req: NextRequest) {
     const experiment = await loadExperiment(auth.user.id, experimentId);
     if (!experiment) return NextResponse.json({ ok: false, error: "experiment_not_found" }, { status: 404 });
     if (!isReviewDue(experiment.week_start, todayUtc())) return NextResponse.json({ ok: false, error: "review_not_due" }, { status: 409 });
+    const proposalId = typeof body?.coach_action_proposal_id === "string" ? body.coach_action_proposal_id : null;
+    const queuedProposal = proposalId ? await loadConfirmedCoachAction(auth.user.id, proposalId) : null;
+    if (proposalId && (!queuedProposal || decision !== "swap")) {
+      return NextResponse.json({ ok: false, error: "invalid_coach_action" }, { status: 409 });
+    }
     const nextPlan = decision === "pause" ? null : validateNextPlan(body?.next_plan);
     if (decision !== "pause" && !nextPlan) return NextResponse.json({ ok: false, error: "invalid_next_plan" }, { status: 400 });
 
@@ -135,6 +154,22 @@ export async function POST(req: NextRequest) {
     if (synthesisId) {
       await recordSynthesisResponse(auth.user.id, synthesisId, decision, nextPlan, typeof data === "string" ? data : null);
     }
+    if (queuedProposal && typeof data === "string") {
+      const now = new Date().toISOString();
+      const admin = getSupabaseAdmin();
+      const { error: identityError } = await admin.from("weekly_experiments").update({
+        identity_direction: queuedProposal.identityDirection,
+        updated_at: now,
+      }).eq("id", data).eq("user_id", auth.user.id);
+      if (identityError) console.warn("[weekly-review] coach action identity linkage failed", identityError.message);
+      const { error: proposalError } = await admin.from("coach_action_proposals").update({
+        status: "applied",
+        applied_at: now,
+        applied_experiment_id: data,
+        updated_at: now,
+      }).eq("id", queuedProposal.id).eq("user_id", auth.user.id).eq("status", "confirmed");
+      if (proposalError) console.warn("[weekly-review] coach action linkage failed", proposalError.message);
+    }
     await recordProductEventSafely({
       event_name: "weekly_review_completed",
       source: "weekly_review",
@@ -147,6 +182,13 @@ export async function POST(req: NextRequest) {
     console.error("[weekly-review] save failed", error);
     return NextResponse.json({ ok: false, error: "review_unavailable" }, { status: 500 });
   }
+}
+
+async function loadConfirmedCoachAction(userId: string, proposalId: string): Promise<CoachActionProposal | null> {
+  const { data, error } = await getSupabaseAdmin().from("coach_action_proposals")
+    .select(COACH_ACTION_COLUMNS).eq("id", proposalId).eq("user_id", userId).eq("status", "confirmed").maybeSingle();
+  if (error) throw error;
+  return data ? coachActionFromRow(data) : null;
 }
 
 async function recordSynthesisResponse(

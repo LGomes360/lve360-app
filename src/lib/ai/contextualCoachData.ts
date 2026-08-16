@@ -436,8 +436,9 @@ function prompt(question: string, context: CoachContext, repair: CoachRepairInst
         repair
           ? "The previous candidate failed task-success validation. Correct every supplied failed validator, missing requirement, and constraint violation. Do not merely rephrase the previous answer."
           : "",
-        "Return only valid JSON with: intent, direct_answer, options, recommendation, next_step, source_ids.",
+        "Return only valid JSON with: intent, direct_answer, options, recommendation, next_step, source_ids, proposed_action.",
         "options is an array of {name, fit: strong|neutral|weak, reason}; use only exact names from evidence_options. recommendation is null or {candidate, reason, trial_period_days, metrics}. source_ids must use only supplied source IDs.",
+        "proposed_action must be null unless the intent is BEHAVIORAL_COACHING, PRIORITIZATION, or PROGRESS_COACHING and one safe lifestyle practice directly follows from the answer. When eligible, it may be {type:'weekly_practice', identity_direction, action_label, cue, frequency_per_week, minimum_version, rationale}. identity_direction must be one of movement, nutrition, sleep, emotional_health, relationships, focus, career, happiness, overall_health. Never put a medication, hormone, supplement, dose, test, clinician task, reminder, or saved-record change in proposed_action.",
       ].filter(Boolean).join(" "),
     },
     {
@@ -547,6 +548,7 @@ function fallbackStructured(question: string, context: CoachContext): Structured
         ? `Choose one small weekly action connected to ${priorities[0]}.`
         : "Review the linked record, then ask one narrower follow-up question.",
       sourceIds: context.sources.map((source) => source.id),
+      proposedAction: null,
     };
   }
   const safetyByName = new Map(context.preSafety?.candidates.map((candidate) => [healthItemIdentityKey(candidate.name), candidate]) ?? []);
@@ -577,6 +579,7 @@ function fallbackStructured(question: string, context: CoachContext): Structured
       ? current ? `Review the saved dose and timing for ${selected.name}; do not add a second product.` : `Change only one thing, then track the selected outcomes for 7–14 days before deciding whether it helped.`
       : "Review the highlighted safety notes before considering a new supplement.",
     sourceIds: [...context.sources.map((source) => source.id)],
+    proposedAction: null,
   };
 }
 
@@ -710,6 +713,7 @@ function narrowSafeFallback(context: CoachContext) {
     answer: "I could not verify a complete, grounded answer to this request, so I will not guess. Your saved information and Routine are unchanged. Review the linked LVE360 record, then try one narrower question.",
     sourceIds,
     responseSource: "fallback" as const,
+    proposedAction: null,
   };
 }
 
@@ -838,6 +842,7 @@ export async function generateCoachAnswer(userId: string, question: string, cont
     }
     return {
       ...deterministic,
+      proposedAction: null,
       diagnostics: diagnosticsFromReport(context, taskReport, {
         safetyRuleCount: context.preSafety?.findings.length ?? 0,
         recommendationsRemoved: 0,
@@ -965,6 +970,7 @@ export async function generateCoachAnswer(userId: string, question: string, cont
     answer: finalRendered,
     sourceIds,
     responseSource,
+    proposedAction: finalValidated.answer.proposedAction ?? null,
     diagnostics: diagnosticsFromReport(context, finalReport, {
       safetyRuleCount: finalValidated.safety?.findings.length ?? 0,
       recommendationsRemoved: finalValidated.removed,

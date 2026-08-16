@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, Loader2, Pause, RefreshCw, Repeat2, Sparkles, TrendingUp } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Lightbulb, Loader2, Pause, RefreshCw, Repeat2, Sparkles, TrendingUp, X } from "lucide-react";
 
 import type { WeeklyExperiment } from "@/lib/activation";
 import { suggestedNextPlan, type NextWeekPlan, type ReviewDecision } from "@/lib/weeklyReview";
 import type { WeeklySynthesis } from "@/lib/weeklySynthesis";
 import type { PracticeConnectionContext } from "@/lib/practiceConnection";
+import type { CoachActionProposal } from "@/lib/coachActions";
 
 type ReviewResponse = {
   ok: boolean;
@@ -14,6 +15,7 @@ type ReviewResponse = {
   completed?: number;
   target?: number;
   practice_connection?: PracticeConnectionContext;
+  queued_coach_action?: CoachActionProposal | null;
   error?: string;
 };
 
@@ -30,6 +32,9 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
   const [completed, setCompleted] = useState(0);
   const [target, setTarget] = useState(1);
   const [practiceConnection, setPracticeConnection] = useState<PracticeConnectionContext | null>(null);
+  const [queuedCoachAction, setQueuedCoachAction] = useState<CoachActionProposal | null>(null);
+  const [selectedCoachActionId, setSelectedCoachActionId] = useState<string | null>(null);
+  const [coachActionBusy, setCoachActionBusy] = useState(false);
   const [difficulty, setDifficulty] = useState(0);
   const [valueRating, setValueRating] = useState(0);
   const [decision, setDecision] = useState<ReviewDecision | null>(null);
@@ -54,6 +59,7 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
         setCompleted(json.completed ?? 0);
         setTarget(json.target ?? 1);
         setPracticeConnection(json.practice_connection ?? null);
+        setQueuedCoachAction(json.queued_coach_action ?? null);
       })
       .catch((loadError: Error) => { if (!cancelled) setError(loadError.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -65,6 +71,7 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
   function chooseDecision(value: ReviewDecision) {
     setDecision(value);
     setNextPlan(experiment ? suggestedNextPlan(experiment, value) : null);
+    setSelectedCoachActionId(null);
   }
 
   async function requestSuggestion() {
@@ -91,6 +98,43 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
     if (!synthesis) return;
     setDecision(synthesis.suggestedDecision);
     setNextPlan(synthesis.suggestedPlan);
+    setSelectedCoachActionId(null);
+  }
+
+  function useQueuedCoachAction() {
+    if (!queuedCoachAction) return;
+    setDecision("swap");
+    setNextPlan({
+      action_label: queuedCoachAction.actionLabel,
+      cue: queuedCoachAction.cue,
+      frequency_per_week: queuedCoachAction.frequencyPerWeek,
+      minimum_version: queuedCoachAction.minimumVersion,
+    });
+    setSelectedCoachActionId(queuedCoachAction.id);
+  }
+
+  async function removeQueuedCoachAction() {
+    if (!queuedCoachAction || coachActionBusy) return;
+    setCoachActionBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/coach/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proposal_id: queuedCoachAction.id, action: "cancel" }),
+      });
+      if (!response.ok) throw new Error("remove_failed");
+      setQueuedCoachAction(null);
+      if (selectedCoachActionId === queuedCoachAction.id) {
+        setSelectedCoachActionId(null);
+        setDecision(null);
+        setNextPlan(null);
+      }
+    } catch {
+      setError("That saved coaching idea was not removed. Please try again.");
+    } finally {
+      setCoachActionBusy(false);
+    }
   }
 
   async function finishReview() {
@@ -101,7 +145,7 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
       const response = await fetch("/api/weekly-review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ experiment_id: experimentId, difficulty, value_rating: valueRating, decision, next_plan: nextPlan, synthesis_id: synthesis?.id ?? null }),
+        body: JSON.stringify({ experiment_id: experimentId, difficulty, value_rating: valueRating, decision, next_plan: nextPlan, synthesis_id: synthesis?.id ?? null, coach_action_proposal_id: selectedCoachActionId }),
       });
       const json = await response.json().catch(() => null) as ReviewResponse | null;
       if (!response.ok || !json?.ok) throw new Error(reviewError(json?.error));
@@ -140,6 +184,19 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
             <button type="button" onClick={() => void requestSuggestion()} disabled={synthesisLoading} className="mt-5 inline-flex min-h-11 items-center rounded-xl border border-[#087F72] bg-white px-4 py-2 text-sm font-bold text-[#087F72] hover:bg-[#EAFBF8] disabled:opacity-60">{synthesisLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />} Get a grounded suggestion</button>
           </section>
         )
+      ) : null}
+
+      {queuedCoachAction ? (
+        <section className="mt-8 rounded-3xl border-2 border-[#087F72] bg-[#F4FAF8] p-6 sm:p-8">
+          <div className="flex items-start gap-3"><Lightbulb className="mt-1 h-5 w-5 shrink-0 text-[#087F72]" aria-hidden="true" /><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Saved from Ask LVE360</p><h2 className="mt-2 text-xl font-black text-[#041B2D]">An idea you kept for this review</h2></div></div>
+          <p className="mt-4 font-bold text-[#041B2D]">{queuedCoachAction.actionLabel}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{queuedCoachAction.rationale}</p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button type="button" onClick={useQueuedCoachAction} className="inline-flex min-h-11 items-center rounded-xl bg-[#087F72] px-4 py-2 text-sm font-bold text-white hover:bg-[#06695F]"><Check className="mr-2 h-4 w-4" /> Use this for next week</button>
+            <button type="button" onClick={() => void removeQueuedCoachAction()} disabled={coachActionBusy} className="inline-flex min-h-11 items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-[#486170] hover:border-slate-400 disabled:opacity-50">{coachActionBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <X className="mr-2 h-4 w-4" />} Remove idea</button>
+          </div>
+          {selectedCoachActionId === queuedCoachAction.id ? <p className="mt-4 text-sm font-bold text-[#06695F]">Selected below. You can edit the details before finishing your review.</p> : null}
+        </section>
       ) : null}
 
       <section className="mt-10">
