@@ -15,6 +15,12 @@ import { isHour, isIanaTimeZone } from "@/lib/accountSettings";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 import { isQuietHour, isReminderTiming } from "@/lib/reminderSchedule";
+import {
+  connectionType,
+  practiceGoalOptions,
+  type PracticeGoalOption,
+  type PracticeGoalRow,
+} from "@/lib/practiceConnection";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -32,6 +38,7 @@ type ActivationBody = {
   reminder_hour?: unknown;
   timezone?: unknown;
   cue_hour?: unknown;
+  goal_key?: unknown;
 };
 
 function identityFromCategory(category: string): IdentityDirection {
@@ -79,6 +86,7 @@ async function createDraft(req: NextRequest, userId: string): Promise<WeeklyExpe
     user_id: userId,
     source_stack_id: hasSpecificAction ? handoff?.pointer.stackId ?? null : null,
     source_action_id: hasSpecificAction ? handoff?.pointer.actionId ?? null : null,
+    connection_type: hasSpecificAction ? "blueprint" : "independent",
     identity_direction: selected ? identityFromCategory(selected.category) : null,
     action_label: hasSpecificAction ? selected?.label ?? null : null,
     onboarding_step: 0,
@@ -105,6 +113,17 @@ async function createDraft(req: NextRequest, userId: string): Promise<WeeklyExpe
   return data as WeeklyExperiment;
 }
 
+async function loadGoalOptions(userId: string): Promise<{ row: PracticeGoalRow | null; options: PracticeGoalOption[] }> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("goals")
+    .select("id,goals,custom_goal,target_weight,target_sleep,target_energy")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  const row = (data as PracticeGoalRow | null) ?? null;
+  return { row, options: practiceGoalOptions(row) };
+}
+
 async function getOrCreateExperiment(req: NextRequest, userId: string): Promise<WeeklyExperiment> {
   const current = await currentExperiment(userId);
   if (current) return current;
@@ -125,13 +144,14 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await requirePaidUser();
     if (auth.error || !auth.user) return responseForAuthError(auth.error ?? "unauthorized");
-    const [experiment, { data: preferences, error: preferencesError }] = await Promise.all([
+    const [experiment, { data: preferences, error: preferencesError }, goals] = await Promise.all([
       getOrCreateExperiment(req, auth.user.id),
       getSupabaseAdmin()
         .from("user_preferences")
         .select("timezone, quiet_start_hour, quiet_end_hour")
         .eq("user_id", auth.user.id)
         .maybeSingle(),
+      loadGoalOptions(auth.user.id),
     ]);
     if (preferencesError) throw preferencesError;
     return NextResponse.json({
@@ -142,6 +162,7 @@ export async function GET(req: NextRequest) {
         quiet_start_hour: preferences?.quiet_start_hour ?? 21,
         quiet_end_hour: preferences?.quiet_end_hour ?? 7,
       },
+      goal_options: goals.options,
     });
   } catch (error) {
     console.error("[activation] load failed", error);
@@ -182,10 +203,22 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ ok: false, error: "choose_safe_lifestyle_action" }, { status: 400 });
       }
       changes.action_label = action;
-      if (action !== experiment.action_label) {
+      const actionChanged = action !== experiment.action_label;
+      const keepsBlueprint = !actionChanged && Boolean(experiment.source_stack_id && experiment.source_action_id);
+      if (actionChanged) {
         changes.source_stack_id = null;
         changes.source_action_id = null;
       }
+      const goals = await loadGoalOptions(auth.user.id);
+      const goalKey = typeof body?.goal_key === "string" ? cleanText(body.goal_key, 120) : null;
+      const selectedGoal = goalKey ? goals.options.find((option) => option.key === goalKey) ?? null : null;
+      if (goalKey && (!goals.row || !selectedGoal)) {
+        return NextResponse.json({ ok: false, error: "choose_current_goal" }, { status: 400 });
+      }
+      changes.goal_id = selectedGoal ? goals.row?.id ?? null : null;
+      changes.goal_key = selectedGoal?.key ?? null;
+      changes.goal_label_snapshot = selectedGoal?.label ?? null;
+      changes.connection_type = connectionType(Boolean(selectedGoal), keepsBlueprint);
     }
 
     if (step === 3) {

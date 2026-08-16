@@ -10,11 +10,13 @@ import type { PremiumActivationProgress } from "@/lib/premiumActivation";
 import PremiumActivationChecklist from "@/components/activation/PremiumActivationChecklist";
 import AiTodayBrief from "@/components/dashboard/AiTodayBrief";
 import ReminderArrivalFeedback from "@/components/dashboard/ReminderArrivalFeedback";
+import type { PracticeConnectionContext } from "@/lib/practiceConnection";
 
 export default function TodayClient({
   experiment,
   blueprint,
   experimentBlueprint,
+  practiceConnection,
   checkinDate,
   reminderDeliveryId,
   activationProgress,
@@ -22,6 +24,7 @@ export default function TodayClient({
   experiment: WeeklyExperiment | null;
   blueprint: CurrentBlueprintContext | null;
   experimentBlueprint: ExperimentBlueprintContext | null;
+  practiceConnection: PracticeConnectionContext | null;
   checkinDate: string | null;
   reminderDeliveryId: string | null;
   activationProgress: PremiumActivationProgress;
@@ -54,6 +57,7 @@ export default function TodayClient({
               initialExperiment={experiment}
               blueprint={blueprint}
               experimentBlueprint={experimentBlueprint}
+              practiceConnection={practiceConnection}
               initialCompletionDate={checkinDate}
               onCompletionStateChange={setFirstActionComplete}
             />

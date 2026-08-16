@@ -28,6 +28,7 @@ import {
   type JourneySynthesis,
 } from "@/lib/journey";
 import { blueprintSafetyLabel, type CurrentBlueprintContext, type ExperimentBlueprintContext } from "@/lib/blueprintContext";
+import type { PracticeConnectionContext } from "@/lib/practiceConnection";
 
 type MetricKey = "sleep" | "energy" | "weight";
 
@@ -129,7 +130,7 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
 
       {data.blueprint ? <BlueprintJourneyContext blueprint={data.blueprint} /> : null}
 
-      {activeExperiment ? <CurrentChapter experiment={activeExperiment} blueprintContext={data.experiment_blueprints[activeExperiment.id] ?? null} completed={data.completions.filter((item) => item.experiment_id === activeExperiment.id).length} /> : (
+      {activeExperiment ? <CurrentChapter experiment={activeExperiment} connection={data.practice_connections[activeExperiment.id]} blueprintContext={data.experiment_blueprints[activeExperiment.id] ?? null} completed={data.completions.filter((item) => item.experiment_id === activeExperiment.id).length} /> : (
         <EmptyState
           title="Ready for a new focused week?"
           body="Your past weeks are saved below. Start another small experiment when you are ready."
@@ -162,6 +163,7 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
               key={experiment.id}
               experiment={experiment}
               blueprintContext={data.experiment_blueprints[experiment.id] ?? null}
+              connection={data.practice_connections[experiment.id]}
               review={data.reviews.find((item) => item.experiment_id === experiment.id) ?? null}
               completed={data.completions.filter((item) => item.experiment_id === experiment.id).length}
             />
@@ -206,7 +208,7 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
         <LearningLoop
           reviews={completedReviews}
           experiments={data.experiments}
-          experimentBlueprints={data.experiment_blueprints}
+          practiceConnections={data.practice_connections}
           syntheses={data.syntheses}
         />
       </div>
@@ -309,14 +311,12 @@ function BlueprintJourneyContext({ blueprint }: { blueprint: CurrentBlueprintCon
   );
 }
 
-function BlueprintPracticeLink({ context, compact = false }: { context: ExperimentBlueprintContext | null; compact?: boolean }) {
-  if (!context?.priority_label) {
-    return <p className={`${compact ? "mt-2" : "mt-3"} text-xs font-semibold text-slate-500`}>Self-chosen practice. No Blueprint priority link recorded.</p>;
-  }
+function PracticeConnectionLabel({ connection, blueprintContext, compact = false }: { connection: PracticeConnectionContext | undefined; blueprintContext: ExperimentBlueprintContext | null; compact?: boolean }) {
+  if (!connection) return <p className={`${compact ? "mt-2" : "mt-3"} text-xs font-semibold text-slate-500`}>Practice connection unavailable.</p>;
   return (
-    <div className={`${compact ? "mt-2" : "mt-3"} rounded-xl ${context.needs_review ? "bg-amber-50 text-amber-900" : "bg-white text-slate-700"} p-3 text-xs leading-5`}>
-      <strong>{context.needs_review ? "Review against the current Blueprint:" : "Supports Blueprint priority:"}</strong> {context.priority_label}
-      {context.needs_review ? <span className="block mt-1">The practice was preserved and was not automatically changed.</span> : null}
+    <div className={`${compact ? "mt-2" : "mt-3"} rounded-xl ${blueprintContext?.needs_review ? "bg-amber-50 text-amber-900" : "bg-white text-slate-700"} p-3 text-xs leading-5`}>
+      <strong>Why it matters:</strong> {connection.summary}
+      {blueprintContext?.needs_review ? <span className="mt-1 block">The practice was preserved and was not automatically changed.</span> : null}
     </div>
   );
 }
@@ -330,7 +330,7 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CurrentChapter({ experiment, blueprintContext, completed }: { experiment: JourneyExperiment; blueprintContext: ExperimentBlueprintContext | null; completed: number }) {
+function CurrentChapter({ experiment, connection, blueprintContext, completed }: { experiment: JourneyExperiment; connection: PracticeConnectionContext | undefined; blueprintContext: ExperimentBlueprintContext | null; completed: number }) {
   const target = experiment.frequency_per_week ?? 1;
   return (
     <section aria-labelledby="current-chapter-title" className="rounded-3xl border border-[#BCE3DA] bg-[#F4FAF8] p-6 sm:p-8">
@@ -341,7 +341,7 @@ function CurrentChapter({ experiment, blueprintContext, completed }: { experimen
           <p className="mt-2 text-sm leading-6 text-slate-600">
             After: {experiment.cue || "your chosen cue"}. Minimum: {experiment.minimum_version || "your smallest version"}.
           </p>
-          <BlueprintPracticeLink context={blueprintContext} />
+          <PracticeConnectionLabel connection={connection} blueprintContext={blueprintContext} />
         </div>
         <div className="min-w-48">
           <p className="text-sm font-bold text-[#041B2D]">{completed} of {target} planned reps</p>
@@ -364,7 +364,7 @@ function CurrentChapter({ experiment, blueprintContext, completed }: { experimen
   );
 }
 
-function ExperimentCard({ experiment, blueprintContext, review, completed }: { experiment: JourneyExperiment; blueprintContext: ExperimentBlueprintContext | null; review: JourneyReview | null; completed: number }) {
+function ExperimentCard({ experiment, connection, blueprintContext, review, completed }: { experiment: JourneyExperiment; connection: PracticeConnectionContext | undefined; blueprintContext: ExperimentBlueprintContext | null; review: JourneyReview | null; completed: number }) {
   const target = review?.target_count ?? experiment.frequency_per_week ?? 1;
   return (
     <li className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
@@ -374,7 +374,7 @@ function ExperimentCard({ experiment, blueprintContext, review, completed }: { e
             Week of {formatDate(experiment.week_start)}. {domainLabel(experiment.identity_direction)}
           </p>
           <h3 className="mt-2 font-bold text-[#041B2D]">{experiment.action_label || "Focused weekly practice"}</h3>
-          <BlueprintPracticeLink context={blueprintContext} compact />
+          <PracticeConnectionLabel connection={connection} blueprintContext={blueprintContext} compact />
         </div>
         <span className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${experiment.status === "active" ? "bg-[#DDF7F1] text-[#087F72]" : "bg-slate-200 text-slate-700"}`}>
           {experiment.status === "active" ? "In progress" : experiment.status === "completed" ? "Reviewed" : "Closed"}
@@ -479,7 +479,7 @@ function WinsTimeline({ reviews, completionTotal }: { reviews: JourneyReview[]; 
   );
 }
 
-function LearningLoop({ reviews, experiments, experimentBlueprints, syntheses }: { reviews: JourneyReview[]; experiments: JourneyExperiment[]; experimentBlueprints: Record<string, ExperimentBlueprintContext>; syntheses: JourneySynthesis[] }) {
+function LearningLoop({ reviews, experiments, practiceConnections, syntheses }: { reviews: JourneyReview[]; experiments: JourneyExperiment[]; practiceConnections: Record<string, PracticeConnectionContext>; syntheses: JourneySynthesis[] }) {
   const synthesisByExperiment = new Map(syntheses.map((item) => [item.experiment_id, item]));
   return (
     <section aria-labelledby="review-history-title" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -488,12 +488,12 @@ function LearningLoop({ reviews, experiments, experimentBlueprints, syntheses }:
         <ul className="mt-5 space-y-4">{reviews.map((review) => {
           const experiment = experiments.find((item) => item.id === review.experiment_id);
           const nextExperiment = experiments.find((item) => item.id === review.next_experiment_id) ?? null;
-          const context = experiment ? experimentBlueprints[experiment.id] ?? null : null;
+          const connection = experiment ? practiceConnections[experiment.id] : null;
           const synthesis = synthesisByExperiment.get(review.experiment_id) ?? null;
           return <li key={review.experiment_id} className="rounded-2xl bg-slate-50 p-4">
             <dl className="space-y-3 text-sm leading-6">
               <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Tried</dt><dd className="font-semibold text-[#041B2D]">{experiment?.action_label || "Weekly practice"}</dd></div>
-              <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Why it mattered</dt><dd className="text-slate-600">{context?.priority_label || `${domainLabel(experiment?.identity_direction ?? null)} was your chosen focus.`}</dd></div>
+              <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Why it mattered</dt><dd className="text-slate-600">{connection?.summary ?? "No explicit connection was recorded for this week."}</dd></div>
               <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Noticed</dt><dd className="text-slate-600">You reported usefulness {review.value_rating}/5 and difficulty {review.difficulty}/5 after {review.completion_count} of {review.target_count} planned reps.</dd></div>
               {synthesis ? <><div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Recorded observation</dt><dd className="text-slate-600">{synthesis.observation}</dd></div><div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Working hypothesis</dt><dd className="text-slate-600">{synthesis.hypothesis} <span className="font-semibold">This is a {synthesis.confidence}-confidence idea to test, not proof.</span></dd></div></> : null}
               <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Chose next</dt><dd className="text-slate-600">{review.decision ? DECISION_LABELS[review.decision] : "Reviewed"}{nextExperiment?.action_label ? `: ${nextExperiment.action_label}` : "."}</dd></div>

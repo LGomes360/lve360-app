@@ -11,6 +11,7 @@ import type {
 } from "@/lib/journey";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCurrentBlueprintContext, getExperimentBlueprintContexts } from "@/lib/currentBlueprintContext";
+import { practiceGoalOptions, resolvePracticeConnection, type PracticeGoalRow } from "@/lib/practiceConnection";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -44,10 +45,10 @@ export async function GET() {
 
     const admin = getSupabaseAdmin();
     const blueprintPromise = getCurrentBlueprintContext(auth.user.id);
-    const [{ data: experiments, error: experimentError }, { data: reviews, error: reviewError }, { data: checkIns, error: checkInError }, { data: syntheses, error: synthesisError }] = await Promise.all([
+    const [{ data: experiments, error: experimentError }, { data: reviews, error: reviewError }, { data: checkIns, error: checkInError }, { data: syntheses, error: synthesisError }, { data: goals, error: goalsError }] = await Promise.all([
       admin
         .from("weekly_experiments")
-        .select("id, source_stack_id, source_action_id, identity_direction, action_label, cue, frequency_per_week, minimum_version, status, week_start, activated_at, completed_at")
+        .select("id, source_stack_id, source_action_id, connection_type, goal_id, goal_key, goal_label_snapshot, identity_direction, action_label, cue, frequency_per_week, minimum_version, status, week_start, activated_at, completed_at")
         .eq("user_id", auth.user.id)
         .order("week_start", { ascending: false })
         .limit(52),
@@ -70,9 +71,10 @@ export async function GET() {
         .in("generation_status", ["succeeded", "failed", "skipped"])
         .order("created_at", { ascending: false })
         .limit(52),
+      admin.from("goals").select("id,goals,custom_goal,target_weight,target_sleep,target_energy").eq("user_id", auth.user.id).maybeSingle(),
     ]);
-    if (experimentError || reviewError || checkInError || synthesisError) {
-      throw experimentError ?? reviewError ?? checkInError ?? synthesisError;
+    if (experimentError || reviewError || checkInError || synthesisError || goalsError) {
+      throw experimentError ?? reviewError ?? checkInError ?? synthesisError ?? goalsError;
     }
 
     const experimentRows = (experiments ?? []) as JourneyExperiment[];
@@ -95,6 +97,11 @@ export async function GET() {
       experimentRows,
       blueprint,
     );
+    const goalOptions = practiceGoalOptions((goals as PracticeGoalRow | null) ?? null);
+    const practiceConnections = Object.fromEntries(experimentRows.map((experiment) => [
+      experiment.id,
+      resolvePracticeConnection(experiment, goalOptions, experimentBlueprints[experiment.id] ?? null),
+    ]));
 
     return NextResponse.json({
       ok: true,
@@ -105,6 +112,7 @@ export async function GET() {
       syntheses: (syntheses ?? []) as JourneySynthesis[],
       blueprint,
       experiment_blueprints: experimentBlueprints,
+      practice_connections: practiceConnections,
     });
   } catch (error) {
     console.error("[journey] load failed", error);

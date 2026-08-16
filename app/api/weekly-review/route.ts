@@ -7,6 +7,8 @@ import { isReviewDecision, isReviewDue, validateNextPlan, type NextWeekPlan } fr
 import { synthesisResponseState, type WeeklySynthesisContent } from "@/lib/weeklySynthesis";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
+import { getCurrentBlueprintContext, getExperimentBlueprintContexts } from "@/lib/currentBlueprintContext";
+import { practiceGoalOptions, resolvePracticeConnection, type PracticeGoalRow } from "@/lib/practiceConnection";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -60,7 +62,18 @@ export async function GET(req: NextRequest) {
     if (!isReviewDue(experiment.week_start, todayUtc())) {
       return NextResponse.json({ ok: false, error: "review_not_due" }, { status: 409 });
     }
-    const completed = await countCompletions(auth.user.id, experiment);
+    const [completed, blueprint, { data: goals, error: goalsError }] = await Promise.all([
+      countCompletions(auth.user.id, experiment),
+      getCurrentBlueprintContext(auth.user.id),
+      getSupabaseAdmin().from("goals").select("id,goals,custom_goal,target_weight,target_sleep,target_energy").eq("user_id", auth.user.id).maybeSingle(),
+    ]);
+    if (goalsError) throw goalsError;
+    const blueprintContexts = await getExperimentBlueprintContexts(auth.user.id, [experiment], blueprint);
+    const practiceConnection = resolvePracticeConnection(
+      experiment,
+      practiceGoalOptions((goals as PracticeGoalRow | null) ?? null),
+      blueprintContexts[experiment.id] ?? null,
+    );
     const admin = getSupabaseAdmin();
     const { error } = await admin.from("weekly_experiment_reviews").upsert({
       user_id: auth.user.id,
@@ -78,7 +91,7 @@ export async function GET(req: NextRequest) {
       experiment_id: experiment.id,
       event_key: `review:opened:${experiment.id}`,
     });
-    return NextResponse.json({ ok: true, experiment, completed, target: experiment.frequency_per_week ?? 1 });
+    return NextResponse.json({ ok: true, experiment, completed, target: experiment.frequency_per_week ?? 1, practice_connection: practiceConnection });
   } catch (error) {
     console.error("[weekly-review] load failed", error);
     return NextResponse.json({ ok: false, error: "review_unavailable" }, { status: 500 });

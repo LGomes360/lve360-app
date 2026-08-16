@@ -14,6 +14,7 @@ import {
   type MemberIntelligenceContext,
   type MemberPreferencesContext,
 } from "@/lib/memberContext";
+import { practiceGoalOptions } from "@/lib/practiceConnection";
 import type { SafetyContext } from "@/lib/safetyEngine";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -121,16 +122,19 @@ function healthProfile(row: SubmissionRow | null, now: Date): (MemberHealthProfi
 function savedGoals(row: GoalsRow | null): MemberGoalContext[] {
   if (!row) return [];
   const provenance = { source: "goals" as const, recordId: row.id, updatedAt: row.updated_at };
-  const named = [...new Set([...readableValues(row.goals), ...readableValues(row.custom_goal)])]
-    .map((label): MemberGoalContext => ({ label, kind: "named", targetValue: null, provenance }));
-  const targets: MemberGoalContext[] = [];
-  const weight = numberOrNull(row.target_weight);
-  const sleep = numberOrNull(row.target_sleep);
-  const energy = numberOrNull(row.target_energy);
-  if (weight != null) targets.push({ label: "Target weight", kind: "weight_target", targetValue: weight, provenance });
-  if (sleep != null) targets.push({ label: "Target sleep", kind: "sleep_target", targetValue: sleep, provenance });
-  if (energy != null) targets.push({ label: "Target energy", kind: "energy_target", targetValue: energy, provenance });
-  return [...named, ...targets];
+  const values: Record<string, number | null> = {
+    weight_target: numberOrNull(row.target_weight),
+    sleep_target: numberOrNull(row.target_sleep),
+    energy_target: numberOrNull(row.target_energy),
+    named: null,
+  };
+  return practiceGoalOptions(row).map((goal): MemberGoalContext => ({
+    key: goal.key,
+    label: goal.label,
+    kind: goal.kind,
+    targetValue: values[goal.kind],
+    provenance,
+  }));
 }
 
 function preferences(row: PreferencesRow | null): (MemberPreferencesContext & { updatedAt: string | null }) | null {
@@ -173,7 +177,7 @@ export async function getMemberIntelligenceContext(userId: string): Promise<Memb
     getCurrentBlueprintContext(userId),
     getCurrentRegimen(userId),
     admin.from("weekly_experiments")
-      .select("id,source_stack_id,source_action_id,identity_direction,action_label,cue,frequency_per_week,minimum_version,status,week_start,created_at,updated_at")
+      .select("id,source_stack_id,source_action_id,connection_type,goal_id,goal_key,goal_label_snapshot,identity_direction,action_label,cue,frequency_per_week,minimum_version,status,week_start,created_at,updated_at")
       .eq("user_id", userId).order("week_start", { ascending: false }).limit(12),
     admin.from("logs").select("id,log_date,weight,sleep,energy,updated_at")
       .eq("user_id", userId).order("log_date", { ascending: false }).limit(30),

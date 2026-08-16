@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 
 import { identityLabel, type WeeklyExperiment } from "@/lib/activation";
 import { generateAI } from "@/lib/ai/gateway";
-import { getCurrentBlueprintContext } from "@/lib/currentBlueprintContext";
+import { getCurrentBlueprintContext, getExperimentBlueprintContexts } from "@/lib/currentBlueprintContext";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { completionCount, weekBounds, type DailyPracticeCompletion } from "@/lib/today";
 import {
@@ -17,6 +17,7 @@ import {
 } from "@/lib/todayBrief";
 import { isReviewDue } from "@/lib/weeklyReview";
 import { isUrgentBlueprintSafety } from "@/lib/todaySurface";
+import { practiceGoalOptions, resolvePracticeConnection, type PracticeGoalRow } from "@/lib/practiceConnection";
 
 type TodayBriefRow = {
   id: string;
@@ -83,10 +84,16 @@ async function activeExperiment(userId: string): Promise<WeeklyExperiment | null
 }
 
 export async function buildTodayBriefContext(userId: string, localDate: string): Promise<TodayBriefContext> {
-  const [experiment, blueprint] = await Promise.all([
+  const [experiment, blueprint, { data: goals, error: goalsError }] = await Promise.all([
     activeExperiment(userId),
     getCurrentBlueprintContext(userId),
+    getSupabaseAdmin().from("goals").select("id,goals,custom_goal,target_weight,target_sleep,target_energy").eq("user_id", userId).maybeSingle(),
   ]);
+  if (goalsError) throw goalsError;
+  const blueprintContexts = experiment ? await getExperimentBlueprintContexts(userId, [experiment], blueprint) : {};
+  const connection = experiment
+    ? resolvePracticeConnection(experiment, practiceGoalOptions((goals as PracticeGoalRow | null) ?? null), blueprintContexts[experiment.id] ?? null)
+    : null;
 
   let completions: DailyPracticeCompletion[] = [];
   if (experiment) {
@@ -114,6 +121,7 @@ export async function buildTodayBriefContext(userId: string, localDate: string):
       target: experiment.frequency_per_week ?? 1,
       completed: completionCount(completions),
       completedToday: completions.some((item) => item.completion_date === localDate),
+      connectionSummary: connection?.summary ?? "Independently chosen for this week",
     } : null,
     blueprint: blueprint ? {
       stackId: blueprint.stack_id,
@@ -138,7 +146,7 @@ function generatedPrompt(context: TodayBriefContext) {
         "Return only valid JSON with exactly these string fields: noticed and why_it_matters.",
         "noticed must describe the supplied progress neutrally. Never use despite, failed, missed, behind, haven't, or should have.",
         "The weekly target counts completed days or repetitions. It is never the number of pushups, minutes, meals, or other units inside the saved practice.",
-        "why_it_matters must connect this repetition to consistency or the supplied identity direction. Do not invent a physiological, clinical, or performance benefit.",
+        "why_it_matters must explain the supplied explicit practice connection. Do not invent another goal, Blueprint link, or physiological, clinical, or performance benefit.",
       ].join(" "),
     },
     {
@@ -152,6 +160,7 @@ function generatedPrompt(context: TodayBriefContext) {
         weekly_target_repetitions: experiment.target,
         weekly_completed_repetitions: experiment.completed,
         metric_definition: "These numbers count completed practice repetitions this week, not units inside the practice.",
+        explicit_practice_connection: experiment.connectionSummary,
       }),
     },
   ];

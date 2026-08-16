@@ -6,12 +6,14 @@ import { ArrowLeft, ArrowRight, Check, Loader2, Pause, RefreshCw, Repeat2, Spark
 import type { WeeklyExperiment } from "@/lib/activation";
 import { suggestedNextPlan, type NextWeekPlan, type ReviewDecision } from "@/lib/weeklyReview";
 import type { WeeklySynthesis } from "@/lib/weeklySynthesis";
+import type { PracticeConnectionContext } from "@/lib/practiceConnection";
 
 type ReviewResponse = {
   ok: boolean;
   experiment?: WeeklyExperiment;
   completed?: number;
   target?: number;
+  practice_connection?: PracticeConnectionContext;
   error?: string;
 };
 
@@ -27,6 +29,7 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
   const [experiment, setExperiment] = useState<WeeklyExperiment | null>(null);
   const [completed, setCompleted] = useState(0);
   const [target, setTarget] = useState(1);
+  const [practiceConnection, setPracticeConnection] = useState<PracticeConnectionContext | null>(null);
   const [difficulty, setDifficulty] = useState(0);
   const [valueRating, setValueRating] = useState(0);
   const [decision, setDecision] = useState<ReviewDecision | null>(null);
@@ -50,6 +53,7 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
         setExperiment(json.experiment ?? null);
         setCompleted(json.completed ?? 0);
         setTarget(json.target ?? 1);
+        setPracticeConnection(json.practice_connection ?? null);
       })
       .catch((loadError: Error) => { if (!cancelled) setError(loadError.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -121,6 +125,7 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
       <section className="mt-8 rounded-3xl bg-[#041B2D] p-6 text-white sm:p-8">
         <p className="text-sm font-semibold text-[#8DE5D5]">This week</p>
         <h2 className="mt-2 text-2xl font-bold">{experiment.action_label}</h2>
+        {practiceConnection ? <p className="mt-3 rounded-xl bg-white/10 px-4 py-3 text-sm leading-6 text-white/85"><strong className="text-white">Why it mattered:</strong> {practiceConnection.summary}</p> : null}
         <p className="mt-5 text-4xl font-bold">{completed} <span className="text-lg font-medium text-white/70">of {target} planned reps</span></p>
         <p className="mt-2 text-sm text-white/70">Every completed repetition counts, including the minimum version.</p>
       </section>
@@ -197,6 +202,7 @@ function NextPlanEditor({ plan, onChange, swap }: { plan: NextWeekPlan; onChange
   return (
     <section className="mt-8 rounded-3xl border border-[#BCE3DA] bg-[#F4FAF8] p-6 sm:p-8">
       <h2 className="text-xl font-bold text-[#041B2D]">{swap ? "Choose next week's practice" : "Your next week"}</h2>
+      {swap ? <p className="mt-2 text-sm leading-6 text-slate-600">A different practice starts as an independent choice. After this review, use Review practice in Today if you want to connect it to a saved goal.</p> : null}
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">Practice<input value={plan.action_label} onChange={(event) => onChange({ ...plan, action_label: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /></label>
       <label className="mt-4 block text-sm font-bold text-[#041B2D]">After I...<input value={plan.cue} onChange={(event) => onChange({ ...plan, cue: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /></label>
       <div className="mt-4 grid gap-4 sm:grid-cols-[160px_1fr]">

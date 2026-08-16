@@ -64,6 +64,7 @@ export type MemberPreferencesContext = {
 };
 
 export type MemberGoalContext = {
+  key?: string;
   label: string;
   kind: "named" | "weight_target" | "sleep_target" | "energy_target";
   targetValue: number | null;
@@ -100,7 +101,7 @@ export type MemberRegimenContext = {
 };
 
 export type PracticeGoalLink = {
-  status: "linked" | "not_recorded";
+  status: "linked" | "historical" | "unresolved" | "not_recorded";
   goalLabel: string | null;
   explanation: string;
 };
@@ -186,6 +187,10 @@ export type MemberContextExperimentInput = {
   id: string;
   source_stack_id: string | null;
   source_action_id: string | null;
+  connection_type: "independent" | "goal" | "blueprint" | "both";
+  goal_id: string | null;
+  goal_key: string | null;
+  goal_label_snapshot: string | null;
   identity_direction: string | null;
   action_label: string | null;
   cue: string | null;
@@ -310,10 +315,20 @@ function practiceContext(
   reviews: MemberContextReviewInput[],
   completions: MemberContextCompletionInput[],
   blueprintContexts: Record<string, ExperimentBlueprintContext>,
+  savedGoals: MemberGoalContext[],
 ): MemberPracticeContext {
   const review = reviews.find((item) => item.experiment_id === experiment.id) ?? null;
   const recorded = completions.filter((item) => item.experiment_id === experiment.id);
   const blueprint = blueprintContexts[experiment.id] ?? null;
+  const currentGoal = experiment.goal_key ? savedGoals.find((goal) => goal.key === experiment.goal_key) ?? null : null;
+  const hasGoalLink = experiment.connection_type === "goal" || experiment.connection_type === "both";
+  const goalLink: PracticeGoalLink = hasGoalLink
+    ? currentGoal
+      ? { status: "linked", goalLabel: currentGoal.label, explanation: "This practice is explicitly linked to a current saved goal." }
+      : experiment.goal_label_snapshot
+        ? { status: "historical", goalLabel: experiment.goal_label_snapshot, explanation: "This practice retains the saved goal label recorded when the week was created." }
+        : { status: "unresolved", goalLabel: null, explanation: "A saved goal link is recorded, but its label could not be resolved." }
+    : { status: "not_recorded", goalLabel: null, explanation: "The member chose this practice independently of a saved goal." };
   let blueprintLink: PracticeBlueprintLink;
   if (!experiment.source_stack_id && !experiment.source_action_id) {
     blueprintLink = {
@@ -367,11 +382,7 @@ function practiceContext(
       status: review.status,
       completedAt: review.completed_at,
     } : null,
-    goalLink: {
-      status: "not_recorded",
-      goalLabel: null,
-      explanation: "The current schema does not store an explicit practice-to-saved-goal relation.",
-    },
+    goalLink,
     blueprintLink,
     provenance,
   };
@@ -446,7 +457,7 @@ export function buildMemberIntelligenceContext(input: MemberIntelligenceContextI
 
   const practices = [...input.experiments]
     .sort((left, right) => right.week_start.localeCompare(left.week_start) || right.updated_at.localeCompare(left.updated_at))
-    .map((experiment) => practiceContext(experiment, input.reviews, input.completions, input.practiceBlueprintContexts));
+    .map((experiment) => practiceContext(experiment, input.reviews, input.completions, input.practiceBlueprintContexts, input.savedGoals));
   const active = practices.find((practice) => practice.status === "active") ?? null;
   const activePractice = active
     ? section<MemberPracticeContext>(active, "present", latestTimestamp(active.provenance.map((item) => item.updatedAt)), active.provenance)

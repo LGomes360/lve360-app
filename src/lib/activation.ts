@@ -16,12 +16,17 @@ export const IDENTITY_OPTIONS = [
 export type IdentityDirection = (typeof IDENTITY_OPTIONS)[number]["value"];
 export type ReminderPreference = "none" | "email";
 export type ExperimentStatus = "draft" | "active" | "completed" | "archived";
+export type PracticeConnectionType = "independent" | "goal" | "blueprint" | "both";
 
 export type WeeklyExperiment = {
   id: string;
   user_id: string;
   source_stack_id: string | null;
   source_action_id: string | null;
+  connection_type: PracticeConnectionType;
+  goal_id: string | null;
+  goal_key: string | null;
+  goal_label_snapshot: string | null;
   identity_direction: IdentityDirection | null;
   action_label: string | null;
   cue: string | null;

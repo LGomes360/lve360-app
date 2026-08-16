@@ -2,6 +2,10 @@ export type JourneyExperiment = {
   id: string;
   source_stack_id: string | null;
   source_action_id: string | null;
+  connection_type: import("@/lib/activation").PracticeConnectionType;
+  goal_id: string | null;
+  goal_key: string | null;
+  goal_label_snapshot: string | null;
   identity_direction: string | null;
   action_label: string | null;
   cue: string | null;
@@ -66,6 +70,7 @@ export type JourneyResponse = {
   syntheses: JourneySynthesis[];
   blueprint: import("@/lib/blueprintContext").CurrentBlueprintContext | null;
   experiment_blueprints: Record<string, import("@/lib/blueprintContext").ExperimentBlueprintContext>;
+  practice_connections: Record<string, import("@/lib/practiceConnection").PracticeConnectionContext>;
   error?: string;
 };
 

@@ -13,6 +13,7 @@ import {
   type WeeklyExperiment,
 } from "@/lib/activation";
 import { isQuietHour, type ReminderTiming } from "@/lib/reminderSchedule";
+import type { PracticeGoalOption } from "@/lib/practiceConnection";
 
 type FormState = {
   identity_direction: IdentityDirection | null;
@@ -24,6 +25,7 @@ type FormState = {
   reminder_timing: ReminderTiming;
   reminder_hour: number;
   timezone: string;
+  goal_key: string | null;
 };
 
 type ReminderContext = {
@@ -42,6 +44,7 @@ const EMPTY_FORM: FormState = {
   reminder_timing: "at_cue",
   reminder_hour: 18,
   timezone: "UTC",
+  goal_key: null,
 };
 
 export default function OnboardingHandoffClient() {
@@ -56,6 +59,7 @@ export default function OnboardingHandoffClient() {
     quiet_start_hour: 21,
     quiet_end_hour: 7,
   });
+  const [goalOptions, setGoalOptions] = useState<PracticeGoalOption[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,14 +67,15 @@ export default function OnboardingHandoffClient() {
       .then(async (response) => {
         const json = await response.json().catch(() => null);
         if (!response.ok || !json?.experiment) throw new Error("We could not load your weekly setup.");
-        return json as { experiment: WeeklyExperiment; reminder_context?: ReminderContext };
+        return json as { experiment: WeeklyExperiment; reminder_context?: ReminderContext; goal_options?: PracticeGoalOption[] };
       })
-      .then(({ experiment: loaded, reminder_context }) => {
+      .then(({ experiment: loaded, reminder_context, goal_options }) => {
         if (cancelled) return;
         setExperiment(loaded);
         const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const context = reminder_context ?? { timezone: detectedTimezone || "UTC", quiet_start_hour: 21, quiet_end_hour: 7 };
         setReminderContext(context);
+        setGoalOptions(goal_options ?? []);
         setForm({ ...formFromExperiment(loaded), timezone: context.timezone || detectedTimezone || "UTC" });
         setStep(nextOnboardingStep(loaded));
       })
@@ -130,7 +135,7 @@ export default function OnboardingHandoffClient() {
       </div>
 
       {step === 1 && <IdentityStep value={form.identity_direction} onChange={(value) => setForm({ ...form, identity_direction: value })} />}
-      {step === 2 && <ActionStep form={form} starterActions={starterActions} fromBlueprint={!!experiment.source_action_id} onChange={(action_label) => setForm({ ...form, action_label })} />}
+      {step === 2 && <ActionStep form={form} starterActions={starterActions} goalOptions={goalOptions} fromBlueprint={!!experiment.source_action_id && form.action_label === experiment.action_label} onChange={(changes) => setForm({ ...form, ...changes })} />}
       {step === 3 && <CueStep form={form} onChange={(changes) => setForm({ ...form, ...changes })} />}
       {step === 4 && <MinimumStep value={form.minimum_version} action={form.action_label} onChange={(minimum_version) => setForm({ ...form, minimum_version })} />}
       {step === 5 && (
@@ -144,7 +149,7 @@ export default function OnboardingHandoffClient() {
           onChange={(changes) => setForm({ ...form, ...changes })}
         />
       )}
-      {step === 6 && <ConfirmationStep form={form} active={active} onEditPlan={() => setStep(1)} onEditReminders={() => setStep(5)} />}
+      {step === 6 && <ConfirmationStep form={form} active={active} goalOptions={goalOptions} fromBlueprint={!!experiment.source_action_id} onEditPlan={() => setStep(1)} onEditReminders={() => setStep(5)} />}
 
       {error && <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{error}</p>}
 
@@ -179,8 +184,12 @@ function IdentityStep({ value, onChange }: { value: IdentityDirection | null; on
   return <section><Sparkles className="h-8 w-8 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">Who are you becoming?</h1><p className="mt-3 leading-7 text-slate-600">Choose the identity you want this week&apos;s practice to reinforce.</p><div className="mt-6 grid gap-3 sm:grid-cols-2">{IDENTITY_OPTIONS.map((option) => <button key={option.value} type="button" onClick={() => onChange(option.value)} aria-pressed={value === option.value} className={`flex min-h-16 items-center justify-between rounded-2xl border px-4 py-3 text-left font-semibold transition ${value === option.value ? "border-[#08A88A] bg-[#EAFBF8] text-[#041B2D] ring-2 ring-[#08A88A]/20" : "border-slate-200 text-slate-700 hover:border-[#9DCFC3]"}`}><span>{option.label}</span>{value === option.value ? <Check className="h-5 w-5 text-[#087F72]" /> : null}</button>)}</div></section>;
 }
 
-function ActionStep({ form, starterActions, fromBlueprint, onChange }: { form: FormState; starterActions: string[]; fromBlueprint: boolean; onChange: (value: string) => void }) {
-  return <section><h1 className="text-3xl font-extrabold tracking-tight text-[#041B2D]">Choose one practice for this week</h1><p className="mt-3 leading-7 text-slate-600">Small enough to repeat. Specific enough to know when you did it.</p>{fromBlueprint && form.action_label ? <div className="mt-6 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-4"><p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">Selected from your Blueprint</p><p className="mt-2 font-semibold text-[#041B2D]">{form.action_label}</p></div> : null}<div className="mt-5 grid gap-3">{starterActions.map((action) => <button key={action} type="button" onClick={() => onChange(action)} aria-pressed={form.action_label === action} className={`flex items-center justify-between rounded-2xl border p-4 text-left font-semibold ${form.action_label === action ? "border-[#08A88A] bg-[#EAFBF8]" : "border-slate-200 hover:border-[#9DCFC3]"}`}><span>{action}</span>{form.action_label === action ? <Check className="h-5 w-5 text-[#087F72]" /> : null}</button>)}</div><label className="mt-5 block text-sm font-bold text-[#041B2D]" htmlFor="weekly-action">Or write your own lifestyle practice</label><textarea id="weekly-action" rows={3} maxLength={240} value={form.action_label} onChange={(event) => onChange(event.target.value)} placeholder="Take a 10-minute walk after lunch" className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-[#08A88A] focus:ring-2 focus:ring-[#08A88A]/20" /></section>;
+function ActionStep({ form, starterActions, goalOptions, fromBlueprint, onChange }: { form: FormState; starterActions: string[]; goalOptions: PracticeGoalOption[]; fromBlueprint: boolean; onChange: (changes: Partial<FormState>) => void }) {
+  return <section><h1 className="text-3xl font-extrabold tracking-tight text-[#041B2D]">Choose one practice for this week</h1><p className="mt-3 leading-7 text-slate-600">Small enough to repeat. Specific enough to know when you did it.</p>{fromBlueprint && form.action_label ? <div className="mt-6 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-4"><p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">Selected from your Blueprint</p><p className="mt-2 font-semibold text-[#041B2D]">{form.action_label}</p></div> : null}<div className="mt-5 grid gap-3">{starterActions.map((action) => <button key={action} type="button" onClick={() => onChange({ action_label: action })} aria-pressed={form.action_label === action} className={`flex items-center justify-between rounded-2xl border p-4 text-left font-semibold ${form.action_label === action ? "border-[#08A88A] bg-[#EAFBF8]" : "border-slate-200 hover:border-[#9DCFC3]"}`}><span>{action}</span>{form.action_label === action ? <Check className="h-5 w-5 text-[#087F72]" /> : null}</button>)}</div><label className="mt-5 block text-sm font-bold text-[#041B2D]" htmlFor="weekly-action">Or write your own lifestyle practice</label><textarea id="weekly-action" rows={3} maxLength={240} value={form.action_label} onChange={(event) => onChange({ action_label: event.target.value })} placeholder="Take a 10-minute walk after lunch" className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-[#08A88A] focus:ring-2 focus:ring-[#08A88A]/20" /><fieldset className="mt-7 border-t border-slate-200 pt-6"><legend className="text-lg font-bold text-[#041B2D]">Why does this practice matter this week?</legend><p className="mt-2 text-sm leading-6 text-slate-600">Choose a saved goal when there is a real connection. Otherwise, keep it as an independent choice.</p><div className="mt-4 grid gap-3"><ConnectionChoice selected={form.goal_key === null} title="Independent choice for this week" onClick={() => onChange({ goal_key: null })} />{goalOptions.map((goal) => <ConnectionChoice key={goal.key} selected={form.goal_key === goal.key} title={goal.label} eyebrow="Supports saved goal" onClick={() => onChange({ goal_key: goal.key })} />)}</div>{!goalOptions.length ? <p className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">No saved goals are available yet. This practice will remain an independent choice.</p> : null}</fieldset></section>;
+}
+
+function ConnectionChoice({ selected, title, eyebrow, onClick }: { selected: boolean; title: string; eyebrow?: string; onClick: () => void }) {
+  return <button type="button" onClick={onClick} aria-pressed={selected} className={`flex items-center justify-between rounded-2xl border p-4 text-left ${selected ? "border-[#08A88A] bg-[#EAFBF8]" : "border-slate-200 hover:border-[#9DCFC3]"}`}><span>{eyebrow ? <span className="block text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">{eyebrow}</span> : null}<span className={`${eyebrow ? "mt-1 " : ""}block font-semibold text-[#041B2D]`}>{title}</span></span>{selected ? <Check className="h-5 w-5 shrink-0 text-[#087F72]" /> : null}</button>;
 }
 
 function CueStep({ form, onChange }: { form: FormState; onChange: (changes: Partial<FormState>) => void }) {
@@ -251,8 +260,10 @@ function ReminderStep({
   );
 }
 
-function ConfirmationStep({ form, active, onEditPlan, onEditReminders }: { form: FormState; active: boolean; onEditPlan: () => void; onEditReminders: () => void }) {
-  return <section><CheckCircle2 className="h-10 w-10 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">{active ? "Your week is active" : "Your first week is ready"}</h1><p className="mt-3 leading-7 text-slate-600">Use this plan while it fits your life. You can change it when your schedule or priorities change.</p><div className="mt-6 space-y-4 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5"><Summary label="This week's direction" value={identityLabel(form.identity_direction)} /><Summary label="This week I will" value={form.action_label} /><Summary label="My cue" value={`After I ${form.cue}`} /><Summary label="Target" value={`${form.frequency_per_week} ${form.frequency_per_week === 1 ? "day" : "days"} this week`} /><Summary label="On a hard day" value={form.minimum_version} /><Summary label="Reminder plan" value={reminderSummary(form)} /></div>{active ? <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={onEditPlan} className="min-h-11 rounded-xl bg-[#087F72] px-4 py-2 font-bold text-white hover:bg-[#06695F]">Edit weekly plan</button><button type="button" onClick={onEditReminders} className="min-h-11 rounded-xl border border-[#9DCFC3] px-4 py-2 font-bold text-[#087F72] hover:bg-[#EAFBF8]">Change reminder plan</button></div> : null}</section>;
+function ConfirmationStep({ form, active, goalOptions, fromBlueprint, onEditPlan, onEditReminders }: { form: FormState; active: boolean; goalOptions: PracticeGoalOption[]; fromBlueprint: boolean; onEditPlan: () => void; onEditReminders: () => void }) {
+  const goal = goalOptions.find((option) => option.key === form.goal_key) ?? null;
+  const connection = [goal ? `Supports saved goal: ${goal.label}` : null, fromBlueprint ? "Supports a selected Blueprint priority" : null].filter(Boolean).join(" · ") || "Independently chosen for this week";
+  return <section><CheckCircle2 className="h-10 w-10 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">{active ? "Your week is active" : "Your first week is ready"}</h1><p className="mt-3 leading-7 text-slate-600">Use this plan while it fits your life. You can change it when your schedule or priorities change.</p><div className="mt-6 space-y-4 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5"><Summary label="This week's direction" value={identityLabel(form.identity_direction)} /><Summary label="This week I will" value={form.action_label} /><Summary label="Why it matters" value={connection} /><Summary label="My cue" value={`After I ${form.cue}`} /><Summary label="Target" value={`${form.frequency_per_week} ${form.frequency_per_week === 1 ? "day" : "days"} this week`} /><Summary label="On a hard day" value={form.minimum_version} /><Summary label="Reminder plan" value={reminderSummary(form)} /></div>{active ? <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={onEditPlan} className="min-h-11 rounded-xl bg-[#087F72] px-4 py-2 font-bold text-white hover:bg-[#06695F]">Edit weekly plan</button><button type="button" onClick={onEditReminders} className="min-h-11 rounded-xl border border-[#9DCFC3] px-4 py-2 font-bold text-[#087F72] hover:bg-[#EAFBF8]">Change reminder plan</button></div> : null}</section>;
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
@@ -270,12 +281,13 @@ function formFromExperiment(experiment: WeeklyExperiment): FormState {
     reminder_timing: experiment.reminder_timing ?? "account_default",
     reminder_hour: experiment.reminder_hour ?? 18,
     timezone: "UTC",
+    goal_key: experiment.goal_key ?? null,
   };
 }
 
 function payloadForStep(step: number, form: FormState) {
   if (step === 1) return { step, identity_direction: form.identity_direction };
-  if (step === 2) return { step, action_label: form.action_label };
+  if (step === 2) return { step, action_label: form.action_label, goal_key: form.goal_key };
   if (step === 3) return { step, cue: form.cue, frequency_per_week: form.frequency_per_week };
   if (step === 4) return { step, minimum_version: form.minimum_version };
   if (step === 5) return {
@@ -291,6 +303,7 @@ function payloadForStep(step: number, form: FormState) {
 function errorMessage(code: string | undefined) {
   if (code === "choose_identity") return "Choose the identity you want to reinforce.";
   if (code === "choose_safe_lifestyle_action") return "Choose a lifestyle action. Supplement and medication changes stay in your Blueprint for professional review.";
+  if (code === "choose_current_goal") return "That saved goal is no longer available. Choose another goal or keep this as an independent weekly choice.";
   if (code === "add_cue_and_frequency") return "Add a clear cue and choose how many days you want to practice.";
   if (code === "add_safe_minimum_version") return "Add a small lifestyle version that can count on a hard day.";
   if (code === "choose_reminder_timing") return "Choose when reminder support would be useful for this practice.";
