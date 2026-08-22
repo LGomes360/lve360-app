@@ -3,8 +3,9 @@ import { z } from "zod";
 import { STARTER_ACTIONS, type IdentityDirection, type WeeklyExperiment } from "./activation";
 import { suggestedNextPlan, type NextWeekPlan, type ReviewDecision } from "./weeklyReview";
 import { comparableAdaptiveHistory, isAdaptiveLowData, recommendedAdaptiveReviewDecision } from "./weeklySynthesisDecision";
+import { hypothesisSupportsDecision, usesDirectMemberVoice } from "./weeklySynthesisLanguage";
 
-export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly-review-synthesis-v3";
+export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly-review-synthesis-v4";
 
 export const WEEKLY_SYNTHESIS_RESPONSE_FORMAT = {
   type: "json_schema" as const,
@@ -194,6 +195,8 @@ export function parseGeneratedWeeklySynthesis(raw: string, context: WeeklySynthe
   const result = GeneratedSynthesisSchema.safeParse(parsed);
   if (!result.success || !safeGeneratedText(result.data.observation) || !safeGeneratedText(result.data.hypothesis)) return null;
   const fallback = deterministicWeeklySynthesis(context);
+  if (!usesDirectMemberVoice(result.data.observation, result.data.hypothesis)) return null;
+  if (!hypothesisSupportsDecision(result.data.hypothesis, fallback.suggestedDecision)) return null;
   return {
     ...fallback,
     observation: result.data.observation,
