@@ -4,8 +4,16 @@ function positiveNumber(value: string | undefined, fallback: number) {
 }
 
 export function coachBudget() {
+  const isPreview = process.env.VERCEL_ENV === "preview";
+
   return {
-    monthlyTurns: Math.floor(positiveNumber(process.env.LVE_AI_COACH_MONTHLY_TURNS, 40)),
-    monthlyCostUsd: positiveNumber(process.env.LVE_AI_COACH_MONTHLY_COST_USD, 1.5),
+    monthlyTurns: Math.floor(positiveNumber(
+      isPreview ? process.env.LVE_AI_COACH_PREVIEW_MONTHLY_TURNS : process.env.LVE_AI_COACH_MONTHLY_TURNS,
+      isPreview ? 250 : 40,
+    )),
+    monthlyCostUsd: positiveNumber(
+      isPreview ? process.env.LVE_AI_COACH_PREVIEW_MONTHLY_COST_USD : process.env.LVE_AI_COACH_MONTHLY_COST_USD,
+      isPreview ? 10 : 1.5,
+    ),
   };
 }

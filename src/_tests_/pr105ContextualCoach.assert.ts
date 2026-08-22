@@ -42,12 +42,31 @@ assert.equal(parseCoachAnswer("not json", new Set()), null);
 
 const previousTurns = process.env.LVE_AI_COACH_MONTHLY_TURNS;
 const previousCost = process.env.LVE_AI_COACH_MONTHLY_COST_USD;
+const previousPreviewTurns = process.env.LVE_AI_COACH_PREVIEW_MONTHLY_TURNS;
+const previousPreviewCost = process.env.LVE_AI_COACH_PREVIEW_MONTHLY_COST_USD;
+const previousVercelEnv = process.env.VERCEL_ENV;
+process.env.VERCEL_ENV = "production";
 process.env.LVE_AI_COACH_MONTHLY_TURNS = "12";
 process.env.LVE_AI_COACH_MONTHLY_COST_USD = "0.75";
 assert.deepEqual(coachBudget(), { monthlyTurns: 12, monthlyCostUsd: 0.75 });
+
+process.env.VERCEL_ENV = "preview";
+delete process.env.LVE_AI_COACH_PREVIEW_MONTHLY_TURNS;
+delete process.env.LVE_AI_COACH_PREVIEW_MONTHLY_COST_USD;
+assert.deepEqual(coachBudget(), { monthlyTurns: 250, monthlyCostUsd: 10 });
+process.env.LVE_AI_COACH_PREVIEW_MONTHLY_TURNS = "300";
+process.env.LVE_AI_COACH_PREVIEW_MONTHLY_COST_USD = "12.5";
+assert.deepEqual(coachBudget(), { monthlyTurns: 300, monthlyCostUsd: 12.5 });
+
 if (previousTurns === undefined) delete process.env.LVE_AI_COACH_MONTHLY_TURNS;
 else process.env.LVE_AI_COACH_MONTHLY_TURNS = previousTurns;
 if (previousCost === undefined) delete process.env.LVE_AI_COACH_MONTHLY_COST_USD;
 else process.env.LVE_AI_COACH_MONTHLY_COST_USD = previousCost;
+if (previousPreviewTurns === undefined) delete process.env.LVE_AI_COACH_PREVIEW_MONTHLY_TURNS;
+else process.env.LVE_AI_COACH_PREVIEW_MONTHLY_TURNS = previousPreviewTurns;
+if (previousPreviewCost === undefined) delete process.env.LVE_AI_COACH_PREVIEW_MONTHLY_COST_USD;
+else process.env.LVE_AI_COACH_PREVIEW_MONTHLY_COST_USD = previousPreviewCost;
+if (previousVercelEnv === undefined) delete process.env.VERCEL_ENV;
+else process.env.VERCEL_ENV = previousVercelEnv;
 
 console.log("PR105 contextual coach safety and grounding assertions passed.");
