@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { hypothesisSupportsDecision, usesDirectMemberVoice } from "../lib/weeklySynthesisLanguage.ts";
+import { hypothesisSupportsDecision, normalizeMemberVoice, usesDirectMemberVoice } from "../lib/weeklySynthesisLanguage.ts";
 
 assert.equal(
   usesDirectMemberVoice(
@@ -36,6 +36,27 @@ assert.equal(
   ),
   true,
   "A keep hypothesis should reinforce the current version.",
+);
+
+assert.equal(
+  normalizeMemberVoice("The member completed 3 of 5 repetitions.", "observation"),
+  "You completed 3 of 5 repetitions.",
+  "Safe third-person model wording should be made member-facing without changing the fact.",
+);
+
+assert.equal(
+  normalizeMemberVoice("Repeating the current version may show whether it fits.", "hypothesis"),
+  "For your next week, repeating the current version may show whether it fits.",
+  "A safe hypothesis without a pronoun should receive a direct member-facing frame.",
+);
+
+assert.equal(
+  hypothesisSupportsDecision(
+    "Repeating your current version without changing it may show whether the fit is consistent.",
+    "keep",
+  ),
+  true,
+  "Negated change language must not be mistaken for a contradictory recommendation.",
 );
 
 assert.equal(

@@ -3,9 +3,9 @@ import { z } from "zod";
 import { STARTER_ACTIONS, type IdentityDirection, type WeeklyExperiment } from "./activation";
 import { suggestedNextPlan, type NextWeekPlan, type ReviewDecision } from "./weeklyReview";
 import { comparableAdaptiveHistory, isAdaptiveLowData, recommendedAdaptiveReviewDecision } from "./weeklySynthesisDecision";
-import { hypothesisSupportsDecision, usesDirectMemberVoice } from "./weeklySynthesisLanguage";
+import { hypothesisSupportsDecision, normalizeMemberVoice, usesDirectMemberVoice } from "./weeklySynthesisLanguage";
 
-export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly-review-synthesis-v5";
+export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly-review-synthesis-v6";
 
 export const WEEKLY_SYNTHESIS_RESPONSE_FORMAT = {
   type: "json_schema" as const,
@@ -203,14 +203,17 @@ export function parseGeneratedWeeklySynthesis(raw: string, context: WeeklySynthe
     return null;
   }
   const result = GeneratedSynthesisSchema.safeParse(parsed);
-  if (!result.success || !safeGeneratedText(result.data.observation) || !safeGeneratedText(result.data.hypothesis)) return null;
+  if (!result.success) return null;
+  const observation = normalizeMemberVoice(result.data.observation, "observation");
+  const hypothesis = normalizeMemberVoice(result.data.hypothesis, "hypothesis");
+  if (!safeGeneratedText(observation) || !safeGeneratedText(hypothesis)) return null;
   const fallback = deterministicWeeklySynthesis(context);
-  if (!usesDirectMemberVoice(result.data.observation, result.data.hypothesis)) return null;
-  if (!hypothesisSupportsDecision(result.data.hypothesis, fallback.suggestedDecision)) return null;
+  if (!usesDirectMemberVoice(observation, hypothesis)) return null;
+  if (!hypothesisSupportsDecision(hypothesis, fallback.suggestedDecision)) return null;
   return {
     ...fallback,
-    observation: result.data.observation,
-    hypothesis: result.data.hypothesis,
+    observation,
+    hypothesis,
   };
 }
 

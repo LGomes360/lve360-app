@@ -9,8 +9,8 @@ const route = read("app/api/weekly-review/synthesis/route.ts");
 const review = read("src/components/review/WeeklyReviewClient.tsx");
 const config = read("src/lib/ai/modelConfig.ts");
 
-assert.match(logic, /weekly-review-synthesis-v5/);
-assert.match(config, /weekly_review_synthesis:[\s\S]*weekly-review-synthesis-v5/);
+assert.match(logic, /weekly-review-synthesis-v6/);
+assert.match(config, /weekly_review_synthesis:[\s\S]*weekly-review-synthesis-v6/);
 assert.match(route, /weekly_experiment_reviews/);
 assert.match(route, /limit\(6\)/, "History must remain bounded for speed and cost.");
 assert.match(data, /prior_completed_weeks/);
