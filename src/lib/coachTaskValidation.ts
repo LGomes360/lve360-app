@@ -281,7 +281,7 @@ function timeHorizonValidator(input: CoachTaskValidationInput) {
   const requested = [
     /\btomorrow\b/i.test(input.question) ? "tomorrow" : null,
     /\btoday\b/i.test(input.question) ? "today" : null,
-    /\bthis week\b|\bweekly\b/i.test(input.question) ? "week" : null,
+    /\bthis week\b|\bnext week\b|\bweekly\b/i.test(input.question) ? "week" : null,
   ].filter((value): value is string => Boolean(value));
   const missing = requested.filter((value) => !new RegExp(`\\b${value}`).test(normalized(input.answerText)));
   return result("REQUESTED_TIME_HORIZON", ratio(requested.length - missing.length, requested.length), missing.map((value) => `time_horizon:${value}`));

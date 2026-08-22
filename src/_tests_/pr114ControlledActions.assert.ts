@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { parseProposedWeeklyPractice, parseStructuredCoachAnswer } from "../lib/contextualCoach.ts";
+import { classifyCoachRequest, parseProposedWeeklyPractice, parseStructuredCoachAnswer } from "../lib/contextualCoach.ts";
 
 const safeProposal = {
   type: "weekly_practice",
@@ -40,5 +40,11 @@ const parsed = parseStructuredCoachAnswer(JSON.stringify({
 
 assert.ok(parsed?.proposedAction);
 assert.equal(parsed?.proposedAction?.actionLabel, "Take a 10-minute walk after lunch");
+
+assert.equal(
+  classifyCoachRequest("I want to improve my energy with a small movement habit after lunch. What should I practice next week?").intent,
+  "PROGRESS_COACHING",
+  "explicit next-week practice requests must be eligible for a controlled action preview",
+);
 
 console.log("PR114 controlled action validation assertions passed.");

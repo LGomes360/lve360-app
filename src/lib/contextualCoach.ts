@@ -215,7 +215,7 @@ export function classifyCoachRequest(question: string): CoachRoutingDecision {
   if (/\b(?:why|explain|what does|how does)\b[\s\S]{0,80}\b(?:blueprint|plan|priority|recommendation|routine)\b/.test(value)) {
     return route("PLAN_EXPLANATION");
   }
-  if (/\b(?:this week|progress|trend|recent|check[- ]?ins?|small win|next habit|weekly practice|focus on)\b/.test(value)) {
+  if (/\b(?:this week|next week|progress|trend|recent|check[- ]?ins?|small win|next habit|weekly practice|focus on)\b/.test(value)) {
     return route("PROGRESS_COACHING", []);
   }
   if (/\b(?:for me|my\s+(?:sleep|energy|goals?|stack|medications?|routine)|should i|what should i try|best for my|makes? sense for me|fit my)\b/.test(value)) {
