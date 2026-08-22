@@ -5,7 +5,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { WeeklyExperiment } from "@/lib/activation";
 import { getOrCreateWeeklySynthesis } from "@/lib/ai/weeklySynthesisData";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { isReviewDue } from "@/lib/weeklyReview";
+import { isReviewDecision, isReviewDue } from "@/lib/weeklyReview";
+import type { WeeklySynthesisHistoryWeek } from "@/lib/weeklySynthesis";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -39,13 +40,40 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "review_not_due" }, { status: 409 });
     }
     const weekEnd = addDays(typedExperiment.week_start, 6);
-    const [{ data: completionRows, error: completionError }, { data: checkIns, error: checkInError }] = await Promise.all([
+    const [{ data: completionRows, error: completionError }, { data: checkIns, error: checkInError }, { data: reviewRows, error: reviewError }] = await Promise.all([
       admin.from("daily_practice_completions").select("completion_date").eq("user_id", user.id).eq("experiment_id", experimentId)
         .gte("completion_date", typedExperiment.week_start).lte("completion_date", weekEnd).order("completion_date"),
       admin.from("logs").select("log_date,sleep,energy").eq("user_id", user.id)
         .gte("log_date", typedExperiment.week_start).lte("log_date", weekEnd).order("log_date"),
+      admin.from("weekly_experiment_reviews")
+        .select("experiment_id,completion_count,target_count,difficulty,value_rating,decision,completed_at")
+        .eq("user_id", user.id).eq("status", "completed").neq("experiment_id", experimentId)
+        .order("completed_at", { ascending: false }).limit(6),
     ]);
-    if (completionError || checkInError) throw completionError ?? checkInError;
+    if (completionError || checkInError || reviewError) throw completionError ?? checkInError ?? reviewError;
+    const priorExperimentIds = (reviewRows ?? []).map((row) => row.experiment_id as string);
+    const { data: priorExperiments, error: priorExperimentError } = priorExperimentIds.length
+      ? await admin.from("weekly_experiments")
+        .select("id,identity_direction,action_label,week_start")
+        .eq("user_id", user.id).in("id", priorExperimentIds)
+      : { data: [], error: null };
+    if (priorExperimentError) throw priorExperimentError;
+    const experimentById = new Map((priorExperiments ?? []).map((row) => [row.id as string, row]));
+    const history = (reviewRows ?? []).flatMap((row): WeeklySynthesisHistoryWeek[] => {
+      const prior = experimentById.get(row.experiment_id as string);
+      if (!prior || !isReviewDecision(row.decision)) return [];
+      return [{
+        experimentId: row.experiment_id as string,
+        weekStart: prior.week_start as string,
+        identityDirection: (prior.identity_direction ?? null) as WeeklyExperiment["identity_direction"],
+        actionLabel: (prior.action_label as string | null) ?? "Weekly lifestyle practice",
+        completionCount: Number(row.completion_count),
+        target: Number(row.target_count),
+        difficulty: Number(row.difficulty),
+        valueRating: Number(row.value_rating),
+        decision: row.decision,
+      }];
+    });
     const completedDates = (completionRows ?? []).map((row) => row.completion_date as string);
     const synthesis = await getOrCreateWeeklySynthesis(user.id, {
       experiment: typedExperiment,
@@ -55,6 +83,7 @@ export async function POST(req: NextRequest) {
       difficulty,
       valueRating,
       checkIns: (checkIns ?? []).map((row) => ({ date: row.log_date, sleep: row.sleep, energy: row.energy })),
+      history,
     });
     return NextResponse.json({ ok: true, synthesis });
   } catch (error) {

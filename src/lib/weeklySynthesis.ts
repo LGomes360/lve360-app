@@ -2,12 +2,25 @@ import { z } from "zod";
 
 import { STARTER_ACTIONS, type IdentityDirection, type WeeklyExperiment } from "./activation";
 import { suggestedNextPlan, type NextWeekPlan, type ReviewDecision } from "./weeklyReview";
+import { comparableAdaptiveHistory, isAdaptiveLowData, recommendedAdaptiveReviewDecision } from "./weeklySynthesisDecision";
 
-export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly-review-synthesis-v1";
+export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly-review-synthesis-v2";
 
 export type WeeklySynthesisEvidence = {
   label: string;
   value: string;
+};
+
+export type WeeklySynthesisHistoryWeek = {
+  experimentId: string;
+  weekStart: string;
+  identityDirection: WeeklyExperiment["identity_direction"];
+  actionLabel: string;
+  completionCount: number;
+  target: number;
+  difficulty: number;
+  valueRating: number;
+  decision: ReviewDecision;
 };
 
 export type WeeklySynthesisContext = {
@@ -18,6 +31,7 @@ export type WeeklySynthesisContext = {
   difficulty: number;
   valueRating: number;
   checkIns: Array<{ date: string; sleep: number | null; energy: number | null }>;
+  history: WeeklySynthesisHistoryWeek[];
 };
 
 export type WeeklySynthesisContent = {
@@ -31,6 +45,7 @@ export type WeeklySynthesisContent = {
 
 export type WeeklySynthesis = WeeklySynthesisContent & {
   id: string;
+  historyWeeks: number;
   source: "ai" | "fallback";
   generationStatus: "pending" | "succeeded" | "failed" | "skipped";
   responseState: "none" | "accepted" | "edited" | "rejected";
@@ -55,16 +70,29 @@ function average(values: number[]) {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
 }
 
+function decisionContext(context: WeeklySynthesisContext) {
+  return {
+    identityDirection: context.experiment.identity_direction,
+    actionLabel: context.experiment.action_label,
+    completedCount: context.completedCount,
+    target: context.target,
+    difficulty: context.difficulty,
+    valueRating: context.valueRating,
+    checkInCount: context.checkIns.length,
+    history: context.history,
+  };
+}
+
+export function comparableHistory(context: WeeklySynthesisContext) {
+  return comparableAdaptiveHistory(decisionContext(context));
+}
+
 export function isLowDataWeek(context: WeeklySynthesisContext) {
-  return context.completedCount < 2 && context.checkIns.length < 2;
+  return isAdaptiveLowData(decisionContext(context));
 }
 
 export function recommendedReviewDecision(context: WeeklySynthesisContext): ReviewDecision {
-  const completionRatio = context.target > 0 ? context.completedCount / context.target : 0;
-  if (context.valueRating <= 2) return "swap";
-  if (context.difficulty >= 4 || completionRatio < 0.6) return "shrink";
-  if (completionRatio >= 1 && context.valueRating >= 4 && context.difficulty <= 2) return "advance";
-  return "keep";
+  return recommendedAdaptiveReviewDecision(decisionContext(context));
 }
 
 export function recommendedNextPlan(context: WeeklySynthesisContext, decision: ReviewDecision): NextWeekPlan | null {
@@ -95,6 +123,24 @@ export function weeklySynthesisEvidence(context: WeeklySynthesisContext): Weekly
     if (sleep != null) evidence.push({ label: "Average sleep check-in", value: `${sleep.toFixed(1)} of 5` });
     if (energy != null) evidence.push({ label: "Average energy check-in", value: `${energy.toFixed(1)} of 10` });
   }
+  if (context.history.length) {
+    const comparable = comparableHistory(context);
+    evidence.push({ label: "History considered", value: `${context.history.length} prior completed ${context.history.length === 1 ? "week" : "weeks"}` });
+    evidence.push({ label: "Comparable focus history", value: `${comparable.length} ${comparable.length === 1 ? "week" : "weeks"}` });
+    if (comparable.length) {
+      const chronological = [...comparable].sort((left, right) => left.weekStart.localeCompare(right.weekStart));
+      evidence.push({
+        label: "Comparable completion trend",
+        value: [...chronological.slice(-3).map((week) => `${week.completionCount}/${week.target}`), `${context.completedCount}/${context.target}`].join(" → "),
+      });
+      evidence.push({
+        label: "Comparable usefulness trend",
+        value: [...chronological.slice(-3).map((week) => `${week.valueRating}/5`), `${context.valueRating}/5`].join(" → "),
+      });
+    }
+  } else {
+    evidence.push({ label: "History considered", value: "No prior completed weekly reviews yet" });
+  }
   return evidence;
 }
 
@@ -103,12 +149,12 @@ export function deterministicWeeklySynthesis(context: WeeklySynthesisContext): W
   const early = isLowDataWeek(context);
   const observation = early
     ? `This is an early signal from ${context.completedCount} recorded practice ${context.completedCount === 1 ? "repetition" : "repetitions"} and ${context.checkIns.length} daily ${context.checkIns.length === 1 ? "check-in" : "check-ins"}.`
-    : `You completed ${context.completedCount} of ${context.target} planned repetitions and rated the practice ${context.valueRating} of 5 for usefulness and ${context.difficulty} of 5 for difficulty.`;
+    : `You completed ${context.completedCount} of ${context.target} planned repetitions and rated the practice ${context.valueRating} of 5 for usefulness and ${context.difficulty} of 5 for difficulty.${context.history.length ? ` This reflection also considered ${context.history.length} prior completed ${context.history.length === 1 ? "week" : "weeks"}.` : ""}`;
   const hypotheses: Record<ReviewDecision, string> = {
     keep: "The current version may be a workable fit. Repeating it for another week would test whether that fit is consistent.",
     shrink: "The practice may still be worthwhile, but its current size, timing, or setup may be creating friction. A smaller version would test that idea.",
     swap: "The practice may not feel useful enough to earn another week. A different small action in the same life area may be more informative.",
-    pause: "A pause may create room to decide what deserves attention next.",
+    pause: "Repeated low usefulness in this focus area may mean it has not earned another immediate experiment. A pause would test whether a different priority deserves attention next.",
     advance: "The practice felt useful and repeatable this week. A very small increase would test whether it can grow without becoming burdensome.",
   };
   return {
