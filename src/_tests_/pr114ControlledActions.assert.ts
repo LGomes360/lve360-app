@@ -73,4 +73,12 @@ assert.equal(
   "explicit next-week practice requests must be eligible for a controlled action preview",
 );
 
+const failedPreviewRoute = classifyCoachRequest(
+  "Suggest one small next-week movement practice after lunch. Keep my medications, hormones, supplements, and current Routine unchanged.",
+);
+assert.equal(failedPreviewRoute.intent, "PROGRESS_COACHING", "hyphenated next-week wording must be eligible for a controlled action preview");
+assert.equal(failedPreviewRoute.constraints.preserveMedicationPlan, true);
+assert.equal(failedPreviewRoute.constraints.preserveHormonePlan, true);
+assert.equal(failedPreviewRoute.constraints.preserveSupplementPlan, true);
+
 console.log("PR114 controlled action validation assertions passed.");

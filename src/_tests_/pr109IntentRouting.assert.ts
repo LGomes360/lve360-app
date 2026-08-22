@@ -169,6 +169,14 @@ const weeklyPracticeRoute = classifyCoachRequest(weeklyPracticePrompt);
 assert.equal(weeklyPracticeRoute.intent, "PROGRESS_COACHING", "Current weekly practice must not be mistaken for the current regimen.");
 assert.deepEqual(weeklyPracticeRoute.requestedRegimenKinds, []);
 
+const hyphenatedNextWeekPrompt = "Suggest one small next-week movement practice after lunch. Keep my medications, hormones, supplements, and current Routine unchanged.";
+const hyphenatedNextWeekRoute = classifyCoachRequest(hyphenatedNextWeekPrompt);
+assert.equal(hyphenatedNextWeekRoute.intent, "PROGRESS_COACHING", "Natural hyphenated next-week wording must remain eligible for a controlled action.");
+assert.deepEqual(hyphenatedNextWeekRoute.requestedRegimenKinds, []);
+assert.equal(hyphenatedNextWeekRoute.constraints.preserveMedicationPlan, true);
+assert.equal(hyphenatedNextWeekRoute.constraints.preserveHormonePlan, true);
+assert.equal(hyphenatedNextWeekRoute.constraints.preserveSupplementPlan, true);
+
 const behaviorPrompt = "I slept poorly last night. How should I adjust tomorrow without changing my medications or supplements?";
 const behaviorRoute = classifyCoachRequest(behaviorPrompt);
 assert.equal(behaviorRoute.intent, "BEHAVIORAL_COACHING");

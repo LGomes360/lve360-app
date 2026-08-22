@@ -141,7 +141,7 @@ export function isCoachFeedback(value: unknown): value is CoachFeedback {
 function explicitCoachConstraints(question: string): CoachConstraints {
   const value = question.toLowerCase();
   const withoutChange = /\b(?:without|do not|don't|not)\b[\s\S]{0,50}\b(?:chang|adjust|start|stop|add|remove|switch)/.test(value)
-    || /\bkeep\b[\s\S]{0,40}\b(?:unchanged|the same)/.test(value);
+    || /\bkeep\b[\s\S]{0,120}\b(?:unchanged|the same)/.test(value);
   const allRegimen = withoutChange && /\b(?:routine|regimen|stack|anything i take)\b/.test(value);
   return {
     preserveMedicationPlan: allRegimen || (withoutChange && /\b(?:medications?|meds?|medicines?|prescriptions?|prescribed drugs?)\b/.test(value)),
@@ -224,7 +224,7 @@ export function classifyCoachRequest(question: string): CoachRoutingDecision {
   if (/\b(?:why|explain|what does|how does)\b[\s\S]{0,80}\b(?:blueprint|plan|priority|recommendation|routine)\b/.test(value)) {
     return route("PLAN_EXPLANATION");
   }
-  if (/\b(?:this week|next week|progress|trend|recent|check[- ]?ins?|small win|next habit|weekly practice|focus on)\b/.test(value)) {
+  if (/\b(?:this week|next[- ]week|progress|trend|recent|check[- ]?ins?|small win|next habit|weekly practice|focus on)\b/.test(value)) {
     return route("PROGRESS_COACHING", []);
   }
   if (/\b(?:for me|my\s+(?:sleep|energy|goals?|stack|medications?|routine)|should i|what should i try|best for my|makes? sense for me|fit my)\b/.test(value)) {
