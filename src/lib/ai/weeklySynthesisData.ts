@@ -34,7 +34,7 @@ function stableHash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-function rowToSynthesis(row: WeeklySynthesisRow): WeeklySynthesis {
+function rowToSynthesis(row: WeeklySynthesisRow, historyWeeks: number): WeeklySynthesis {
   const hasPlan = row.suggested_decision !== "pause"
     && row.suggested_action_label
     && row.suggested_cue
@@ -42,6 +42,7 @@ function rowToSynthesis(row: WeeklySynthesisRow): WeeklySynthesis {
     && row.suggested_minimum_version;
   return {
     id: row.id,
+    historyWeeks,
     source: row.source,
     generationStatus: row.generation_status,
     observation: row.observation,
@@ -86,6 +87,7 @@ function generatedPrompt(context: WeeklySynthesisContext) {
       content: [
         "You write a short weekly lifestyle-practice reflection for LVE360.",
         "Use only the supplied recorded behavior and member ratings.",
+        "When prior weeks are supplied, describe a trend only when the values support it.",
         "Return only valid JSON with exactly two string fields: observation and hypothesis.",
         "The observation must state recorded facts neutrally.",
         "The hypothesis must be framed as a possibility to test, never as cause and effect.",
@@ -104,6 +106,17 @@ function generatedPrompt(context: WeeklySynthesisContext) {
         difficulty_rating: context.difficulty,
         usefulness_rating: context.valueRating,
         check_ins_recorded: context.checkIns.length,
+        prior_completed_weeks: context.history.map((week) => ({
+          week_start: week.weekStart,
+          same_focus_area: week.identityDirection === context.experiment.identity_direction,
+          same_practice: week.actionLabel.trim().toLowerCase() === context.experiment.action_label?.trim().toLowerCase(),
+          practice: week.actionLabel,
+          planned_repetitions: week.target,
+          completed_repetitions: week.completionCount,
+          difficulty_rating: week.difficulty,
+          usefulness_rating: week.valueRating,
+          member_decision: week.decision,
+        })),
       }),
     },
   ];
@@ -116,7 +129,7 @@ export async function getOrCreateWeeklySynthesis(userId: string, context: Weekly
     .eq("user_id", userId).eq("experiment_id", context.experiment.id).eq("context_hash", contextHash);
   const { data: existing, error: existingError } = await loadExisting().maybeSingle();
   if (existingError) throw existingError;
-  if (existing) return rowToSynthesis(existing as WeeklySynthesisRow);
+  if (existing) return rowToSynthesis(existing as WeeklySynthesisRow, context.history.length);
 
   const fallback = deterministicWeeklySynthesis(context);
   const values = rowValues(userId, context.experiment.id, contextHash, fallback);
@@ -124,7 +137,7 @@ export async function getOrCreateWeeklySynthesis(userId: string, context: Weekly
   if (claimError?.code === "23505") {
     const { data: raced, error } = await loadExisting().single();
     if (error) throw error;
-    return rowToSynthesis(raced as WeeklySynthesisRow);
+    return rowToSynthesis(raced as WeeklySynthesisRow, context.history.length);
   }
   if (claimError || !claimed) throw claimError ?? new Error("weekly_synthesis_claim_failed");
 
@@ -133,7 +146,7 @@ export async function getOrCreateWeeklySynthesis(userId: string, context: Weekly
       .update({ generation_status: "skipped", updated_at: new Date().toISOString() })
       .eq("id", claimed.id).select("*").single();
     if (error) throw error;
-    return rowToSynthesis(data as WeeklySynthesisRow);
+    return rowToSynthesis(data as WeeklySynthesisRow, context.history.length);
   }
 
   try {
@@ -154,13 +167,13 @@ export async function getOrCreateWeeklySynthesis(userId: string, context: Weekly
       updated_at: new Date().toISOString(),
     }).eq("id", claimed.id).select("*").single();
     if (error) throw error;
-    return rowToSynthesis(data as WeeklySynthesisRow);
+    return rowToSynthesis(data as WeeklySynthesisRow, context.history.length);
   } catch (error) {
     console.warn("[weekly-synthesis] generation unavailable; using saved fallback", error);
     const { data, error: updateError } = await admin.from("ai_weekly_syntheses")
       .update({ generation_status: "failed", updated_at: new Date().toISOString() })
       .eq("id", claimed.id).select("*").single();
     if (updateError) throw updateError;
-    return rowToSynthesis(data as WeeklySynthesisRow);
+    return rowToSynthesis(data as WeeklySynthesisRow, context.history.length);
   }
 }
