@@ -58,6 +58,7 @@
     "qa:pr114": "node --experimental-strip-types src/_tests_/pr114ControlledActions.assert.ts && node src/_tests_/pr114Architecture.assert.mjs",
     "qa:pr116": "node --experimental-strip-types src/_tests_/pr116AdaptiveWeeklySynthesis.assert.ts && node src/_tests_/pr116Architecture.assert.mjs",
     "qa:pr117": "node src/_tests_/pr117PromptProvenance.assert.mjs",
+    "qa:pr118": "node --experimental-strip-types src/_tests_/pr118WeeklyPracticeRouting.assert.ts",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
     "qa:all": "npm run qa:env && npm run qa:build"

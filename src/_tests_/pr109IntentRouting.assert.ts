@@ -164,6 +164,11 @@ assert.match(priorityAnswer.answer, /Keep a consistent wake time/);
 assert.match(priorityAnswer.answer, /1 of 5 planned completions/);
 assert.doesNotMatch(priorityAnswer.answer, /magnesium|glycine|melatonin/i);
 
+const weeklyPracticePrompt = "Based on my current weekly practice, what is the smallest useful step I should take tomorrow?";
+const weeklyPracticeRoute = classifyCoachRequest(weeklyPracticePrompt);
+assert.equal(weeklyPracticeRoute.intent, "PROGRESS_COACHING", "Current weekly practice must not be mistaken for the current regimen.");
+assert.deepEqual(weeklyPracticeRoute.requestedRegimenKinds, []);
+
 const behaviorPrompt = "I slept poorly last night. How should I adjust tomorrow without changing my medications or supplements?";
 const behaviorRoute = classifyCoachRequest(behaviorPrompt);
 assert.equal(behaviorRoute.intent, "BEHAVIORAL_COACHING");
