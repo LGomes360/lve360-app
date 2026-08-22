@@ -16,8 +16,9 @@ assert.match(data, /code === "23505"/, "Concurrent page loads must not create du
 assert.match(data, /generation_status: "failed"/, "AI failure must preserve a deterministic fallback.");
 assert.match(route, /premium_required/, "The Today Brief must remain a paid experience.");
 assert.match(route, /remind_later/, "The member must be able to quiet the brief temporarily.");
-assert.match(component, /Mark complete/, "The brief must provide a concrete completion action.");
-assert.match(component, /Open Routine/, "Routine remains the destination for regimen detail.");
+assert.doesNotMatch(component, /Mark complete/, "The brief must not duplicate the focused-practice completion action.");
+assert.doesNotMatch(component, /Open Routine/, "The brief must not duplicate Today or Routine navigation.");
+assert.match(component, /Why this matters/, "The brief must preserve contextual explanation.");
 assert.doesNotMatch(component, /\/api\/stacks\/combined/, "The brief must not duplicate the Routine checklist.");
 assert.match(migration, /unique \(user_id, local_date, context_hash\)/, "The database must enforce one brief per context.");
 assert.match(migration, /revoke all on table public\.ai_today_briefs from public, anon, authenticated/, "Brief storage must remain server-mediated.");
