@@ -262,6 +262,21 @@ const missingNextWeekProposal = validate(
 assert.equal(missingNextWeekProposal.passed, false);
 assert(missingNextWeekProposal.failedValidators.includes("CONTROLLED_ACTION_PROPOSAL"));
 
+const exactFailedNextWeekQuestion = "Suggest one small next-week movement practice after lunch. Keep my medications, hormones, supplements, and current Routine unchanged.";
+const exactFailedNextWeekRoute = classifyCoachRequest(exactFailedNextWeekQuestion);
+const repairedNextWeekValidation = validate(
+  exactFailedNextWeekRoute,
+  exactFailedNextWeekQuestion,
+  `${nextWeekAnswer.directAnswer} ${nextWeekAnswer.nextStep}`,
+  nextWeekAnswer,
+);
+assert.equal(
+  repairedNextWeekValidation.passed,
+  true,
+  `The exact Preview request must use controlled-action validation instead of requiring the current practice.\n${JSON.stringify(repairedNextWeekValidation, null, 2)}`,
+);
+assert(!repairedNextWeekValidation.failedValidators.includes("ACTIVE_PRACTICE_USE"));
+
 const comparisonQuestion = "Compare glycine and melatonin for my sleep goal.";
 const comparisonRoute = classifyCoachRequest(comparisonQuestion);
 assert.equal(comparisonRoute.intent, "EVIDENCE_COMPARISON");

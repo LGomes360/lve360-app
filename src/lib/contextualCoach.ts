@@ -141,7 +141,7 @@ export function isCoachFeedback(value: unknown): value is CoachFeedback {
 function explicitCoachConstraints(question: string): CoachConstraints {
   const value = question.toLowerCase();
   const withoutChange = /\b(?:without|do not|don't|not)\b[\s\S]{0,50}\b(?:chang|adjust|start|stop|add|remove|switch)/.test(value)
-    || /\bkeep\b[\s\S]{0,40}\b(?:unchanged|the same)/.test(value);
+    || /\bkeep\b[\s\S]{0,120}\b(?:unchanged|the same)/.test(value);
   const allRegimen = withoutChange && /\b(?:routine|regimen|stack|anything i take)\b/.test(value);
   return {
     preserveMedicationPlan: allRegimen || (withoutChange && /\b(?:medications?|meds?|medicines?|prescriptions?|prescribed drugs?)\b/.test(value)),
@@ -224,7 +224,7 @@ export function classifyCoachRequest(question: string): CoachRoutingDecision {
   if (/\b(?:why|explain|what does|how does)\b[\s\S]{0,80}\b(?:blueprint|plan|priority|recommendation|routine)\b/.test(value)) {
     return route("PLAN_EXPLANATION");
   }
-  if (/\b(?:this week|next week|progress|trend|recent|check[- ]?ins?|small win|next habit|weekly practice|focus on)\b/.test(value)) {
+  if (/\b(?:this week|next[- ]week|progress|trend|recent|check[- ]?ins?|small win|next habit|weekly practice|focus on)\b/.test(value)) {
     return route("PROGRESS_COACHING", []);
   }
   if (/\b(?:for me|my\s+(?:sleep|energy|goals?|stack|medications?|routine)|should i|what should i try|best for my|makes? sense for me|fit my)\b/.test(value)) {
@@ -291,6 +291,26 @@ export function parseProposedWeeklyPractice(value: unknown, intent: CoachIntent)
   return { type: "weekly_practice", identityDirection: identity, actionLabel, cue, frequencyPerWeek, minimumVersion, rationale };
 }
 
+export function buildSafeNextWeekMovementFallback(question: string): ProposedWeeklyPractice | null {
+  const asksForNextWeekPractice = /\bnext[- ]week\b/i.test(question)
+    && /\b(?:habit|practice|focus|action)\b/i.test(question);
+  const asksForMovement = /\b(?:movement|move|walk|walking|exercise|active|activity)\b/i.test(question);
+  if (!asksForNextWeekPractice || !asksForMovement) return null;
+
+  const afterLunch = /\bafter lunch\b/i.test(question);
+  return {
+    type: "weekly_practice",
+    identityDirection: "movement",
+    actionLabel: afterLunch ? "Take a 10-minute walk after lunch" : "Take a 10-minute walk",
+    cue: afterLunch ? "After lunch" : "After a reliable daily routine",
+    frequencyPerWeek: 5,
+    minimumVersion: "Walk for two minutes",
+    rationale: afterLunch
+      ? "This connects a small movement practice to a reliable meal cue."
+      : "This keeps the movement practice small enough to repeat consistently.",
+  };
+}
+
 function isCoachIntent(value: unknown): value is CoachIntent {
   return [
     "GENERAL_EDUCATION", "PERSONALIZED_RECOMMENDATION", "CURRENT_REGIMEN_LOOKUP",
@@ -316,7 +336,13 @@ export function parseStructuredCoachAnswer(
     }
     const intent = expectedIntent;
     const directAnswer = cleanText(value.direct_answer, 700);
-    const nextStep = cleanText(value.next_step, 350);
+    const proposedAction = parseProposedWeeklyPractice(value.proposed_action, intent);
+    const suppliedNextStep = cleanText(value.next_step, 350);
+    const nextStep = suppliedNextStep.length >= 8
+      ? suppliedNextStep
+      : proposedAction
+        ? "Preview this practice before deciding whether to save it for next week."
+        : suppliedNextStep;
     if (directAnswer.length < 12) {
       console.info("[coach.parse]", { reason: "direct_answer_too_short" });
       return null;
@@ -362,7 +388,6 @@ export function parseStructuredCoachAnswer(
     const sourceIds = Array.isArray(value.source_ids)
       ? [...new Set(value.source_ids.filter((id): id is string => typeof id === "string" && validSourceIds.has(id)))]
       : [];
-    const proposedAction = parseProposedWeeklyPractice(value.proposed_action, intent);
     return { intent, directAnswer, options, recommendation, nextStep, sourceIds, proposedAction };
   } catch {
     console.info("[coach.parse]", { reason: "invalid_json" });
