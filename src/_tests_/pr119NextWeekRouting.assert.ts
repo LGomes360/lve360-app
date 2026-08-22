@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { classifyCoachRequest } from "../lib/contextualCoach.ts";
+import { buildSafeNextWeekMovementFallback, classifyCoachRequest } from "../lib/contextualCoach.ts";
 
 const exactFailedQuestion = "Suggest one small next-week movement practice after lunch. Keep my medications, hormones, supplements, and current Routine unchanged.";
 const route = classifyCoachRequest(exactFailedQuestion);
@@ -17,5 +17,20 @@ for (const question of [
 ]) {
   assert.equal(classifyCoachRequest(question).intent, "PROGRESS_COACHING", `Equivalent weekly-practice wording must route consistently: ${question}`);
 }
+
+assert.deepEqual(buildSafeNextWeekMovementFallback(exactFailedQuestion), {
+  type: "weekly_practice",
+  identityDirection: "movement",
+  actionLabel: "Take a 10-minute walk after lunch",
+  cue: "After lunch",
+  frequencyPerWeek: 5,
+  minimumVersion: "Walk for two minutes",
+  rationale: "This connects a small movement practice to a reliable meal cue.",
+});
+assert.equal(
+  buildSafeNextWeekMovementFallback("Should I change my supplements next week?"),
+  null,
+  "the deterministic fallback must remain limited to explicit lifestyle movement-practice requests",
+);
 
 console.log("PR119 next-week routing assertions passed.");

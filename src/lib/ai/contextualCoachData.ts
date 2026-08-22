@@ -4,6 +4,7 @@ import { generateAI } from "@/lib/ai/gateway";
 import { evidenceOptionByName, retrieveCoachEvidence, type CoachEvidenceOption } from "@/lib/coachEvidence";
 import { deterministicCoachTask } from "@/lib/coachIntent";
 import {
+  buildSafeNextWeekMovementFallback,
   parseStructuredCoachAnswer,
   type CoachConstraints,
   type CoachIntent,
@@ -531,6 +532,20 @@ function deterministicJourneyPattern(question: string, context: CoachContext) {
 }
 
 function fallbackStructured(question: string, context: CoachContext): StructuredCoachAnswer {
+  const movementPractice = buildSafeNextWeekMovementFallback(question);
+  if (movementPractice) {
+    return {
+      intent: context.intent,
+      directAnswer: `${movementPractice.actionLabel} is a practical next-week experiment that keeps your saved Routine unchanged. ${movementPractice.rationale}`,
+      options: [],
+      recommendation: null,
+      nextStep: "Preview this practice before deciding whether to save it for next week.",
+      sourceIds: context.sources
+        .filter((source) => ["weekly_practice", "goals", "current_blueprint"].includes(source.id))
+        .map((source) => source.id),
+      proposedAction: movementPractice,
+    };
+  }
   if (!context.evidenceOptions.length) {
     const blueprint = context.facts.blueprint as { priorities?: Array<{ label?: unknown }> } | undefined;
     const priorities = (blueprint?.priorities ?? []).map((item) => String(item.label ?? "")).filter(Boolean).slice(0, 3);

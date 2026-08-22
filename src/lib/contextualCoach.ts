@@ -291,6 +291,26 @@ export function parseProposedWeeklyPractice(value: unknown, intent: CoachIntent)
   return { type: "weekly_practice", identityDirection: identity, actionLabel, cue, frequencyPerWeek, minimumVersion, rationale };
 }
 
+export function buildSafeNextWeekMovementFallback(question: string): ProposedWeeklyPractice | null {
+  const asksForNextWeekPractice = /\bnext[- ]week\b/i.test(question)
+    && /\b(?:habit|practice|focus|action)\b/i.test(question);
+  const asksForMovement = /\b(?:movement|move|walk|walking|exercise|active|activity)\b/i.test(question);
+  if (!asksForNextWeekPractice || !asksForMovement) return null;
+
+  const afterLunch = /\bafter lunch\b/i.test(question);
+  return {
+    type: "weekly_practice",
+    identityDirection: "movement",
+    actionLabel: afterLunch ? "Take a 10-minute walk after lunch" : "Take a 10-minute walk",
+    cue: afterLunch ? "After lunch" : "After a reliable daily routine",
+    frequencyPerWeek: 5,
+    minimumVersion: "Walk for two minutes",
+    rationale: afterLunch
+      ? "This connects a small movement practice to a reliable meal cue."
+      : "This keeps the movement practice small enough to repeat consistently.",
+  };
+}
+
 function isCoachIntent(value: unknown): value is CoachIntent {
   return [
     "GENERAL_EDUCATION", "PERSONALIZED_RECOMMENDATION", "CURRENT_REGIMEN_LOOKUP",
