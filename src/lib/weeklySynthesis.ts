@@ -3,8 +3,9 @@ import { z } from "zod";
 import { STARTER_ACTIONS, type IdentityDirection, type WeeklyExperiment } from "./activation";
 import { suggestedNextPlan, type NextWeekPlan, type ReviewDecision } from "./weeklyReview";
 import { comparableAdaptiveHistory, isAdaptiveLowData, recommendedAdaptiveReviewDecision } from "./weeklySynthesisDecision";
+import { hypothesisSupportsDecision, normalizeMemberVoice, usesDirectMemberVoice } from "./weeklySynthesisLanguage";
 
-export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly-review-synthesis-v3";
+export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly-review-synthesis-v6";
 
 export const WEEKLY_SYNTHESIS_RESPONSE_FORMAT = {
   type: "json_schema" as const,
@@ -15,8 +16,18 @@ export const WEEKLY_SYNTHESIS_RESPONSE_FORMAT = {
     type: "object",
     additionalProperties: false,
     properties: {
-      observation: { type: "string", minLength: 12, maxLength: 220 },
-      hypothesis: { type: "string", minLength: 12, maxLength: 280 },
+      observation: {
+        type: "string",
+        minLength: 12,
+        maxLength: 220,
+        description: "A neutral fact statement that begins with You and addresses the person directly.",
+      },
+      hypothesis: {
+        type: "string",
+        minLength: 12,
+        maxLength: 280,
+        description: "A cautious possibility that uses your and supports the supplied deterministic recommendation.",
+      },
     },
     required: ["observation", "hypothesis"],
   },
@@ -164,14 +175,14 @@ export function deterministicWeeklySynthesis(context: WeeklySynthesisContext): W
   const decision = recommendedReviewDecision(context);
   const early = isLowDataWeek(context);
   const observation = early
-    ? `This is an early signal from ${context.completedCount} recorded practice ${context.completedCount === 1 ? "repetition" : "repetitions"} and ${context.checkIns.length} daily ${context.checkIns.length === 1 ? "check-in" : "check-ins"}.`
+    ? `You have an early signal from ${context.completedCount} recorded practice ${context.completedCount === 1 ? "repetition" : "repetitions"} and ${context.checkIns.length} daily ${context.checkIns.length === 1 ? "check-in" : "check-ins"}.`
     : `You completed ${context.completedCount} of ${context.target} planned repetitions and rated the practice ${context.valueRating} of 5 for usefulness and ${context.difficulty} of 5 for difficulty.${context.history.length ? ` This reflection also considered ${context.history.length} prior completed ${context.history.length === 1 ? "week" : "weeks"}.` : ""}`;
   const hypotheses: Record<ReviewDecision, string> = {
-    keep: "The current version may be a workable fit. Repeating it for another week would test whether that fit is consistent.",
-    shrink: "The practice may still be worthwhile, but its current size, timing, or setup may be creating friction. A smaller version would test that idea.",
-    swap: "The practice may not feel useful enough to earn another week. A different small action in the same life area may be more informative.",
-    pause: "Repeated low usefulness in this focus area may mean it has not earned another immediate experiment. A pause would test whether a different priority deserves attention next.",
-    advance: "The practice felt useful and repeatable this week. A very small increase would test whether it can grow without becoming burdensome.",
+    keep: "Your current version may be a workable fit. Repeating it for another week would test whether that fit is consistent.",
+    shrink: "Your practice may still be worthwhile, but its current size, timing, or setup may be creating friction. A smaller version would test that idea.",
+    swap: "Your practice may not feel useful enough to earn another week. A different small action in the same life area may be more informative.",
+    pause: "Your repeated low-usefulness signal may mean this focus has not earned another immediate experiment. A pause would test whether a different priority deserves your attention next.",
+    advance: "Your practice felt useful and repeatable this week. A very small increase would test whether it can grow without becoming burdensome.",
   };
   return {
     observation,
@@ -192,12 +203,17 @@ export function parseGeneratedWeeklySynthesis(raw: string, context: WeeklySynthe
     return null;
   }
   const result = GeneratedSynthesisSchema.safeParse(parsed);
-  if (!result.success || !safeGeneratedText(result.data.observation) || !safeGeneratedText(result.data.hypothesis)) return null;
+  if (!result.success) return null;
+  const observation = normalizeMemberVoice(result.data.observation, "observation");
+  const hypothesis = normalizeMemberVoice(result.data.hypothesis, "hypothesis");
+  if (!safeGeneratedText(observation) || !safeGeneratedText(hypothesis)) return null;
   const fallback = deterministicWeeklySynthesis(context);
+  if (!usesDirectMemberVoice(observation, hypothesis)) return null;
+  if (!hypothesisSupportsDecision(hypothesis, fallback.suggestedDecision)) return null;
   return {
     ...fallback,
-    observation: result.data.observation,
-    hypothesis: result.data.hypothesis,
+    observation,
+    hypothesis,
   };
 }
 

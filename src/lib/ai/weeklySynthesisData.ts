@@ -8,6 +8,7 @@ import {
   deterministicWeeklySynthesis,
   isLowDataWeek,
   parseGeneratedWeeklySynthesis,
+  recommendedReviewDecision,
   WEEKLY_SYNTHESIS_RESPONSE_FORMAT,
   WEEKLY_SYNTHESIS_PROMPT_VERSION,
   type WeeklySynthesis,
@@ -82,6 +83,7 @@ function rowValues(userId: string, experimentId: string, contextHash: string, co
 }
 
 function generatedPrompt(context: WeeklySynthesisContext) {
+  const recommendation = recommendedReviewDecision(context);
   return [
     {
       role: "system" as const,
@@ -90,10 +92,13 @@ function generatedPrompt(context: WeeklySynthesisContext) {
         "Use only the supplied recorded behavior and member ratings.",
         "When prior weeks are supplied, describe a trend only when the values support it.",
         "Return only valid JSON with exactly two string fields: observation and hypothesis.",
-        "The observation must state recorded facts neutrally.",
-        "The hypothesis must be framed as a possibility to test, never as cause and effect.",
+        "Address the person directly using you and your in both fields. Never say the member, the user, they, them, or their.",
+        "The observation must begin with You and state recorded facts neutrally.",
+        "The hypothesis must be framed as a possibility to test, never as cause and effect, and must support the supplied deterministic recommendation.",
+        "The hypothesis must contain the word your.",
+        "For keep, begin with Repeating your current version and do not suggest changing it. For shrink, begin with Trying a smaller version of your practice. For swap, begin with Trying a different practice for your next week. For pause, begin with Pausing your current practice. For advance, begin with Increasing your practice by one small step.",
         "Do not mention supplements, medications, diagnoses, treatment, tests, doses, or new health facts.",
-        "Do not shame the member or use failed, lazy, behind, should have, or similar language.",
+        "Do not shame the person or use failed, lazy, behind, should have, or similar language.",
       ].join(" "),
     },
     {
@@ -107,6 +112,7 @@ function generatedPrompt(context: WeeklySynthesisContext) {
         difficulty_rating: context.difficulty,
         usefulness_rating: context.valueRating,
         check_ins_recorded: context.checkIns.length,
+        deterministic_recommendation: recommendation,
         prior_completed_weeks: context.history.map((week) => ({
           week_start: week.weekStart,
           same_focus_area: week.identityDirection === context.experiment.identity_direction,
