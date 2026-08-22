@@ -67,7 +67,7 @@ const TASK_PROFILES: Record<AiTask, AiTaskProfile> = {
   },
   weekly_review_synthesis: {
     capability: "mini",
-    promptVersion: "weekly-review-synthesis-v4",
+    promptVersion: "weekly-review-synthesis-v5",
     reasoningEffort: "low",
   },
   weekly_insight: {

@@ -13,6 +13,15 @@ assert.equal(
 
 assert.equal(
   usesDirectMemberVoice(
+    "You have an early signal from one recorded repetition.",
+    "Your current version may be workable. Repeating it for another week would test that fit.",
+  ),
+  true,
+  "The deterministic fallback must also address the member directly.",
+);
+
+assert.equal(
+  usesDirectMemberVoice(
     "The member completed 3 of 5 repetitions.",
     "They may benefit from another week.",
   ),
