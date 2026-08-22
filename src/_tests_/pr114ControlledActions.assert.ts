@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { parseProposedWeeklyPractice, parseStructuredCoachAnswer } from "../lib/contextualCoach.ts";
+import { classifyCoachRequest, parseProposedWeeklyPractice, parseStructuredCoachAnswer } from "../lib/contextualCoach.ts";
 
 const safeProposal = {
   type: "weekly_practice",
@@ -40,5 +40,37 @@ const parsed = parseStructuredCoachAnswer(JSON.stringify({
 
 assert.ok(parsed?.proposedAction);
 assert.equal(parsed?.proposedAction?.actionLabel, "Take a 10-minute walk after lunch");
+
+const compatibleIntentDrift = parseStructuredCoachAnswer(JSON.stringify({
+  intent: "BEHAVIORAL_COACHING",
+  direct_answer: "A short walk after lunch is a practical next-week experiment.",
+  options: [],
+  recommendation: null,
+  next_step: "Preview the practice before deciding whether to save it.",
+  source_ids: ["weekly_practice"],
+  proposed_action: safeProposal,
+}), "PROGRESS_COACHING", new Set(["weekly_practice"]), new Set());
+
+assert.equal(compatibleIntentDrift?.intent, "PROGRESS_COACHING");
+assert.equal(compatibleIntentDrift?.proposedAction?.actionLabel, "Take a 10-minute walk after lunch");
+
+const serverIntentWins = parseStructuredCoachAnswer(JSON.stringify({
+  intent: "SAFETY_REVIEW",
+  direct_answer: "A short walk after lunch is a practical next-week experiment.",
+  options: [],
+  recommendation: null,
+  next_step: "Preview the practice before deciding whether to save it.",
+  source_ids: ["weekly_practice"],
+  proposed_action: safeProposal,
+}), "PROGRESS_COACHING", new Set(["weekly_practice"]), new Set());
+
+assert.equal(serverIntentWins?.intent, "PROGRESS_COACHING", "the server-classified intent must remain authoritative");
+assert.ok(serverIntentWins?.proposedAction, "safe action parsing must use the server-classified intent");
+
+assert.equal(
+  classifyCoachRequest("I want to improve my energy with a small movement habit after lunch. What should I practice next week?").intent,
+  "PROGRESS_COACHING",
+  "explicit next-week practice requests must be eligible for a controlled action preview",
+);
 
 console.log("PR114 controlled action validation assertions passed.");

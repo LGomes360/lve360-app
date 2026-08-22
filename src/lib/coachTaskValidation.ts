@@ -24,6 +24,7 @@ export type CoachTaskValidatorId =
   | "MISSING_CONTEXT_ACCURACY"
   | "PROGRESS_METRICS"
   | "CAUSAL_BOUNDARY"
+  | "CONTROLLED_ACTION_PROPOSAL"
   | "MEMBER_CONTEXT_USE"
   | "OUT_OF_SCOPE_BOUNDARY"
   | "EVIDENCE_COVERAGE"
@@ -281,7 +282,7 @@ function timeHorizonValidator(input: CoachTaskValidationInput) {
   const requested = [
     /\btomorrow\b/i.test(input.question) ? "tomorrow" : null,
     /\btoday\b/i.test(input.question) ? "today" : null,
-    /\bthis week\b|\bweekly\b/i.test(input.question) ? "week" : null,
+    /\bthis week\b|\bnext week\b|\bweekly\b/i.test(input.question) ? "week" : null,
   ].filter((value): value is string => Boolean(value));
   const missing = requested.filter((value) => !new RegExp(`\\b${value}`).test(normalized(input.answerText)));
   return result("REQUESTED_TIME_HORIZON", ratio(requested.length - missing.length, requested.length), missing.map((value) => `time_horizon:${value}`));
@@ -365,6 +366,24 @@ function progressValidators(input: CoachTaskValidationInput) {
   ];
 }
 
+function nextWeekPracticeRequest(input: CoachTaskValidationInput) {
+  return /\bnext week\b/i.test(input.question) && /\b(?:habit|practice|focus|action)\b/i.test(input.question);
+}
+
+function nextWeekPracticeValidators(input: CoachTaskValidationInput) {
+  const proposal = input.structuredAnswer?.proposedAction;
+  return [
+    result(
+      "CONTROLLED_ACTION_PROPOSAL",
+      Number(Boolean(proposal)),
+      proposal ? [] : ["next_week_practice_proposal_missing"],
+    ),
+    timeHorizonValidator(input),
+    memberContextValidator(input),
+    ...generalValidators(input),
+  ];
+}
+
 function outOfScopeValidator(input: CoachTaskValidationInput) {
   const boundary = /\b(?:focused on|cannot help with|outside|unrelated|health|wellness|routine|goals)\b/i.test(input.answerText);
   const answeredTrivia = /\bparis\b/i.test(input.answerText) && /\bcapital of france\b/i.test(input.question);
@@ -434,7 +453,9 @@ export function validateCoachTaskSuccess(input: CoachTaskValidationInput): Coach
   else if (input.route.intent === "BEHAVIORAL_COACHING") validators.push(activePracticeValidator(input), timeHorizonValidator(input));
   else if (input.route.intent === "PRIORITIZATION") validators.push(priorityValidator(input));
   else if (input.route.intent === "MISSING_CONTEXT") validators.push(missingContextValidator(input));
-  else if (input.route.intent === "PROGRESS_COACHING") validators.push(...progressValidators(input));
+  else if (input.route.intent === "PROGRESS_COACHING") {
+    validators.push(...(nextWeekPracticeRequest(input) ? nextWeekPracticeValidators(input) : progressValidators(input)));
+  }
   else if (input.route.intent === "OUT_OF_SCOPE") validators.push(outOfScopeValidator(input));
   else if (["EVIDENCE_COMPARISON", "OPTION_COMPARISON"].includes(input.route.intent)) validators.push(...evidenceValidators(input));
   else if (input.route.intent === "PERSONALIZED_RECOMMENDATION") {

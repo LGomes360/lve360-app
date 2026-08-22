@@ -215,7 +215,7 @@ export function classifyCoachRequest(question: string): CoachRoutingDecision {
   if (/\b(?:why|explain|what does|how does)\b[\s\S]{0,80}\b(?:blueprint|plan|priority|recommendation|routine)\b/.test(value)) {
     return route("PLAN_EXPLANATION");
   }
-  if (/\b(?:this week|progress|trend|recent|check[- ]?ins?|small win|next habit|weekly practice|focus on)\b/.test(value)) {
+  if (/\b(?:this week|next week|progress|trend|recent|check[- ]?ins?|small win|next habit|weekly practice|focus on)\b/.test(value)) {
     return route("PROGRESS_COACHING", []);
   }
   if (/\b(?:for me|my\s+(?:sleep|energy|goals?|stack|medications?|routine)|should i|what should i try|best for my|makes? sense for me|fit my)\b/.test(value)) {
@@ -301,11 +301,25 @@ export function parseStructuredCoachAnswer(
   const candidate = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   try {
     const value = JSON.parse(candidate) as Record<string, unknown>;
-    const intent = isCoachIntent(value.intent) ? value.intent : expectedIntent;
-    if (intent !== expectedIntent) return null;
+    if (value.intent != null && !isCoachIntent(value.intent)) {
+      console.info("[coach.parse]", { reason: "invalid_intent" });
+      return null;
+    }
+    const intent = expectedIntent;
     const directAnswer = cleanText(value.direct_answer, 700);
     const nextStep = cleanText(value.next_step, 350);
-    if (directAnswer.length < 12 || nextStep.length < 8 || !isCoachAnswerSafe(`${directAnswer} ${nextStep}`)) return null;
+    if (directAnswer.length < 12) {
+      console.info("[coach.parse]", { reason: "direct_answer_too_short" });
+      return null;
+    }
+    if (nextStep.length < 8) {
+      console.info("[coach.parse]", { reason: "next_step_too_short" });
+      return null;
+    }
+    if (!isCoachAnswerSafe(`${directAnswer} ${nextStep}`)) {
+      console.info("[coach.parse]", { reason: "unsafe_answer" });
+      return null;
+    }
 
     const options = Array.isArray(value.options) ? value.options.flatMap((raw): ProposedCoachOption[] => {
       if (!raw || typeof raw !== "object") return [];
@@ -342,6 +356,7 @@ export function parseStructuredCoachAnswer(
     const proposedAction = parseProposedWeeklyPractice(value.proposed_action, intent);
     return { intent, directAnswer, options, recommendation, nextStep, sourceIds, proposedAction };
   } catch {
+    console.info("[coach.parse]", { reason: "invalid_json" });
     return null;
   }
 }

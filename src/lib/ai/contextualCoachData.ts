@@ -437,8 +437,9 @@ function prompt(question: string, context: CoachContext, repair: CoachRepairInst
           ? "The previous candidate failed task-success validation. Correct every supplied failed validator, missing requirement, and constraint violation. Do not merely rephrase the previous answer."
           : "",
         "Return only valid JSON with: intent, direct_answer, options, recommendation, next_step, source_ids, proposed_action.",
+        "intent must exactly equal the supplied classified_intent; classification is controlled by the server.",
         "options is an array of {name, fit: strong|neutral|weak, reason}; use only exact names from evidence_options. recommendation is null or {candidate, reason, trial_period_days, metrics}. source_ids must use only supplied source IDs.",
-        "proposed_action must be null unless the intent is BEHAVIORAL_COACHING, PRIORITIZATION, or PROGRESS_COACHING and one safe lifestyle practice directly follows from the answer. When eligible, it may be {type:'weekly_practice', identity_direction, action_label, cue, frequency_per_week, minimum_version, rationale}. identity_direction must be one of movement, nutrition, sleep, emotional_health, relationships, focus, career, happiness, overall_health. Never put a medication, hormone, supplement, dose, test, clinician task, reminder, or saved-record change in proposed_action.",
+        "proposed_action must be null unless the intent is BEHAVIORAL_COACHING, PRIORITIZATION, or PROGRESS_COACHING and one safe lifestyle practice directly follows from the answer. It must be non-null when the member explicitly asks for a next-week habit or practice and the answer provides one safe lifestyle action. When eligible, use this valid JSON shape: {\"type\":\"weekly_practice\",\"identity_direction\":\"movement\",\"action_label\":\"Take a 10-minute walk after lunch\",\"cue\":\"After lunch\",\"frequency_per_week\":5,\"minimum_version\":\"Walk for two minutes\",\"rationale\":\"This connects movement to a reliable meal cue.\"}. Replace the example values with the action supported by the answer. identity_direction must be one of movement, nutrition, sleep, emotional_health, relationships, focus, career, happiness, overall_health. Never put a medication, hormone, supplement, dose, test, clinician task, reminder, or saved-record change in proposed_action.",
       ].filter(Boolean).join(" "),
     },
     {
@@ -503,7 +504,7 @@ function deterministicPlanLookup(question: string, context: CoachContext) {
 }
 
 function deterministicTodayStep(question: string, context: CoachContext) {
-  if (context.page !== "today" || context.intent !== "PROGRESS_COACHING" || !/\b(?:smallest|next|today|right now)\b/i.test(question)) return null;
+  if (context.page !== "today" || context.intent !== "PROGRESS_COACHING" || !/\b(?:smallest|next step|today|right now)\b/i.test(question)) return null;
   const practice = context.facts.weekly_practice as { action?: unknown; minimum_version?: unknown } | undefined;
   const action = typeof practice?.action === "string" ? practice.action : null;
   const minimum = typeof practice?.minimum_version === "string" ? practice.minimum_version : null;
