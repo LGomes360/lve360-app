@@ -8,6 +8,7 @@ import {
   deterministicWeeklySynthesis,
   isLowDataWeek,
   parseGeneratedWeeklySynthesis,
+  WEEKLY_SYNTHESIS_RESPONSE_FORMAT,
   WEEKLY_SYNTHESIS_PROMPT_VERSION,
   type WeeklySynthesis,
   type WeeklySynthesisContext,
@@ -157,6 +158,7 @@ export async function getOrCreateWeeklySynthesis(userId: string, context: Weekly
       maxTokens: 180,
       timeoutMs: 20_000,
       temperature: 0.2,
+      responseFormat: WEEKLY_SYNTHESIS_RESPONSE_FORMAT,
     });
     const generated = parseGeneratedWeeklySynthesis(response.text, context);
     const content = generated ?? fallback;

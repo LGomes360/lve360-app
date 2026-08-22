@@ -17,6 +17,15 @@ export type CallOpts = {
   timeoutMs?: number;     // default 75s
   reasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   safetyIdentifier?: string;
+  responseFormat?: JsonSchemaResponseFormat;
+};
+
+export type JsonSchemaResponseFormat = {
+  type: "json_schema";
+  name: string;
+  description?: string;
+  schema: Record<string, unknown>;
+  strict?: boolean;
 };
 
 /** ANCHOR: NormalizedLLMResponse */
@@ -73,6 +82,7 @@ function toResponsesPayload(model: string, messages: ChatMsg[], opts?: CallOpts)
     store: false,
   };
   if (instructions.trim()) body.instructions = instructions.trim();
+  if (opts?.responseFormat) body.text = { format: opts.responseFormat };
   if (opts?.safetyIdentifier) body.safety_identifier = opts.safetyIdentifier;
   if (model.toLowerCase().startsWith("gpt-5") && opts?.reasoningEffort) {
     body.reasoning = { effort: opts.reasoningEffort };

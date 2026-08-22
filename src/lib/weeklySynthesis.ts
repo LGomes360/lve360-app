@@ -4,7 +4,23 @@ import { STARTER_ACTIONS, type IdentityDirection, type WeeklyExperiment } from "
 import { suggestedNextPlan, type NextWeekPlan, type ReviewDecision } from "./weeklyReview";
 import { comparableAdaptiveHistory, isAdaptiveLowData, recommendedAdaptiveReviewDecision } from "./weeklySynthesisDecision";
 
-export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly-review-synthesis-v2";
+export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly-review-synthesis-v3";
+
+export const WEEKLY_SYNTHESIS_RESPONSE_FORMAT = {
+  type: "json_schema" as const,
+  name: "lve360_weekly_reflection",
+  description: "A factual observation and a cautious hypothesis for one weekly lifestyle-practice review.",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      observation: { type: "string", minLength: 12, maxLength: 220 },
+      hypothesis: { type: "string", minLength: 12, maxLength: 280 },
+    },
+    required: ["observation", "hypothesis"],
+  },
+};
 
 export type WeeklySynthesisEvidence = {
   label: string;
