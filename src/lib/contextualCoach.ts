@@ -316,7 +316,13 @@ export function parseStructuredCoachAnswer(
     }
     const intent = expectedIntent;
     const directAnswer = cleanText(value.direct_answer, 700);
-    const nextStep = cleanText(value.next_step, 350);
+    const proposedAction = parseProposedWeeklyPractice(value.proposed_action, intent);
+    const suppliedNextStep = cleanText(value.next_step, 350);
+    const nextStep = suppliedNextStep.length >= 8
+      ? suppliedNextStep
+      : proposedAction
+        ? "Preview this practice before deciding whether to save it for next week."
+        : suppliedNextStep;
     if (directAnswer.length < 12) {
       console.info("[coach.parse]", { reason: "direct_answer_too_short" });
       return null;
@@ -362,7 +368,6 @@ export function parseStructuredCoachAnswer(
     const sourceIds = Array.isArray(value.source_ids)
       ? [...new Set(value.source_ids.filter((id): id is string => typeof id === "string" && validSourceIds.has(id)))]
       : [];
-    const proposedAction = parseProposedWeeklyPractice(value.proposed_action, intent);
     return { intent, directAnswer, options, recommendation, nextStep, sourceIds, proposedAction };
   } catch {
     console.info("[coach.parse]", { reason: "invalid_json" });

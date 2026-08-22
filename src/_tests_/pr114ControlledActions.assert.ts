@@ -41,6 +41,34 @@ const parsed = parseStructuredCoachAnswer(JSON.stringify({
 assert.ok(parsed?.proposedAction);
 assert.equal(parsed?.proposedAction?.actionLabel, "Take a 10-minute walk after lunch");
 
+const recoveredShortNextStep = parseStructuredCoachAnswer(JSON.stringify({
+  intent: "PROGRESS_COACHING",
+  direct_answer: "A short walk after lunch is a practical next-week experiment.",
+  options: [],
+  recommendation: null,
+  next_step: "",
+  source_ids: ["weekly_practice"],
+  proposed_action: safeProposal,
+}), "PROGRESS_COACHING", new Set(["weekly_practice"]), new Set());
+
+assert.equal(
+  recoveredShortNextStep?.nextStep,
+  "Preview this practice before deciding whether to save it for next week.",
+  "a safe controlled-action proposal must not be discarded only because the model omitted the Preview instruction",
+);
+assert.equal(recoveredShortNextStep?.proposedAction?.actionLabel, "Take a 10-minute walk after lunch");
+
+const rejectedShortNextStepWithoutProposal = parseStructuredCoachAnswer(JSON.stringify({
+  intent: "PROGRESS_COACHING",
+  direct_answer: "Your current weekly practice remains available for review.",
+  options: [],
+  recommendation: null,
+  next_step: "",
+  source_ids: ["weekly_practice"],
+  proposed_action: null,
+}), "PROGRESS_COACHING", new Set(["weekly_practice"]), new Set());
+assert.equal(rejectedShortNextStepWithoutProposal, null, "short next steps must still fail closed when no safe action proposal exists");
+
 const compatibleIntentDrift = parseStructuredCoachAnswer(JSON.stringify({
   intent: "BEHAVIORAL_COACHING",
   direct_answer: "A short walk after lunch is a practical next-week experiment.",
