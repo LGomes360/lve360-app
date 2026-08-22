@@ -5,6 +5,7 @@ const route = readFileSync("app/api/coach/route.ts", "utf8");
 const data = readFileSync("src/lib/ai/contextualCoachData.ts", "utf8");
 const validator = readFileSync("src/lib/coachTaskValidation.ts", "utf8");
 const modelConfig = readFileSync("src/lib/ai/modelConfig.ts", "utf8");
+const promptVersions = readFileSync("src/lib/ai/promptVersions.ts", "utf8");
 
 assert.match(data, /validateCoachTaskSuccess/, "Production coaching must use intent-specific task-success validation.");
 assert.doesNotMatch(data, /assessCoachAnswerQuality/, "The shallow PR107 quality heuristic must no longer gate production coaching.");
@@ -27,7 +28,8 @@ assert.match(validator, /score: Math\.round\(completeness \* 100\)/, "The compat
 assert.match(route, /console\.info\("\[coach\.validation\]"/, "Privacy-safe task diagnostics must be emitted for each completed coaching attempt.");
 assert.match(route, /generationStatus = diagnostics\.taskPassed \? "succeeded" : "failed"/, "Safe incomplete fallbacks must not be recorded as successful answers.");
 assert.match(route, /regeneration_count: diagnostics\.regenerationCount/, "Repair count must remain stored in the existing diagnostics columns.");
-assert.match(data, /contextual-coach-v4|coach\.v4/);
-assert.match(modelConfig, /promptVersion:\s*"contextual-coach-v4"/);
+assert.match(data, /\[coach\.generation\]/, "Generation diagnostics must not hard-code a prompt version.");
+assert.match(promptVersions, /CONTEXTUAL_COACH_PROMPT_VERSION\s*=\s*"contextual-coach-v5"/);
+assert.match(modelConfig, /promptVersion:\s*CONTEXTUAL_COACH_PROMPT_VERSION/);
 
 console.log("PR110 task-success architecture checks passed.");

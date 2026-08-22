@@ -1,5 +1,7 @@
 import "server-only";
 
+import { CONTEXTUAL_COACH_PROMPT_VERSION } from "./promptVersions.ts";
+
 export type AiCapability = "mini" | "main";
 
 export type AiTask =
@@ -75,7 +77,7 @@ const TASK_PROFILES: Record<AiTask, AiTaskProfile> = {
   },
   contextual_coach: {
     capability: "mini",
-    promptVersion: "contextual-coach-v4",
+    promptVersion: CONTEXTUAL_COACH_PROMPT_VERSION,
     reasoningEffort: "low",
   },
 };
