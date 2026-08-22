@@ -503,7 +503,7 @@ function deterministicPlanLookup(question: string, context: CoachContext) {
 }
 
 function deterministicTodayStep(question: string, context: CoachContext) {
-  if (context.page !== "today" || context.intent !== "PROGRESS_COACHING" || !/\b(?:smallest|next|today|right now)\b/i.test(question)) return null;
+  if (context.page !== "today" || context.intent !== "PROGRESS_COACHING" || !/\b(?:smallest|next step|today|right now)\b/i.test(question)) return null;
   const practice = context.facts.weekly_practice as { action?: unknown; minimum_version?: unknown } | undefined;
   const action = typeof practice?.action === "string" ? practice.action : null;
   const minimum = typeof practice?.minimum_version === "string" ? practice.minimum_version : null;

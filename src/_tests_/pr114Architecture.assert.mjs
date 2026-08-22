@@ -8,6 +8,7 @@ const actionRoute = read("../../app/api/coach/actions/route.ts");
 const review = read("../components/review/WeeklyReviewClient.tsx");
 const reviewRoute = read("../../app/api/weekly-review/route.ts");
 const migration = read("../../supabase/migrations/20260816023219_pr114_controlled_coach_actions.sql");
+const coachData = read("../lib/ai/contextualCoachData.ts");
 
 assert.match(coach, /Preview as next week&apos;s practice/);
 assert.match(coach, /Save for weekly review/);
@@ -15,6 +16,8 @@ assert.match(coach, /It does not change your current week or any saved health re
 assert.match(actionRoute, /action !== "confirm" && action !== "cancel"/);
 assert.match(actionRoute, /eq\("user_id", auth\.user\.id\)/);
 assert.match(coachRoute, /saveActionProposal/);
+assert.match(coachData, /smallest\|next step\|today\|right now/);
+assert.doesNotMatch(coachData, /smallest\|next\|today\|right now/);
 assert.match(review, /Saved from Ask LVE360/);
 assert.match(review, /Use this for next week/);
 assert.match(reviewRoute, /coach_action_proposal_id/);
