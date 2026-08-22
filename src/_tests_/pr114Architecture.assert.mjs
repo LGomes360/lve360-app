@@ -18,6 +18,8 @@ assert.match(actionRoute, /eq\("user_id", auth\.user\.id\)/);
 assert.match(coachRoute, /saveActionProposal/);
 assert.match(coachData, /smallest\|next step\|today\|right now/);
 assert.doesNotMatch(coachData, /smallest\|next\|today\|right now/);
+assert.match(coachData, /valid JSON shape/);
+assert.doesNotMatch(coachData, /\{type:'weekly_practice'/);
 assert.match(review, /Saved from Ask LVE360/);
 assert.match(review, /Use this for next week/);
 assert.match(reviewRoute, /coach_action_proposal_id/);
