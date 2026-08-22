@@ -54,7 +54,7 @@ const compatibleIntentDrift = parseStructuredCoachAnswer(JSON.stringify({
 assert.equal(compatibleIntentDrift?.intent, "PROGRESS_COACHING");
 assert.equal(compatibleIntentDrift?.proposedAction?.actionLabel, "Take a 10-minute walk after lunch");
 
-assert.equal(parseStructuredCoachAnswer(JSON.stringify({
+const serverIntentWins = parseStructuredCoachAnswer(JSON.stringify({
   intent: "SAFETY_REVIEW",
   direct_answer: "A short walk after lunch is a practical next-week experiment.",
   options: [],
@@ -62,7 +62,10 @@ assert.equal(parseStructuredCoachAnswer(JSON.stringify({
   next_step: "Preview the practice before deciding whether to save it.",
   source_ids: ["weekly_practice"],
   proposed_action: safeProposal,
-}), "PROGRESS_COACHING", new Set(["weekly_practice"]), new Set()), null, "unrelated intent drift must still fail closed");
+}), "PROGRESS_COACHING", new Set(["weekly_practice"]), new Set());
+
+assert.equal(serverIntentWins?.intent, "PROGRESS_COACHING", "the server-classified intent must remain authoritative");
+assert.ok(serverIntentWins?.proposedAction, "safe action parsing must use the server-classified intent");
 
 assert.equal(
   classifyCoachRequest("I want to improve my energy with a small movement habit after lunch. What should I practice next week?").intent,

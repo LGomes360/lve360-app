@@ -301,10 +301,7 @@ export function parseStructuredCoachAnswer(
   const candidate = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   try {
     const value = JSON.parse(candidate) as Record<string, unknown>;
-    const suppliedIntent = isCoachIntent(value.intent) ? value.intent : expectedIntent;
-    const compatibleControlledActionIntent = COACH_ACTION_INTENTS.has(suppliedIntent)
-      && COACH_ACTION_INTENTS.has(expectedIntent);
-    if (suppliedIntent !== expectedIntent && !compatibleControlledActionIntent) return null;
+    if (value.intent != null && !isCoachIntent(value.intent)) return null;
     const intent = expectedIntent;
     const directAnswer = cleanText(value.direct_answer, 700);
     const nextStep = cleanText(value.next_step, 350);
