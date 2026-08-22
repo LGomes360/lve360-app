@@ -893,7 +893,7 @@ export async function generateCoachAnswer(userId: string, question: string, cont
     firstProposal = parseStructuredCoachAnswer(response.text, context.intent, validSourceIds, allowedNames);
   } catch (error) {
     fallbackReason = "model_unavailable";
-    console.warn("[coach.v4] model unavailable; using grounded fallback", error);
+    console.warn("[coach.generation] model unavailable; using grounded fallback", error);
   }
 
   if (firstProposal) {
@@ -929,7 +929,7 @@ export async function generateCoachAnswer(userId: string, question: string, cont
       }
     } catch (error) {
       fallbackReason = "repair_failed";
-      console.warn("[coach.v4] bounded repair unavailable; using grounded fallback", error);
+      console.warn("[coach.generation] bounded repair unavailable; using grounded fallback", error);
     }
   }
 

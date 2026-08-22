@@ -5,6 +5,7 @@ const route = readFileSync("app/api/coach/route.ts", "utf8");
 const coach = readFileSync("src/lib/ai/contextualCoachData.ts", "utf8");
 const intent = readFileSync("src/lib/contextualCoach.ts", "utf8");
 const modelConfig = readFileSync("src/lib/ai/modelConfig.ts", "utf8");
+const promptVersions = readFileSync("src/lib/ai/promptVersions.ts", "utf8");
 
 assert.match(route, /classifyCoachRequest\(question\)/, "The API must resolve intent and constraints before context retrieval.");
 assert.match(route, /buildCoachContext\(auth\.user\.id, page, question, routing\)/, "The routing decision must control context retrieval.");
@@ -22,7 +23,8 @@ assert.match(intent, /preserveMedicationPlan/);
 assert.match(intent, /preserveSupplementPlan/);
 assert.match(intent, /CURRENT_REGIMEN_LOOKUP/);
 assert.match(intent, /OUT_OF_SCOPE/);
-assert.match(intent, /contextual-coach-v4/);
-assert.match(modelConfig, /promptVersion:\s*"contextual-coach-v4"/, "Runtime ledger and saved-turn prompt versions must agree.");
+assert.match(promptVersions, /CONTEXTUAL_COACH_PROMPT_VERSION\s*=\s*"contextual-coach-v5"/);
+assert.match(intent, /COACH_PROMPT_VERSION\s*=\s*CONTEXTUAL_COACH_PROMPT_VERSION/);
+assert.match(modelConfig, /promptVersion:\s*CONTEXTUAL_COACH_PROMPT_VERSION/, "Runtime ledger and saved-turn prompt versions must use the same canonical source.");
 
 console.log("PR109 intent-first coaching architecture checks passed.");

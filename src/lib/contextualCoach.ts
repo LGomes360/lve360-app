@@ -1,6 +1,7 @@
 import type { CoachActionProposal, ProposedWeeklyPractice } from "./coachActions";
+import { CONTEXTUAL_COACH_PROMPT_VERSION } from "./ai/promptVersions.ts";
 
-export const COACH_PROMPT_VERSION = "contextual-coach-v5";
+export const COACH_PROMPT_VERSION = CONTEXTUAL_COACH_PROMPT_VERSION;
 
 export type CoachIntent =
   | "GENERAL_EDUCATION"
