@@ -226,6 +226,42 @@ assert.equal(wrongProgress.passed, false);
 assert(wrongProgress.failedValidators.includes("PROGRESS_METRICS"));
 assert(wrongProgress.failedValidators.includes("CAUSAL_BOUNDARY"));
 
+const nextWeekQuestion = "I want a small movement habit after lunch. What should I practice next week?";
+const nextWeekRoute = classifyCoachRequest(nextWeekQuestion);
+assert.equal(nextWeekRoute.intent, "PROGRESS_COACHING");
+const nextWeekAnswer: StructuredCoachAnswer = {
+  intent: "PROGRESS_COACHING",
+  directAnswer: "A short walk after lunch is a practical next-week experiment for your energy goal.",
+  options: [],
+  recommendation: null,
+  nextStep: "Preview the practice before deciding whether to save it for next week.",
+  sourceIds: ["weekly_practice", "goals"],
+  proposedAction: {
+    type: "weekly_practice",
+    identityDirection: "movement",
+    actionLabel: "Take a 10-minute walk after lunch",
+    cue: "After lunch",
+    frequencyPerWeek: 5,
+    minimumVersion: "Walk for two minutes",
+    rationale: "This connects movement to a reliable meal cue.",
+  },
+};
+const goodNextWeek = validate(
+  nextWeekRoute,
+  nextWeekQuestion,
+  `${nextWeekAnswer.directAnswer} ${nextWeekAnswer.nextStep}`,
+  nextWeekAnswer,
+);
+assert.equal(goodNextWeek.passed, true, JSON.stringify(goodNextWeek, null, 2));
+const missingNextWeekProposal = validate(
+  nextWeekRoute,
+  nextWeekQuestion,
+  `${nextWeekAnswer.directAnswer} ${nextWeekAnswer.nextStep}`,
+  { ...nextWeekAnswer, proposedAction: null },
+);
+assert.equal(missingNextWeekProposal.passed, false);
+assert(missingNextWeekProposal.failedValidators.includes("CONTROLLED_ACTION_PROPOSAL"));
+
 const comparisonQuestion = "Compare glycine and melatonin for my sleep goal.";
 const comparisonRoute = classifyCoachRequest(comparisonQuestion);
 assert.equal(comparisonRoute.intent, "EVIDENCE_COMPARISON");
