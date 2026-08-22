@@ -163,6 +163,14 @@ export function classifyCoachRequest(question: string): CoachRoutingDecision {
   const value = question.toLowerCase();
   const constraints = explicitCoachConstraints(question);
   const requestedKinds = requestedRegimenKinds(question);
+  const lookupLead = /\b(?:what|which|list|show|am i|do i)\b/.test(value);
+  const explicitRegimenLookup = lookupLead && (
+    /\b(?:am i|do i)\s+(?:currently\s+)?(?:taking|take)\b/.test(value)
+    || /\b(?:in my stack|in my routine)\b/.test(value)
+    || (/\b(?:currently|current|recorded)\b/.test(value)
+      && (requestedKinds.length > 0 || /\b(?:stack|regimen|routine items?)\b/.test(value)))
+    || /\b(?:show|list)\b[\s\S]{0,50}\b(?:my\s+)?(?:stack|regimen|routine)\b/.test(value)
+  );
   const route = (intent: CoachIntent, kinds: CoachRegimenKind[] = requestedKinds): CoachRoutingDecision => ({
     intent,
     constraints,
@@ -196,7 +204,7 @@ export function classifyCoachRequest(question: string): CoachRoutingDecision {
     || /\b(?:how (?:can|should) i|help me)\b[\s\S]{0,70}\b(?:sleep|eat|exercise|move|walk|meditat|recover|habit|practice|routine tomorrow)\b/.test(value)) {
     return route("BEHAVIORAL_COACHING", []);
   }
-  if (/\b(?:what|which|list|show|am i|do i)\b[\s\S]{0,70}\b(?:taking|take|currently|current|recorded|in my stack|in my routine)\b/.test(value)
+  if (explicitRegimenLookup
     || /\bis\s+[a-z0-9 -]+\s+(?:already\s+)?in my (?:stack|routine|records?)\b/.test(value)
     || /\b(?:show|list)\b[\s\S]{0,50}\b(?:medications?|meds?|hormon(?:e|es|s)?|supplements?|supplments?)\b/.test(value)) {
     if (requestedKinds.length === 1 && requestedKinds[0] === "medication") return route("MEDICATION_LOOKUP");
