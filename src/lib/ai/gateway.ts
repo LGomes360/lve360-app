@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { callOpenAI, type ChatMsg, type NormalizedLLMResponse } from "@/lib/openai";
+import { callOpenAI, type ChatMsg, type JsonSchemaResponseFormat, type NormalizedLLMResponse } from "@/lib/openai";
 import { candidateModels, taskProfile, type AiTask } from "@/lib/ai/modelConfig";
 
 type GenerateAiOptions = {
@@ -12,6 +12,7 @@ type GenerateAiOptions = {
   maxTokens?: number;
   timeoutMs?: number;
   temperature?: number;
+  responseFormat?: JsonSchemaResponseFormat;
 };
 
 type ModelPrice = {
@@ -94,6 +95,7 @@ export async function generateAI(options: GenerateAiOptions): Promise<Normalized
         temperature: options.temperature,
         reasoningEffort: profile.reasoningEffort,
         safetyIdentifier: safetyIdentifier(options.userId),
+        responseFormat: options.responseFormat,
       });
       const modelUsed = response.modelUsed || response.model || model;
       const usage = response.usage;
