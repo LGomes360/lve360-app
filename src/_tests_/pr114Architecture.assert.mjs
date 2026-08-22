@@ -16,6 +16,7 @@ assert.match(coach, /It does not change your current week or any saved health re
 assert.match(actionRoute, /action !== "confirm" && action !== "cancel"/);
 assert.match(actionRoute, /eq\("user_id", auth\.user\.id\)/);
 assert.match(coachRoute, /saveActionProposal/);
+assert.match(read("../lib/contextualCoach.ts"), /\[coach\.parse\]/);
 assert.match(coachData, /smallest\|next step\|today\|right now/);
 assert.doesNotMatch(coachData, /smallest\|next\|today\|right now/);
 assert.match(coachData, /valid JSON shape/);
