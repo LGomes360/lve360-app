@@ -26,6 +26,9 @@ assert.deepEqual(codes("Take in the morning", schedule("daily", ["19:00"])), ["t
 assert.deepEqual(codes("Take in the evening", schedule("daily", ["07:00"])), ["time_of_day"]);
 assert.deepEqual(codes("AM/PM", schedule("daily", ["07:00"])), ["frequency", "time_of_day"]);
 assert.deepEqual(codes("Twice daily", schedule("daily", ["07:00"])), ["frequency"]);
+assert.deepEqual(codes("2 x AM", schedule("daily", ["10:30"])), ["frequency"]);
+assert.deepEqual(codes("2x PM", schedule("daily", ["19:00"])), ["frequency"]);
+assert.deepEqual(codes("2 x AM", schedule("daily", ["08:30", "10:30"])), []);
 assert.deepEqual(codes("Once daily", schedule("daily", ["07:00", "19:00"])), ["frequency"]);
 assert.deepEqual(codes("Once weekly on Sunday", schedule("daily", ["08:00"])), ["cadence"]);
 assert.deepEqual(codes("Every other day at 7 AM", schedule("daily", ["07:00"])), ["cadence"]);

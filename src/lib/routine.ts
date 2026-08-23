@@ -166,6 +166,11 @@ function expectedCadenceMatches(expected: WrittenCadence, schedule: RegimenSched
 
 function dailyFrequencyFromWrittenSchedule(value: string): number | null {
   if (/\b(?:am\s*[/&+]\s*pm|morning\s+(?:and|&)\s+(?:evening|night)|twice (?:daily|a day|per day))\b/.test(value)) return 2;
+  const periodFrequency = value.match(
+    /\b([1-6])\s*(?:x|times?)\s*(?:in\s+the\s+)?(?:am|pm|morning|afternoon|evening|night)\b/,
+  );
+  if (periodFrequency) return Number(periodFrequency[1]);
+  if (/\btwice\s+(?:in\s+the\s+)?(?:am|pm|morning|afternoon|evening|night)\b/.test(value)) return 2;
   if (/\b(?:three times|3\s*(?:x|times?))\s*(?:daily|a day|per day)?\b/.test(value)) return 3;
   if (/\b(?:four times|4\s*(?:x|times?))\s*(?:daily|a day|per day)?\b/.test(value)) return 4;
   if (/\b(?:once daily|once a day|once per day|one time daily)\b/.test(value)) return 1;
