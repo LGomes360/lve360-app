@@ -30,7 +30,6 @@ export default function TodayClient({
   activationProgress: PremiumActivationProgress;
 }) {
   const [firstActionComplete, setFirstActionComplete] = useState(activationProgress.firstActionComplete);
-  const [practiceRefreshKey, setPracticeRefreshKey] = useState(0);
   const visibleProgress = { ...activationProgress, firstActionComplete };
 
   useEffect(() => {
@@ -53,7 +52,6 @@ export default function TodayClient({
             <ReminderArrivalFeedback deliveryId={reminderDeliveryId} />
 
             <TodayExperience
-              key={`${experiment?.id ?? "none"}:${practiceRefreshKey}`}
               initialExperiment={experiment}
               blueprint={blueprint}
               experimentBlueprint={experimentBlueprint}
@@ -62,13 +60,7 @@ export default function TodayClient({
               onCompletionStateChange={setFirstActionComplete}
             />
 
-            <AiTodayBrief
-              date={checkinDate}
-              onPracticeCompleted={() => {
-                setFirstActionComplete(true);
-                setPracticeRefreshKey((value) => value + 1);
-              }}
-            />
+            <AiTodayBrief date={checkinDate} />
 
             <TodayRoutineAgenda />
 

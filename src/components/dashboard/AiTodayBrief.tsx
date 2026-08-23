@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Check, Clock3, Loader2, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
+import { ArrowRight, Clock3, Loader2, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
@@ -22,13 +22,7 @@ type Brief = {
   hidden: boolean;
 };
 
-export default function AiTodayBrief({
-  date,
-  onPracticeCompleted,
-}: {
-  date?: string | null;
-  onPracticeCompleted?: () => void;
-}) {
+export default function AiTodayBrief({ date }: { date?: string | null }) {
   const localDate = date ?? localDateString();
   const [brief, setBrief] = useState<Brief | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,37 +48,14 @@ export default function AiTodayBrief({
     void load();
   }, [load]);
 
-  async function recordAction(action: "useful" | "not_useful" | "remind_later" | "opened_routine" | "completed") {
+  async function recordAction(action: "useful" | "not_useful" | "remind_later") {
     if (!brief) return false;
     const response = await fetch("/api/today-brief", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ briefId: brief.id, action }),
-      keepalive: action === "opened_routine",
     });
     return response.ok;
-  }
-
-  async function markPracticeComplete() {
-    if (!brief) return;
-    setBusy("complete");
-    setError(null);
-    try {
-      const response = await fetch("/api/today", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: localDate, kind: "full" }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok || !body?.ok) throw new Error("completion_failed");
-      await recordAction("completed");
-      onPracticeCompleted?.();
-      await load();
-    } catch {
-      setError("We could not record that action. Your progress is unchanged.");
-    } finally {
-      setBusy(null);
-    }
   }
 
   async function handleQuietAction(action: "useful" | "not_useful" | "remind_later") {
@@ -115,38 +86,26 @@ export default function AiTodayBrief({
 
   return (
     <section className="overflow-hidden rounded-3xl border border-[#8CCFC1] bg-white shadow-sm" aria-labelledby="ai-today-brief-title">
-      <div className="grid gap-5 bg-gradient-to-br from-[#EAFBF8] via-white to-[#F4EEFF] p-5 sm:p-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-start">
-        <div>
+      <div className="bg-gradient-to-br from-[#EAFBF8] via-white to-[#F4EEFF] p-5 sm:p-6">
+        <div className="max-w-3xl">
           <p className="flex items-center text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">
-            <Sparkles className="mr-2 h-4 w-4" aria-hidden="true" /> Your daily brief
+            <Sparkles className="mr-2 h-4 w-4" aria-hidden="true" /> Insight for today
           </p>
           <h2 id="ai-today-brief-title" className="mt-2 text-2xl font-bold leading-tight text-[#041B2D]">{brief.noticed}</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{brief.whyItMatters}</p>
-        </div>
-        <div className="rounded-2xl border border-white/80 bg-white/85 p-4 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">Best next move</p>
-          <p className="mt-2 font-bold leading-6 text-[#041B2D]">{brief.nextAction}</p>
-          <p className="mt-3 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">If today gets hard</p>
-          <p className="mt-1 text-sm leading-6 text-slate-700">{brief.minimumVersion}</p>
+          <p className="mt-3 text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">Why this matters</p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{brief.whyItMatters}</p>
         </div>
       </div>
 
       <div className="flex flex-col gap-4 border-t border-[#D8EEE9] px-5 py-4 sm:px-6">
         {error ? <p className="rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-800" role="alert">{error}</p> : null}
         <div className="flex flex-wrap items-center gap-2">
-          {brief.primaryAction === "mark_complete" ? (
-            <button type="button" onClick={() => void markPracticeComplete()} disabled={Boolean(busy)} className="inline-flex min-h-11 items-center rounded-xl bg-[#087F72] px-4 py-2 text-sm font-bold text-white hover:bg-[#06695F] disabled:opacity-60">
-              {busy === "complete" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />} Mark complete
-            </button>
-          ) : brief.primaryHref ? (
+          {brief.primaryAction !== "mark_complete" && brief.primaryHref ? (
             <Link href={brief.primaryHref} className="inline-flex min-h-11 items-center rounded-xl bg-[#087F72] px-4 py-2 text-sm font-bold text-white hover:bg-[#06695F]">
               {brief.primaryAction === "open_review" ? "Open weekly review" : brief.primaryAction === "open_blueprint" ? "Open current Blueprint" : "Choose my practice"}
               <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
             </Link>
           ) : null}
-          <Link href="/routine" onClick={() => void recordAction("opened_routine")} className="inline-flex min-h-11 items-center rounded-xl border border-[#9DCFC3] px-4 py-2 text-sm font-bold text-[#06695F] hover:bg-[#F4FAF8]">
-            Open Routine
-          </Link>
           <button type="button" onClick={() => void handleQuietAction("remind_later")} disabled={Boolean(busy)} className="inline-flex min-h-11 items-center px-3 py-2 text-sm font-semibold text-slate-600 hover:text-[#041B2D] disabled:opacity-60">
             <Clock3 className="mr-2 h-4 w-4" aria-hidden="true" /> Hide for 3 hours
           </button>

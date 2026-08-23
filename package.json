@@ -62,6 +62,7 @@
     "qa:pr119": "node --experimental-strip-types src/_tests_/pr119NextWeekRouting.assert.ts && node --experimental-strip-types src/_tests_/pr110TaskSuccess.assert.ts",
     "qa:pr120": "node src/_tests_/pr120StructuredWeeklySynthesis.assert.mjs && node src/_tests_/pr116Architecture.assert.mjs",
     "qa:pr121": "node --experimental-strip-types src/_tests_/pr121WeeklySynthesisLanguage.assert.ts && node src/_tests_/pr120StructuredWeeklySynthesis.assert.mjs",
+    "qa:pr122": "node src/_tests_/pr122TodayDedup.assert.mjs && node --experimental-strip-types src/_tests_/pr100TodayBrief.assert.ts",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
     "qa:all": "npm run qa:env && npm run qa:build"
