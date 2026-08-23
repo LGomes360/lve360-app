@@ -18,6 +18,7 @@ assert.match(client, /These two schedule records still disagree/, "The edit flow
 assert.match(printPage, /Checklist schedule/, "Print must separately expose the structured checklist schedule.");
 assert.match(printPage, /Written schedule/, "Print must separately expose the member's written schedule.");
 assert.match(printPage, /Neither record was changed by LVE360/, "Print must preserve the reconciliation boundary.");
+assert.match(printPage, /timeZone:\s*"UTC"/, "Print dates must use a stable timezone to prevent hydration errors.");
 assert.match(summary, /written instruction and checklist schedule do not match/, "Clinician review questions must include unresolved schedule conflicts.");
 assert.match(authority, /"pharmacist"/, "Internal pharmacist provenance must remain supported.");
 assert.match(migration, /update public\.interactions/, "The reviewed interaction qualification must be updated through a migration.");
