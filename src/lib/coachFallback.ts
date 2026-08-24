@@ -43,6 +43,17 @@ function uniqueAvailable(ids: string[], available: Set<string>) {
   return [...new Set(ids)].filter((id) => available.has(id));
 }
 
+function sentenceFragment(value: string) {
+  return value.trim().replace(/[.!?]+$/, "");
+}
+
+function usableMinimumVersion(value: string | null) {
+  if (!value?.trim()) return null;
+  const normalized = sentenceFragment(value);
+  if (/^(?:once|twice|three|four|five|six|\d+)\s+(?:time|times|days|repetitions?)$/i.test(normalized)) return null;
+  return normalized;
+}
+
 function requestedOutcome(question: string) {
   if (/\bsleep|insomnia|bedtime\b/i.test(question)) return "sleep";
   if (/\benergy|fatigue|tired\b/i.test(question)) return "energy";
@@ -85,7 +96,7 @@ function groundedPortion(input: GroundedCoachFallbackInput) {
       ? `, with ${input.activePractice.completionCount} of ${target} planned repetitions recorded`
       : "";
     return {
-      text: `I can verify that your active weekly practice is ${input.activePractice.actionLabel}${progress}.`,
+      text: `I can verify that your active weekly practice is ${sentenceFragment(input.activePractice.actionLabel)}${progress}.`,
       sourceIds: ["weekly_practice"],
     };
   }
@@ -125,10 +136,11 @@ function nextStepFor(input: GroundedCoachFallbackInput) {
     return "Next step: ask one record-only question about an exact item, such as, “Is this item in my current Routine, and what amount and timing are recorded?”";
   }
   if (["BEHAVIORAL_COACHING", "PRIORITIZATION", "PROGRESS_COACHING"].includes(input.intent) && input.activePractice?.actionLabel) {
-    if (!input.activePractice.minimumVersion) {
-      return "Next step: open Today, record the smallest version of your current weekly practice, then ask what is realistic to complete today.";
+    const minimumVersion = usableMinimumVersion(input.activePractice.minimumVersion);
+    if (!minimumVersion) {
+      return "Next step: open Today and record a concrete hard-day version of your weekly practice, then ask what is realistic to complete today.";
     }
-    return `Next step: ask, “What is the minimum version of my current weekly practice today?” The recorded minimum is ${input.activePractice.minimumVersion}.`;
+    return `Next step: ask, “What is the minimum version of my current weekly practice today?” The recorded minimum is ${minimumVersion}.`;
   }
   if (input.intent === "PLAN_EXPLANATION" && input.blueprintPriorities[0]) {
     return `Next step: ask, “How does my current weekly practice connect to ${input.blueprintPriorities[0]}?”`;

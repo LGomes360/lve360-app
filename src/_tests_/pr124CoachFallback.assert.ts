@@ -31,6 +31,20 @@ assert.match(progress.answer, /Walk for two minutes/);
 assert.match(progress.answer, /unchanged/);
 assert.deepEqual(progress.sourceIds, ["weekly_practice"]);
 
+const malformedPractice = buildGroundedCoachFallback({
+  ...base,
+  intent: "BEHAVIORAL_COACHING",
+  activePractice: {
+    actionLabel: "Wall sit for 1 minute.",
+    minimumVersion: "Three times",
+    completionCount: 0,
+    frequencyPerWeek: 5,
+  },
+});
+assert.doesNotMatch(malformedPractice.answer, /minute\.,/);
+assert.doesNotMatch(malformedPractice.answer, /recorded minimum is Three times/i);
+assert.match(malformedPractice.answer, /record a concrete hard-day version/);
+
 const evidence = buildGroundedCoachFallback({
   ...base,
   intent: "PERSONALIZED_RECOMMENDATION",
