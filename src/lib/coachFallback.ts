@@ -84,6 +84,16 @@ function limitationFor(input: GroundedCoachFallbackInput) {
     return "I could not connect the question to one specific Blueprint priority with enough confidence.";
   }
   if (EVIDENCE_INTENTS.has(input.intent)) {
+    const outcome = requestedOutcome(input.question);
+    if (input.evidenceOptions.length >= 2 && outcome) {
+      return "I could not verify enough evidence and safety reasoning to complete a reliable head-to-head comparison.";
+    }
+    if (input.evidenceOptions.length && outcome) {
+      return "I could not verify enough evidence and safety reasoning to complete a personalized recommendation.";
+    }
+    if (!input.evidenceOptions.length) {
+      return "I could not find a matching curated evidence record for the exact option named in the question.";
+    }
     return "I could not verify the exact outcome and comparison needed for a complete personalized answer.";
   }
   return "I could not verify which saved record or outcome the question refers to.";

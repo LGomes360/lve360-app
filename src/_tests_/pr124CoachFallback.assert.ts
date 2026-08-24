@@ -55,6 +55,20 @@ assert.match(evidence.answer, /grounded LVE360 evidence for Magnesium Glycinate/
 assert.match(evidence.answer, /for sleep, without changing my Routine/);
 assert.deepEqual(evidence.sourceIds, ["evidence_magnesium"]);
 
+const comparison = buildGroundedCoachFallback({
+  ...base,
+  intent: "OPTION_COMPARISON",
+  question: "Compare magnesium glycinate and glycine for sleep.",
+  evidenceOptions: [
+    { id: "evidence_magnesium", name: "Magnesium Glycinate" },
+    { id: "evidence_glycine", name: "Glycine" },
+  ],
+  availableSourceIds: ["evidence_magnesium", "evidence_glycine"],
+});
+assert.match(comparison.answer, /reliable head-to-head comparison/);
+assert.doesNotMatch(comparison.answer, /exact outcome and comparison needed/);
+assert.deepEqual(comparison.sourceIds, ["evidence_magnesium", "evidence_glycine"]);
+
 const missing = buildGroundedCoachFallback({
   ...base,
   intent: "MISSING_CONTEXT",
