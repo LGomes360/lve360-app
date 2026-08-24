@@ -16,9 +16,11 @@ import {
 } from "@/lib/contextualCoach";
 import {
   validateCoachTaskSuccess,
+  missingContextRequirements,
   type CoachTaskSuccessReport,
   type CoachTaskValidatorId,
 } from "@/lib/coachTaskValidation";
+import { buildGroundedCoachFallback } from "@/lib/coachFallback";
 import { healthItemIdentityKey } from "@/lib/healthItemIdentity";
 import type { MemberIntelligenceContext, MemberRegimenItemContext } from "@/lib/memberContext";
 import { getMemberIntelligenceContext } from "@/lib/memberContextData";
@@ -721,13 +723,49 @@ function repairInstruction(report: CoachTaskSuccessReport): CoachRepairInstructi
   };
 }
 
-function narrowSafeFallback(context: CoachContext) {
-  const sourceIds = context.sources
-    .filter((source) => !source.id.startsWith("evidence_"))
-    .map((source) => source.id);
+function relevantFallbackMissingContext(question: string, context: CoachContext) {
+  const requirements = missingContextRequirements(context.memberContext);
+  if (context.intent === "MISSING_CONTEXT") return requirements.map((item) => item.label);
+
+  const namedRegimenRequirements = requirements.filter((item) => item.code.startsWith("regimen:")
+    && item.matchTerms[0]
+    && questionNamesRegimenItem(question, item.matchTerms[0]));
+  const allowedCodes = context.intent === "SAFETY_REVIEW" || context.intent === "TIMING_OR_DOSING"
+    ? new Set(["health_profile"])
+    : ["PERSONALIZED_RECOMMENDATION", "EVIDENCE_COMPARISON", "OPTION_COMPARISON"].includes(context.intent)
+      ? new Set(["health_profile", "goals"])
+      : context.intent === "PROGRESS_COACHING"
+        ? new Set(["recent_check_ins", "active_practice"])
+        : context.intent === "BEHAVIORAL_COACHING" || context.intent === "PRIORITIZATION"
+          ? new Set(["active_practice", "goals", "preferences"])
+          : context.intent === "PLAN_EXPLANATION"
+            ? new Set(["goals"])
+            : new Set<string>();
+  return [...namedRegimenRequirements, ...requirements.filter((item) => allowedCodes.has(item.code))]
+    .filter((item, index, all) => all.findIndex((candidate) => candidate.code === item.code) === index)
+    .slice(0, 2)
+    .map((item) => item.label);
+}
+
+function narrowSafeFallback(question: string, context: CoachContext) {
+  const fallback = buildGroundedCoachFallback({
+    question,
+    intent: context.intent,
+    page: context.page,
+    availableSourceIds: context.sources.map((source) => source.id),
+    missingContextLabels: relevantFallbackMissingContext(question, context),
+    routineCount: regimenItems(context.memberContext).length,
+    evidenceOptions: context.evidenceOptions.map((option) => ({ id: option.id, name: option.name })),
+    activePractice: context.memberContext.activePractice.value ? {
+      actionLabel: context.memberContext.activePractice.value.actionLabel,
+      minimumVersion: context.memberContext.activePractice.value.minimumVersion,
+      completionCount: context.memberContext.activePractice.value.completionCount,
+      frequencyPerWeek: context.memberContext.activePractice.value.frequencyPerWeek,
+    } : null,
+    blueprintPriorities: context.memberContext.blueprint.value?.priorities.map((priority) => priority.label) ?? [],
+  });
   return {
-    answer: "I could not verify a complete, grounded answer to this request, so I will not guess. Your saved information and Routine are unchanged. Review the linked LVE360 record, then try one narrower question.",
-    sourceIds,
+    ...fallback,
     responseSource: "fallback" as const,
     proposedAction: null,
   };
@@ -843,7 +881,7 @@ export async function generateCoachAnswer(userId: string, question: string, cont
   if (deterministic) {
     const taskReport = validateRenderedTask(routing, question, context, deterministic.answer, null, true);
     if (!taskReport.passed) {
-      const fallback = narrowSafeFallback(context);
+      const fallback = narrowSafeFallback(question, context);
       return {
         ...fallback,
         diagnostics: diagnosticsFromReport(context, taskReport, {
@@ -958,7 +996,7 @@ export async function generateCoachAnswer(userId: string, question: string, cont
   }
 
   if (!finalValidated || !finalReport || !finalReport.passed) {
-    const safe = narrowSafeFallback(context);
+    const safe = narrowSafeFallback(question, context);
     const report = finalReport ?? validateRenderedTask(routing, question, context, safe.answer, null, safetyChecked);
     return {
       ...safe,
