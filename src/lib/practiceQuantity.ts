@@ -137,6 +137,13 @@ export function formatPracticeQuantity(quantity: number, unit: string): string {
   return `${amount} ${unit}`;
 }
 
+export function formatPracticeCue(value: string | null | undefined): string {
+  const cue = value?.replace(/\s+/g, " ").trim().slice(0, 160).replace(/[.!?]+$/, "") ?? "";
+  if (!cue) return "Use your chosen cue";
+  if (/^(?:after|before|when|at|as soon as|once)\b/i.test(cue)) return cue;
+  return `After I ${cue}`;
+}
+
 export function isUsableMinimumVersionText(value: string | null | undefined): boolean {
   if (!value?.trim()) return false;
   const normalized = value.trim().replace(/[.!?]+$/, "");

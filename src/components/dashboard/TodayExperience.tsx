@@ -23,7 +23,7 @@ import {
 } from "@/lib/blueprintContext";
 import { deriveTodayBlueprintNotice, type TodayBlueprintNotice } from "@/lib/todaySurface";
 import type { PracticeConnectionContext } from "@/lib/practiceConnection";
-import { formatPracticeQuantity, isUsableMinimumVersionText } from "@/lib/practiceQuantity";
+import { formatPracticeCue, formatPracticeQuantity, isUsableMinimumVersionText } from "@/lib/practiceQuantity";
 
 type TodayResponse = {
   ok: boolean;
@@ -191,7 +191,7 @@ export default function TodayExperience({
             <h2 className="mt-3 text-3xl font-bold leading-tight text-[#041B2D] sm:text-4xl">{experiment.action_label}</h2>
             {practiceConnection ? <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-slate-200"><span className="text-[#087F72]">Why this matters:</span> {practiceConnection.summary}</p> : null}
             <p className="mt-4 text-base leading-7 text-slate-600">
-              <strong className="text-[#041B2D]">Your cue:</strong> After I {experiment.cue}
+              <strong className="text-[#041B2D]">Your cue:</strong> {formatPracticeCue(experiment.cue)}
             </p>
             {experiment.target_quantity != null && experiment.quantity_unit ? <p className="mt-2 text-base leading-7 text-slate-600"><strong className="text-[#041B2D]">Target each time:</strong> {formatPracticeQuantity(experiment.target_quantity, experiment.quantity_unit)}</p> : null}
           </div>

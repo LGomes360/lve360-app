@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   buildWeeklyPracticeMetrics,
+  formatPracticeCue,
   isUsableMinimumVersionText,
   normalizePracticeQuantityFields,
   practiceCompletionSummary,
@@ -74,5 +75,9 @@ assert.equal(isTrustworthyJourneySynthesisVersion(null), false);
 assert.equal(isTrustworthyJourneySynthesisVersion("weekly-review-synthesis-v6"), false);
 assert.equal(isTrustworthyJourneySynthesisVersion("weekly-review-synthesis-v7"), true);
 assert.equal(isTrustworthyJourneySynthesisVersion("weekly-review-synthesis-v8"), true);
+
+assert.equal(formatPracticeCue("Before I go to bed."), "Before I go to bed");
+assert.equal(formatPracticeCue("brush my teeth"), "After I brush my teeth");
+assert.equal(formatPracticeCue("When lunch ends"), "When lunch ends");
 
 console.log("PR125 weekly practice quantity assertions passed.");

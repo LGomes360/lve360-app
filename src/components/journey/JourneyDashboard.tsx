@@ -29,7 +29,7 @@ import {
 } from "@/lib/journey";
 import { blueprintSafetyLabel, type CurrentBlueprintContext, type ExperimentBlueprintContext } from "@/lib/blueprintContext";
 import type { PracticeConnectionContext } from "@/lib/practiceConnection";
-import { formatPracticeQuantity, isUsableMinimumVersionText } from "@/lib/practiceQuantity";
+import { formatPracticeCue, formatPracticeQuantity, isUsableMinimumVersionText } from "@/lib/practiceQuantity";
 
 type MetricKey = "sleep" | "energy" | "weight";
 
@@ -343,7 +343,7 @@ function CurrentChapter({ experiment, connection, blueprintContext, completed }:
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Current chapter: {domainLabel(experiment.identity_direction)}</p>
           <h2 id="current-chapter-title" className="mt-2 text-2xl font-bold text-[#041B2D]">{experiment.action_label}</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            After: {experiment.cue || "your chosen cue"}. Minimum: {minimum}.
+            {formatPracticeCue(experiment.cue)}. Minimum: {minimum}.
           </p>
           <PracticeConnectionLabel connection={connection} blueprintContext={blueprintContext} />
         </div>
