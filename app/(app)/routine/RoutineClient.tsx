@@ -29,9 +29,11 @@ import {
   groupRoutineItems,
   isClinicianReviewProposal,
   ROUTINE_SECTION_LABELS,
+  routineScheduleConflicts,
   routineScheduleLabel,
   routineInstructionAuthorityLabel,
   routineSourceLabel,
+  routineWrittenScheduleLabel,
   type RoutineItem,
   type RoutineItemKind,
 } from "@/lib/routine";
@@ -518,6 +520,7 @@ function RoutineCard({
   const hormoneActive = item.item_kind === "endocrine_active_supplement";
   const authorityLabel = routineInstructionAuthorityLabel(item.instruction_authority);
   const doseIssue = doseIntegrityIssue(item.name, item.dose);
+  const scheduleConflicts = routineScheduleConflicts(item);
   return (
     <li className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex items-start gap-4">
@@ -565,6 +568,30 @@ function RoutineCard({
           <AlertTriangle className="mr-2 mt-1 h-4 w-4 shrink-0" aria-hidden="true" />
           {doseIssue.message}
         </p>
+      ) : null}
+      {scheduleConflicts.length ? (
+        <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+          <p className="flex items-start font-bold text-[#6F3B00]">
+            <AlertTriangle className="mr-2 mt-1 h-4 w-4 shrink-0" aria-hidden="true" />
+            Schedule needs confirmation
+          </p>
+          <dl className="mt-2 grid gap-2">
+            <div><dt className="font-semibold">Written schedule</dt><dd>{routineWrittenScheduleLabel(item)}</dd></div>
+            <div><dt className="font-semibold">Checklist schedule</dt><dd>{routineScheduleLabel(item)}</dd></div>
+          </dl>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {scheduleConflicts.map((conflict) => <li key={conflict.code}>{conflict.reason}</li>)}
+          </ul>
+          <p className="mt-2">Nothing has been changed. Confirm the intended cadence and times before relying on the checklist.</p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onEdit(item)}
+            className="mt-3 inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-amber-400 bg-white px-4 py-3 font-bold text-[#6F3B00] hover:bg-amber-100 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+          >
+            <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> Review schedule
+          </button>
+        </div>
       ) : null}
       {prescribedItem ? (
         <p className="mt-4 rounded-xl bg-white p-3 text-xs leading-5 text-slate-600">
@@ -685,6 +712,12 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
   const sourceRequired = prescribedItem || hasStructuredSchedule;
   const reorderUrlReady = !reorderUrl.trim() || isValidHttpsUrl(reorderUrl);
   const doseIssue = doseIntegrityIssue(item.name, dose);
+  const draftSchedule = hasStructuredSchedule && scheduleReady ? scheduleDraftPayload(schedule) : null;
+  const draftScheduleConflicts = routineScheduleConflicts({
+    timing,
+    timing_text: timing,
+    schedule: draftSchedule,
+  });
   return (
     <DialogShell title={prescribedItem ? `Record a prescribed change for ${item.name}` : `Update ${item.name}`} onClose={onClose}>
       <p className="text-sm leading-6 text-slate-600">
@@ -724,6 +757,15 @@ function EditRoutineDialog({ item, saving, onClose, onSave }: { item: RoutineIte
       ) : null}
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">Written schedule <span className="font-normal text-slate-500">(copied from your current instructions)</span><input value={timing} onChange={(event) => setTiming(event.target.value)} maxLength={160} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" placeholder="For example, once weekly on Sunday" /></label>
       <ScheduleEditor value={schedule} onChange={setSchedule} />
+      {draftScheduleConflicts.length ? (
+        <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+          <p className="font-bold">These two schedule records still disagree.</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {draftScheduleConflicts.map((conflict) => <li key={conflict.code}>{conflict.reason}</li>)}
+          </ul>
+          <p className="mt-2">Use your current label or clinician or healthcare provider instructions to confirm the intended cadence and times. Saving will record your confirmation.</p>
+        </div>
+      ) : null}
       {sourceRequired ? (
         <label className="mt-5 block text-sm font-bold text-[#041B2D]">
           Where did this instruction come from?
