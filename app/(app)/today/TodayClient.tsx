@@ -11,6 +11,7 @@ import PremiumActivationChecklist from "@/components/activation/PremiumActivatio
 import AiTodayBrief from "@/components/dashboard/AiTodayBrief";
 import ReminderArrivalFeedback from "@/components/dashboard/ReminderArrivalFeedback";
 import type { PracticeConnectionContext } from "@/lib/practiceConnection";
+import DailyIntentionCard from "@/components/dashboard/DailyIntentionCard";
 
 export default function TodayClient({
   experiment,
@@ -49,6 +50,8 @@ export default function TodayClient({
 
         {experiment?.status === "active" || firstActionComplete ? (
           <>
+            <DailyIntentionCard date={checkinDate} />
+
             <ReminderArrivalFeedback deliveryId={reminderDeliveryId} />
 
             <TodayExperience
