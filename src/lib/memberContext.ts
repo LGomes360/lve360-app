@@ -1,5 +1,6 @@
 import type { CurrentBlueprintContext, ExperimentBlueprintContext } from "./blueprintContext";
 import type { CurrentRegimenItem } from "./currentRegimenModel";
+import { buildWeeklyPracticeMetrics } from "./practiceQuantity.ts";
 import { unknownSafetyEvidence, type SafetyEvidenceProvenance, type SafetyFinding } from "./safetyEngine.ts";
 
 export const MEMBER_CONTEXT_VERSION = "member-intelligence-context-v1";
@@ -120,6 +121,12 @@ export type MemberPracticeContext = {
   actionLabel: string | null;
   cue: string | null;
   frequencyPerWeek: number | null;
+  targetQuantity: number | null;
+  quantityUnit: string | null;
+  minimumQuantity: number | null;
+  minimumQuantityUnit: string | null;
+  knownTotalQuantity: number | null;
+  totalQuantityUnit: string | null;
   minimumVersion: string | null;
   weekStart: string;
   status: "draft" | "active" | "completed" | "archived";
@@ -195,6 +202,10 @@ export type MemberContextExperimentInput = {
   action_label: string | null;
   cue: string | null;
   frequency_per_week: number | null;
+  target_quantity: number | null;
+  quantity_unit: string | null;
+  minimum_quantity: number | null;
+  minimum_quantity_unit: string | null;
   minimum_version: string | null;
   status: "draft" | "active" | "completed" | "archived";
   week_start: string;
@@ -218,6 +229,8 @@ export type MemberContextCompletionInput = {
   experiment_id: string;
   completion_date: string;
   completion_kind: "full" | "minimum";
+  completed_quantity: number | null;
+  quantity_unit: string | null;
   updated_at: string;
 };
 
@@ -319,6 +332,15 @@ function practiceContext(
 ): MemberPracticeContext {
   const review = reviews.find((item) => item.experiment_id === experiment.id) ?? null;
   const recorded = completions.filter((item) => item.experiment_id === experiment.id);
+  const metrics = buildWeeklyPracticeMetrics({
+    practice: experiment.action_label,
+    targetQuantity: experiment.target_quantity,
+    quantityUnit: experiment.quantity_unit,
+    minimumQuantity: experiment.minimum_quantity,
+    minimumQuantityUnit: experiment.minimum_quantity_unit,
+    plannedSessions: experiment.frequency_per_week ?? 1,
+    completions: recorded,
+  });
   const blueprint = blueprintContexts[experiment.id] ?? null;
   const currentGoal = experiment.goal_key ? savedGoals.find((goal) => goal.key === experiment.goal_key) ?? null : null;
   const hasGoalLink = experiment.connection_type === "goal" || experiment.connection_type === "both";
@@ -369,6 +391,12 @@ function practiceContext(
     actionLabel: experiment.action_label,
     cue: experiment.cue,
     frequencyPerWeek: experiment.frequency_per_week,
+    targetQuantity: metrics.target_quantity_per_session,
+    quantityUnit: metrics.quantity_unit,
+    minimumQuantity: metrics.minimum_quantity,
+    minimumQuantityUnit: metrics.minimum_quantity_unit,
+    knownTotalQuantity: metrics.known_total_quantity,
+    totalQuantityUnit: metrics.total_quantity_unit,
     minimumVersion: experiment.minimum_version,
     weekStart: experiment.week_start,
     status: experiment.status,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const TODAY_BRIEF_PROMPT_VERSION = "today-brief-v4";
+export const TODAY_BRIEF_PROMPT_VERSION = "today-brief-v5";
 
 export type TodayBriefPrimaryAction =
   | "mark_complete"
@@ -133,7 +133,7 @@ export function deterministicTodayBrief(context: TodayBriefContext): TodayBriefC
   if (context.experiment.completedToday) {
     return {
       noticed: "You already recorded today’s focused practice.",
-      whyItMatters: "A completed repetition is enough. Consistency grows when success stays achievable.",
+      whyItMatters: "A completed session is enough. Consistency grows when success stays achievable.",
       nextAction: "Let today’s win stand and return to the rest of your day.",
       minimumVersion: "Notice what helped you follow through.",
       primaryAction: "none",
@@ -144,8 +144,8 @@ export function deterministicTodayBrief(context: TodayBriefContext): TodayBriefC
   const remaining = Math.max(0, context.experiment.target - context.experiment.completed);
   return {
     noticed: remaining === 1
-      ? "One more repetition will keep your promise for this week."
-      : `You have completed ${context.experiment.completed} of ${context.experiment.target} planned repetitions this week.`,
+      ? "One more practice completion will keep your promise for this week."
+      : `You have completed your practice ${context.experiment.completed} of ${context.experiment.target} planned times this week.`,
     whyItMatters: context.experiment.connectionSummary,
     nextAction: context.experiment.actionLabel,
     minimumVersion: context.experiment.minimumVersion,

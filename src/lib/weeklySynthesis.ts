@@ -4,8 +4,15 @@ import { STARTER_ACTIONS, type IdentityDirection, type WeeklyExperiment } from "
 import { suggestedNextPlan, type NextWeekPlan, type ReviewDecision } from "./weeklyReview";
 import { comparableAdaptiveHistory, isAdaptiveLowData, recommendedAdaptiveReviewDecision } from "./weeklySynthesisDecision";
 import { hypothesisSupportsDecision, normalizeMemberVoice, usesDirectMemberVoice } from "./weeklySynthesisLanguage";
+import {
+  buildWeeklyPracticeMetrics,
+  formatPracticeQuantity,
+  practiceCompletionSummary,
+  type PracticeCompletionQuantity,
+  type WeeklyPracticeMetrics,
+} from "./practiceQuantity.ts";
 
-export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly-review-synthesis-v6";
+export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly-review-synthesis-v7";
 
 export const WEEKLY_SYNTHESIS_RESPONSE_FORMAT = {
   type: "json_schema" as const,
@@ -51,8 +58,9 @@ export type WeeklySynthesisHistoryWeek = {
 };
 
 export type WeeklySynthesisContext = {
-  experiment: Pick<WeeklyExperiment, "id" | "identity_direction" | "action_label" | "cue" | "frequency_per_week" | "minimum_version" | "week_start">;
+  experiment: Pick<WeeklyExperiment, "id" | "identity_direction" | "action_label" | "cue" | "frequency_per_week" | "target_quantity" | "quantity_unit" | "minimum_quantity" | "minimum_quantity_unit" | "minimum_version" | "week_start">;
   completedDates: string[];
+  completions?: PracticeCompletionQuantity[];
   completedCount: number;
   target: number;
   difficulty: number;
@@ -86,11 +94,13 @@ const GeneratedSynthesisSchema = z.object({
 const INTERVENTION_PATTERN = /\b(?:b[- ]?12|supplement|vitamin|mineral|magnesium|creatine|omega[- ]?3|fish oil|medication|medicine|drug|dose|dosage|prescription|clinician|physician|doctor|pharmacist|blood test|lab(?:oratory)?|mg|mcg|iu|tablet|capsule)\b/i;
 const MEDICAL_CLAIM_PATTERN = /\b(?:diagnos|treat|cure|prevent|reverse|manage)\w*\s+(?:a\s+|an\s+|your\s+)?(?:disease|condition|disorder|syndrome|symptom)/i;
 const DISCOURAGING_PATTERN = /\b(?:failed|failure|lazy|behind|should have|haven't|have not)\b/i;
+const FREQUENCY_AS_QUANTITY_PATTERN = /\b(?:planned|completed|practice)\s+(?:repetitions?|reps)\b/i;
 
 function safeGeneratedText(value: string) {
   return !INTERVENTION_PATTERN.test(value)
     && !MEDICAL_CLAIM_PATTERN.test(value)
-    && !DISCOURAGING_PATTERN.test(value);
+    && !DISCOURAGING_PATTERN.test(value)
+    && !FREQUENCY_AS_QUANTITY_PATTERN.test(value);
 }
 
 function average(values: number[]) {
@@ -133,16 +143,42 @@ export function recommendedNextPlan(context: WeeklySynthesisContext, decision: R
     action_label: replacement,
     cue: context.experiment.cue ?? "After a routine I already do",
     frequency_per_week: Math.max(1, Math.min(3, context.target)),
+    target_quantity: null,
+    quantity_unit: null,
+    minimum_quantity: null,
+    minimum_quantity_unit: null,
     minimum_version: context.experiment.minimum_version ?? "Take the first small step",
   };
 }
 
+export function deterministicPracticeMetrics(context: WeeklySynthesisContext): WeeklyPracticeMetrics {
+  const completions = context.completions ?? context.completedDates.map((date) => ({
+    completion_date: date,
+    completion_kind: "full" as const,
+    completed_quantity: null,
+    quantity_unit: null,
+  }));
+  return buildWeeklyPracticeMetrics({
+    practice: context.experiment.action_label,
+    targetQuantity: context.experiment.target_quantity,
+    quantityUnit: context.experiment.quantity_unit,
+    minimumQuantity: context.experiment.minimum_quantity,
+    minimumQuantityUnit: context.experiment.minimum_quantity_unit,
+    plannedSessions: context.target,
+    completions,
+  });
+}
+
 export function weeklySynthesisEvidence(context: WeeklySynthesisContext): WeeklySynthesisEvidence[] {
+  const metrics = deterministicPracticeMetrics(context);
   const evidence: WeeklySynthesisEvidence[] = [
-    { label: "Practice repetitions", value: `${context.completedCount} of ${context.target} planned` },
+    { label: "Practice completions", value: `${metrics.completed_sessions} of ${metrics.planned_sessions} planned` },
     { label: "Difficulty reflection", value: `${context.difficulty} of 5` },
     { label: "Usefulness reflection", value: `${context.valueRating} of 5` },
   ];
+  if (metrics.known_total_quantity != null && metrics.total_quantity_unit) {
+    evidence.splice(1, 0, { label: "Exercise volume", value: formatPracticeQuantity(metrics.known_total_quantity, metrics.total_quantity_unit) });
+  }
   if (context.checkIns.length) {
     evidence.push({ label: "Daily check-ins", value: `${context.checkIns.length} recorded` });
     const sleep = average(context.checkIns.flatMap((item) => typeof item.sleep === "number" ? [item.sleep] : []));
@@ -174,9 +210,13 @@ export function weeklySynthesisEvidence(context: WeeklySynthesisContext): Weekly
 export function deterministicWeeklySynthesis(context: WeeklySynthesisContext): WeeklySynthesisContent {
   const decision = recommendedReviewDecision(context);
   const early = isLowDataWeek(context);
+  const metrics = deterministicPracticeMetrics(context);
+  const volume = metrics.known_total_quantity != null && metrics.total_quantity_unit
+    ? `, totaling ${formatPracticeQuantity(metrics.known_total_quantity, metrics.total_quantity_unit)}`
+    : "";
   const observation = early
-    ? `You have an early signal from ${context.completedCount} recorded practice ${context.completedCount === 1 ? "repetition" : "repetitions"} and ${context.checkIns.length} daily ${context.checkIns.length === 1 ? "check-in" : "check-ins"}.`
-    : `You completed ${context.completedCount} of ${context.target} planned repetitions and rated the practice ${context.valueRating} of 5 for usefulness and ${context.difficulty} of 5 for difficulty.${context.history.length ? ` This reflection also considered ${context.history.length} prior completed ${context.history.length === 1 ? "week" : "weeks"}.` : ""}`;
+    ? `You have an early signal from ${metrics.completed_sessions} recorded practice ${metrics.completed_sessions === 1 ? "completion" : "completions"}${volume} and ${context.checkIns.length} daily ${context.checkIns.length === 1 ? "check-in" : "check-ins"}.`
+    : `${practiceCompletionSummary(metrics).slice(0, -1)}, and rated it ${context.valueRating} of 5 for usefulness and ${context.difficulty} of 5 for difficulty.${context.history.length ? ` This reflection also considered ${context.history.length} prior completed ${context.history.length === 1 ? "week" : "weeks"}.` : ""}`;
   const hypotheses: Record<ReviewDecision, string> = {
     keep: "Your current version may be a workable fit. Repeating it for another week would test whether that fit is consistent.",
     shrink: "Your practice may still be worthwhile, but its current size, timing, or setup may be creating friction. A smaller version would test that idea.",
@@ -222,6 +262,10 @@ function samePlan(left: NextWeekPlan | null, right: NextWeekPlan | null) {
   return left.action_label.trim() === right.action_label.trim()
     && left.cue.trim() === right.cue.trim()
     && left.frequency_per_week === right.frequency_per_week
+    && left.target_quantity === right.target_quantity
+    && left.quantity_unit === right.quantity_unit
+    && left.minimum_quantity === right.minimum_quantity
+    && left.minimum_quantity_unit === right.minimum_quantity_unit
     && left.minimum_version.trim() === right.minimum_version.trim();
 }
 

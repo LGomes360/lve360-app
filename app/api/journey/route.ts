@@ -9,6 +9,7 @@ import type {
   JourneyReview,
   JourneySynthesis,
 } from "@/lib/journey";
+import { isTrustworthyJourneySynthesisVersion } from "@/lib/journeyTrust";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCurrentBlueprintContext, getExperimentBlueprintContexts } from "@/lib/currentBlueprintContext";
 import { practiceGoalOptions, resolvePracticeConnection, type PracticeGoalRow } from "@/lib/practiceConnection";
@@ -48,13 +49,13 @@ export async function GET() {
     const [{ data: experiments, error: experimentError }, { data: reviews, error: reviewError }, { data: checkIns, error: checkInError }, { data: syntheses, error: synthesisError }, { data: goals, error: goalsError }] = await Promise.all([
       admin
         .from("weekly_experiments")
-        .select("id, source_stack_id, source_action_id, connection_type, goal_id, goal_key, goal_label_snapshot, identity_direction, action_label, cue, frequency_per_week, minimum_version, status, week_start, activated_at, completed_at")
+        .select("id, source_stack_id, source_action_id, connection_type, goal_id, goal_key, goal_label_snapshot, identity_direction, action_label, cue, frequency_per_week, target_quantity, quantity_unit, minimum_quantity, minimum_quantity_unit, minimum_version, status, week_start, activated_at, completed_at")
         .eq("user_id", auth.user.id)
         .order("week_start", { ascending: false })
         .limit(52),
       admin
         .from("weekly_experiment_reviews")
-        .select("experiment_id, next_experiment_id, completion_count, target_count, difficulty, value_rating, decision, status, completed_at")
+        .select("experiment_id, next_experiment_id, completion_count, target_count, target_quantity_per_session, quantity_unit, known_total_quantity, known_total_quantity_unit, difficulty, value_rating, decision, status, completed_at")
         .eq("user_id", auth.user.id)
         .order("completed_at", { ascending: false })
         .limit(52),
@@ -66,7 +67,7 @@ export async function GET() {
         .limit(90),
       admin
         .from("ai_weekly_syntheses")
-        .select("id,experiment_id,observation,hypothesis,evidence,confidence,response_state,created_at")
+        .select("id,experiment_id,observation,hypothesis,evidence,confidence,response_state,prompt_version,created_at")
         .eq("user_id", auth.user.id)
         .in("generation_status", ["succeeded", "failed", "skipped"])
         .order("created_at", { ascending: false })
@@ -83,7 +84,7 @@ export async function GET() {
     if (experimentIds.length) {
       const { data, error } = await admin
         .from("daily_practice_completions")
-        .select("experiment_id, completion_date, completion_kind")
+        .select("experiment_id, completion_date, completion_kind, completed_quantity, quantity_unit")
         .eq("user_id", auth.user.id)
         .in("experiment_id", experimentIds)
         .order("completion_date", { ascending: true });
@@ -109,7 +110,8 @@ export async function GET() {
       reviews: (reviews ?? []) as JourneyReview[],
       completions,
       check_ins: (checkIns ?? []) as JourneyCheckIn[],
-      syntheses: (syntheses ?? []) as JourneySynthesis[],
+      syntheses: ((syntheses ?? []) as JourneySynthesis[])
+        .filter((item) => isTrustworthyJourneySynthesisVersion(item.prompt_version)),
       blueprint,
       experiment_blueprints: experimentBlueprints,
       practice_connections: practiceConnections,

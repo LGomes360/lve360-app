@@ -177,7 +177,7 @@ export async function getMemberIntelligenceContext(userId: string): Promise<Memb
     getCurrentBlueprintContext(userId),
     getCurrentRegimen(userId),
     admin.from("weekly_experiments")
-      .select("id,source_stack_id,source_action_id,connection_type,goal_id,goal_key,goal_label_snapshot,identity_direction,action_label,cue,frequency_per_week,minimum_version,status,week_start,created_at,updated_at")
+      .select("id,source_stack_id,source_action_id,connection_type,goal_id,goal_key,goal_label_snapshot,identity_direction,action_label,cue,frequency_per_week,target_quantity,quantity_unit,minimum_quantity,minimum_quantity_unit,minimum_version,status,week_start,created_at,updated_at")
       .eq("user_id", userId).order("week_start", { ascending: false }).limit(12),
     admin.from("logs").select("id,log_date,weight,sleep,energy,updated_at")
       .eq("user_id", userId).order("log_date", { ascending: false }).limit(30),
@@ -196,7 +196,7 @@ export async function getMemberIntelligenceContext(userId: string): Promise<Memb
         .select("id,experiment_id,difficulty,value_rating,decision,status,completed_at,updated_at")
         .eq("user_id", userId).in("experiment_id", experimentIds),
       admin.from("daily_practice_completions")
-        .select("id,experiment_id,completion_date,completion_kind,updated_at")
+        .select("id,experiment_id,completion_date,completion_kind,completed_quantity,quantity_unit,updated_at")
         .eq("user_id", userId).in("experiment_id", experimentIds),
     ]);
     if (reviewResult.error || completionResult.error) throw reviewResult.error ?? completionResult.error;

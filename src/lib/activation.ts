@@ -1,4 +1,5 @@
 import { isSafetySensitiveBlueprintAction } from "./blueprintActions";
+import { isUsableMinimumVersionText, normalizePracticeQuantityFields } from "./practiceQuantity.ts";
 import { isReminderTiming, type ReminderTiming } from "./reminderSchedule";
 
 export const IDENTITY_OPTIONS = [
@@ -31,6 +32,10 @@ export type WeeklyExperiment = {
   action_label: string | null;
   cue: string | null;
   frequency_per_week: number | null;
+  target_quantity: number | null;
+  quantity_unit: string | null;
+  minimum_quantity: number | null;
+  minimum_quantity_unit: string | null;
   minimum_version: string | null;
   reminder_preference: ReminderPreference;
   reminder_timing: ReminderTiming;
@@ -76,13 +81,15 @@ export function nextOnboardingStep(experiment: Pick<WeeklyExperiment, "onboardin
 }
 
 export function isReadyToActivate(experiment: Partial<WeeklyExperiment>): boolean {
-  return isIdentityDirection(experiment.identity_direction)
+  const quantity = normalizePracticeQuantityFields(experiment);
+  return quantity.ok
+    && isIdentityDirection(experiment.identity_direction)
     && isSafeLifestyleAction(experiment.action_label)
     && !!cleanText(experiment.cue, 160)
     && Number.isInteger(experiment.frequency_per_week)
     && Number(experiment.frequency_per_week) >= 1
     && Number(experiment.frequency_per_week) <= 7
-    && !!cleanText(experiment.minimum_version, 160)
+    && isUsableMinimumVersionText(cleanText(experiment.minimum_version, 160))
     && (experiment.reminder_preference === "none" || experiment.reminder_preference === "email")
     && isReminderTiming(experiment.reminder_timing)
     && (

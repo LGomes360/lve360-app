@@ -100,7 +100,7 @@ export async function buildTodayBriefContext(userId: string, localDate: string):
     const bounds = weekBounds(experiment.week_start);
     const { data, error } = await getSupabaseAdmin()
       .from("daily_practice_completions")
-      .select("completion_date,completion_kind")
+      .select("completion_date,completion_kind,completed_quantity,quantity_unit")
       .eq("user_id", userId)
       .eq("experiment_id", experiment.id)
       .gte("completion_date", bounds.start)
@@ -145,7 +145,7 @@ function generatedPrompt(context: TodayBriefContext) {
         "Do not claim causation or guaranteed outcomes. Keep the tone direct, calm, specific, and encouraging without hype.",
         "Return only valid JSON with exactly these string fields: noticed and why_it_matters.",
         "noticed must describe the supplied progress neutrally. Never use despite, failed, missed, behind, haven't, or should have.",
-        "The weekly target counts completed days or repetitions. It is never the number of pushups, minutes, meals, or other units inside the saved practice.",
+        "The weekly target counts completed practice sessions. It is never the number of pushups, minutes, meals, or other units inside the saved practice.",
         "why_it_matters must explain the supplied explicit practice connection. Do not invent another goal, Blueprint link, or physiological, clinical, or performance benefit.",
       ].join(" "),
     },
@@ -157,9 +157,9 @@ function generatedPrompt(context: TodayBriefContext) {
         saved_practice: experiment.actionLabel,
         saved_cue: experiment.cue,
         saved_minimum_version: experiment.minimumVersion,
-        weekly_target_repetitions: experiment.target,
-        weekly_completed_repetitions: experiment.completed,
-        metric_definition: "These numbers count completed practice repetitions this week, not units inside the practice.",
+        planned_sessions: experiment.target,
+        completed_sessions: experiment.completed,
+        metric_definition: "These numbers count completed practice sessions this week, not physical repetitions or duration inside the practice.",
         explicit_practice_connection: experiment.connectionSummary,
       }),
     },

@@ -1,4 +1,5 @@
 import type { CoachIntent, CoachPage } from "./contextualCoach.ts";
+import { isUsableMinimumVersionText } from "./practiceQuantity.ts";
 
 export type GroundedCoachFallbackInput = {
   question: string;
@@ -13,6 +14,8 @@ export type GroundedCoachFallbackInput = {
     minimumVersion: string | null;
     completionCount: number;
     frequencyPerWeek: number | null;
+    knownTotalQuantity: number | null;
+    totalQuantityUnit: string | null;
   } | null;
   blueprintPriorities: string[];
 };
@@ -45,13 +48,6 @@ function uniqueAvailable(ids: string[], available: Set<string>) {
 
 function sentenceFragment(value: string) {
   return value.trim().replace(/[.!?]+$/, "");
-}
-
-function usableMinimumVersion(value: string | null) {
-  if (!value?.trim()) return null;
-  const normalized = sentenceFragment(value);
-  if (/^(?:once|twice|three|four|five|six|\d+)\s+(?:time|times|days|repetitions?)$/i.test(normalized)) return null;
-  return normalized;
 }
 
 function requestedOutcome(question: string) {
@@ -103,10 +99,13 @@ function groundedPortion(input: GroundedCoachFallbackInput) {
   if (["BEHAVIORAL_COACHING", "PRIORITIZATION", "PROGRESS_COACHING"].includes(input.intent) && input.activePractice?.actionLabel) {
     const target = input.activePractice.frequencyPerWeek;
     const progress = target && target > 0
-      ? `, with ${input.activePractice.completionCount} of ${target} planned repetitions recorded`
+      ? `, with ${input.activePractice.completionCount} of ${target} planned practice completions recorded`
+      : "";
+    const volume = input.activePractice.knownTotalQuantity != null && input.activePractice.totalQuantityUnit
+      ? ` (${input.activePractice.knownTotalQuantity} ${input.activePractice.totalQuantityUnit} recorded in total)`
       : "";
     return {
-      text: `I can verify that your active weekly practice is ${sentenceFragment(input.activePractice.actionLabel)}${progress}.`,
+      text: `I can verify that your active weekly practice is ${sentenceFragment(input.activePractice.actionLabel)}${progress}${volume}.`,
       sourceIds: ["weekly_practice"],
     };
   }
@@ -146,7 +145,9 @@ function nextStepFor(input: GroundedCoachFallbackInput) {
     return "Next step: ask one record-only question about an exact item, such as, “Is this item in my current Routine, and what amount and timing are recorded?”";
   }
   if (["BEHAVIORAL_COACHING", "PRIORITIZATION", "PROGRESS_COACHING"].includes(input.intent) && input.activePractice?.actionLabel) {
-    const minimumVersion = usableMinimumVersion(input.activePractice.minimumVersion);
+    const minimumVersion = isUsableMinimumVersionText(input.activePractice.minimumVersion)
+      ? sentenceFragment(input.activePractice.minimumVersion!)
+      : null;
     if (!minimumVersion) {
       return "Next step: open Today and record a concrete hard-day version of your weekly practice, then ask what is realistic to complete today.";
     }

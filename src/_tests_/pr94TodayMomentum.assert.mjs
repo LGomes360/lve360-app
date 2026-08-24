@@ -10,6 +10,6 @@ assert.match(today, /Weekly practice momentum/);
 assert.match(today, /Weekly promise/);
 assert.match(today, /weeklyMomentum/);
 assert.match(today, /Minimum version complete/);
-assert.match(today, /planned repetitions/);
+assert.match(today, /planned practice completions/);
 
 console.log("PR94 Today momentum assertions passed.");

@@ -31,7 +31,7 @@ assert.equal(shouldGenerateTodayBrief(active), true);
 assert.equal(deterministicTodayBrief(active).primaryAction, "mark_complete");
 
 const valid = parseGeneratedTodayBrief(JSON.stringify({
-  noticed: "You have three repetitions recorded and two left this week.",
+  noticed: "You have three practice completions recorded and two left this week.",
   why_it_matters: "A small morning win keeps the practice connected to your real routine.",
 }), active);
 assert.ok(valid, "A bounded lifestyle brief should be accepted.");

@@ -23,10 +23,13 @@ const progress = buildGroundedCoachFallback({
     minimumVersion: "Walk for two minutes",
     completionCount: 3,
     frequencyPerWeek: 5,
+    knownTotalQuantity: 30,
+    totalQuantityUnit: "minutes",
   },
 });
 assert.match(progress.answer, /Walk after lunch/);
-assert.match(progress.answer, /3 of 5 planned repetitions/);
+assert.match(progress.answer, /3 of 5 planned practice completions/);
+assert.match(progress.answer, /30 minutes recorded in total/);
 assert.match(progress.answer, /Walk for two minutes/);
 assert.match(progress.answer, /unchanged/);
 assert.deepEqual(progress.sourceIds, ["weekly_practice"]);
@@ -39,6 +42,8 @@ const malformedPractice = buildGroundedCoachFallback({
     minimumVersion: "Three times",
     completionCount: 0,
     frequencyPerWeek: 5,
+    knownTotalQuantity: null,
+    totalQuantityUnit: null,
   },
 });
 assert.doesNotMatch(malformedPractice.answer, /minute\.,/);

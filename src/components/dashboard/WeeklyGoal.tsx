@@ -48,7 +48,7 @@ export default function WeeklyGoal() {
       <p className="mt-3 text-sm text-slate-600">{identityLabel(experiment.identity_direction)}</p>
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <Detail label="Cue" value={`After I ${experiment.cue}`} />
-        <Detail label="Target" value={`${experiment.frequency_per_week} ${experiment.frequency_per_week === 1 ? "day" : "days"}`} />
+        <Detail label="Times per week" value={`${experiment.frequency_per_week} planned ${experiment.frequency_per_week === 1 ? "completion" : "completions"}`} />
         <Detail label="Minimum version" value={experiment.minimum_version ?? "Take the first small step"} />
       </div>
     </div>

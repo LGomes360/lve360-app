@@ -14,13 +14,18 @@ import {
 } from "@/lib/activation";
 import { isQuietHour, type ReminderTiming } from "@/lib/reminderSchedule";
 import type { PracticeGoalOption } from "@/lib/practiceConnection";
+import { formatPracticeCue, formatPracticeQuantity, isUsableMinimumVersionText, normalizePracticeQuantityFields } from "@/lib/practiceQuantity";
 
 type FormState = {
   identity_direction: IdentityDirection | null;
   action_label: string;
+  target_quantity: number | null;
+  quantity_unit: string;
   cue: string;
   frequency_per_week: number;
   minimum_version: string;
+  minimum_quantity: number | null;
+  minimum_quantity_unit: string;
   reminder_preference: ReminderPreference;
   reminder_timing: ReminderTiming;
   reminder_hour: number;
@@ -37,9 +42,13 @@ type ReminderContext = {
 const EMPTY_FORM: FormState = {
   identity_direction: null,
   action_label: "",
+  target_quantity: null,
+  quantity_unit: "",
   cue: "",
   frequency_per_week: 3,
   minimum_version: "",
+  minimum_quantity: null,
+  minimum_quantity_unit: "",
   reminder_preference: "none",
   reminder_timing: "at_cue",
   reminder_hour: 18,
@@ -87,6 +96,11 @@ export default function OnboardingHandoffClient() {
   const starterActions = form.identity_direction ? STARTER_ACTIONS[form.identity_direction] : [];
 
   async function saveStep() {
+    const clientError = validateStep(step, form);
+    if (clientError) {
+      setError(clientError);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -137,7 +151,7 @@ export default function OnboardingHandoffClient() {
       {step === 1 && <IdentityStep value={form.identity_direction} onChange={(value) => setForm({ ...form, identity_direction: value })} />}
       {step === 2 && <ActionStep form={form} starterActions={starterActions} goalOptions={goalOptions} fromBlueprint={!!experiment.source_action_id && form.action_label === experiment.action_label} onChange={(changes) => setForm({ ...form, ...changes })} />}
       {step === 3 && <CueStep form={form} onChange={(changes) => setForm({ ...form, ...changes })} />}
-      {step === 4 && <MinimumStep value={form.minimum_version} action={form.action_label} onChange={(minimum_version) => setForm({ ...form, minimum_version })} />}
+      {step === 4 && <MinimumStep form={form} onChange={(changes) => setForm({ ...form, ...changes })} />}
       {step === 5 && (
         <ReminderStep
           preference={form.reminder_preference}
@@ -185,7 +199,31 @@ function IdentityStep({ value, onChange }: { value: IdentityDirection | null; on
 }
 
 function ActionStep({ form, starterActions, goalOptions, fromBlueprint, onChange }: { form: FormState; starterActions: string[]; goalOptions: PracticeGoalOption[]; fromBlueprint: boolean; onChange: (changes: Partial<FormState>) => void }) {
-  return <section><h1 className="text-3xl font-extrabold tracking-tight text-[#041B2D]">Choose one practice for this week</h1><p className="mt-3 leading-7 text-slate-600">Small enough to repeat. Specific enough to know when you did it.</p>{fromBlueprint && form.action_label ? <div className="mt-6 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-4"><p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">Selected from your Blueprint</p><p className="mt-2 font-semibold text-[#041B2D]">{form.action_label}</p></div> : null}<div className="mt-5 grid gap-3">{starterActions.map((action) => <button key={action} type="button" onClick={() => onChange({ action_label: action })} aria-pressed={form.action_label === action} className={`flex items-center justify-between rounded-2xl border p-4 text-left font-semibold ${form.action_label === action ? "border-[#08A88A] bg-[#EAFBF8]" : "border-slate-200 hover:border-[#9DCFC3]"}`}><span>{action}</span>{form.action_label === action ? <Check className="h-5 w-5 text-[#087F72]" /> : null}</button>)}</div><label className="mt-5 block text-sm font-bold text-[#041B2D]" htmlFor="weekly-action">Or write your own lifestyle practice</label><textarea id="weekly-action" rows={3} maxLength={240} value={form.action_label} onChange={(event) => onChange({ action_label: event.target.value })} placeholder="Take a 10-minute walk after lunch" className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-[#08A88A] focus:ring-2 focus:ring-[#08A88A]/20" /><fieldset className="mt-7 border-t border-slate-200 pt-6"><legend className="text-lg font-bold text-[#041B2D]">Why does this practice matter this week?</legend><p className="mt-2 text-sm leading-6 text-slate-600">Choose a saved goal when there is a real connection. Otherwise, keep it as an independent choice.</p><div className="mt-4 grid gap-3"><ConnectionChoice selected={form.goal_key === null} title="Independent choice for this week" onClick={() => onChange({ goal_key: null })} />{goalOptions.map((goal) => <ConnectionChoice key={goal.key} selected={form.goal_key === goal.key} title={goal.label} eyebrow="Supports saved goal" onClick={() => onChange({ goal_key: goal.key })} />)}</div>{!goalOptions.length ? <p className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">No saved goals are available yet. This practice will remain an independent choice.</p> : null}</fieldset></section>;
+  return (
+    <section>
+      <h1 className="text-3xl font-extrabold tracking-tight text-[#041B2D]">Choose one practice for this week</h1>
+      <p className="mt-3 leading-7 text-slate-600">Small enough to repeat. Specific enough to know when you did it.</p>
+      {fromBlueprint && form.action_label ? <div className="mt-6 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-4"><p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">Selected from your Blueprint</p><p className="mt-2 font-semibold text-[#041B2D]">{form.action_label}</p></div> : null}
+      <div className="mt-5 grid gap-3">{starterActions.map((action) => <button key={action} type="button" onClick={() => onChange({ action_label: action })} aria-pressed={form.action_label === action} className={`flex items-center justify-between rounded-2xl border p-4 text-left font-semibold ${form.action_label === action ? "border-[#08A88A] bg-[#EAFBF8]" : "border-slate-200 hover:border-[#9DCFC3]"}`}><span>{action}</span>{form.action_label === action ? <Check className="h-5 w-5 text-[#087F72]" /> : null}</button>)}</div>
+      <label className="mt-5 block text-sm font-bold text-[#041B2D]" htmlFor="weekly-action">Or write your own lifestyle practice</label>
+      <textarea id="weekly-action" rows={3} maxLength={240} value={form.action_label} onChange={(event) => onChange({ action_label: event.target.value })} placeholder="Take a 10-minute walk after lunch" className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-[#08A88A] focus:ring-2 focus:ring-[#08A88A]/20" />
+
+      <fieldset className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <legend className="px-1 text-sm font-bold text-[#041B2D]">Target each time <span className="font-normal text-slate-500">(optional)</span></legend>
+        <p className="mt-1 text-sm leading-6 text-slate-600">Record quantity separately from how often you plan to practice. Leave this blank for habits such as meditation.</p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className="text-sm font-bold text-[#041B2D]" htmlFor="target-quantity">Amount
+            <input id="target-quantity" type="number" inputMode="decimal" min="0.01" max="100000" step="0.01" value={form.target_quantity ?? ""} onChange={(event) => onChange({ target_quantity: optionalNumber(event.target.value) })} placeholder="10" className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" />
+          </label>
+          <label className="text-sm font-bold text-[#041B2D]" htmlFor="quantity-unit">Unit
+            <input id="quantity-unit" maxLength={40} value={form.quantity_unit} onChange={(event) => onChange({ quantity_unit: event.target.value })} placeholder="sit-ups, minutes, laps" className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" />
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset className="mt-7 border-t border-slate-200 pt-6"><legend className="text-lg font-bold text-[#041B2D]">Why does this practice matter this week?</legend><p className="mt-2 text-sm leading-6 text-slate-600">Choose a saved goal when there is a real connection. Otherwise, keep it as an independent choice.</p><div className="mt-4 grid gap-3"><ConnectionChoice selected={form.goal_key === null} title="Independent choice for this week" onClick={() => onChange({ goal_key: null })} />{goalOptions.map((goal) => <ConnectionChoice key={goal.key} selected={form.goal_key === goal.key} title={goal.label} eyebrow="Supports saved goal" onClick={() => onChange({ goal_key: goal.key })} />)}</div>{!goalOptions.length ? <p className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">No saved goals are available yet. This practice will remain an independent choice.</p> : null}</fieldset>
+    </section>
+  );
 }
 
 function ConnectionChoice({ selected, title, eyebrow, onClick }: { selected: boolean; title: string; eyebrow?: string; onClick: () => void }) {
@@ -193,11 +231,11 @@ function ConnectionChoice({ selected, title, eyebrow, onClick }: { selected: boo
 }
 
 function CueStep({ form, onChange }: { form: FormState; onChange: (changes: Partial<FormState>) => void }) {
-  return <section><h1 className="text-3xl font-extrabold tracking-tight text-[#041B2D]">Give your practice a clear cue</h1><p className="mt-3 leading-7 text-slate-600">Connect it to something that already happens in your day.</p><label className="mt-6 block text-sm font-bold text-[#041B2D]" htmlFor="cue">After I...</label><input id="cue" maxLength={160} value={form.cue} onChange={(event) => onChange({ cue: event.target.value })} placeholder="put away my lunch" className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-[#08A88A] focus:ring-2 focus:ring-[#08A88A]/20" /><fieldset className="mt-6"><legend className="text-sm font-bold text-[#041B2D]">How many days this week?</legend><div className="mt-3 flex flex-wrap gap-2">{[1, 2, 3, 4, 5, 6, 7].map((frequency) => <button key={frequency} type="button" onClick={() => onChange({ frequency_per_week: frequency })} aria-pressed={form.frequency_per_week === frequency} className={`h-11 w-11 rounded-xl border font-bold ${form.frequency_per_week === frequency ? "border-[#08A88A] bg-[#08A88A] text-white" : "border-slate-200 text-slate-700 hover:border-[#9DCFC3]"}`}>{frequency}</button>)}</div></fieldset></section>;
+  return <section><h1 className="text-3xl font-extrabold tracking-tight text-[#041B2D]">Give your practice a clear cue</h1><p className="mt-3 leading-7 text-slate-600">Connect it to something that already happens in your day.</p><label className="mt-6 block text-sm font-bold text-[#041B2D]" htmlFor="cue">After I...</label><input id="cue" maxLength={160} value={form.cue} onChange={(event) => onChange({ cue: event.target.value })} placeholder="put away my lunch" className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-[#08A88A] focus:ring-2 focus:ring-[#08A88A]/20" /><label className="mt-6 block text-sm font-bold text-[#041B2D]" htmlFor="frequency-per-week">Times per week<input id="frequency-per-week" type="number" inputMode="numeric" min={1} max={7} step={1} value={form.frequency_per_week} onChange={(event) => onChange({ frequency_per_week: Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /><span className="mt-2 block font-normal leading-6 text-slate-500">How many times would you like to complete this practice each week?</span></label></section>;
 }
 
-function MinimumStep({ value, action, onChange }: { value: string; action: string; onChange: (value: string) => void }) {
-  return <section><h1 className="text-3xl font-extrabold tracking-tight text-[#041B2D]">Make it work on a hard day</h1><p className="mt-3 leading-7 text-slate-600">Define the smallest version that still counts. You can always do more.</p><div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600"><span className="font-bold text-[#041B2D]">Your practice:</span> {action}</div><label className="mt-5 block text-sm font-bold text-[#041B2D]" htmlFor="minimum-version">My minimum version is...</label><input id="minimum-version" maxLength={160} value={value} onChange={(event) => onChange(event.target.value)} placeholder="Walk for two minutes" className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-[#08A88A] focus:ring-2 focus:ring-[#08A88A]/20" /><div className="mt-4 flex flex-wrap gap-2">{["Do it for two minutes", "Complete one repetition", "Take the first small step"].map((minimum) => <button key={minimum} type="button" onClick={() => onChange(minimum)} className="rounded-full border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:border-[#9DCFC3] hover:bg-[#EAFBF8]">{minimum}</button>)}</div></section>;
+function MinimumStep({ form, onChange }: { form: FormState; onChange: (changes: Partial<FormState>) => void }) {
+  return <section><h1 className="text-3xl font-extrabold tracking-tight text-[#041B2D]">Make it work on a hard day</h1><p className="mt-3 leading-7 text-slate-600">Define the smallest version that still counts. You can always do more.</p><div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600"><span className="font-bold text-[#041B2D]">Your practice:</span> {form.action_label}</div><label className="mt-5 block text-sm font-bold text-[#041B2D]" htmlFor="minimum-version">My minimum version is...</label><input id="minimum-version" maxLength={160} value={form.minimum_version} onChange={(event) => onChange({ minimum_version: event.target.value })} placeholder="Walk for two minutes" className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-[#08A88A] focus:ring-2 focus:ring-[#08A88A]/20" /><div className="mt-4 flex flex-wrap gap-2">{["Do it for two minutes", "Complete one repetition", "Take the first small step"].map((minimum) => <button key={minimum} type="button" onClick={() => onChange({ minimum_version: minimum })} className="rounded-full border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:border-[#9DCFC3] hover:bg-[#EAFBF8]">{minimum}</button>)}</div><fieldset className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4"><legend className="px-1 text-sm font-bold text-[#041B2D]">Minimum quantity <span className="font-normal text-slate-500">(optional)</span></legend><p className="mt-1 text-sm leading-6 text-slate-600">Add a number only when the hard-day version has a measurable amount.</p><div className="mt-4 grid gap-4 sm:grid-cols-2"><label className="text-sm font-bold text-[#041B2D]" htmlFor="minimum-quantity">Amount<input id="minimum-quantity" type="number" inputMode="decimal" min="0.01" max="100000" step="0.01" value={form.minimum_quantity ?? ""} onChange={(event) => onChange({ minimum_quantity: optionalNumber(event.target.value) })} placeholder="3" className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /></label><label className="text-sm font-bold text-[#041B2D]" htmlFor="minimum-quantity-unit">Unit<input id="minimum-quantity-unit" maxLength={40} value={form.minimum_quantity_unit} onChange={(event) => onChange({ minimum_quantity_unit: event.target.value })} placeholder={form.quantity_unit || "sit-ups, seconds"} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /><span className="mt-2 block font-normal text-slate-500">Leave blank to use {form.quantity_unit || "the target unit"}.</span></label></div></fieldset></section>;
 }
 
 function ReminderStep({
@@ -263,7 +301,14 @@ function ReminderStep({
 function ConfirmationStep({ form, active, goalOptions, fromBlueprint, onEditPlan, onEditReminders }: { form: FormState; active: boolean; goalOptions: PracticeGoalOption[]; fromBlueprint: boolean; onEditPlan: () => void; onEditReminders: () => void }) {
   const goal = goalOptions.find((option) => option.key === form.goal_key) ?? null;
   const connection = [goal ? `Supports saved goal: ${goal.label}` : null, fromBlueprint ? "Supports a selected Blueprint priority" : null].filter(Boolean).join(" · ") || "Independently chosen for this week";
-  return <section><CheckCircle2 className="h-10 w-10 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">{active ? "Your week is active" : "Your first week is ready"}</h1><p className="mt-3 leading-7 text-slate-600">Use this plan while it fits your life. You can change it when your schedule or priorities change.</p><div className="mt-6 space-y-4 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5"><Summary label="This week's direction" value={identityLabel(form.identity_direction)} /><Summary label="This week I will" value={form.action_label} /><Summary label="Why it matters" value={connection} /><Summary label="My cue" value={`After I ${form.cue}`} /><Summary label="Target" value={`${form.frequency_per_week} ${form.frequency_per_week === 1 ? "day" : "days"} this week`} /><Summary label="On a hard day" value={form.minimum_version} /><Summary label="Reminder plan" value={reminderSummary(form)} /></div>{active ? <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={onEditPlan} className="min-h-11 rounded-xl bg-[#087F72] px-4 py-2 font-bold text-white hover:bg-[#06695F]">Edit weekly plan</button><button type="button" onClick={onEditReminders} className="min-h-11 rounded-xl border border-[#9DCFC3] px-4 py-2 font-bold text-[#087F72] hover:bg-[#EAFBF8]">Change reminder plan</button></div> : null}</section>;
+  const target = form.target_quantity != null && form.quantity_unit ? formatPracticeQuantity(form.target_quantity, form.quantity_unit) : "No quantity recorded";
+  const minimumUnit = form.minimum_quantity_unit || form.quantity_unit;
+  const minimum = isUsableMinimumVersionText(form.minimum_version)
+    ? form.minimum_quantity != null && minimumUnit
+      ? `${form.minimum_version} (${formatPracticeQuantity(form.minimum_quantity, minimumUnit)})`
+      : form.minimum_version
+    : "Needs review before it can count";
+  return <section><CheckCircle2 className="h-10 w-10 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">{active ? "Your week is active" : "Your first week is ready"}</h1><p className="mt-3 leading-7 text-slate-600">Use this plan while it fits your life. You can change it when your schedule or priorities change.</p><div className="mt-6 space-y-4 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5"><Summary label="This week's direction" value={identityLabel(form.identity_direction)} /><Summary label="This week I will" value={form.action_label} /><Summary label="Target each time" value={target} /><Summary label="Why it matters" value={connection} /><Summary label="My cue" value={formatPracticeCue(form.cue)} /><Summary label="Times per week" value={`${form.frequency_per_week} planned ${form.frequency_per_week === 1 ? "completion" : "completions"}`} /><Summary label="On a hard day" value={minimum} /><Summary label="Reminder plan" value={reminderSummary(form)} /></div>{active ? <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={onEditPlan} className="min-h-11 rounded-xl bg-[#087F72] px-4 py-2 font-bold text-white hover:bg-[#06695F]">Edit weekly plan</button><button type="button" onClick={onEditReminders} className="min-h-11 rounded-xl border border-[#9DCFC3] px-4 py-2 font-bold text-[#087F72] hover:bg-[#EAFBF8]">Change reminder plan</button></div> : null}</section>;
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
@@ -274,9 +319,13 @@ function formFromExperiment(experiment: WeeklyExperiment): FormState {
   return {
     identity_direction: experiment.identity_direction,
     action_label: experiment.action_label ?? "",
+    target_quantity: experiment.target_quantity ?? null,
+    quantity_unit: experiment.quantity_unit ?? "",
     cue: experiment.cue ?? "",
     frequency_per_week: experiment.frequency_per_week ?? 3,
     minimum_version: experiment.minimum_version ?? "",
+    minimum_quantity: experiment.minimum_quantity ?? null,
+    minimum_quantity_unit: experiment.minimum_quantity_unit ?? "",
     reminder_preference: experiment.reminder_preference ?? "none",
     reminder_timing: experiment.reminder_timing ?? "account_default",
     reminder_hour: experiment.reminder_hour ?? 18,
@@ -287,9 +336,9 @@ function formFromExperiment(experiment: WeeklyExperiment): FormState {
 
 function payloadForStep(step: number, form: FormState) {
   if (step === 1) return { step, identity_direction: form.identity_direction };
-  if (step === 2) return { step, action_label: form.action_label, goal_key: form.goal_key };
+  if (step === 2) return { step, action_label: form.action_label, goal_key: form.goal_key, target_quantity: form.target_quantity, quantity_unit: form.quantity_unit || null };
   if (step === 3) return { step, cue: form.cue, frequency_per_week: form.frequency_per_week };
-  if (step === 4) return { step, minimum_version: form.minimum_version };
+  if (step === 4) return { step, minimum_version: form.minimum_version, minimum_quantity: form.minimum_quantity, minimum_quantity_unit: form.minimum_quantity == null ? null : form.minimum_quantity_unit || form.quantity_unit || null };
   if (step === 5) return {
     step,
     reminder_preference: form.reminder_preference,
@@ -303,14 +352,48 @@ function payloadForStep(step: number, form: FormState) {
 function errorMessage(code: string | undefined) {
   if (code === "choose_identity") return "Choose the identity you want to reinforce.";
   if (code === "choose_safe_lifestyle_action") return "Choose a lifestyle action. Supplement and medication changes stay in your Blueprint for professional review.";
+  if (code === "add_valid_target_quantity") return "Enter both a positive target amount and its unit, or leave both blank.";
   if (code === "choose_current_goal") return "That saved goal is no longer available. Choose another goal or keep this as an independent weekly choice.";
   if (code === "add_cue_and_frequency") return "Add a clear cue and choose how many days you want to practice.";
   if (code === "add_safe_minimum_version") return "Add a small lifestyle version that can count on a hard day.";
+  if (code === "add_valid_minimum_quantity") return "Enter a positive minimum amount and unit, or leave the structured minimum blank.";
   if (code === "choose_reminder_timing") return "Choose when reminder support would be useful for this practice.";
   if (code === "choose_reminder_time") return "Choose a valid local reminder time.";
   if (code === "reminder_in_quiet_hours") return "Choose a reminder time outside the quiet hours saved in Settings.";
   if (code === "complete_required_steps") return "One of the earlier steps is incomplete. Go back and review your plan.";
   return "We could not save that step. Please try again.";
+}
+
+function optionalNumber(value: string): number | null {
+  return value === "" ? null : Number(value);
+}
+
+function validateStep(step: number, form: FormState): string | null {
+  if (step === 2) {
+    const quantity = normalizePracticeQuantityFields({
+      target_quantity: form.target_quantity,
+      quantity_unit: form.quantity_unit,
+      minimum_quantity: null,
+      minimum_quantity_unit: null,
+    });
+    if (!quantity.ok) return "Enter both a positive target amount and its unit, or leave both blank.";
+  }
+  if (step === 3 && (!Number.isInteger(form.frequency_per_week) || form.frequency_per_week < 1 || form.frequency_per_week > 7)) {
+    return "Choose a weekly frequency from 1 to 7 times.";
+  }
+  if (step === 4) {
+    if (!isUsableMinimumVersionText(form.minimum_version)) {
+      return "Describe a concrete action that still counts on a hard day, such as walking for two minutes or completing one repetition.";
+    }
+    const quantity = normalizePracticeQuantityFields({
+      target_quantity: form.target_quantity,
+      quantity_unit: form.quantity_unit,
+      minimum_quantity: form.minimum_quantity,
+      minimum_quantity_unit: form.minimum_quantity_unit || form.quantity_unit,
+    });
+    if (!quantity.ok) return "Enter a positive minimum amount and unit, or leave the structured minimum blank.";
+  }
+  return null;
 }
 
 function reminderSummary(form: FormState): string {

@@ -12,6 +12,7 @@ import {
 } from "@/lib/today";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
+import { completionQuantityForKind } from "@/lib/practiceQuantity";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -55,7 +56,7 @@ async function loadWeek(userId: string, experiment: WeeklyExperiment) {
   const bounds = weekBounds(experiment.week_start);
   const { data, error } = await getSupabaseAdmin()
     .from("daily_practice_completions")
-    .select("completion_date, completion_kind")
+    .select("completion_date, completion_kind, completed_quantity, quantity_unit")
     .eq("user_id", userId)
     .eq("experiment_id", experiment.id)
     .gte("completion_date", bounds.start)
@@ -103,11 +104,14 @@ export async function PUT(req: NextRequest) {
     }
 
     const admin = getSupabaseAdmin();
+    const quantity = completionQuantityForKind(experiment, body.kind);
     const { error } = await admin.from("daily_practice_completions").upsert({
       user_id: auth.user.id,
       experiment_id: experiment.id,
       completion_date: localDate,
       completion_kind: body.kind,
+      completed_quantity: quantity.completed_quantity,
+      quantity_unit: quantity.quantity_unit,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,experiment_id,completion_date" });
     if (error) throw error;

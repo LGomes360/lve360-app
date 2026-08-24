@@ -32,6 +32,10 @@ export function coachActionPlan(proposal: ProposedWeeklyPractice): NextWeekPlan 
     action_label: proposal.actionLabel,
     cue: proposal.cue,
     frequency_per_week: proposal.frequencyPerWeek,
+    target_quantity: null,
+    quantity_unit: null,
+    minimum_quantity: null,
+    minimum_quantity_unit: null,
     minimum_version: proposal.minimumVersion,
   };
 }

@@ -3,6 +3,8 @@ export type CompletionKind = "full" | "minimum";
 export type DailyPracticeCompletion = {
   completion_date: string;
   completion_kind: CompletionKind;
+  completed_quantity: number | null;
+  quantity_unit: string | null;
 };
 
 export type WeeklyMomentum = {
@@ -48,7 +50,7 @@ export function weeklyMomentum(completed: number, target: number): WeeklyMomentu
   const safeCompleted = Math.max(0, completed);
   const remaining = Math.max(0, safeTarget - safeCompleted);
   if (remaining === 0) {
-    return { stage: "kept", label: "Promise kept", message: "You completed the weekly practice you planned. Extra repetitions are optional.", remaining };
+    return { stage: "kept", label: "Promise kept", message: "You completed the weekly practice as often as you planned. Extra sessions are optional.", remaining };
   }
   if (safeCompleted === 0) {
     return { stage: "ready", label: "Ready", message: "Complete the full or minimum version when your cue appears.", remaining };
@@ -56,7 +58,7 @@ export function weeklyMomentum(completed: number, target: number): WeeklyMomentu
   return {
     stage: "building",
     label: "Building consistency",
-    message: `${remaining} ${remaining === 1 ? "repetition" : "repetitions"} remaining in this week's plan.`,
+    message: `${remaining} ${remaining === 1 ? "completion" : "completions"} remaining in this week's plan.`,
     remaining,
   };
 }

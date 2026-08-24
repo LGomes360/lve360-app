@@ -110,7 +110,7 @@ export default function PremiumActivationChecklist({
           number={3}
           title="Complete your first useful action"
           description={practiceComplete
-            ? "Do the full practice or its minimum version, then record the repetition."
+            ? "Do the full practice or its minimum version, then record the completion."
             : "This unlocks after your weekly practice is ready."}
           complete={false}
           current={currentStep === 3}

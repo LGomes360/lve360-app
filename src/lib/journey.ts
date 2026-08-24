@@ -10,6 +10,10 @@ export type JourneyExperiment = {
   action_label: string | null;
   cue: string | null;
   frequency_per_week: number | null;
+  target_quantity: number | null;
+  quantity_unit: string | null;
+  minimum_quantity: number | null;
+  minimum_quantity_unit: string | null;
   minimum_version: string | null;
   status: "draft" | "active" | "completed" | "archived";
   week_start: string;
@@ -22,6 +26,10 @@ export type JourneyReview = {
   next_experiment_id: string | null;
   completion_count: number;
   target_count: number;
+  target_quantity_per_session: number | null;
+  quantity_unit: string | null;
+  known_total_quantity: number | null;
+  known_total_quantity_unit: string | null;
   difficulty: number | null;
   value_rating: number | null;
   decision: "keep" | "shrink" | "swap" | "pause" | "advance" | null;
@@ -32,7 +40,7 @@ export type JourneyReview = {
 export type JourneyDomainSummary = {
   domain: string;
   weeks: number;
-  repetitions: number;
+  completions: number;
   reviews: number;
   latest_decision: JourneyReview["decision"];
 };
@@ -41,6 +49,8 @@ export type JourneyCompletion = {
   experiment_id: string;
   completion_date: string;
   completion_kind: "full" | "minimum";
+  completed_quantity: number | null;
+  quantity_unit: string | null;
 };
 
 export type JourneyCheckIn = {
@@ -58,6 +68,7 @@ export type JourneySynthesis = {
   evidence: Array<{ label: string; value: string }>;
   confidence: "low" | "moderate";
   response_state: "none" | "accepted" | "edited" | "rejected";
+  prompt_version: string | null;
   created_at: string;
 };
 
@@ -151,12 +162,12 @@ export function journeyDomainSummaries(
     const existing = summaries.get(domain) ?? {
       domain,
       weeks: 0,
-      repetitions: 0,
+      completions: 0,
       reviews: 0,
       latest_decision: null,
     };
     existing.weeks += 1;
-    existing.repetitions += completionsByExperiment.get(experiment.id) ?? 0;
+    existing.completions += completionsByExperiment.get(experiment.id) ?? 0;
     existing.reviews += review?.status === "completed" ? 1 : 0;
     if (!existing.latest_decision && review?.decision) existing.latest_decision = review.decision;
     summaries.set(domain, existing);
