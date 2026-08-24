@@ -1,4 +1,5 @@
 import { cleanText, isSafeLifestyleAction, type WeeklyExperiment } from "./activation";
+import { normalizePracticeQuantityFields } from "./practiceQuantity.ts";
 
 export const REVIEW_DECISIONS = ["keep", "shrink", "swap", "pause", "advance"] as const;
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
@@ -7,6 +8,10 @@ export type NextWeekPlan = {
   action_label: string;
   cue: string;
   frequency_per_week: number;
+  target_quantity: number | null;
+  quantity_unit: string | null;
+  minimum_quantity: number | null;
+  minimum_quantity_unit: string | null;
   minimum_version: string;
 };
 
@@ -26,7 +31,7 @@ export function isReviewDecision(value: unknown): value is ReviewDecision {
 }
 
 export function suggestedNextPlan(
-  experiment: Pick<WeeklyExperiment, "action_label" | "cue" | "frequency_per_week" | "minimum_version">,
+  experiment: Pick<WeeklyExperiment, "action_label" | "cue" | "frequency_per_week" | "target_quantity" | "quantity_unit" | "minimum_quantity" | "minimum_quantity_unit" | "minimum_version">,
   decision: ReviewDecision,
 ): NextWeekPlan | null {
   if (decision === "pause") return null;
@@ -35,6 +40,10 @@ export function suggestedNextPlan(
     action_label: experiment.action_label ?? "",
     cue: experiment.cue ?? "",
     frequency_per_week: decision === "shrink" ? Math.max(1, frequency - 1) : decision === "advance" ? Math.min(7, frequency + 1) : frequency,
+    target_quantity: experiment.target_quantity ?? null,
+    quantity_unit: experiment.quantity_unit ?? null,
+    minimum_quantity: experiment.minimum_quantity ?? null,
+    minimum_quantity_unit: experiment.minimum_quantity_unit ?? null,
     minimum_version: experiment.minimum_version ?? "",
   };
 }
@@ -46,7 +55,9 @@ export function validateNextPlan(value: unknown): NextWeekPlan | null {
   const cue = cleanText(plan.cue, 160);
   const minimum = cleanText(plan.minimum_version, 160);
   const frequency = Number(plan.frequency_per_week);
+  const quantity = normalizePracticeQuantityFields(plan);
   if (!isSafeLifestyleAction(action) || !cue || cue.length < 2 || !isSafeLifestyleAction(minimum)) return null;
   if (!Number.isInteger(frequency) || frequency < 1 || frequency > 7) return null;
-  return { action_label: action, cue, frequency_per_week: frequency, minimum_version: minimum };
+  if (!quantity.ok) return null;
+  return { action_label: action, cue, frequency_per_week: frequency, ...quantity.value, minimum_version: minimum };
 }

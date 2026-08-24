@@ -48,7 +48,7 @@ function content(kind: ReminderKind, timing: ReminderTiming) {
   }
   return {
     subject: "Your LVE360 practice cue is here",
-    heading: timing === "at_cue" ? "Your cue is here" : "Make the next repetition easy",
+    heading: timing === "at_cue" ? "Your cue is here" : "Make the next practice easier",
     body: "Your focused practice is ready when you are. A small version counts, especially on a full day.",
     cta: "Open today",
   };

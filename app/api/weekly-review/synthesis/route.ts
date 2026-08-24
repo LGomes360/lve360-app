@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     }
     const weekEnd = addDays(typedExperiment.week_start, 6);
     const [{ data: completionRows, error: completionError }, { data: checkIns, error: checkInError }, { data: reviewRows, error: reviewError }] = await Promise.all([
-      admin.from("daily_practice_completions").select("completion_date").eq("user_id", user.id).eq("experiment_id", experimentId)
+      admin.from("daily_practice_completions").select("completion_date,completion_kind,completed_quantity,quantity_unit").eq("user_id", user.id).eq("experiment_id", experimentId)
         .gte("completion_date", typedExperiment.week_start).lte("completion_date", weekEnd).order("completion_date"),
       admin.from("logs").select("log_date,sleep,energy").eq("user_id", user.id)
         .gte("log_date", typedExperiment.week_start).lte("log_date", weekEnd).order("log_date"),
@@ -78,6 +78,12 @@ export async function POST(req: NextRequest) {
     const synthesis = await getOrCreateWeeklySynthesis(user.id, {
       experiment: typedExperiment,
       completedDates,
+      completions: (completionRows ?? []).map((row) => ({
+        completion_date: row.completion_date as string,
+        completion_kind: row.completion_kind === "minimum" ? "minimum" : "full",
+        completed_quantity: row.completed_quantity == null ? null : Number(row.completed_quantity),
+        quantity_unit: (row.quantity_unit as string | null) ?? null,
+      })),
       completedCount: completedDates.length,
       target: typedExperiment.frequency_per_week ?? 1,
       difficulty,

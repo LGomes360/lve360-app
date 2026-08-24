@@ -10,6 +10,7 @@ import { recordProductEventSafely } from "@/lib/productAnalytics";
 import { getCurrentBlueprintContext, getExperimentBlueprintContexts } from "@/lib/currentBlueprintContext";
 import { practiceGoalOptions, resolvePracticeConnection, type PracticeGoalRow } from "@/lib/practiceConnection";
 import { coachActionFromRow, type CoachActionProposal } from "@/lib/coachActions";
+import { buildWeeklyPracticeMetrics, type PracticeCompletionQuantity } from "@/lib/practiceQuantity";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -42,16 +43,21 @@ async function loadExperiment(userId: string, experimentId: string): Promise<Wee
   return (data as WeeklyExperiment | null) ?? null;
 }
 
-async function countCompletions(userId: string, experiment: WeeklyExperiment): Promise<number> {
-  const { count, error } = await getSupabaseAdmin()
+async function loadCompletions(userId: string, experiment: WeeklyExperiment): Promise<PracticeCompletionQuantity[]> {
+  const { data, error } = await getSupabaseAdmin()
     .from("daily_practice_completions")
-    .select("id", { count: "exact", head: true })
+    .select("completion_date,completion_kind,completed_quantity,quantity_unit")
     .eq("user_id", userId)
     .eq("experiment_id", experiment.id)
     .gte("completion_date", experiment.week_start)
     .lte("completion_date", addDays(experiment.week_start, 6));
   if (error) throw error;
-  return count ?? 0;
+  return (data ?? []).map((row) => ({
+    completion_date: row.completion_date as string,
+    completion_kind: row.completion_kind === "minimum" ? "minimum" : "full",
+    completed_quantity: row.completed_quantity == null ? null : Number(row.completed_quantity),
+    quantity_unit: (row.quantity_unit as string | null) ?? null,
+  }));
 }
 
 export async function GET(req: NextRequest) {
@@ -65,8 +71,8 @@ export async function GET(req: NextRequest) {
     if (!isReviewDue(experiment.week_start, todayUtc())) {
       return NextResponse.json({ ok: false, error: "review_not_due" }, { status: 409 });
     }
-    const [completed, blueprint, { data: goals, error: goalsError }, { data: queuedAction, error: queuedActionError }] = await Promise.all([
-      countCompletions(auth.user.id, experiment),
+    const [completions, blueprint, { data: goals, error: goalsError }, { data: queuedAction, error: queuedActionError }] = await Promise.all([
+      loadCompletions(auth.user.id, experiment),
       getCurrentBlueprintContext(auth.user.id),
       getSupabaseAdmin().from("goals").select("id,goals,custom_goal,target_weight,target_sleep,target_energy").eq("user_id", auth.user.id).maybeSingle(),
       getSupabaseAdmin().from("coach_action_proposals").select(COACH_ACTION_COLUMNS)
@@ -82,11 +88,24 @@ export async function GET(req: NextRequest) {
       blueprintContexts[experiment.id] ?? null,
     );
     const admin = getSupabaseAdmin();
+    const metrics = buildWeeklyPracticeMetrics({
+      practice: experiment.action_label,
+      targetQuantity: experiment.target_quantity,
+      quantityUnit: experiment.quantity_unit,
+      minimumQuantity: experiment.minimum_quantity,
+      minimumQuantityUnit: experiment.minimum_quantity_unit,
+      plannedSessions: experiment.frequency_per_week ?? 1,
+      completions,
+    });
     const { error } = await admin.from("weekly_experiment_reviews").upsert({
       user_id: auth.user.id,
       experiment_id: experiment.id,
-      completion_count: completed,
+      completion_count: metrics.completed_sessions,
       target_count: experiment.frequency_per_week ?? 1,
+      target_quantity_per_session: metrics.target_quantity_per_session,
+      quantity_unit: metrics.quantity_unit,
+      known_total_quantity: metrics.known_total_quantity,
+      known_total_quantity_unit: metrics.total_quantity_unit,
       opened_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }, { onConflict: "experiment_id", ignoreDuplicates: true });
@@ -101,8 +120,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       experiment,
-      completed,
+      completed: metrics.completed_sessions,
       target: experiment.frequency_per_week ?? 1,
+      metrics,
       practice_connection: practiceConnection,
       queued_coach_action: queuedAction ? coachActionFromRow(queuedAction) : null,
     });
@@ -145,6 +165,10 @@ export async function POST(req: NextRequest) {
       p_cue: nextPlan?.cue ?? null,
       p_frequency_per_week: nextPlan?.frequency_per_week ?? null,
       p_minimum_version: nextPlan?.minimum_version ?? null,
+      p_target_quantity: nextPlan?.target_quantity ?? null,
+      p_quantity_unit: nextPlan?.quantity_unit ?? null,
+      p_minimum_quantity: nextPlan?.minimum_quantity ?? null,
+      p_minimum_quantity_unit: nextPlan?.minimum_quantity_unit ?? null,
     });
     if (error) {
       if (/already_completed/i.test(error.message)) return NextResponse.json({ ok: false, error: "review_already_completed" }, { status: 409 });
@@ -200,7 +224,7 @@ async function recordSynthesisResponse(
 ) {
   const admin = getSupabaseAdmin();
   const { data, error } = await admin.from("ai_weekly_syntheses")
-    .select("suggested_decision,suggested_action_label,suggested_cue,suggested_frequency_per_week,suggested_minimum_version")
+    .select("suggested_decision,suggested_action_label,suggested_cue,suggested_frequency_per_week,suggested_target_quantity,suggested_quantity_unit,suggested_minimum_quantity,suggested_minimum_quantity_unit,suggested_minimum_version")
     .eq("id", synthesisId).eq("user_id", userId).maybeSingle();
   if (error || !data) {
     console.warn("[weekly-review] synthesis response not recorded", error?.message ?? "not_found");
@@ -210,6 +234,10 @@ async function recordSynthesisResponse(
     action_label: data.suggested_action_label ?? "",
     cue: data.suggested_cue ?? "",
     frequency_per_week: data.suggested_frequency_per_week ?? 1,
+    target_quantity: data.suggested_target_quantity == null ? null : Number(data.suggested_target_quantity),
+    quantity_unit: data.suggested_quantity_unit ?? null,
+    minimum_quantity: data.suggested_minimum_quantity == null ? null : Number(data.suggested_minimum_quantity),
+    minimum_quantity_unit: data.suggested_minimum_quantity_unit ?? null,
     minimum_version: data.suggested_minimum_version ?? "",
   };
   const state = synthesisResponseState({

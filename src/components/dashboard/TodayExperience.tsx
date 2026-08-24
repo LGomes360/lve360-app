@@ -23,6 +23,7 @@ import {
 } from "@/lib/blueprintContext";
 import { deriveTodayBlueprintNotice, type TodayBlueprintNotice } from "@/lib/todaySurface";
 import type { PracticeConnectionContext } from "@/lib/practiceConnection";
+import { formatPracticeQuantity } from "@/lib/practiceQuantity";
 
 type TodayResponse = {
   ok: boolean;
@@ -191,6 +192,7 @@ export default function TodayExperience({
             <p className="mt-4 text-base leading-7 text-slate-600">
               <strong className="text-[#041B2D]">Your cue:</strong> After I {experiment.cue}
             </p>
+            {experiment.target_quantity != null && experiment.quantity_unit ? <p className="mt-2 text-base leading-7 text-slate-600"><strong className="text-[#041B2D]">Target each time:</strong> {formatPracticeQuantity(experiment.target_quantity, experiment.quantity_unit)}</p> : null}
           </div>
           <a href="/onboarding" className="shrink-0 text-sm font-semibold text-[#087F72] hover:underline">Review practice</a>
         </div>
@@ -198,18 +200,19 @@ export default function TodayExperience({
         <div className="mt-7 rounded-2xl border border-[#BCE3DA] bg-[#F4FAF8] p-4 sm:p-5">
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">The version that counts on a hard day</p>
           <p className="mt-2 text-lg font-semibold text-[#041B2D]">{experiment.minimum_version}</p>
+          {experiment.minimum_quantity != null && experiment.minimum_quantity_unit ? <p className="mt-1 text-sm text-slate-600">Structured minimum: {formatPracticeQuantity(experiment.minimum_quantity, experiment.minimum_quantity_unit)}</p> : null}
         </div>
 
         <div className="mt-7" aria-live="polite">
           {weekEnded ? (
             <div className="rounded-2xl bg-[#EAFBF8] p-5">
-              <p className="font-bold text-[#041B2D]">Review this week before recording another repetition.</p>
+              <p className="font-bold text-[#041B2D]">Review this week before recording another completion.</p>
               <a href={`/review?experiment=${encodeURIComponent(experiment.id)}`} className="mt-3 inline-flex items-center text-sm font-bold text-[#087F72] hover:underline">Open weekly review <ArrowRight className="ml-2 h-4 w-4" /></a>
             </div>
           ) : weekNotStarted ? (
             <div className="rounded-2xl bg-[#EAFBF8] p-5">
               <p className="font-bold text-[#041B2D]">Your next focused week is ready.</p>
-              <p className="mt-1 text-sm text-slate-600">Come back when the new week begins to record your first repetition.</p>
+              <p className="mt-1 text-sm text-slate-600">Come back when the new week begins to record your first completion.</p>
             </div>
           ) : todayCompletion ? (
             <div className="flex flex-col gap-4 rounded-2xl bg-[#EAFBF8] p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -221,12 +224,12 @@ export default function TodayExperience({
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
                     {todayCompletion.completion_kind === "minimum"
-                      ? "You protected the routine on a hard day. That repetition counts fully toward this week's plan."
+                      ? "You protected the routine on a hard day. That completion counts fully toward this week's plan."
                       : returnWin
                         ? "Returning after a gap is a consistency win. Your progress continues from here."
                         : completedCount >= target
-                          ? "This completion kept your weekly promise. Extra repetitions are optional."
-                          : `Repetition ${completedCount} of ${target} is recorded for this week.`}
+                          ? "This completion kept your weekly promise. Extra sessions are optional."
+                          : `Completion ${completedCount} of ${target} is recorded for this week.`}
                   </p>
                 </div>
               </div>
@@ -261,7 +264,7 @@ export default function TodayExperience({
             <div>
               <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]"><Goal className="h-4 w-4" /> Weekly promise</p>
               <p className="mt-2 text-2xl font-bold text-[#041B2D]">{completedCount} of {target}</p>
-              <p className="mt-1 text-sm text-slate-600">planned repetitions completed</p>
+              <p className="mt-1 text-sm text-slate-600">planned practice completions</p>
             </div>
             <div className={`w-fit rounded-full px-3 py-1.5 text-xs font-bold ${momentum.stage === "kept" ? "bg-emerald-100 text-emerald-800" : momentum.stage === "building" ? "bg-teal-100 text-teal-800" : "bg-white text-slate-700 ring-1 ring-slate-200"}`}>
               {momentum.label}

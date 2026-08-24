@@ -203,7 +203,7 @@ export async function buildCoachContext(
       id: "weekly_practice",
       label: "Weekly Practice",
       summary: practice
-        ? `${practice.completionCount} completions recorded toward this week's ${practice.frequencyPerWeek ?? 0}-day target.`
+        ? `${practice.completionCount} completions recorded toward this week's ${practice.frequencyPerWeek ?? 0}-time target.`
         : "No active weekly practice is recorded.",
       href: "/today",
     });
@@ -214,6 +214,12 @@ export async function buildCoachContext(
       minimum_version: practice.minimumVersion,
       target: practice.frequencyPerWeek,
       completions: practice.completionCount,
+      target_quantity_per_session: practice.targetQuantity,
+      quantity_unit: practice.quantityUnit,
+      minimum_quantity: practice.minimumQuantity,
+      minimum_quantity_unit: practice.minimumQuantityUnit,
+      known_total_quantity: practice.knownTotalQuantity,
+      total_quantity_unit: practice.totalQuantityUnit,
       week_start: practice.weekStart,
       blueprint_link: practice.blueprintLink,
       goal_link: practice.goalLink,
@@ -555,7 +561,7 @@ function fallbackStructured(question: string, context: CoachContext): Structured
     const directAnswer = context.intent === "PLAN_EXPLANATION" && priorities.length
       ? `Your current Blueprint is organized around ${priorities.join(", ")}. Those are longer-term priorities; the weekly practice is where one of them becomes a small repeatable action.`
       : context.intent === "PROGRESS_COACHING" && practice?.action
-        ? `Your active practice is ${String(practice.action)}, with ${Number(practice.completions ?? 0)} of ${Number(practice.target ?? 0)} planned repetitions recorded. That is the clearest current progress signal in LVE360.`
+        ? `Your active practice is ${String(practice.action)}, with ${Number(practice.completions ?? 0)} of ${Number(practice.target ?? 0)} planned practice completions recorded. That is the clearest current progress signal in LVE360.`
         : "I could not create the full personalized interpretation, but your saved LVE360 records are still available and unchanged.";
     return {
       intent: context.intent,
@@ -761,6 +767,8 @@ function narrowSafeFallback(question: string, context: CoachContext) {
       minimumVersion: context.memberContext.activePractice.value.minimumVersion,
       completionCount: context.memberContext.activePractice.value.completionCount,
       frequencyPerWeek: context.memberContext.activePractice.value.frequencyPerWeek,
+      knownTotalQuantity: context.memberContext.activePractice.value.knownTotalQuantity,
+      totalQuantityUnit: context.memberContext.activePractice.value.totalQuantityUnit,
     } : null,
     blueprintPriorities: context.memberContext.blueprint.value?.priorities.map((priority) => priority.label) ?? [],
   });

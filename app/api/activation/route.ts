@@ -15,6 +15,7 @@ import { isHour, isIanaTimeZone } from "@/lib/accountSettings";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 import { isQuietHour, isReminderTiming } from "@/lib/reminderSchedule";
+import { normalizePracticeQuantityFields } from "@/lib/practiceQuantity";
 import {
   connectionType,
   practiceGoalOptions,
@@ -32,6 +33,10 @@ type ActivationBody = {
   action_label?: unknown;
   cue?: unknown;
   frequency_per_week?: unknown;
+  target_quantity?: unknown;
+  quantity_unit?: unknown;
+  minimum_quantity?: unknown;
+  minimum_quantity_unit?: unknown;
   minimum_version?: unknown;
   reminder_preference?: unknown;
   reminder_timing?: unknown;
@@ -203,6 +208,17 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ ok: false, error: "choose_safe_lifestyle_action" }, { status: 400 });
       }
       changes.action_label = action;
+      const quantity = normalizePracticeQuantityFields({
+        target_quantity: body?.target_quantity,
+        quantity_unit: body?.quantity_unit as string | null | undefined,
+        minimum_quantity: null,
+        minimum_quantity_unit: null,
+      });
+      if (!quantity.ok) {
+        return NextResponse.json({ ok: false, error: "add_valid_target_quantity" }, { status: 400 });
+      }
+      changes.target_quantity = quantity.value.target_quantity;
+      changes.quantity_unit = quantity.value.quantity_unit;
       const actionChanged = action !== experiment.action_label;
       const keepsBlueprint = !actionChanged && Boolean(experiment.source_stack_id && experiment.source_action_id);
       if (actionChanged) {
@@ -237,6 +253,17 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ ok: false, error: "add_safe_minimum_version" }, { status: 400 });
       }
       changes.minimum_version = minimum;
+      const quantity = normalizePracticeQuantityFields({
+        target_quantity: experiment.target_quantity,
+        quantity_unit: experiment.quantity_unit,
+        minimum_quantity: body?.minimum_quantity,
+        minimum_quantity_unit: body?.minimum_quantity_unit as string | null | undefined,
+      });
+      if (!quantity.ok) {
+        return NextResponse.json({ ok: false, error: "add_valid_minimum_quantity" }, { status: 400 });
+      }
+      changes.minimum_quantity = quantity.value.minimum_quantity;
+      changes.minimum_quantity_unit = quantity.value.minimum_quantity_unit;
     }
 
     if (step === 5) {

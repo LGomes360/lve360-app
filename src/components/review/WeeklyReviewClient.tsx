@@ -4,16 +4,18 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Lightbulb, Loader2, Pause, RefreshCw, Repeat2, Sparkles, TrendingUp, X } from "lucide-react";
 
 import type { WeeklyExperiment } from "@/lib/activation";
-import { suggestedNextPlan, type NextWeekPlan, type ReviewDecision } from "@/lib/weeklyReview";
+import { suggestedNextPlan, validateNextPlan, type NextWeekPlan, type ReviewDecision } from "@/lib/weeklyReview";
 import type { WeeklySynthesis } from "@/lib/weeklySynthesis";
 import type { PracticeConnectionContext } from "@/lib/practiceConnection";
 import type { CoachActionProposal } from "@/lib/coachActions";
+import { formatPracticeQuantity, normalizePracticeQuantityFields, type WeeklyPracticeMetrics } from "@/lib/practiceQuantity";
 
 type ReviewResponse = {
   ok: boolean;
   experiment?: WeeklyExperiment;
   completed?: number;
   target?: number;
+  metrics?: WeeklyPracticeMetrics;
   practice_connection?: PracticeConnectionContext;
   queued_coach_action?: CoachActionProposal | null;
   error?: string;
@@ -24,13 +26,14 @@ const decisions: Array<{ value: ReviewDecision; title: string; description: stri
   { value: "shrink", title: "Make it smaller", description: "Lower the weekly target so it is easier to repeat.", icon: ArrowLeft },
   { value: "swap", title: "Swap it", description: "Choose a different small lifestyle practice.", icon: RefreshCw },
   { value: "pause", title: "Pause", description: "Close this experiment without starting another.", icon: Pause },
-  { value: "advance", title: "Build on it", description: "Add one repetition next week.", icon: TrendingUp },
+  { value: "advance", title: "Build on it", description: "Add one practice completion next week.", icon: TrendingUp },
 ];
 
 export default function WeeklyReviewClient({ experimentId }: { experimentId: string }) {
   const [experiment, setExperiment] = useState<WeeklyExperiment | null>(null);
   const [completed, setCompleted] = useState(0);
   const [target, setTarget] = useState(1);
+  const [metrics, setMetrics] = useState<WeeklyPracticeMetrics | null>(null);
   const [practiceConnection, setPracticeConnection] = useState<PracticeConnectionContext | null>(null);
   const [queuedCoachAction, setQueuedCoachAction] = useState<CoachActionProposal | null>(null);
   const [selectedCoachActionId, setSelectedCoachActionId] = useState<string | null>(null);
@@ -58,6 +61,7 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
         setExperiment(json.experiment ?? null);
         setCompleted(json.completed ?? 0);
         setTarget(json.target ?? 1);
+        setMetrics(json.metrics ?? null);
         setPracticeConnection(json.practice_connection ?? null);
         setQueuedCoachAction(json.queued_coach_action ?? null);
       })
@@ -66,7 +70,7 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
     return () => { cancelled = true; };
   }, [experimentId]);
 
-  const ready = useMemo(() => difficulty > 0 && valueRating > 0 && !!decision && (decision === "pause" || !!nextPlan), [difficulty, valueRating, decision, nextPlan]);
+  const ready = useMemo(() => difficulty > 0 && valueRating > 0 && !!decision && (decision === "pause" || !!validateNextPlan(nextPlan)), [difficulty, valueRating, decision, nextPlan]);
 
   function chooseDecision(value: ReviewDecision) {
     setDecision(value);
@@ -108,6 +112,10 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
       action_label: queuedCoachAction.actionLabel,
       cue: queuedCoachAction.cue,
       frequency_per_week: queuedCoachAction.frequencyPerWeek,
+      target_quantity: null,
+      quantity_unit: null,
+      minimum_quantity: null,
+      minimum_quantity_unit: null,
       minimum_version: queuedCoachAction.minimumVersion,
     });
     setSelectedCoachActionId(queuedCoachAction.id);
@@ -170,8 +178,9 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
         <p className="text-sm font-semibold text-[#8DE5D5]">This week</p>
         <h2 className="mt-2 text-2xl font-bold">{experiment.action_label}</h2>
         {practiceConnection ? <p className="mt-3 rounded-xl bg-white/10 px-4 py-3 text-sm leading-6 text-white/85"><strong className="text-white">Why it mattered:</strong> {practiceConnection.summary}</p> : null}
-        <p className="mt-5 text-4xl font-bold">{completed} <span className="text-lg font-medium text-white/70">of {target} planned reps</span></p>
-        <p className="mt-2 text-sm text-white/70">Every completed repetition counts, including the minimum version.</p>
+        <p className="mt-5 text-4xl font-bold">{completed} <span className="text-lg font-medium text-white/70">of {target} planned times</span></p>
+        <p className="mt-2 text-sm text-white/70">Every completed session counts, including the minimum version.</p>
+        {metrics?.known_total_quantity != null && metrics.total_quantity_unit ? <p className="mt-3 text-sm font-semibold text-[#8DE5D5]">Known volume: {formatPracticeQuantity(metrics.known_total_quantity, metrics.total_quantity_unit)} across {metrics.completed_sessions} {metrics.completed_sessions === 1 ? "session" : "sessions"}.</p> : null}
       </section>
 
       <Rating title="How difficult was this practice to repeat?" low="Very easy" high="Very hard" value={difficulty} onChange={(value) => { setDifficulty(value); setSynthesis(null); }} />
@@ -180,7 +189,7 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
       {difficulty && valueRating ? (
         synthesis ? <SynthesisCard synthesis={synthesis} onUse={useSuggestion} /> : (
           <section className="mt-8 rounded-3xl border border-[#BCE3DA] bg-[#F4FAF8] p-6">
-            <div className="flex items-start gap-3"><Sparkles className="mt-1 h-5 w-5 shrink-0 text-[#087F72]" aria-hidden="true" /><div><h2 className="text-xl font-bold text-[#041B2D]">Want a grounded suggestion?</h2><p className="mt-2 text-sm leading-6 text-slate-600">LVE360 can reflect your recorded repetitions and ratings, then suggest one adjustable experiment for next week.</p></div></div>
+            <div className="flex items-start gap-3"><Sparkles className="mt-1 h-5 w-5 shrink-0 text-[#087F72]" aria-hidden="true" /><div><h2 className="text-xl font-bold text-[#041B2D]">Want a grounded suggestion?</h2><p className="mt-2 text-sm leading-6 text-slate-600">LVE360 can reflect your recorded practice completions and ratings, then suggest one adjustable experiment for next week.</p></div></div>
             <button type="button" onClick={() => void requestSuggestion()} disabled={synthesisLoading} className="mt-5 inline-flex min-h-11 items-center rounded-xl border border-[#087F72] bg-white px-4 py-2 text-sm font-bold text-[#087F72] hover:bg-[#EAFBF8] disabled:opacity-60">{synthesisLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />} Get a grounded suggestion</button>
           </section>
         )
@@ -234,7 +243,7 @@ function SynthesisCard({ synthesis, onUse }: { synthesis: WeeklySynthesis; onUse
       <p className="mt-3 text-xs font-semibold text-[#486170]">{synthesis.historyWeeks ? `Built from this week and ${synthesis.historyWeeks} prior completed ${synthesis.historyWeeks === 1 ? "week" : "weeks"}.` : "Built from this week. Future reviews will add useful context."}</p>
       <div className="mt-5 grid gap-5 sm:grid-cols-2">
         <div><h3 className="font-bold text-[#041B2D]">What the record shows</h3><p className="mt-2 text-sm leading-6 text-slate-700">{synthesis.observation}</p></div>
-        <div><h3 className="font-bold text-[#041B2D]">A hypothesis to test</h3><p className="mt-2 text-sm leading-6 text-slate-700">{synthesis.hypothesis}</p><p className="mt-2 text-xs font-semibold text-slate-500">{synthesis.confidence === "low" ? "Low confidence. More repetitions may change this view." : "Moderate confidence. This is still not proof of cause and effect."}</p></div>
+        <div><h3 className="font-bold text-[#041B2D]">A hypothesis to test</h3><p className="mt-2 text-sm leading-6 text-slate-700">{synthesis.hypothesis}</p><p className="mt-2 text-xs font-semibold text-slate-500">{synthesis.confidence === "low" ? "Low confidence. More completions may change this view." : "Moderate confidence. This is still not proof of cause and effect."}</p></div>
       </div>
       <div className="mt-5 overflow-hidden rounded-2xl border border-[#D7ECE7] bg-white"><h3 className="border-b border-[#E2EFEC] px-4 py-3 text-sm font-bold text-[#041B2D]">Evidence used</h3><dl className="divide-y divide-[#E8F2F0] text-sm">{synthesis.evidence.map((item) => <div key={item.label} className="grid gap-1 px-4 py-3 sm:grid-cols-[180px_1fr]"><dt className="font-semibold text-slate-700">{item.label}</dt><dd className="text-slate-600">{item.value}</dd></div>)}</dl></div>
       <div className="mt-5 rounded-2xl border border-[#9DCFC3] bg-white p-4"><p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">Smallest next experiment</p><p className="mt-2 text-sm font-bold text-[#041B2D]">{decisionLabel}</p>{synthesis.suggestedPlan ? <p className="mt-1 text-sm text-slate-600">{synthesis.suggestedPlan.action_label}, {synthesis.suggestedPlan.frequency_per_week} times next week. On a hard day: {synthesis.suggestedPlan.minimum_version}.</p> : <p className="mt-1 text-sm text-slate-600">Pause this practice and choose your next focus when ready.</p>}</div>
@@ -263,12 +272,23 @@ function NextPlanEditor({ plan, onChange, swap }: { plan: NextWeekPlan; onChange
       {swap ? <p className="mt-2 text-sm leading-6 text-slate-600">A different practice starts as an independent choice. After this review, use Review practice in Today if you want to connect it to a saved goal.</p> : null}
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">Practice<input value={plan.action_label} onChange={(event) => onChange({ ...plan, action_label: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /></label>
       <label className="mt-4 block text-sm font-bold text-[#041B2D]">After I...<input value={plan.cue} onChange={(event) => onChange({ ...plan, cue: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /></label>
-      <div className="mt-4 grid gap-4 sm:grid-cols-[160px_1fr]">
-        <label className="block text-sm font-bold text-[#041B2D]">Reps per week<input type="number" min={1} max={7} value={plan.frequency_per_week} onChange={(event) => onChange({ ...plan, frequency_per_week: Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /></label>
-        <label className="block text-sm font-bold text-[#041B2D]">Minimum version<input value={plan.minimum_version} onChange={(event) => onChange({ ...plan, minimum_version: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /></label>
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        <label className="block text-sm font-bold text-[#041B2D]">Target each time<input type="number" inputMode="decimal" min="0.01" max="100000" step="0.01" value={plan.target_quantity ?? ""} onChange={(event) => onChange({ ...plan, target_quantity: event.target.value === "" ? null : Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /></label>
+        <label className="block text-sm font-bold text-[#041B2D]">Unit<input maxLength={40} value={plan.quantity_unit ?? ""} onChange={(event) => onChange({ ...plan, quantity_unit: event.target.value || null })} placeholder="sit-ups, minutes" className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /></label>
+        <label className="block text-sm font-bold text-[#041B2D]">Times per week<input type="number" inputMode="numeric" min={1} max={7} step={1} value={plan.frequency_per_week} onChange={(event) => onChange({ ...plan, frequency_per_week: Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /><span className="mt-2 block font-normal leading-5 text-slate-500">How often, not how many repetitions.</span></label>
       </div>
+      <label className="mt-4 block text-sm font-bold text-[#041B2D]">Minimum version<input value={plan.minimum_version} onChange={(event) => onChange({ ...plan, minimum_version: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /></label>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <label className="block text-sm font-bold text-[#041B2D]">Minimum quantity<input type="number" inputMode="decimal" min="0.01" max="100000" step="0.01" value={plan.minimum_quantity ?? ""} onChange={(event) => onChange({ ...plan, minimum_quantity: event.target.value === "" ? null : Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /></label>
+        <label className="block text-sm font-bold text-[#041B2D]">Minimum unit<input maxLength={40} value={plan.minimum_quantity_unit ?? ""} onChange={(event) => onChange({ ...plan, minimum_quantity_unit: event.target.value || null })} placeholder={plan.quantity_unit ?? "seconds, sit-ups"} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /><span className="mt-2 block font-normal leading-5 text-slate-500">Use the target unit unless the hard-day version is measured differently.</span></label>
+      </div>
+      {!readyQuantity(plan) ? <p className="mt-3 text-sm font-semibold text-rose-700">Quantity fields need a positive amount and a unit, or both should be blank.</p> : null}
     </section>
   );
+}
+
+function readyQuantity(plan: NextWeekPlan): boolean {
+  return normalizePracticeQuantityFields(plan).ok;
 }
 
 function ReviewShell({ children }: { children: React.ReactNode }) {

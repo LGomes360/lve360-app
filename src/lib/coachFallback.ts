@@ -13,6 +13,8 @@ export type GroundedCoachFallbackInput = {
     minimumVersion: string | null;
     completionCount: number;
     frequencyPerWeek: number | null;
+    knownTotalQuantity: number | null;
+    totalQuantityUnit: string | null;
   } | null;
   blueprintPriorities: string[];
 };
@@ -103,10 +105,13 @@ function groundedPortion(input: GroundedCoachFallbackInput) {
   if (["BEHAVIORAL_COACHING", "PRIORITIZATION", "PROGRESS_COACHING"].includes(input.intent) && input.activePractice?.actionLabel) {
     const target = input.activePractice.frequencyPerWeek;
     const progress = target && target > 0
-      ? `, with ${input.activePractice.completionCount} of ${target} planned repetitions recorded`
+      ? `, with ${input.activePractice.completionCount} of ${target} planned practice completions recorded`
+      : "";
+    const volume = input.activePractice.knownTotalQuantity != null && input.activePractice.totalQuantityUnit
+      ? ` (${input.activePractice.knownTotalQuantity} ${input.activePractice.totalQuantityUnit} recorded in total)`
       : "";
     return {
-      text: `I can verify that your active weekly practice is ${sentenceFragment(input.activePractice.actionLabel)}${progress}.`,
+      text: `I can verify that your active weekly practice is ${sentenceFragment(input.activePractice.actionLabel)}${progress}${volume}.`,
       sourceIds: ["weekly_practice"],
     };
   }

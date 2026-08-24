@@ -29,6 +29,7 @@ import {
 } from "@/lib/journey";
 import { blueprintSafetyLabel, type CurrentBlueprintContext, type ExperimentBlueprintContext } from "@/lib/blueprintContext";
 import type { PracticeConnectionContext } from "@/lib/practiceConnection";
+import { formatPracticeQuantity } from "@/lib/practiceQuantity";
 
 type MetricKey = "sleep" | "energy" | "weight";
 
@@ -122,7 +123,7 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
         </p>
         <dl className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <SummaryStat label="Weeks started" value={String(data.experiments.length)} />
-          <SummaryStat label="Practice reps" value={String(completionTotal)} />
+          <SummaryStat label="Practice completions" value={String(completionTotal)} />
           <SummaryStat label="Weekly reviews" value={String(completedReviews.length)} />
           <SummaryStat label="Check-in weeks" value={String(distinctWeeks(data.check_ins.map((item) => item.log_date)))} />
         </dl>
@@ -272,7 +273,7 @@ function DomainProgress({ summaries }: { summaries: ReturnType<typeof journeyDom
         {summaries.map((summary) => (
           <li key={summary.domain} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <h3 className="font-bold text-[#041B2D]">{domainLabel(summary.domain)}</h3>
-            <p className="mt-2 text-sm text-slate-600">{summary.weeks} {summary.weeks === 1 ? "week" : "weeks"}. {summary.repetitions} practice {summary.repetitions === 1 ? "rep" : "reps"}. {summary.reviews} {summary.reviews === 1 ? "review" : "reviews"}.</p>
+            <p className="mt-2 text-sm text-slate-600">{summary.weeks} {summary.weeks === 1 ? "week" : "weeks"}. {summary.completions} practice {summary.completions === 1 ? "completion" : "completions"}. {summary.reviews} {summary.reviews === 1 ? "review" : "reviews"}.</p>
             {summary.latest_decision ? <p className="mt-2 text-xs font-semibold text-[#087F72]">Latest choice: {DECISION_LABELS[summary.latest_decision]}</p> : null}
           </li>
         ))}
@@ -344,11 +345,11 @@ function CurrentChapter({ experiment, connection, blueprintContext, completed }:
           <PracticeConnectionLabel connection={connection} blueprintContext={blueprintContext} />
         </div>
         <div className="min-w-48">
-          <p className="text-sm font-bold text-[#041B2D]">{completed} of {target} planned reps</p>
+          <p className="text-sm font-bold text-[#041B2D]">{completed} of {target} planned times</p>
           <div
             className="mt-2 h-2 overflow-hidden rounded-full bg-white"
             role="progressbar"
-            aria-label="Planned repetitions completed"
+            aria-label="Planned practice completions"
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={completionRate(completed, target)}
@@ -381,7 +382,7 @@ function ExperimentCard({ experiment, connection, blueprintContext, review, comp
         </span>
       </div>
       <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-600">
-        <span>{completed} of {target} reps</span>
+        <span>{completed} of {target} completions</span>
         {review?.difficulty ? <span>Difficulty {review.difficulty}/5</span> : null}
         {review?.value_rating ? <span>Usefulness {review.value_rating}/5</span> : null}
         {review?.decision ? <span>{DECISION_LABELS[review.decision]}</span> : null}
@@ -471,9 +472,9 @@ function WinsTimeline({ reviews, completionTotal }: { reviews: JourneyReview[]; 
     <section aria-labelledby="wins-title" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-[#087F72]" aria-hidden="true" /><h2 id="wins-title" className="text-xl font-bold text-[#041B2D]">Wins worth remembering</h2></div>
       {wins.length ? (
-        <ul className="mt-5 space-y-4">{wins.map((review) => <li key={review.experiment_id} className="flex gap-3"><CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#08A88A]" aria-hidden="true" /><div><p className="font-semibold text-[#041B2D]">{review.completion_count} practice reps completed</p><p className="mt-1 text-sm text-slate-600">{review.decision ? DECISION_LABELS[review.decision] : "Captured what worked"}. {formatDate(review.completed_at?.slice(0, 10) ?? "")}</p></div></li>)}</ul>
+        <ul className="mt-5 space-y-4">{wins.map((review) => <li key={review.experiment_id} className="flex gap-3"><CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#08A88A]" aria-hidden="true" /><div><p className="font-semibold text-[#041B2D]">{review.completion_count} practice {review.completion_count === 1 ? "completion" : "completions"}</p><p className="mt-1 text-sm text-slate-600">{review.decision ? DECISION_LABELS[review.decision] : "Captured what worked"}. {formatDate(review.completed_at?.slice(0, 10) ?? "")}</p></div></li>)}</ul>
       ) : (
-        <EmptyPanel title={completionTotal ? `${completionTotal} completed ${completionTotal === 1 ? "rep" : "reps"} already count.` : "Your first win can be very small."} body="Complete the minimum version or finish a weekly review. Journey will save the evidence without demanding a perfect streak." />
+        <EmptyPanel title={completionTotal ? `${completionTotal} practice ${completionTotal === 1 ? "completion" : "completions"} already count.` : "Your first win can be very small."} body="Complete the minimum version or finish a weekly review. Journey will save the evidence without demanding a perfect streak." />
       )}
     </section>
   );
@@ -494,7 +495,7 @@ function LearningLoop({ reviews, experiments, practiceConnections, syntheses }: 
             <dl className="space-y-3 text-sm leading-6">
               <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Tried</dt><dd className="font-semibold text-[#041B2D]">{experiment?.action_label || "Weekly practice"}</dd></div>
               <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Why it mattered</dt><dd className="text-slate-600">{connection?.summary ?? "No explicit connection was recorded for this week."}</dd></div>
-              <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Noticed</dt><dd className="text-slate-600">You reported usefulness {review.value_rating}/5 and difficulty {review.difficulty}/5 after {review.completion_count} of {review.target_count} planned reps.</dd></div>
+              <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Noticed</dt><dd className="text-slate-600">You reported usefulness {review.value_rating}/5 and difficulty {review.difficulty}/5 after completing the practice {review.completion_count} of {review.target_count} planned times.{review.known_total_quantity != null && review.known_total_quantity_unit ? ` Known volume: ${formatPracticeQuantity(review.known_total_quantity, review.known_total_quantity_unit)}.` : ""}</dd></div>
               {synthesis ? <><div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Recorded observation</dt><dd className="text-slate-600">{synthesis.observation}</dd></div><div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Working hypothesis</dt><dd className="text-slate-600">{synthesis.hypothesis} <span className="font-semibold">This is a {synthesis.confidence}-confidence idea to test, not proof.</span></dd></div></> : null}
               <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Chose next</dt><dd className="text-slate-600">{review.decision ? DECISION_LABELS[review.decision] : "Reviewed"}{nextExperiment?.action_label ? `: ${nextExperiment.action_label}` : "."}</dd></div>
             </dl>

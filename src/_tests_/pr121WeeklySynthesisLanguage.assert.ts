@@ -4,7 +4,7 @@ import { hypothesisSupportsDecision, normalizeMemberVoice, usesDirectMemberVoice
 
 assert.equal(
   usesDirectMemberVoice(
-    "You completed 3 of your 5 planned repetitions this week.",
+    "You completed 3 of your 5 planned sessions this week.",
     "Repeating your current version for another week may show whether it becomes more consistent.",
   ),
   true,
@@ -13,7 +13,7 @@ assert.equal(
 
 assert.equal(
   usesDirectMemberVoice(
-    "You have an early signal from one recorded repetition.",
+    "You have an early signal from one recorded practice completion.",
     "Your current version may be workable. Repeating it for another week would test that fit.",
   ),
   true,
@@ -22,7 +22,7 @@ assert.equal(
 
 assert.equal(
   usesDirectMemberVoice(
-    "The member completed 3 of 5 repetitions.",
+    "The member completed 3 of 5 sessions.",
     "They may benefit from another week.",
   ),
   false,
@@ -39,8 +39,8 @@ assert.equal(
 );
 
 assert.equal(
-  normalizeMemberVoice("The member completed 3 of 5 repetitions.", "observation"),
-  "You completed 3 of 5 repetitions.",
+  normalizeMemberVoice("The member completed 3 of 5 sessions.", "observation"),
+  "You completed 3 of 5 sessions.",
   "Safe third-person model wording should be made member-facing without changing the fact.",
 );
 
@@ -61,7 +61,7 @@ assert.equal(
 
 assert.equal(
   hypothesisSupportsDecision(
-    "Adjusting your planned repetitions or changing the practice may improve completion.",
+    "Adjusting your planned sessions or changing the practice may improve completion.",
     "keep",
   ),
   false,
