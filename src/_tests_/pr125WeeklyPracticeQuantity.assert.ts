@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 
 import {
   buildWeeklyPracticeMetrics,
+  isUsableMinimumVersionText,
   normalizePracticeQuantityFields,
   practiceCompletionSummary,
   type PracticeCompletionQuantity,
 } from "../lib/practiceQuantity.ts";
+import { isTrustworthyJourneySynthesisVersion } from "../lib/journeyTrust.ts";
 
 function completions(count: number, quantity: number | null, unit: string | null): PracticeCompletionQuantity[] {
   return Array.from({ length: count }, (_, index) => ({
@@ -62,5 +64,15 @@ assert.match(practiceCompletionSummary(sitUps), /totaling 50 sit-ups/);
 assert.doesNotMatch(practiceCompletionSummary(sitUps), /completed 5 sit-ups/);
 assert.match(practiceCompletionSummary(historical), /5 of 5 planned times this week/);
 assert.doesNotMatch(practiceCompletionSummary(historical), /totaling/);
+
+assert.equal(isUsableMinimumVersionText("Three times"), false);
+assert.equal(isUsableMinimumVersionText("5 repetitions"), false);
+assert.equal(isUsableMinimumVersionText("Complete one repetition"), true);
+assert.equal(isUsableMinimumVersionText("Wall sit for 20 seconds."), true);
+
+assert.equal(isTrustworthyJourneySynthesisVersion(null), false);
+assert.equal(isTrustworthyJourneySynthesisVersion("weekly-review-synthesis-v6"), false);
+assert.equal(isTrustworthyJourneySynthesisVersion("weekly-review-synthesis-v7"), true);
+assert.equal(isTrustworthyJourneySynthesisVersion("weekly-review-synthesis-v8"), true);
 
 console.log("PR125 weekly practice quantity assertions passed.");

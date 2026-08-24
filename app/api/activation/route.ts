@@ -15,7 +15,7 @@ import { isHour, isIanaTimeZone } from "@/lib/accountSettings";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 import { isQuietHour, isReminderTiming } from "@/lib/reminderSchedule";
-import { normalizePracticeQuantityFields } from "@/lib/practiceQuantity";
+import { isUsableMinimumVersionText, normalizePracticeQuantityFields } from "@/lib/practiceQuantity";
 import {
   connectionType,
   practiceGoalOptions,
@@ -249,7 +249,7 @@ export async function PUT(req: NextRequest) {
 
     if (step === 4) {
       const minimum = cleanText(body?.minimum_version, 160);
-      if (!minimum || minimum.length < 2 || !isSafeLifestyleAction(minimum)) {
+      if (!minimum || minimum.length < 2 || !isSafeLifestyleAction(minimum) || !isUsableMinimumVersionText(minimum)) {
         return NextResponse.json({ ok: false, error: "add_safe_minimum_version" }, { status: 400 });
       }
       changes.minimum_version = minimum;

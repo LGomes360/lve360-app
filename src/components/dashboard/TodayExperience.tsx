@@ -23,7 +23,7 @@ import {
 } from "@/lib/blueprintContext";
 import { deriveTodayBlueprintNotice, type TodayBlueprintNotice } from "@/lib/todaySurface";
 import type { PracticeConnectionContext } from "@/lib/practiceConnection";
-import { formatPracticeQuantity } from "@/lib/practiceQuantity";
+import { formatPracticeQuantity, isUsableMinimumVersionText } from "@/lib/practiceQuantity";
 
 type TodayResponse = {
   ok: boolean;
@@ -161,6 +161,7 @@ export default function TodayExperience({
   const weekEnded = !!localDate && localDate > reviewDueDate(experiment.week_start);
   const weekNotStarted = !!localDate && localDate < experiment.week_start;
   const blueprintNotice = deriveTodayBlueprintNotice(blueprint, experimentBlueprint);
+  const hasUsableMinimum = isUsableMinimumVersionText(experiment.minimum_version);
 
   return (
     <section id="focused-practice" className="overflow-hidden rounded-3xl border border-[#9DCFC3] bg-white shadow-sm" aria-labelledby="today-heading">
@@ -199,8 +200,9 @@ export default function TodayExperience({
 
         <div className="mt-7 rounded-2xl border border-[#BCE3DA] bg-[#F4FAF8] p-4 sm:p-5">
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">The version that counts on a hard day</p>
-          <p className="mt-2 text-lg font-semibold text-[#041B2D]">{experiment.minimum_version}</p>
-          {experiment.minimum_quantity != null && experiment.minimum_quantity_unit ? <p className="mt-1 text-sm text-slate-600">Structured minimum: {formatPracticeQuantity(experiment.minimum_quantity, experiment.minimum_quantity_unit)}</p> : null}
+          <p className="mt-2 text-lg font-semibold text-[#041B2D]">{hasUsableMinimum ? experiment.minimum_version : "Choose a concrete hard-day version before recording it."}</p>
+          {hasUsableMinimum && experiment.minimum_quantity != null && experiment.minimum_quantity_unit ? <p className="mt-1 text-sm text-slate-600">Structured minimum: {formatPracticeQuantity(experiment.minimum_quantity, experiment.minimum_quantity_unit)}</p> : null}
+          {!hasUsableMinimum ? <a href="/onboarding" className="mt-3 inline-flex text-sm font-bold text-[#087F72] hover:underline">Review hard-day version <ArrowRight className="ml-1 h-4 w-4" /></a> : null}
         </div>
 
         <div className="mt-7" aria-live="polite">
@@ -249,9 +251,9 @@ export default function TodayExperience({
               <button onClick={() => saveCompletion("full")} disabled={busy || !localDate} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#08A88A] px-6 py-3 text-base font-bold text-white shadow-sm hover:bg-[#078B74] disabled:opacity-60">
                 {busy ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Check className="mr-2 h-5 w-5" />} {recordingPastDate ? "I did it that day" : "I did it today"}
               </button>
-              <button onClick={() => saveCompletion("minimum")} disabled={busy || !localDate} className="min-h-12 rounded-xl border border-[#9DCFC3] px-5 py-3 text-sm font-bold text-[#087F72] hover:bg-[#F4FAF8] disabled:opacity-60">
+              {hasUsableMinimum ? <button onClick={() => saveCompletion("minimum")} disabled={busy || !localDate} className="min-h-12 rounded-xl border border-[#9DCFC3] px-5 py-3 text-sm font-bold text-[#087F72] hover:bg-[#F4FAF8] disabled:opacity-60">
                 I did the minimum version
-              </button>
+              </button> : null}
             </div>
           )}
           {error ? <p className="mt-3 text-sm font-medium text-rose-700">{error}</p> : null}

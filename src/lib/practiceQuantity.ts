@@ -137,6 +137,12 @@ export function formatPracticeQuantity(quantity: number, unit: string): string {
   return `${amount} ${unit}`;
 }
 
+export function isUsableMinimumVersionText(value: string | null | undefined): boolean {
+  if (!value?.trim()) return false;
+  const normalized = value.trim().replace(/[.!?]+$/, "");
+  return !/^(?:once|twice|three|four|five|six|\d+)\s+(?:time|times|days|repetitions?)$/i.test(normalized);
+}
+
 export function practiceCompletionSummary(metrics: WeeklyPracticeMetrics): string {
   const volume = metrics.known_total_quantity != null && metrics.total_quantity_unit
     ? `, totaling ${formatPracticeQuantity(metrics.known_total_quantity, metrics.total_quantity_unit)}`

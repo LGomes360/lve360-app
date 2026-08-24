@@ -1,4 +1,5 @@
 import type { CoachIntent, CoachPage } from "./contextualCoach.ts";
+import { isUsableMinimumVersionText } from "./practiceQuantity.ts";
 
 export type GroundedCoachFallbackInput = {
   question: string;
@@ -47,13 +48,6 @@ function uniqueAvailable(ids: string[], available: Set<string>) {
 
 function sentenceFragment(value: string) {
   return value.trim().replace(/[.!?]+$/, "");
-}
-
-function usableMinimumVersion(value: string | null) {
-  if (!value?.trim()) return null;
-  const normalized = sentenceFragment(value);
-  if (/^(?:once|twice|three|four|five|six|\d+)\s+(?:time|times|days|repetitions?)$/i.test(normalized)) return null;
-  return normalized;
 }
 
 function requestedOutcome(question: string) {
@@ -151,7 +145,9 @@ function nextStepFor(input: GroundedCoachFallbackInput) {
     return "Next step: ask one record-only question about an exact item, such as, “Is this item in my current Routine, and what amount and timing are recorded?”";
   }
   if (["BEHAVIORAL_COACHING", "PRIORITIZATION", "PROGRESS_COACHING"].includes(input.intent) && input.activePractice?.actionLabel) {
-    const minimumVersion = usableMinimumVersion(input.activePractice.minimumVersion);
+    const minimumVersion = isUsableMinimumVersionText(input.activePractice.minimumVersion)
+      ? sentenceFragment(input.activePractice.minimumVersion!)
+      : null;
     if (!minimumVersion) {
       return "Next step: open Today and record a concrete hard-day version of your weekly practice, then ask what is realistic to complete today.";
     }

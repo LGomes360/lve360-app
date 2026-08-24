@@ -29,7 +29,7 @@ import {
 } from "@/lib/journey";
 import { blueprintSafetyLabel, type CurrentBlueprintContext, type ExperimentBlueprintContext } from "@/lib/blueprintContext";
 import type { PracticeConnectionContext } from "@/lib/practiceConnection";
-import { formatPracticeQuantity } from "@/lib/practiceQuantity";
+import { formatPracticeQuantity, isUsableMinimumVersionText } from "@/lib/practiceQuantity";
 
 type MetricKey = "sleep" | "energy" | "weight";
 
@@ -333,6 +333,9 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
 
 function CurrentChapter({ experiment, connection, blueprintContext, completed }: { experiment: JourneyExperiment; connection: PracticeConnectionContext | undefined; blueprintContext: ExperimentBlueprintContext | null; completed: number }) {
   const target = experiment.frequency_per_week ?? 1;
+  const minimum = isUsableMinimumVersionText(experiment.minimum_version)
+    ? experiment.minimum_version
+    : "not reliably recorded; review your weekly plan";
   return (
     <section aria-labelledby="current-chapter-title" className="rounded-3xl border border-[#BCE3DA] bg-[#F4FAF8] p-6 sm:p-8">
       <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
@@ -340,7 +343,7 @@ function CurrentChapter({ experiment, connection, blueprintContext, completed }:
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Current chapter: {domainLabel(experiment.identity_direction)}</p>
           <h2 id="current-chapter-title" className="mt-2 text-2xl font-bold text-[#041B2D]">{experiment.action_label}</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            After: {experiment.cue || "your chosen cue"}. Minimum: {experiment.minimum_version || "your smallest version"}.
+            After: {experiment.cue || "your chosen cue"}. Minimum: {minimum}.
           </p>
           <PracticeConnectionLabel connection={connection} blueprintContext={blueprintContext} />
         </div>

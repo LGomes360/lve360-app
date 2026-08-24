@@ -9,6 +9,7 @@ import type {
   JourneyReview,
   JourneySynthesis,
 } from "@/lib/journey";
+import { isTrustworthyJourneySynthesisVersion } from "@/lib/journeyTrust";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCurrentBlueprintContext, getExperimentBlueprintContexts } from "@/lib/currentBlueprintContext";
 import { practiceGoalOptions, resolvePracticeConnection, type PracticeGoalRow } from "@/lib/practiceConnection";
@@ -66,7 +67,7 @@ export async function GET() {
         .limit(90),
       admin
         .from("ai_weekly_syntheses")
-        .select("id,experiment_id,observation,hypothesis,evidence,confidence,response_state,created_at")
+        .select("id,experiment_id,observation,hypothesis,evidence,confidence,response_state,prompt_version,created_at")
         .eq("user_id", auth.user.id)
         .in("generation_status", ["succeeded", "failed", "skipped"])
         .order("created_at", { ascending: false })
@@ -109,7 +110,8 @@ export async function GET() {
       reviews: (reviews ?? []) as JourneyReview[],
       completions,
       check_ins: (checkIns ?? []) as JourneyCheckIn[],
-      syntheses: (syntheses ?? []) as JourneySynthesis[],
+      syntheses: ((syntheses ?? []) as JourneySynthesis[])
+        .filter((item) => isTrustworthyJourneySynthesisVersion(item.prompt_version)),
       blueprint,
       experiment_blueprints: experimentBlueprints,
       practice_connections: practiceConnections,

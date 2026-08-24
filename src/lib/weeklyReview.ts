@@ -1,5 +1,5 @@
 import { cleanText, isSafeLifestyleAction, type WeeklyExperiment } from "./activation";
-import { normalizePracticeQuantityFields } from "./practiceQuantity.ts";
+import { isUsableMinimumVersionText, normalizePracticeQuantityFields } from "./practiceQuantity.ts";
 
 export const REVIEW_DECISIONS = ["keep", "shrink", "swap", "pause", "advance"] as const;
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
@@ -56,7 +56,7 @@ export function validateNextPlan(value: unknown): NextWeekPlan | null {
   const minimum = cleanText(plan.minimum_version, 160);
   const frequency = Number(plan.frequency_per_week);
   const quantity = normalizePracticeQuantityFields(plan);
-  if (!isSafeLifestyleAction(action) || !cue || cue.length < 2 || !isSafeLifestyleAction(minimum)) return null;
+  if (!isSafeLifestyleAction(action) || !cue || cue.length < 2 || !isSafeLifestyleAction(minimum) || !isUsableMinimumVersionText(minimum)) return null;
   if (!Number.isInteger(frequency) || frequency < 1 || frequency > 7) return null;
   if (!quantity.ok) return null;
   return { action_label: action, cue, frequency_per_week: frequency, ...quantity.value, minimum_version: minimum };

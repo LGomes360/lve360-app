@@ -14,7 +14,7 @@ import {
 } from "@/lib/activation";
 import { isQuietHour, type ReminderTiming } from "@/lib/reminderSchedule";
 import type { PracticeGoalOption } from "@/lib/practiceConnection";
-import { formatPracticeQuantity, normalizePracticeQuantityFields } from "@/lib/practiceQuantity";
+import { formatPracticeQuantity, isUsableMinimumVersionText, normalizePracticeQuantityFields } from "@/lib/practiceQuantity";
 
 type FormState = {
   identity_direction: IdentityDirection | null;
@@ -303,7 +303,11 @@ function ConfirmationStep({ form, active, goalOptions, fromBlueprint, onEditPlan
   const connection = [goal ? `Supports saved goal: ${goal.label}` : null, fromBlueprint ? "Supports a selected Blueprint priority" : null].filter(Boolean).join(" · ") || "Independently chosen for this week";
   const target = form.target_quantity != null && form.quantity_unit ? formatPracticeQuantity(form.target_quantity, form.quantity_unit) : "No quantity recorded";
   const minimumUnit = form.minimum_quantity_unit || form.quantity_unit;
-  const minimum = form.minimum_quantity != null && minimumUnit ? `${form.minimum_version} (${formatPracticeQuantity(form.minimum_quantity, minimumUnit)})` : form.minimum_version;
+  const minimum = isUsableMinimumVersionText(form.minimum_version)
+    ? form.minimum_quantity != null && minimumUnit
+      ? `${form.minimum_version} (${formatPracticeQuantity(form.minimum_quantity, minimumUnit)})`
+      : form.minimum_version
+    : "Needs review before it can count";
   return <section><CheckCircle2 className="h-10 w-10 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">{active ? "Your week is active" : "Your first week is ready"}</h1><p className="mt-3 leading-7 text-slate-600">Use this plan while it fits your life. You can change it when your schedule or priorities change.</p><div className="mt-6 space-y-4 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5"><Summary label="This week's direction" value={identityLabel(form.identity_direction)} /><Summary label="This week I will" value={form.action_label} /><Summary label="Target each time" value={target} /><Summary label="Why it matters" value={connection} /><Summary label="My cue" value={`After I ${form.cue}`} /><Summary label="Times per week" value={`${form.frequency_per_week} planned ${form.frequency_per_week === 1 ? "completion" : "completions"}`} /><Summary label="On a hard day" value={minimum} /><Summary label="Reminder plan" value={reminderSummary(form)} /></div>{active ? <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={onEditPlan} className="min-h-11 rounded-xl bg-[#087F72] px-4 py-2 font-bold text-white hover:bg-[#06695F]">Edit weekly plan</button><button type="button" onClick={onEditReminders} className="min-h-11 rounded-xl border border-[#9DCFC3] px-4 py-2 font-bold text-[#087F72] hover:bg-[#EAFBF8]">Change reminder plan</button></div> : null}</section>;
 }
 
@@ -378,6 +382,9 @@ function validateStep(step: number, form: FormState): string | null {
     return "Choose a weekly frequency from 1 to 7 times.";
   }
   if (step === 4) {
+    if (!isUsableMinimumVersionText(form.minimum_version)) {
+      return "Describe a concrete action that still counts on a hard day, such as walking for two minutes or completing one repetition.";
+    }
     const quantity = normalizePracticeQuantityFields({
       target_quantity: form.target_quantity,
       quantity_unit: form.quantity_unit,

@@ -68,6 +68,7 @@ export type JourneySynthesis = {
   evidence: Array<{ label: string; value: string }>;
   confidence: "low" | "moderate";
   response_state: "none" | "accepted" | "edited" | "rejected";
+  prompt_version: string | null;
   created_at: string;
 };
 

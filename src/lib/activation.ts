@@ -1,5 +1,5 @@
 import { isSafetySensitiveBlueprintAction } from "./blueprintActions";
-import { normalizePracticeQuantityFields } from "./practiceQuantity.ts";
+import { isUsableMinimumVersionText, normalizePracticeQuantityFields } from "./practiceQuantity.ts";
 import { isReminderTiming, type ReminderTiming } from "./reminderSchedule";
 
 export const IDENTITY_OPTIONS = [
@@ -89,7 +89,7 @@ export function isReadyToActivate(experiment: Partial<WeeklyExperiment>): boolea
     && Number.isInteger(experiment.frequency_per_week)
     && Number(experiment.frequency_per_week) >= 1
     && Number(experiment.frequency_per_week) <= 7
-    && !!cleanText(experiment.minimum_version, 160)
+    && isUsableMinimumVersionText(cleanText(experiment.minimum_version, 160))
     && (experiment.reminder_preference === "none" || experiment.reminder_preference === "email")
     && isReminderTiming(experiment.reminder_timing)
     && (
