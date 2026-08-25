@@ -12,6 +12,11 @@ import {
   type ReminderPreference,
   type WeeklyExperiment,
 } from "@/lib/activation";
+import {
+  coherentReminderHours,
+  recommendedReminderHour,
+  reminderPlanIssue,
+} from "@/lib/reminderCoherence";
 import { isQuietHour, type ReminderTiming } from "@/lib/reminderSchedule";
 import type { PracticeGoalOption } from "@/lib/practiceConnection";
 import { formatPracticeCue, formatPracticeQuantity, isUsableMinimumVersionText, normalizePracticeQuantityFields } from "@/lib/practiceQuantity";
@@ -35,6 +40,7 @@ type FormState = {
 
 type ReminderContext = {
   timezone: string;
+  cue_hour: number;
   quiet_start_hour: number;
   quiet_end_hour: number;
 };
@@ -65,6 +71,7 @@ export default function OnboardingHandoffClient() {
   const [error, setError] = useState<string | null>(null);
   const [reminderContext, setReminderContext] = useState<ReminderContext>({
     timezone: "UTC",
+    cue_hour: 18,
     quiet_start_hour: 21,
     quiet_end_hour: 7,
   });
@@ -82,7 +89,7 @@ export default function OnboardingHandoffClient() {
         if (cancelled) return;
         setExperiment(loaded);
         const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const context = reminder_context ?? { timezone: detectedTimezone || "UTC", quiet_start_hour: 21, quiet_end_hour: 7 };
+        const context = reminder_context ?? { timezone: detectedTimezone || "UTC", cue_hour: 18, quiet_start_hour: 21, quiet_end_hour: 7 };
         setReminderContext(context);
         setGoalOptions(goal_options ?? []);
         setForm({ ...formFromExperiment(loaded), timezone: context.timezone || detectedTimezone || "UTC" });
@@ -96,7 +103,7 @@ export default function OnboardingHandoffClient() {
   const starterActions = form.identity_direction ? STARTER_ACTIONS[form.identity_direction] : [];
 
   async function saveStep() {
-    const clientError = validateStep(step, form);
+    const clientError = validateStep(step, form, reminderContext);
     if (clientError) {
       setError(clientError);
       return;
@@ -154,16 +161,18 @@ export default function OnboardingHandoffClient() {
       {step === 4 && <MinimumStep form={form} onChange={(changes) => setForm({ ...form, ...changes })} />}
       {step === 5 && (
         <ReminderStep
+          cue={form.cue}
           preference={form.reminder_preference}
           timing={form.reminder_timing}
           reminderHour={form.reminder_hour}
           timezone={form.timezone}
+          accountCueHour={reminderContext.cue_hour}
           quietStartHour={reminderContext.quiet_start_hour}
           quietEndHour={reminderContext.quiet_end_hour}
           onChange={(changes) => setForm({ ...form, ...changes })}
         />
       )}
-      {step === 6 && <ConfirmationStep form={form} active={active} goalOptions={goalOptions} fromBlueprint={!!experiment.source_action_id} onEditPlan={() => setStep(1)} onEditReminders={() => setStep(5)} />}
+      {step === 6 && <ConfirmationStep form={form} reminderContext={reminderContext} active={active} goalOptions={goalOptions} fromBlueprint={!!experiment.source_action_id} onEditPlan={() => setStep(1)} onEditReminders={() => setStep(5)} />}
 
       {error && <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{error}</p>}
 
@@ -239,18 +248,22 @@ function MinimumStep({ form, onChange }: { form: FormState; onChange: (changes: 
 }
 
 function ReminderStep({
+  cue,
   preference,
   timing,
   reminderHour,
   timezone,
+  accountCueHour,
   quietStartHour,
   quietEndHour,
   onChange,
 }: {
+  cue: string;
   preference: ReminderPreference;
   timing: ReminderTiming;
   reminderHour: number;
   timezone: string;
+  accountCueHour: number;
   quietStartHour: number;
   quietEndHour: number;
   onChange: (changes: Partial<Pick<FormState, "reminder_preference" | "reminder_timing" | "reminder_hour">>) => void;
@@ -260,13 +273,17 @@ function ReminderStep({
     timing: ReminderTiming;
     title: string;
     copy: string;
-    defaultHour?: number;
   }> = [
-    { preference: "email", timing: "prepare_before", title: "Help me prepare beforehand", copy: "Send a setup cue before the moment so the practice is easier later.", defaultHour: 20 },
-    { preference: "email", timing: "at_cue", title: "Remind me at the cue", copy: "Send the practice and its minimum version when I plan to act.", defaultHour: 18 },
-    { preference: "email", timing: "next_day", title: "Check in the next morning", copy: "Useful for bedtime or phone-free practices. Record it the next day without reopening your phone afterward.", defaultHour: 8 },
+    { preference: "email", timing: "prepare_before", title: "Help me prepare beforehand", copy: "Send a setup cue before the moment so the practice is easier later." },
+    { preference: "email", timing: "at_cue", title: "Remind me at the cue", copy: "Send the practice and its minimum version when I plan to act." },
+    { preference: "email", timing: "next_day", title: "Check in the next morning", copy: "Useful for bedtime or phone-free practices. Record it the next day without reopening your phone afterward." },
     { preference: "none", timing: "at_cue", title: "No reminder for this practice", copy: "I will use my own cue and dashboard." },
   ];
+  const allowedHours = timing === "account_default"
+    ? []
+    : coherentReminderHours({ cue, timing, quietStartHour, quietEndHour });
+  const selectedHourIsAllowed = allowedHours.includes(reminderHour);
+  const accountIssue = reminderPlanIssue({ cue, timing: "at_cue", hour: accountCueHour });
   return (
     <section>
       <Mail className="h-8 w-8 text-[#08A88A]" />
@@ -276,7 +293,16 @@ function ReminderStep({
         {options.map((option) => {
           const selected = preference === option.preference && (option.preference === "none" || timing === option.timing);
           return (
-          <button key={`${option.preference}:${option.timing}`} type="button" onClick={() => onChange({ reminder_preference: option.preference, reminder_timing: option.timing, ...(option.defaultHour ? { reminder_hour: option.defaultHour } : {}) })} aria-pressed={selected} className={`flex items-center justify-between rounded-2xl border p-5 text-left ${selected ? "border-[#08A88A] bg-[#EAFBF8]" : "border-slate-200 hover:border-[#9DCFC3]"}`}>
+          <button key={`${option.preference}:${option.timing}`} type="button" onClick={() => {
+            const recommended = option.preference === "email"
+              ? recommendedReminderHour({ cue, timing: option.timing, quietStartHour, quietEndHour })
+              : null;
+            onChange({
+              reminder_preference: option.preference,
+              reminder_timing: option.timing,
+              ...(recommended != null ? { reminder_hour: recommended } : {}),
+            });
+          }} aria-pressed={selected} className={`flex items-center justify-between rounded-2xl border p-5 text-left ${selected ? "border-[#08A88A] bg-[#EAFBF8]" : "border-slate-200 hover:border-[#9DCFC3]"}`}>
             <span><span className="block font-bold text-[#041B2D]">{option.title}</span><span className="mt-1 block text-sm text-slate-600">{option.copy}</span></span>
             {selected ? <Check className="h-5 w-5 text-[#087F72]" /> : null}
           </button>
@@ -285,20 +311,21 @@ function ReminderStep({
       {preference === "email" && timing !== "account_default" && (
         <label className="mt-5 block text-sm font-bold text-[#041B2D]">
           {timing === "next_day" ? "Check in around" : timing === "prepare_before" ? "Help me prepare around" : "Send at"}
-          <select value={reminderHour} onChange={(event) => onChange({ reminder_hour: Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal">
-            {Array.from({ length: 24 }, (_, hour) => hour).filter((hour) => !isQuietHour(hour, quietStartHour, quietEndHour)).map((hour) => (
+          <select value={selectedHourIsAllowed ? reminderHour : ""} onChange={(event) => onChange({ reminder_hour: Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal">
+            {!selectedHourIsAllowed ? <option value="" disabled>Choose a time that fits this cue</option> : null}
+            {allowedHours.map((hour) => (
               <option key={hour} value={hour}>{new Intl.DateTimeFormat("en-US", { hour: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 1, hour)))}</option>
             ))}
           </select>
-          <span className="mt-2 block font-normal text-slate-500">Local time in {timezone}. Your quiet hours are {formatHour(quietStartHour)} to {formatHour(quietEndHour)}.</span>
+          <span className="mt-2 block font-normal text-slate-500">Times are matched to your saved cue, shown in {timezone}, and exclude quiet hours from {formatHour(quietStartHour)} to {formatHour(quietEndHour)}.</span>
         </label>
       )}
-      {preference === "email" && timing === "account_default" ? <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">This existing practice uses your account default time. Choose another option above to tailor it.</p> : null}
+      {preference === "email" && timing === "account_default" ? <p className={`mt-5 rounded-xl p-4 text-sm ${accountIssue ? "border border-amber-200 bg-amber-50 text-amber-900" : "bg-slate-50 text-slate-600"}`}>{accountIssue ? `${accountIssue.message} Choose a tailored reminder above.` : `This practice uses your account default at ${formatHour(accountCueHour)}. Choose another option above to tailor it.`}</p> : null}
     </section>
   );
 }
 
-function ConfirmationStep({ form, active, goalOptions, fromBlueprint, onEditPlan, onEditReminders }: { form: FormState; active: boolean; goalOptions: PracticeGoalOption[]; fromBlueprint: boolean; onEditPlan: () => void; onEditReminders: () => void }) {
+function ConfirmationStep({ form, reminderContext, active, goalOptions, fromBlueprint, onEditPlan, onEditReminders }: { form: FormState; reminderContext: ReminderContext; active: boolean; goalOptions: PracticeGoalOption[]; fromBlueprint: boolean; onEditPlan: () => void; onEditReminders: () => void }) {
   const goal = goalOptions.find((option) => option.key === form.goal_key) ?? null;
   const connection = [goal ? `Supports saved goal: ${goal.label}` : null, fromBlueprint ? "Supports a selected Blueprint priority" : null].filter(Boolean).join(" · ") || "Independently chosen for this week";
   const target = form.target_quantity != null && form.quantity_unit ? formatPracticeQuantity(form.target_quantity, form.quantity_unit) : "No quantity recorded";
@@ -308,7 +335,9 @@ function ConfirmationStep({ form, active, goalOptions, fromBlueprint, onEditPlan
       ? `${form.minimum_version} (${formatPracticeQuantity(form.minimum_quantity, minimumUnit)})`
       : form.minimum_version
     : "Needs review before it can count";
-  return <section><CheckCircle2 className="h-10 w-10 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">{active ? "Your week is active" : "Your first week is ready"}</h1><p className="mt-3 leading-7 text-slate-600">Use this plan while it fits your life. You can change it when your schedule or priorities change.</p><div className="mt-6 space-y-4 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5"><Summary label="This week's direction" value={identityLabel(form.identity_direction)} /><Summary label="This week I will" value={form.action_label} /><Summary label="Target each time" value={target} /><Summary label="Why it matters" value={connection} /><Summary label="My cue" value={formatPracticeCue(form.cue)} /><Summary label="Times per week" value={`${form.frequency_per_week} planned ${form.frequency_per_week === 1 ? "completion" : "completions"}`} /><Summary label="On a hard day" value={minimum} /><Summary label="Reminder plan" value={reminderSummary(form)} /></div>{active ? <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={onEditPlan} className="min-h-11 rounded-xl bg-[#087F72] px-4 py-2 font-bold text-white hover:bg-[#06695F]">Edit weekly plan</button><button type="button" onClick={onEditReminders} className="min-h-11 rounded-xl border border-[#9DCFC3] px-4 py-2 font-bold text-[#087F72] hover:bg-[#EAFBF8]">Change reminder plan</button></div> : null}</section>;
+  const effectiveHour = form.reminder_timing === "account_default" ? reminderContext.cue_hour : form.reminder_hour;
+  const issue = form.reminder_preference === "email" ? reminderPlanIssue({ cue: form.cue, timing: form.reminder_timing === "account_default" ? "at_cue" : form.reminder_timing, hour: effectiveHour }) : null;
+  return <section><CheckCircle2 className="h-10 w-10 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">{active ? "Your week is active" : "Your first week is ready"}</h1><p className="mt-3 leading-7 text-slate-600">Use this plan while it fits your life. You can change it when your schedule or priorities change.</p>{issue ? <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900" role="status"><strong>Your reminder needs review.</strong> {issue.message}</div> : null}<div className="mt-6 space-y-4 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5"><Summary label="This week's direction" value={identityLabel(form.identity_direction)} /><Summary label="This week I will" value={form.action_label} /><Summary label="Target each time" value={target} /><Summary label="Why it matters" value={connection} /><Summary label="My cue" value={formatPracticeCue(form.cue)} /><Summary label="Times per week" value={`${form.frequency_per_week} planned ${form.frequency_per_week === 1 ? "completion" : "completions"}`} /><Summary label="On a hard day" value={minimum} /><Summary label="Reminder plan" value={issue ? "Choose a time that fits your cue" : reminderSummary(form, reminderContext)} /></div>{active ? <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={onEditPlan} className="min-h-11 rounded-xl bg-[#087F72] px-4 py-2 font-bold text-white hover:bg-[#06695F]">Edit weekly plan</button><button type="button" onClick={onEditReminders} className="min-h-11 rounded-xl border border-[#9DCFC3] px-4 py-2 font-bold text-[#087F72] hover:bg-[#EAFBF8]">Change reminder plan</button></div> : null}</section>;
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
@@ -360,6 +389,7 @@ function errorMessage(code: string | undefined) {
   if (code === "choose_reminder_timing") return "Choose when reminder support would be useful for this practice.";
   if (code === "choose_reminder_time") return "Choose a valid local reminder time.";
   if (code === "reminder_in_quiet_hours") return "Choose a reminder time outside the quiet hours saved in Settings.";
+  if (code === "reminder_conflicts_with_cue") return "That reminder time does not fit your saved cue. Choose another time or reminder style.";
   if (code === "complete_required_steps") return "One of the earlier steps is incomplete. Go back and review your plan.";
   return "We could not save that step. Please try again.";
 }
@@ -368,7 +398,7 @@ function optionalNumber(value: string): number | null {
   return value === "" ? null : Number(value);
 }
 
-function validateStep(step: number, form: FormState): string | null {
+function validateStep(step: number, form: FormState, reminderContext: ReminderContext): string | null {
   if (step === 2) {
     const quantity = normalizePracticeQuantityFields({
       target_quantity: form.target_quantity,
@@ -393,12 +423,20 @@ function validateStep(step: number, form: FormState): string | null {
     });
     if (!quantity.ok) return "Enter a positive minimum amount and unit, or leave the structured minimum blank.";
   }
+  if (step === 5 && form.reminder_preference === "email") {
+    const effectiveHour = form.reminder_timing === "account_default" ? reminderContext.cue_hour : form.reminder_hour;
+    if (isQuietHour(effectiveHour, reminderContext.quiet_start_hour, reminderContext.quiet_end_hour)) {
+      return "Choose a reminder time outside the quiet hours saved in Settings.";
+    }
+    const issue = reminderPlanIssue({ cue: form.cue, timing: form.reminder_timing === "account_default" ? "at_cue" : form.reminder_timing, hour: effectiveHour });
+    if (issue) return `${issue.message} Choose a time that fits the cue or a different reminder style.`;
+  }
   return null;
 }
 
-function reminderSummary(form: FormState): string {
+function reminderSummary(form: FormState, reminderContext: ReminderContext): string {
   if (form.reminder_preference === "none") return "No email for this practice";
-  if (form.reminder_timing === "account_default") return "Use my account default";
+  if (form.reminder_timing === "account_default") return `Use my account default around ${formatHour(reminderContext.cue_hour)}`;
   const time = new Intl.DateTimeFormat("en-US", { hour: "numeric", timeZone: "UTC" })
     .format(new Date(Date.UTC(2026, 0, 1, form.reminder_hour)));
   if (form.reminder_timing === "prepare_before") return `Prepare beforehand around ${time}`;

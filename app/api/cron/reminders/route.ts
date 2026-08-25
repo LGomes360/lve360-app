@@ -11,6 +11,7 @@ import {
   skippedReminderIdempotencyKey,
 } from "@/lib/reminders";
 import { isReminderTiming, type ReminderKind, type ReminderTiming } from "@/lib/reminderSchedule";
+import { reminderPlanIssue } from "@/lib/reminderCoherence";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ type ExperimentRow = {
   action_label: string;
   minimum_version: string;
   frequency_per_week: number;
+  cue: string;
   reminder_timing: ReminderTiming | null;
   reminder_hour: number | null;
 };
@@ -37,7 +39,7 @@ export async function GET(req: NextRequest) {
   const admin = getSupabaseAdmin();
   const { data: experiments, error } = await admin
     .from("weekly_experiments")
-    .select("id, user_id, week_start, action_label, minimum_version, frequency_per_week, reminder_timing, reminder_hour")
+    .select("id, user_id, week_start, action_label, minimum_version, frequency_per_week, cue, reminder_timing, reminder_hour")
     .eq("status", "active")
     .eq("reminder_preference", "email")
     .limit(500);
@@ -131,6 +133,15 @@ export async function GET(req: NextRequest) {
         ? experiment.reminder_timing
         : "account_default";
       const cueHour = effectiveReminderHour(timing, experiment.reminder_hour, preference.cue_hour);
+      const cueIssue = reminderPlanIssue({
+        cue: experiment.cue,
+        timing: timing === "account_default" ? "at_cue" : timing,
+        hour: cueHour,
+      });
+      if (cueIssue) {
+        countSkip("cue_conflict");
+        continue;
+      }
       const completedDates = (completions ?? []).map((item) => item.completion_date);
       const evaluation = evaluateReminder({
         now,

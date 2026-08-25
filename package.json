@@ -67,6 +67,7 @@
     "qa:pr124": "node --experimental-strip-types src/_tests_/pr124CoachFallback.assert.ts && node src/_tests_/pr124Architecture.assert.mjs",
     "qa:pr125": "node --experimental-strip-types src/_tests_/pr125WeeklyPracticeQuantity.assert.ts && node src/_tests_/pr125Architecture.assert.mjs",
     "qa:pr126": "node --experimental-strip-types src/_tests_/pr126DailyIntention.assert.ts && node src/_tests_/pr126Architecture.assert.mjs",
+    "qa:pr127": "node --experimental-strip-types src/_tests_/pr127ReminderCueCoherence.assert.ts && node src/_tests_/pr127Architecture.assert.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
     "qa:all": "npm run qa:env && npm run qa:build"

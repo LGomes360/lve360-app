@@ -14,6 +14,7 @@ import { resolveBlueprintActionFromRequest } from "@/lib/blueprintActionHandoff"
 import { isHour, isIanaTimeZone } from "@/lib/accountSettings";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
+import { reminderPlanIssue } from "@/lib/reminderCoherence";
 import { isQuietHour, isReminderTiming } from "@/lib/reminderSchedule";
 import { isUsableMinimumVersionText, normalizePracticeQuantityFields } from "@/lib/practiceQuantity";
 import {
@@ -153,7 +154,7 @@ export async function GET(req: NextRequest) {
       getOrCreateExperiment(req, auth.user.id),
       getSupabaseAdmin()
         .from("user_preferences")
-        .select("timezone, quiet_start_hour, quiet_end_hour")
+        .select("timezone, cue_hour, quiet_start_hour, quiet_end_hour")
         .eq("user_id", auth.user.id)
         .maybeSingle(),
       loadGoalOptions(auth.user.id),
@@ -164,6 +165,7 @@ export async function GET(req: NextRequest) {
       experiment,
       reminder_context: {
         timezone: preferences?.timezone ?? "UTC",
+        cue_hour: preferences?.cue_hour ?? 18,
         quiet_start_hour: preferences?.quiet_start_hour ?? 21,
         quiet_end_hour: preferences?.quiet_end_hour ?? 7,
       },
@@ -280,17 +282,26 @@ export async function PUT(req: NextRequest) {
       ) {
         return NextResponse.json({ ok: false, error: "choose_reminder_time" }, { status: 400 });
       }
-      if (usesPracticeHour) {
+      if (body.reminder_preference === "email") {
         const { data: preferences, error: preferencesError } = await getSupabaseAdmin()
           .from("user_preferences")
-          .select("quiet_start_hour, quiet_end_hour")
+          .select("cue_hour, quiet_start_hour, quiet_end_hour")
           .eq("user_id", auth.user.id)
           .maybeSingle();
         if (preferencesError) throw preferencesError;
+        const effectiveHour = usesPracticeHour ? Number(body.reminder_hour) : preferences?.cue_hour ?? 18;
         const quietStartHour = preferences?.quiet_start_hour ?? 21;
         const quietEndHour = preferences?.quiet_end_hour ?? 7;
-        if (isQuietHour(Number(body.reminder_hour), quietStartHour, quietEndHour)) {
+        if (isQuietHour(effectiveHour, quietStartHour, quietEndHour)) {
           return NextResponse.json({ ok: false, error: "reminder_in_quiet_hours" }, { status: 400 });
+        }
+        const issue = reminderPlanIssue({
+          cue: experiment.cue,
+          timing: body.reminder_timing === "account_default" ? "at_cue" : body.reminder_timing,
+          hour: effectiveHour,
+        });
+        if (issue) {
+          return NextResponse.json({ ok: false, error: issue.code }, { status: 400 });
         }
       }
       changes.reminder_preference = body.reminder_preference;

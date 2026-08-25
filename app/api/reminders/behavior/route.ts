@@ -9,6 +9,7 @@ import {
   type ReminderBehaviorSuggestion,
   type ReminderFeedbackType,
 } from "@/lib/reminderBehavior";
+import { reminderPlanIssue } from "@/lib/reminderCoherence";
 import { effectiveReminderHour, isQuietHour, localClock } from "@/lib/reminderSchedule";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -17,6 +18,7 @@ export const revalidate = 0;
 
 type ExperimentRow = {
   id: string;
+  cue: string;
   reminder_preference: "none" | "email";
   reminder_timing: "account_default" | "prepare_before" | "at_cue" | "next_day";
   reminder_hour: number | null;
@@ -46,7 +48,7 @@ async function loadBehavior(userId: string) {
   const [experimentResult, preferenceResult] = await Promise.all([
     admin
       .from("weekly_experiments")
-      .select("id, reminder_preference, reminder_timing, reminder_hour")
+      .select("id, cue, reminder_preference, reminder_timing, reminder_hour")
       .eq("user_id", userId)
       .eq("status", "active")
       .order("updated_at", { ascending: false })
@@ -142,14 +144,21 @@ async function loadBehavior(userId: string) {
         completionHours,
       })
     : null;
-  const alreadyResolved = candidate
-    ? (adjustmentResult.data ?? []).some((row) => sameReminderSuggestion(candidate, row))
+  const coherentCandidate = candidate?.kind === "time" && reminderPlanIssue({
+    cue: activeExperiment.cue,
+    timing: activeExperiment.reminder_timing === "account_default" ? "at_cue" : activeExperiment.reminder_timing,
+    hour: candidate.proposedHour,
+  })
+    ? null
+    : candidate;
+  const alreadyResolved = coherentCandidate
+    ? (adjustmentResult.data ?? []).some((row) => sameReminderSuggestion(coherentCandidate, row))
     : false;
 
   return {
     experiment: activeExperiment,
     preference,
-    suggestion: alreadyResolved ? null : candidate,
+    suggestion: alreadyResolved ? null : coherentCandidate,
     feedbackCount: feedback.length,
   };
 }
