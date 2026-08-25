@@ -19,7 +19,24 @@ type Usage = {
   turns: number;
   estimatedCostUsd: number;
   limit: { monthlyTurns: number; monthlyCostUsd: number };
+  allowance?: { baseTurns: number; bonusTurns: number; totalTurns: number };
+  period?: { startAt: string; resetAt: string };
+  remaining?: number;
+  exhausted?: boolean;
+  limitedBy?: "turns" | "cost" | null;
 };
+
+function resetDateLabel(resetAt: string | undefined) {
+  if (!resetAt) return null;
+  const date = new Date(resetAt);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
 
 export default function AskLve360Coach() {
   const pathname = usePathname() ?? "/today";
@@ -141,7 +158,13 @@ export default function AskLve360Coach() {
     }
   }
 
-  const remaining = usage ? Math.max(0, usage.limit.monthlyTurns - usage.turns) : null;
+  const totalAllowance = usage?.allowance?.totalTurns ?? usage?.limit.monthlyTurns ?? null;
+  const remaining = usage
+    ? usage.remaining ?? Math.max(0, usage.limit.monthlyTurns - usage.turns)
+    : null;
+  const exhausted = usage?.exhausted ?? remaining === 0;
+  const resetLabel = resetDateLabel(usage?.period?.resetAt);
+  const bonusTurns = usage?.allowance?.bonusTurns ?? 0;
 
   return (
     <>
@@ -175,13 +198,23 @@ export default function AskLve360Coach() {
                   <p className="mt-1 text-sm text-[#486170]">Personalized using your LVE360 health record, evidence library, and safety rules.</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  {remaining !== null ? <span className="hidden rounded-full bg-[#EAFBF8] px-3 py-1.5 text-xs font-bold text-[#06695F] sm:inline">{remaining} left this month</span> : null}
+                  {remaining !== null && totalAllowance !== null ? (
+                    <div className="hidden text-right sm:block">
+                      <span className="inline-flex rounded-full bg-[#EAFBF8] px-3 py-1.5 text-xs font-bold text-[#06695F]">{remaining} of {totalAllowance} questions left</span>
+                      {resetLabel ? <p className="mt-1 text-[11px] font-semibold text-[#60798A]">Resets {resetLabel}</p> : null}
+                    </div>
+                  ) : null}
                   <button ref={closeButtonRef} type="button" onClick={closeCoach} className="rounded-lg p-2 text-[#486170] hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72]" aria-label="Close Ask LVE360">
                     <X className="h-5 w-5" aria-hidden="true" />
                   </button>
                 </div>
               </div>
-              {remaining !== null ? <p className="mt-2 text-xs font-semibold text-[#486170] sm:hidden">{remaining} coaching question{remaining === 1 ? "" : "s"} remaining this month</p> : null}
+              {remaining !== null && totalAllowance !== null ? (
+                <p className="mt-2 text-xs font-semibold text-[#486170] sm:hidden">
+                  {remaining} of {totalAllowance} coaching questions left{resetLabel ? ` · Resets ${resetLabel}` : ""}
+                </p>
+              ) : null}
+              {bonusTurns > 0 ? <p className="mt-2 text-xs font-semibold text-[#087F72]">Includes {bonusTurns} approved testing question{bonusTurns === 1 ? "" : "s"} for this period.</p> : null}
             </header>
 
             <div ref={transcriptRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
@@ -255,27 +288,39 @@ export default function AskLve360Coach() {
             </div>
 
             <footer className="shrink-0 border-t border-[#9DCFC3] bg-white px-4 py-3 sm:px-6 lg:px-8">
-              <form onSubmit={ask} className="mx-auto flex w-full max-w-5xl items-end gap-2">
-                <label htmlFor="coach-question" className="sr-only">Ask LVE360 a question</label>
-                <textarea
-                  id="coach-question"
-                  value={question}
-                  onChange={(event) => setQuestion(event.target.value.slice(0, 500))}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      void ask();
-                    }
-                  }}
-                  rows={2}
-                  placeholder="Ask about your next small step…"
-                  className="min-h-12 max-h-32 flex-1 resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm text-[#041B2D] focus:border-[#087F72] focus:outline-none focus:ring-2 focus:ring-[#087F72]/20"
-                  disabled={loading || remaining === 0}
-                />
-                <button type="submit" disabled={loading || question.trim().length < 4 || remaining === 0} className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#087F72] text-white hover:bg-[#06695F] disabled:cursor-not-allowed disabled:opacity-50" aria-label="Send question">
-                  <Send className="h-5 w-5" aria-hidden="true" />
-                </button>
-              </form>
+              {exhausted ? (
+                <div className="mx-auto w-full max-w-5xl rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+                  <p className="font-black">You have used your Ask LVE360 questions for this period.</p>
+                  <p className="mt-1 text-sm leading-6">{resetLabel ? `Questions become available again on ${resetLabel}. ` : ""}Your saved records and the rest of your membership remain available.</p>
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm font-bold">
+                    <Link href="/today" onClick={closeCoach} className="underline decoration-amber-400 underline-offset-4">Open Today</Link>
+                    <Link href="/blueprints" onClick={closeCoach} className="underline decoration-amber-400 underline-offset-4">Review Blueprint</Link>
+                    <Link href="/contact" onClick={closeCoach} className="underline decoration-amber-400 underline-offset-4">Contact support</Link>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={ask} className="mx-auto flex w-full max-w-5xl items-end gap-2">
+                  <label htmlFor="coach-question" className="sr-only">Ask LVE360 a question</label>
+                  <textarea
+                    id="coach-question"
+                    value={question}
+                    onChange={(event) => setQuestion(event.target.value.slice(0, 500))}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        void ask();
+                      }
+                    }}
+                    rows={2}
+                    placeholder="Ask about your next small step…"
+                    className="min-h-12 max-h-32 flex-1 resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm text-[#041B2D] focus:border-[#087F72] focus:outline-none focus:ring-2 focus:ring-[#087F72]/20"
+                    disabled={loading}
+                  />
+                  <button type="submit" disabled={loading || question.trim().length < 4} className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#087F72] text-white hover:bg-[#06695F] disabled:cursor-not-allowed disabled:opacity-50" aria-label="Send question">
+                    <Send className="h-5 w-5" aria-hidden="true" />
+                  </button>
+                </form>
+              )}
               <p className="mx-auto mt-2 w-full max-w-5xl text-[11px] leading-4 text-[#60798A]">Educational wellness coaching. Ask LVE360 can explain and compare options, but it cannot diagnose or silently change saved records. Medication and hormone changes require qualified professional guidance.</p>
             </footer>
           </section>
