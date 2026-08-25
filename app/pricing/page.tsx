@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import { track } from "@vercel/analytics/react";
 import CTAButton from "@/components/CTAButton";
 import IntakeModal from "@/components/intake/IntakeModal";
@@ -28,55 +28,58 @@ export default function Pricing() {
   return (
     <main className="relative overflow-hidden bg-gradient-to-b from-[#eafbf8] via-white to-[#f8f5fb] px-6 pb-20 pt-28">
       <div className="mx-auto max-w-5xl text-center">
-        <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-700">LVE360 membership</p>
-        <h1 className="mt-4 text-4xl font-extrabold tracking-tight text-[#041b2d] sm:text-5xl">Turn your Blueprint into a healthier way of living.</h1>
-        <p className="mx-auto mt-5 max-w-3xl text-lg leading-8 text-slate-600">Start free with clarity about your health and supplement plan. Join when you want a focused weekly system that helps small, meaningful actions become part of who you are.</p>
+        <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-700">Free clarity. Ongoing guidance when you want it.</p>
+        <h1 className="mt-4 text-4xl font-extrabold tracking-tight text-[#041b2d] sm:text-5xl">Start with a free Blueprint. Upgrade for a system that adapts with you.</h1>
+        <p className="mx-auto mt-5 max-w-3xl text-lg leading-8 text-slate-600">Your free Blueprint organizes the health picture you share. Membership turns that snapshot into a living daily system that helps answer three recurring questions: What matters now? Why this? What is working?</p>
       </div>
 
       <div className="mx-auto mt-14 grid max-w-5xl gap-7 md:grid-cols-2">
         <section className="flex flex-col rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-          <h2 className="text-2xl font-bold text-[#041b2d]">Free Blueprint</h2>
-          <p className="mt-2 text-slate-600">Get clarity before you commit.</p>
+          <p className="text-sm font-bold uppercase tracking-wider text-slate-500">Personalized snapshot</p>
+          <h2 className="mt-1 text-2xl font-bold text-[#041b2d]">Free Blueprint</h2>
+          <p className="mt-2 text-slate-600">Know where you stand before you commit.</p>
           <p className="mt-7 text-4xl font-extrabold text-[#041b2d]">$0</p>
           <ul className="mt-7 flex-1 space-y-4 text-left text-slate-700">
-            <li>✓ Current stack and context review</li>
+            <li>✓ Goals, routines, stack, and health context organized</li>
             <li>✓ Prioritized personalized Blueprint</li>
             <li>✓ Evidence and safety context</li>
-            <li>✓ Lifestyle foundations and next-step ideas</li>
+            <li>✓ Lifestyle foundations and starting-point ideas</li>
           </ul>
           <CTAButton onClick={openIntake} variant="secondary" fullWidth className="mt-8">Get your free Blueprint</CTAButton>
+          <p className="mt-4 text-center text-xs leading-5 text-slate-500">A dated report based on the information you provide. No purchase required.</p>
         </section>
 
         <section className="relative flex flex-col rounded-3xl border-2 border-[#06a98e] bg-white p-8 shadow-xl shadow-teal-900/10">
-          <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#06a98e] px-3 py-1 text-sm font-semibold text-white">For the weekly practice</span>
-          <h2 className="text-2xl font-bold text-[#041b2d]">Membership</h2>
-          <p className="mt-2 text-slate-600">Keep the right next action visible.</p>
+          <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#06a98e] px-3 py-1 text-sm font-semibold text-white">Living decision system</span>
+          <h2 className="text-2xl font-bold text-[#041b2d]">LVE360 Membership</h2>
+          <p className="mt-2 text-slate-600">Know what to do next and why it fits you.</p>
           <ul className="mt-7 flex-1 space-y-4 text-left text-slate-700">
             <li>✓ Everything in Free</li>
-            <li>✓ One focused weekly practice</li>
-            <li>✓ Today&apos;s active plan and optional check-ins</li>
-            <li>✓ Progress view and ongoing plan updates</li>
-            <li>✓ Blueprint and PDF access in one place</li>
+            <li>✓ One prioritized daily action with a clear reason</li>
+            <li>✓ Weekly practice with a smaller version for hard days</li>
+            <li>✓ Routine, reminders, and optional check-ins</li>
+            <li>✓ Progress reviews that inform what comes next</li>
+            <li>✓ Ask LVE360 coaching grounded in your saved record</li>
           </ul>
           <div className="mt-7 grid gap-3 sm:grid-cols-2">
             <CTAButton onClick={() => selectPlan("monthly")} variant="primary" fullWidth>$15 / month</CTAButton>
             <CTAButton onClick={() => selectPlan("annual")} variant="secondary" fullWidth className="bg-amber-300 text-slate-900 hover:bg-amber-400">$100 / year</CTAButton>
           </div>
-          <p className="mt-3 text-center text-sm text-slate-500">Annual membership saves $80 per year. Cancel anytime.</p>
+          <p className="mt-3 text-center text-sm text-slate-500">Annual membership saves $80 per year and costs less than $2 per week. Cancel anytime.</p>
           <p className="mt-2 text-center text-xs leading-5 text-slate-500">You will sign in or create access with the email you want attached to your membership.</p>
         </section>
       </div>
 
       <section className="mx-auto mt-20 max-w-5xl">
         <div className="text-center">
-          <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-700">Your first seven days</p>
-          <h2 className="mt-3 text-3xl font-bold text-[#041b2d]">Start small. Learn what works. Build from there.</h2>
+          <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-700">Why membership stays useful</p>
+          <h2 className="mt-3 text-3xl font-bold text-[#041b2d]">What LVE360 knows, decides, and learns</h2>
         </div>
         <div className="mt-8 grid gap-5 md:grid-cols-3">
           {[
-            ["Day 1", "Bring your Blueprint into the dashboard and choose one weekly practice that supports the person you want to become."],
-            ["Days 2 to 6", "Keep that action visible in Today's Plan and use short check-ins when they help you notice patterns."],
-            ["Day 7", "Review what happened, recognize the progress you made, and adjust your next focus without starting over."],
+            ["Knows your context", "Your goals, routines, medications, supplements, preferences, and saved changes stay connected in one record."],
+            ["Decides what matters now", "LVE360 uses that context to surface a realistic next action and explain the facts behind it."],
+            ["Learns from what you record", "Check-ins, completions, and weekly reviews create evidence that helps the system keep future guidance relevant."],
           ].map(([title, description]) => (
             <article key={title} className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
               <h3 className="font-bold text-[#041b2d]">{title}</h3>
@@ -90,8 +93,8 @@ export default function Pricing() {
         <h2 className="text-center text-3xl font-bold text-[#041b2d]">What membership is and is not</h2>
         <div className="mt-8 grid gap-5 md:grid-cols-3">
           {[
-            ["A focused loop", "A clear weekly practice, a lightweight check-in, and a review of progress. It is not an endless list of tasks."],
-            ["A grounded second look", "Organize your stack and questions so you can make better-informed decisions and know when to involve a clinician."],
+            ["A focused loop", "One daily priority, a clear weekly practice, and a useful review. It is not an endless list of tasks."],
+            ["A grounded second look", "Ask questions using the health record you saved, with evidence limits and clear guidance about when to involve a clinician."],
             ["Not medical care", "LVE360 is educational wellness guidance. It does not diagnose, treat, or replace a clinician or healthcare provider."],
           ].map(([title, description]) => (
             <article key={title} className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
@@ -108,7 +111,7 @@ export default function Pricing() {
           {[
             ["1", "Sign in", "Use the email you want connected to your LVE360 membership."],
             ["2", "Check out securely", "Choose monthly or annual billing and complete payment through Stripe."],
-            ["3", "Open your dashboard", "After confirmation, return to LVE360 and begin your first weekly practice."],
+            ["3", "Open your dashboard", "After confirmation, return to LVE360 and see the next action connected to your goals and current plan."],
           ].map(([number, title, description]) => (
             <article key={number}>
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-400 font-bold text-[#041b2d]">{number}</div>
