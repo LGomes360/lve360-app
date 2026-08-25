@@ -16,6 +16,7 @@ import {
   type CoachTurn,
 } from "@/lib/contextualCoach";
 import { coachBudget } from "@/lib/contextualCoachBudget";
+import { coachLimitAnswer, coachPeriod, coachUsageSummary } from "@/lib/coachAllowance";
 import { coachActionFromRow, type ProposedWeeklyPractice } from "@/lib/coachActions";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -40,24 +41,37 @@ function authResponse(error: "unauthorized" | "premium_required") {
   return NextResponse.json({ ok: false, error }, { status: error === "unauthorized" ? 401 : 403 });
 }
 
-function monthStart() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+function adjustmentTableUnavailable(error: { code?: string | null } | null) {
+  return error?.code === "42P01" || error?.code === "PGRST205";
 }
 
 async function usage(userId: string) {
   const admin = getSupabaseAdmin();
-  const since = monthStart();
-  const [turnResult, costResult] = await Promise.all([
+  const now = new Date();
+  const period = coachPeriod(now);
+  const [turnResult, costResult, adjustmentResult] = await Promise.all([
     admin.from("ai_coaching_turns").select("id", { count: "exact", head: true })
-      .eq("user_id", userId).gte("created_at", since),
+      .eq("user_id", userId).neq("generation_status", "limited")
+      .gte("created_at", period.startAt).lt("created_at", period.resetAt),
     admin.from("ai_generation_ledger").select("estimated_cost_usd")
-      .eq("user_id", userId).eq("task", "contextual_coach").gte("created_at", since),
+      .eq("user_id", userId).eq("task", "contextual_coach")
+      .gte("created_at", period.startAt).lt("created_at", period.resetAt),
+    admin.from("ai_coach_allowance_adjustments").select("additional_turns")
+      .eq("user_id", userId).eq("period_start", period.periodStart).maybeSingle(),
   ]);
   if (turnResult.error) throw turnResult.error;
   if (costResult.error) throw costResult.error;
+  if (adjustmentResult.error && !adjustmentTableUnavailable(adjustmentResult.error)) {
+    throw adjustmentResult.error;
+  }
   const estimatedCostUsd = (costResult.data ?? []).reduce((sum, item) => sum + Number(item.estimated_cost_usd ?? 0), 0);
-  return { turns: turnResult.count ?? 0, estimatedCostUsd, limit: coachBudget() };
+  return coachUsageSummary({
+    turns: turnResult.count ?? 0,
+    estimatedCostUsd,
+    bonusTurns: adjustmentResult.data?.additional_turns ?? 0,
+    limit: coachBudget(),
+    now,
+  });
 }
 
 async function saveTurn(userId: string, values: Record<string, unknown>) {
@@ -157,11 +171,11 @@ export async function POST(req: NextRequest) {
     }
 
     const currentUsage = await usage(auth.user.id);
-    if (currentUsage.turns >= currentUsage.limit.monthlyTurns || currentUsage.estimatedCostUsd >= currentUsage.limit.monthlyCostUsd) {
+    if (currentUsage.exhausted) {
       const turn = await saveTurn(auth.user.id, {
         page_context: page,
         question,
-        answer: "You have reached this month's Ask LVE360 allowance. Your dashboard and saved records remain available, and your coaching allowance resets at the start of next month.",
+        answer: coachLimitAnswer(currentUsage),
         response_source: "budget",
         generation_status: "limited",
         source_refs: [],

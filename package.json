@@ -70,6 +70,8 @@
     "qa:pr127": "node --experimental-strip-types src/_tests_/pr127ReminderCueCoherence.assert.ts && node src/_tests_/pr127Architecture.assert.mjs",
     "qa:pr128": "node --experimental-strip-types src/_tests_/pr128TodayDecisionSpine.assert.ts && node src/_tests_/pr128Architecture.assert.mjs",
     "qa:pr129": "node src/_tests_/pr129PublicPromise.assert.mjs",
+    "qa:pr130": "node --experimental-strip-types src/_tests_/pr130CoachAllowance.assert.ts && node src/_tests_/pr130Architecture.assert.mjs",
+    "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
     "qa:all": "npm run qa:env && npm run qa:build"
