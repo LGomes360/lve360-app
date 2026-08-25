@@ -24,6 +24,7 @@ assert.match(action, /Why this matters for you/);
 assert.match(action, /Minimum version if today gets hard/);
 assert.match(action, /Saved direction:/, "identity language must be visibly tied to a saved record");
 assert.match(action, /blueprintNotice\?\.tone !== "urgent"/, "an unresolved safety failure must suppress the competing lifestyle decision");
+assert.ok(action.indexOf("Highest-value action today") < action.indexOf("{children}"), "the action must appear before supporting insight on a small screen");
 
 assert.match(insight, /What LVE360 noticed/);
 assert.match(insight, /Why this matters today/);

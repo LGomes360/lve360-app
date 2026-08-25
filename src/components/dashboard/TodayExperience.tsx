@@ -189,7 +189,6 @@ export default function TodayExperience({
             <strong>Phone-free check-in:</strong> Record whether the practice happened on {formatCheckinDate(localDate)}. You did not need to reopen LVE360 after the habit.
           </div>
         ) : null}
-        {children ? <div className="mb-6">{children}</div> : null}
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
             <p className="flex items-center gap-2 text-sm font-semibold text-[#087F72]">
@@ -207,6 +206,8 @@ export default function TodayExperience({
           </div>
           <a href="/onboarding" className="shrink-0 text-sm font-semibold text-[#087F72] hover:underline">Review practice</a>
         </div>
+
+        {children ? <div className="mt-6">{children}</div> : null}
 
         <div className="mt-7 rounded-2xl border border-[#BCE3DA] bg-[#F4FAF8] p-4 sm:p-5">
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">Minimum version if today gets hard</p>
