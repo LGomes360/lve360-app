@@ -9,6 +9,7 @@ import {
   normalizePreferredName,
 } from "@/lib/accountSettings";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
+import { isQuietHour } from "@/lib/reminderSchedule";
 
 export async function GET() {
   const supabase = createRouteHandlerClient({ cookies });
@@ -73,6 +74,12 @@ export async function PATCH(req: NextRequest) {
   ) {
     return NextResponse.json({ ok: false, error: "invalid_preferences" }, { status: 400 });
   }
+  if (
+    body.reminder_preference === "email"
+    && isQuietHour(body.cue_hour, body.quiet_start_hour, body.quiet_end_hour)
+  ) {
+    return NextResponse.json({ ok: false, error: "default_reminder_in_quiet_hours" }, { status: 400 });
+  }
 
   const { data: currentPreferences } = await supabase
     .from("user_preferences")
@@ -119,5 +126,40 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "preferences_unavailable" }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, preferences: payload });
+  const { data: customReminders, error: customReminderError } = await supabase
+    .from("weekly_experiments")
+    .select("id, reminder_hour")
+    .eq("user_id", user.id)
+    .in("status", ["draft", "active"])
+    .in("reminder_timing", ["prepare_before", "at_cue", "next_day"])
+    .not("reminder_hour", "is", null);
+  if (customReminderError) {
+    console.error("[account] custom reminder load failed", customReminderError.message);
+    return NextResponse.json({ ok: false, error: "preferences_unavailable" }, { status: 500 });
+  }
+
+  const conflictingIds = (customReminders ?? [])
+    .filter((item) => isQuietHour(Number(item.reminder_hour), body.quiet_start_hour, body.quiet_end_hour))
+    .map((item) => item.id);
+  if (conflictingIds.length > 0) {
+    const { error: resetError } = await supabase
+      .from("weekly_experiments")
+      .update({
+        reminder_timing: "account_default",
+        reminder_hour: null,
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", conflictingIds)
+      .eq("user_id", user.id);
+    if (resetError) {
+      console.error("[account] conflicting reminder reset failed", resetError.message);
+      return NextResponse.json({ ok: false, error: "preferences_unavailable" }, { status: 500 });
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    preferences: payload,
+    practice_reminders_reset: conflictingIds.length,
+  });
 }

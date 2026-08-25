@@ -3,15 +3,16 @@ import { readFileSync } from "node:fs";
 
 const activationRoute = readFileSync("app/api/activation/route.ts", "utf8");
 const onboarding = readFileSync("app/onboarding/OnboardingHandoffClient.tsx", "utf8");
+const reminderCoherence = readFileSync("src/lib/reminderCoherence.ts", "utf8");
 
 assert.match(activationRoute, /quiet_start_hour, quiet_end_hour/);
 assert.match(activationRoute, /experiment\.status === "active" && step === 6/);
 assert.match(activationRoute, /reminder_in_quiet_hours/);
 assert.doesNotMatch(activationRoute, /experiment\.status === "active" && step !== 5/);
 
-assert.match(onboarding, /Array\.from\(\{ length: 24 \}/);
-assert.match(onboarding, /filter\(\(hour\) => !isQuietHour/);
-assert.match(onboarding, /Your quiet hours are \{formatHour\(quietStartHour\)\} to \{formatHour\(quietEndHour\)\}/);
+assert.match(reminderCoherence, /Array\.from\(\{ length: 24 \}/);
+assert.match(reminderCoherence, /!isQuietHour/);
+assert.match(onboarding, /exclude quiet hours from \{formatHour\(quietStartHour\)\} to \{formatHour\(quietEndHour\)\}/);
 assert.doesNotMatch(onboarding, /9 PM through 7 AM quiet window/);
 assert.match(onboarding, /Edit weekly plan/);
 assert.match(onboarding, /This week's direction/);

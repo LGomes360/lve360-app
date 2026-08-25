@@ -24,6 +24,12 @@ type AccountResponse = {
   error?: string;
 };
 
+type AccountSaveResponse = {
+  ok?: boolean;
+  error?: string;
+  practice_reminders_reset?: number;
+};
+
 const supportEmail = "support@lve360.com";
 
 export default function SettingsPage() {
@@ -79,12 +85,22 @@ export default function SettingsPage() {
           quiet_end_hour: account.quiet_end_hour,
         }),
       });
-      const body = await response.json();
+      const body = (await response.json()) as AccountSaveResponse;
       if (!response.ok) throw new Error(body?.error ?? "preferences_unavailable");
       window.localStorage.setItem("lve360_weight_unit", account.weight_unit);
-      setNotice({ tone: "success", message: "Your preferences are saved." });
-    } catch {
-      setNotice({ tone: "error", message: "We could not save your preferences. Please try again." });
+      setNotice({
+        tone: "success",
+        message: body.practice_reminders_reset
+          ? "Your preferences are saved. A weekly reminder that entered quiet hours now uses your account default time."
+          : "Your preferences are saved.",
+      });
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        message: error instanceof Error && error.message === "default_reminder_in_quiet_hours"
+          ? "Your default reminder time must be outside your quiet hours."
+          : "We could not save your preferences. Please try again.",
+      });
     } finally {
       setSaving(false);
     }
