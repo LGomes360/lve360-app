@@ -31,6 +31,7 @@ export default function TodayClient({
   activationProgress: PremiumActivationProgress;
 }) {
   const [firstActionComplete, setFirstActionComplete] = useState(activationProgress.firstActionComplete);
+  const [briefVersion, setBriefVersion] = useState(0);
   const visibleProgress = { ...activationProgress, firstActionComplete };
 
   useEffect(() => {
@@ -61,9 +62,10 @@ export default function TodayClient({
               practiceConnection={practiceConnection}
               initialCompletionDate={checkinDate}
               onCompletionStateChange={setFirstActionComplete}
-            />
-
-            <AiTodayBrief date={checkinDate} />
+              onTodayProgressChange={() => setBriefVersion((version) => version + 1)}
+            >
+              <AiTodayBrief key={`${checkinDate ?? "today"}-${briefVersion}`} date={checkinDate} />
+            </TodayExperience>
 
             <TodayRoutineAgenda />
 

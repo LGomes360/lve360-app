@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -41,6 +41,8 @@ export default function TodayExperience({
   practiceConnection,
   initialCompletionDate,
   onCompletionStateChange,
+  onTodayProgressChange,
+  children,
 }: {
   initialExperiment: WeeklyExperiment | null;
   blueprint: CurrentBlueprintContext | null;
@@ -48,6 +50,8 @@ export default function TodayExperience({
   practiceConnection: PracticeConnectionContext | null;
   initialCompletionDate: string | null;
   onCompletionStateChange?: (complete: boolean) => void;
+  onTodayProgressChange?: () => void;
+  children?: ReactNode;
 }) {
   const [localDate, setLocalDate] = useState("");
   const [experiment, setExperiment] = useState(initialExperiment);
@@ -111,6 +115,7 @@ export default function TodayExperience({
       setCompletions(json.completions ?? []);
       setWeekDays(json.bounds?.days ?? []);
       onCompletionStateChange?.((json.completions ?? []).length > 0);
+      onTodayProgressChange?.();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Your progress was not saved.");
     } finally {
@@ -129,6 +134,7 @@ export default function TodayExperience({
       setCompletions(json.completions ?? []);
       setWeekDays(json.bounds?.days ?? []);
       onCompletionStateChange?.((json.completions ?? []).length > 0);
+      onTodayProgressChange?.();
     } catch (undoError) {
       setError(undoError instanceof Error ? undoError.message : "We could not undo that completion.");
     } finally {
@@ -169,7 +175,7 @@ export default function TodayExperience({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8DE5D5]">Today</p>
-            <h1 id="today-heading" className="mt-1 text-2xl font-bold sm:text-3xl">Your focused action</h1>
+            <h1 id="today-heading" className="mt-1 text-2xl font-bold sm:text-3xl">Your best next step</h1>
           </div>
           <p className="max-w-md text-sm leading-6 text-white/75">One useful action is enough to move this week forward.</p>
         </div>
@@ -177,7 +183,7 @@ export default function TodayExperience({
 
       {blueprintNotice?.tone === "urgent" ? <TodayBlueprintNoticeBanner notice={blueprintNotice} /> : null}
 
-      <div className="p-6 sm:p-8">
+      {blueprintNotice?.tone !== "urgent" ? <div className="p-6 sm:p-8">
         {recordingPastDate ? (
           <div className="mb-6 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm leading-6 text-violet-950">
             <strong>Phone-free check-in:</strong> Record whether the practice happened on {formatCheckinDate(localDate)}. You did not need to reopen LVE360 after the habit.
@@ -186,10 +192,13 @@ export default function TodayExperience({
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
             <p className="flex items-center gap-2 text-sm font-semibold text-[#087F72]">
-              <Sparkles className="h-4 w-4" /> This week&apos;s direction: {identityLabel(experiment.identity_direction)}
+              <Sparkles className="h-4 w-4" /> Highest-value action today
             </p>
             <h2 className="mt-3 text-3xl font-bold leading-tight text-[#041B2D] sm:text-4xl">{experiment.action_label}</h2>
-            {practiceConnection ? <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-slate-200"><span className="text-[#087F72]">Why this matters:</span> {practiceConnection.summary}</p> : null}
+            {practiceConnection ? <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-slate-200"><span className="text-[#087F72]">Why this matters for you:</span> {practiceConnection.summary}</p> : null}
+            <p className="mt-4 text-sm font-semibold text-slate-600">
+              <span className="text-[#041B2D]">Saved direction:</span> {identityLabel(experiment.identity_direction)}
+            </p>
             <p className="mt-4 text-base leading-7 text-slate-600">
               <strong className="text-[#041B2D]">Your cue:</strong> {formatPracticeCue(experiment.cue)}
             </p>
@@ -198,8 +207,10 @@ export default function TodayExperience({
           <a href="/onboarding" className="shrink-0 text-sm font-semibold text-[#087F72] hover:underline">Review practice</a>
         </div>
 
+        {children ? <div className="mt-6">{children}</div> : null}
+
         <div className="mt-7 rounded-2xl border border-[#BCE3DA] bg-[#F4FAF8] p-4 sm:p-5">
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">The version that counts on a hard day</p>
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">Minimum version if today gets hard</p>
           <p className="mt-2 text-lg font-semibold text-[#041B2D]">{hasUsableMinimum ? experiment.minimum_version : "Choose a concrete hard-day version before recording it."}</p>
           {hasUsableMinimum && experiment.minimum_quantity != null && experiment.minimum_quantity_unit ? <p className="mt-1 text-sm text-slate-600">Structured minimum: {formatPracticeQuantity(experiment.minimum_quantity, experiment.minimum_quantity_unit)}</p> : null}
           {!hasUsableMinimum ? <a href="/onboarding" className="mt-3 inline-flex text-sm font-bold text-[#087F72] hover:underline">Review hard-day version <ArrowRight className="ml-1 h-4 w-4" /></a> : null}
@@ -294,7 +305,7 @@ export default function TodayExperience({
         </div>
 
         {blueprint ? <BlueprintConnectionDetails blueprint={blueprint} experimentBlueprint={experimentBlueprint} /> : null}
-      </div>
+      </div> : null}
     </section>
   );
 }

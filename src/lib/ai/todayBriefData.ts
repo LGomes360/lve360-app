@@ -11,9 +11,11 @@ import {
   deterministicTodayBrief,
   parseGeneratedTodayBrief,
   shouldGenerateTodayBrief,
+  todayBriefGrounding,
   TODAY_BRIEF_PROMPT_VERSION,
   type TodayBriefContent,
   type TodayBriefContext,
+  type TodayBriefGrounding,
 } from "@/lib/todayBrief";
 import { isReviewDue } from "@/lib/weeklyReview";
 import { isUrgentBlueprintSafety } from "@/lib/todaySurface";
@@ -44,13 +46,14 @@ export type TodayBrief = TodayBriefContent & {
   feedback: "useful" | "not_useful" | null;
   actionState: TodayBriefRow["action_state"];
   hidden: boolean;
+  grounding: TodayBriefGrounding;
 };
 
 function stableHash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-function rowToBrief(row: TodayBriefRow, now = new Date()): TodayBrief {
+function rowToBrief(row: TodayBriefRow, context: TodayBriefContext, now = new Date()): TodayBrief {
   const snoozed = row.action_state === "remind_later"
     && Boolean(row.remind_after)
     && new Date(row.remind_after as string).getTime() > now.getTime();
@@ -67,6 +70,7 @@ function rowToBrief(row: TodayBriefRow, now = new Date()): TodayBrief {
     feedback: row.feedback,
     actionState: row.action_state,
     hidden: snoozed || row.action_state === "dismissed",
+    grounding: todayBriefGrounding(context, row.source),
   };
 }
 
@@ -146,7 +150,7 @@ function generatedPrompt(context: TodayBriefContext) {
         "Return only valid JSON with exactly these string fields: noticed and why_it_matters.",
         "noticed must describe the supplied progress neutrally. Never use despite, failed, missed, behind, haven't, or should have.",
         "The weekly target counts completed practice sessions. It is never the number of pushups, minutes, meals, or other units inside the saved practice.",
-        "why_it_matters must explain the supplied explicit practice connection. Do not invent another goal, Blueprint link, or physiological, clinical, or performance benefit.",
+        "why_it_matters must explain why today is a useful moment for this saved practice based only on the supplied session progress. Do not restate the explicit practice connection or invent another goal, Blueprint link, physiological, clinical, or performance benefit.",
       ].join(" "),
     },
     {
@@ -201,7 +205,7 @@ export async function getOrCreateTodayBrief(userId: string, localDate: string): 
     .eq("context_hash", contextHash)
     .maybeSingle();
   if (existingError) throw existingError;
-  if (existing) return rowToBrief(existing as TodayBriefRow);
+  if (existing) return rowToBrief(existing as TodayBriefRow, context);
 
   const fallback = deterministicTodayBrief(context);
   const { data: claimed, error: claimError } = await admin
@@ -219,7 +223,7 @@ export async function getOrCreateTodayBrief(userId: string, localDate: string): 
       .eq("context_hash", contextHash)
       .single();
     if (racedError) throw racedError;
-    return rowToBrief(raced as TodayBriefRow);
+    return rowToBrief(raced as TodayBriefRow, context);
   }
   if (claimError || !claimed) throw claimError ?? new Error("today_brief_claim_failed");
 
@@ -231,7 +235,7 @@ export async function getOrCreateTodayBrief(userId: string, localDate: string): 
       .select("*")
       .single();
     if (error) throw error;
-    return rowToBrief(data as TodayBriefRow);
+    return rowToBrief(data as TodayBriefRow, context);
   }
 
   try {
@@ -262,7 +266,7 @@ export async function getOrCreateTodayBrief(userId: string, localDate: string): 
       .select("*")
       .single();
     if (error) throw error;
-    return rowToBrief(data as TodayBriefRow);
+    return rowToBrief(data as TodayBriefRow, context);
   } catch (error) {
     console.warn("[today-brief] generation unavailable; using saved fallback", error);
     const { data, error: updateError } = await admin
@@ -272,6 +276,6 @@ export async function getOrCreateTodayBrief(userId: string, localDate: string): 
       .select("*")
       .single();
     if (updateError) throw updateError;
-    return rowToBrief(data as TodayBriefRow);
+    return rowToBrief(data as TodayBriefRow, context);
   }
 }

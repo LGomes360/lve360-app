@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const TODAY_BRIEF_PROMPT_VERSION = "today-brief-v5";
+export const TODAY_BRIEF_PROMPT_VERSION = "today-brief-v6";
 
 export type TodayBriefPrimaryAction =
   | "mark_complete"
@@ -37,6 +37,12 @@ export type TodayBriefContent = {
   minimumVersion: string;
   primaryAction: TodayBriefPrimaryAction;
   primaryHref: string | null;
+};
+
+export type TodayBriefGrounding = {
+  confidence: "direct_record" | "limited_context";
+  confidenceLabel: "Direct record match" | "Limited personal context";
+  sourceLabel: string;
 };
 
 const GeneratedBriefSchema = z.object({
@@ -78,7 +84,7 @@ export function parseGeneratedTodayBrief(
 
   const fallback = deterministicTodayBrief(context);
   return {
-    noticed: text.noticed,
+    noticed: fallback.noticed,
     whyItMatters: text.why_it_matters,
     nextAction: fallback.nextAction,
     minimumVersion: fallback.minimumVersion,
@@ -94,6 +100,41 @@ export function shouldGenerateTodayBrief(context: TodayBriefContext): boolean {
     && !context.reviewDue
     && !context.blueprint?.urgentSafetyInterruption,
   );
+}
+
+export function todayBriefGrounding(
+  context: TodayBriefContext,
+  source: "ai" | "fallback",
+): TodayBriefGrounding {
+  if (context.blueprint?.urgentSafetyInterruption) {
+    return {
+      confidence: "direct_record",
+      confidenceLabel: "Direct record match",
+      sourceLabel: "Current Blueprint safety status",
+    };
+  }
+
+  if (context.experiment && context.reviewDue) {
+    return {
+      confidence: "direct_record",
+      confidenceLabel: "Direct record match",
+      sourceLabel: "Saved weekly plan and review date",
+    };
+  }
+
+  const connection = context.experiment?.connectionSummary.trim() ?? "";
+  const hasPersonalLink = Boolean(
+    connection
+    && !/^independently chosen/i.test(connection)
+    && !/needs review|unresolved/i.test(connection),
+  );
+  return {
+    confidence: hasPersonalLink ? "direct_record" : "limited_context",
+    confidenceLabel: hasPersonalLink ? "Direct record match" : "Limited personal context",
+    sourceLabel: source === "ai"
+      ? "Saved practice, recorded progress, and bounded AI synthesis"
+      : "Saved practice and recorded progress",
+  };
 }
 
 export function deterministicTodayBrief(context: TodayBriefContext): TodayBriefContent {
@@ -146,7 +187,9 @@ export function deterministicTodayBrief(context: TodayBriefContext): TodayBriefC
     noticed: remaining === 1
       ? "One more practice completion will keep your promise for this week."
       : `You have completed your practice ${context.experiment.completed} of ${context.experiment.target} planned times this week.`,
-    whyItMatters: context.experiment.connectionSummary,
+    whyItMatters: remaining === 1
+      ? "This is the smallest useful step that closes your saved weekly plan without adding another goal."
+      : "This keeps your saved weekly practice moving without adding another goal today.",
     nextAction: context.experiment.actionLabel,
     minimumVersion: context.experiment.minimumVersion,
     primaryAction: "mark_complete",

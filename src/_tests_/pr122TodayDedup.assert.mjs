@@ -7,7 +7,7 @@ const client = read("app/(app)/today/TodayClient.tsx");
 const focusedAction = read("src/components/dashboard/TodayExperience.tsx");
 const brief = read("src/components/dashboard/AiTodayBrief.tsx");
 
-assert.match(focusedAction, /Your focused action/, "TodayExperience must remain the authoritative action surface.");
+assert.match(focusedAction, /Your best next step/, "TodayExperience must remain the authoritative action surface.");
 assert.match(focusedAction, /I did it today/, "TodayExperience must retain the primary completion control.");
 assert.match(focusedAction, /I did the minimum version/, "TodayExperience must retain hard-day completion.");
 
