@@ -9,10 +9,10 @@ const canonicalUrl = "https://app.lve360.com";
 export const metadata = {
   metadataBase: new URL(canonicalUrl),
   title: {
-    default: "LVE360 | Build a healthier life, one week at a time",
+    default: "LVE360 | Know what matters today",
     template: "%s | LVE360",
   },
-  description: "Turn your health goals into small, repeatable actions with a personalized Blueprint and weekly system for longevity, vitality, and energy.",
+  description: "Start with a free personalized health Blueprint. Use LVE360 membership to choose the next useful action, understand why it matters, and learn what works.",
   alternates: {
     canonical: "./",
   },
@@ -20,13 +20,13 @@ export const metadata = {
     type: "website",
     url: canonicalUrl,
     siteName: "LVE360",
-    title: "LVE360 | Build a healthier life, one week at a time",
-    description: "Turn your health goals into small, repeatable actions with a personalized Blueprint and weekly system for longevity, vitality, and energy.",
+    title: "LVE360 | Know what matters today",
+    description: "Start with a free personalized health Blueprint. Use LVE360 membership to choose the next useful action, understand why it matters, and learn what works.",
   },
   twitter: {
     card: "summary_large_image",
-    title: "LVE360 | Build a healthier life, one week at a time",
-    description: "Turn your health goals into small, repeatable actions with a personalized Blueprint and weekly system for longevity, vitality, and energy.",
+    title: "LVE360 | Know what matters today",
+    description: "Start with a free personalized health Blueprint. Use LVE360 membership to choose the next useful action, understand why it matters, and learn what works.",
   },
 };
 
