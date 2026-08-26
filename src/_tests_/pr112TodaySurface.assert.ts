@@ -59,6 +59,7 @@ const briefContext = (blueprintContext: TodayBriefContext["blueprint"]): TodayBr
     completedToday: false,
   },
   blueprint: blueprintContext,
+  checkIn: null,
   reviewDue: false,
 });
 

@@ -25,6 +25,7 @@ const connected: TodayBriefContext = {
     needsRefresh: false,
     safetyNeedsAttention: false,
   },
+  checkIn: null,
   reviewDue: false,
 };
 
