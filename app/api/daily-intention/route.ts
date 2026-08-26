@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
-const COLUMNS = "id,local_date,phrase,focus_word,source,suggestions,suggestion_source";
+const COLUMNS = "id,local_date,phrase,focus_word,source,suggestions,suggestion_source,prompt_version";
 
 async function requirePaidUser() {
   const supabase = createRouteHandlerClient({ cookies });
@@ -39,7 +39,8 @@ function authResponse(error: "unauthorized" | "premium_required") {
 
 function recordFromRow(row: Record<string, unknown> | null): DailyIntentionRecord | null {
   if (!row) return null;
-  const rawSuggestions = Array.isArray(row.suggestions) ? row.suggestions : [];
+  const suggestionsAreCurrent = row.prompt_version === DAILY_INTENTION_PROMPT_VERSION;
+  const rawSuggestions = suggestionsAreCurrent && Array.isArray(row.suggestions) ? row.suggestions : [];
   return {
     id: String(row.id),
     localDate: String(row.local_date),
@@ -79,7 +80,12 @@ export async function POST(req: NextRequest) {
     const { data, error } = await getSupabaseAdmin().from("daily_intentions").upsert({
       user_id: auth.user.id,
       local_date: body.date,
-      suggestions: result.suggestions.map((item) => ({ focus_word: item.focusWord, phrase: item.phrase })),
+      suggestions: result.suggestions.map((item) => ({
+        focus_word: item.focusWord,
+        phrase: item.phrase,
+        grounding_key: item.groundingKey,
+        why_this_fits: item.whyThisFits,
+      })),
       suggestion_source: result.source,
       suggestion_context_hash: result.contextHash,
       prompt_version: DAILY_INTENTION_PROMPT_VERSION,

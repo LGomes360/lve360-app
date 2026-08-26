@@ -97,6 +97,7 @@ export default function DailyIntentionCard({ date }: { date?: string | null }) {
   }
 
   if (record?.phrase && !editing) {
+    const selectedSuggestion = record.suggestions.find((item) => item.phrase === record.phrase) ?? null;
     return (
       <section className="overflow-hidden rounded-3xl border border-[#8CCFC1] bg-gradient-to-r from-[#EAFBF8] via-white to-[#F4EEFF] p-5 shadow-sm sm:p-6" aria-labelledby="daily-intention-title">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -104,6 +105,11 @@ export default function DailyIntentionCard({ date }: { date?: string | null }) {
             <p className="flex items-center text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]"><Check className="mr-2 h-4 w-4" /> Your intention today</p>
             <h2 id="daily-intention-title" className="mt-2 text-2xl font-black leading-tight text-[#041B2D]">{record.phrase}</h2>
             {record.focusWord ? <p className="mt-2 text-sm font-semibold text-[#486170]">Focus word: {record.focusWord}</p> : null}
+            {selectedSuggestion?.whyThisFits ? (
+              <p className="mt-3 max-w-2xl rounded-xl bg-white/75 px-3 py-2 text-sm leading-6 text-[#486170] ring-1 ring-[#D8EEE9]">
+                <span className="font-bold text-[#06695F]">Why this fits today:</span> {selectedSuggestion.whyThisFits}
+              </p>
+            ) : null}
           </div>
           <button type="button" onClick={() => setEditing(true)} className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-[#9DCFC3] bg-white px-4 py-2 text-sm font-bold text-[#06695F] hover:bg-[#F4FAF8]">
             <Pencil className="mr-2 h-4 w-4" /> Edit
@@ -159,14 +165,22 @@ export default function DailyIntentionCard({ date }: { date?: string | null }) {
                   </button>
                 </div>
               ) : (
-                <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                  {suggestions.map((suggestion: DailyIntentionSuggestion) => (
-                    <button key={suggestion.phrase} type="button" onClick={() => void saveIntention(suggestion.phrase, "ask_lve360", suggestion.focusWord)} disabled={busy !== null} className="rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-[#087F72] hover:shadow-sm disabled:opacity-60">
-                      <span className="text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">{suggestion.focusWord}</span>
-                      <span className="mt-2 block text-sm font-bold leading-6 text-[#041B2D]">{suggestion.phrase}</span>
-                      <span className="mt-3 block text-xs font-bold text-[#06695F]">Use this intention</span>
-                    </button>
-                  ))}
+                <div className="mt-4">
+                  <div className="grid gap-3 lg:grid-cols-3">
+                    {suggestions.map((suggestion: DailyIntentionSuggestion) => (
+                      <button key={suggestion.phrase} type="button" onClick={() => void saveIntention(suggestion.phrase, "ask_lve360", suggestion.focusWord)} disabled={busy !== null} className="rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-[#087F72] hover:shadow-sm disabled:opacity-60">
+                        <span className="text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">{suggestion.focusWord}</span>
+                        <span className="mt-2 block text-sm font-bold leading-6 text-[#041B2D]">{suggestion.phrase}</span>
+                        <span className="mt-3 block border-t border-slate-100 pt-3 text-xs leading-5 text-slate-600">
+                          <span className="font-bold text-[#486170]">Why this fits:</span> {suggestion.whyThisFits}
+                        </span>
+                        <span className="mt-3 block text-xs font-bold text-[#06695F]">Use this intention</span>
+                      </button>
+                    ))}
+                  </div>
+                  <button type="button" onClick={() => void askForIdeas()} disabled={busy !== null} className="mt-4 inline-flex min-h-11 items-center rounded-xl border border-[#9DCFC3] bg-white px-4 py-2 text-sm font-bold text-[#06695F] hover:bg-[#F4FAF8] disabled:opacity-60">
+                    {busy === "ideas" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Refresh with my latest LVE360 context
+                  </button>
                 </div>
               )}
             </div>

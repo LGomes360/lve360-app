@@ -74,6 +74,7 @@
     "qa:pr131": "node src/_tests_/pr131PaidBetaScorecard.assert.mjs",
     "qa:pr132": "node src/_tests_/pr132JourneyStory.assert.mjs",
     "qa:pr133": "node --experimental-strip-types src/_tests_/pr133TodayListensFirst.assert.ts && node src/_tests_/pr133Architecture.assert.mjs",
+    "qa:pr134": "node --experimental-strip-types src/_tests_/pr134PersonalIntentions.assert.ts && node src/_tests_/pr134Architecture.assert.mjs",
     "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
