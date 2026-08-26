@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import {
   ArrowRight,
   CheckCircle2,
@@ -88,6 +88,9 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
   const activeExperiment = data.experiments.find((item) => item.status === "active") ?? null;
   const completedReviews = data.reviews.filter((item) => item.status === "completed");
   const completionTotal = data.completions.length;
+  const activeCompletionCount = activeExperiment
+    ? data.completions.filter((item) => item.experiment_id === activeExperiment.id).length
+    : 0;
   const historyWeeks = Math.max(
     distinctWeeks(data.experiments.map((item) => item.week_start)),
     distinctWeeks(data.check_ins.map((item) => item.log_date)),
@@ -113,25 +116,15 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
 
   return (
     <div className="space-y-6">
-      <section aria-labelledby="journey-summary-title" className="rounded-3xl bg-[#041B2D] p-6 text-white sm:p-8">
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8DE5D5]">Your journey so far</p>
-        <h2 id="journey-summary-title" className="mt-2 text-2xl font-bold sm:text-3xl">
-          Small weeks become useful evidence.
-        </h2>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-white/75">
-          This view helps you remember what you tried and what you noticed. It does not diagnose health changes or prove that one behavior caused an outcome.
-        </p>
-        <dl className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <SummaryStat label="Weeks started" value={String(data.experiments.length)} />
-          <SummaryStat label="Practice completions" value={String(completionTotal)} />
-          <SummaryStat label="Weekly reviews" value={String(completedReviews.length)} />
-          <SummaryStat label="Check-in weeks" value={String(distinctWeeks(data.check_ins.map((item) => item.log_date)))} />
-        </dl>
-      </section>
+      <WeeklyLearningStory
+        activeExperiment={activeExperiment}
+        activeCompletionCount={activeCompletionCount}
+        experiments={data.experiments}
+        reviews={completedReviews}
+        syntheses={data.syntheses}
+      />
 
-      {data.blueprint ? <BlueprintJourneyContext blueprint={data.blueprint} /> : null}
-
-      {activeExperiment ? <CurrentChapter experiment={activeExperiment} connection={data.practice_connections[activeExperiment.id]} blueprintContext={data.experiment_blueprints[activeExperiment.id] ?? null} completed={data.completions.filter((item) => item.experiment_id === activeExperiment.id).length} /> : (
+      {activeExperiment ? <CurrentChapter experiment={activeExperiment} connection={data.practice_connections[activeExperiment.id]} blueprintContext={data.experiment_blueprints[activeExperiment.id] ?? null} completed={activeCompletionCount} /> : (
         <EmptyState
           title="Ready for a new focused week?"
           body="Your past weeks are saved below. Start another small experiment when you are ready."
@@ -140,39 +133,61 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
         />
       )}
 
-      <NextFocusPrompt
-        activeExperiment={activeExperiment}
-        blueprint={data.blueprint}
-        experiments={data.experiments}
-        experimentBlueprints={data.experiment_blueprints}
-        latestReview={latestReview}
-      />
+      <SupportingDetail title="Review the Blueprint and next-focus context" description="See how your weekly practice connects to longer-term priorities.">
+        {data.blueprint ? <BlueprintJourneyContext blueprint={data.blueprint} /> : null}
+        <NextFocusPrompt
+          activeExperiment={activeExperiment}
+          blueprint={data.blueprint}
+          experiments={data.experiments}
+          experimentBlueprints={data.experiment_blueprints}
+          latestReview={latestReview}
+        />
+      </SupportingDetail>
 
-      <DomainProgress summaries={domainSummaries} />
+      <SupportingDetail title="Explore your activity and weekly history" description="Open the counts, life areas, and complete record behind the story.">
+        <section aria-labelledby="journey-summary-title" className="rounded-3xl bg-[#041B2D] p-6 text-white sm:p-8">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8DE5D5]">Your journey so far</p>
+          <h2 id="journey-summary-title" className="mt-2 text-2xl font-bold sm:text-3xl">
+            Small weeks become useful evidence.
+          </h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-white/75">
+            This view helps you remember what you tried and what you noticed. It does not diagnose health changes or prove that one behavior caused an outcome.
+          </p>
+          <dl className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <SummaryStat label="Weeks started" value={String(data.experiments.length)} />
+            <SummaryStat label="Practice completions" value={String(completionTotal)} />
+            <SummaryStat label="Weekly reviews" value={String(completedReviews.length)} />
+            <SummaryStat label="Check-in weeks" value={String(distinctWeeks(data.check_ins.map((item) => item.log_date)))} />
+          </dl>
+        </section>
 
-      <section aria-labelledby="experiment-history-title" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <div className="flex items-start gap-3">
-          <History className="mt-1 h-5 w-5 text-[#087F72]" aria-hidden="true" />
-          <div>
-            <h2 id="experiment-history-title" className="text-2xl font-bold text-[#041B2D]">Your weeks</h2>
-            <p className="mt-1 text-sm leading-6 text-slate-600">A record of the practices you tested, not a scorecard.</p>
+        <DomainProgress summaries={domainSummaries} />
+
+        <section aria-labelledby="experiment-history-title" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <div className="flex items-start gap-3">
+            <History className="mt-1 h-5 w-5 text-[#087F72]" aria-hidden="true" />
+            <div>
+              <h2 id="experiment-history-title" className="text-2xl font-bold text-[#041B2D]">Your weeks</h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">A record of the practices you tested, not a scorecard.</p>
+            </div>
           </div>
-        </div>
-        <ol className="mt-6 space-y-4">
-          {data.experiments.map((experiment) => (
-            <ExperimentCard
-              key={experiment.id}
-              experiment={experiment}
-              blueprintContext={data.experiment_blueprints[experiment.id] ?? null}
-              connection={data.practice_connections[experiment.id]}
-              review={data.reviews.find((item) => item.experiment_id === experiment.id) ?? null}
-              completed={data.completions.filter((item) => item.experiment_id === experiment.id).length}
-            />
-          ))}
-        </ol>
-      </section>
+          <ol className="mt-6 space-y-4">
+            {data.experiments.map((experiment) => (
+              <ExperimentCard
+                key={experiment.id}
+                experiment={experiment}
+                blueprintContext={data.experiment_blueprints[experiment.id] ?? null}
+                connection={data.practice_connections[experiment.id]}
+                review={data.reviews.find((item) => item.experiment_id === experiment.id) ?? null}
+                completed={data.completions.filter((item) => item.experiment_id === experiment.id).length}
+              />
+            ))}
+          </ol>
+        </section>
+      </SupportingDetail>
 
-      <section aria-labelledby="patterns-title" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      <SupportingDetail title="Explore check-in patterns" description="Open charts and date-level comparisons when you want the supporting detail.">
+        <section aria-labelledby="patterns-title" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
         <div className="flex items-start gap-3">
           <LineChart className="mt-1 h-5 w-5 text-[#087F72]" aria-hidden="true" />
           <div>
@@ -202,19 +217,133 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
         )}
 
         <BehaviorOutcomeTable checkIns={data.check_ins} completionDates={new Set(data.completions.map((item) => item.completion_date))} />
-      </section>
+        </section>
+      </SupportingDetail>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <WinsTimeline reviews={completedReviews} completionTotal={completionTotal} />
-        <LearningLoop
-          reviews={completedReviews}
-          experiments={data.experiments}
-          practiceConnections={data.practice_connections}
-          syntheses={data.syntheses}
-        />
-      </div>
+      <SupportingDetail title="Read past reflections" description="Open earlier wins and weekly learning notes.">
+        <div className="grid gap-6 lg:grid-cols-2">
+          <WinsTimeline reviews={completedReviews} completionTotal={completionTotal} />
+          <LearningLoop
+            reviews={completedReviews}
+            experiments={data.experiments}
+            practiceConnections={data.practice_connections}
+            syntheses={data.syntheses}
+          />
+        </div>
+      </SupportingDetail>
     </div>
   );
+}
+
+function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experiments, reviews, syntheses }: {
+  activeExperiment: JourneyExperiment | null;
+  activeCompletionCount: number;
+  experiments: JourneyExperiment[];
+  reviews: JourneyReview[];
+  syntheses: JourneySynthesis[];
+}) {
+  const latestReview = reviews[0] ?? null;
+  const reviewedExperiment = latestReview
+    ? experiments.find((item) => item.id === latestReview.experiment_id) ?? null
+    : null;
+  const reviewedSynthesis = latestReview
+    ? syntheses.find((item) => item.experiment_id === latestReview.experiment_id) ?? null
+    : null;
+  const chosenNextExperiment = latestReview?.next_experiment_id
+    ? experiments.find((item) => item.id === latestReview.next_experiment_id) ?? null
+    : null;
+  const focusExperiment = reviewedExperiment ?? activeExperiment ?? experiments[0] ?? null;
+
+  const changed = latestReview
+    ? `${latestReview.decision ? DECISION_LABELS[latestReview.decision] : "Completed the weekly review"}${chosenNextExperiment?.action_label ? `, then chose ${chosenNextExperiment.action_label}` : ""}.`
+    : `You started ${activeExperiment?.action_label || "a focused weekly practice"}.`;
+  const followThrough = latestReview
+    ? `You recorded ${latestReview.completion_count} of ${latestReview.target_count} planned ${latestReview.target_count === 1 ? "time" : "times"}.${latestReview.known_total_quantity != null && latestReview.known_total_quantity_unit ? ` Known volume: ${formatPracticeQuantity(latestReview.known_total_quantity, latestReview.known_total_quantity_unit)}.` : ""}`
+    : `You have recorded ${activeCompletionCount} of ${activeExperiment?.frequency_per_week ?? 1} planned ${(activeExperiment?.frequency_per_week ?? 1) === 1 ? "time" : "times"} so far.`;
+  const learned = reviewedSynthesis?.observation
+    ?? (latestReview
+      ? `You rated the week ${formatReviewRating(latestReview.value_rating, "usefulness")} and ${formatReviewRating(latestReview.difficulty, "difficulty")}.`
+      : "There is no completed weekly review yet. Finish the week honestly so LVE360 can summarize what you noticed.");
+  const appearsToWork = reviewedSynthesis
+    ? `${reviewedSynthesis.hypothesis} This is a ${reviewedSynthesis.confidence}-confidence idea to test, not proof.`
+    : describeApparentFit(latestReview);
+  const nextDecision = activeExperiment
+    ? `At the end of this week, decide whether to keep, shrink, swap, pause, or build on ${activeExperiment.action_label || "this practice"}.`
+    : chosenNextExperiment?.action_label
+      ? `Start the next chosen practice: ${chosenNextExperiment.action_label}.`
+      : "Choose one small practice for the next week when you are ready.";
+
+  return (
+    <section aria-labelledby="weekly-learning-story-title" className="overflow-hidden rounded-3xl border border-[#9DCFC3] bg-white shadow-sm">
+      <div className="bg-[#041B2D] p-6 text-white sm:p-8">
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8DE5D5]">Your latest weekly story</p>
+        <h2 id="weekly-learning-story-title" className="mt-2 text-2xl font-bold sm:text-3xl">Your week, understood.</h2>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-white/75">
+          {focusExperiment ? `Week of ${formatDate(focusExperiment.week_start)}. ` : ""}
+          LVE360 turns your recorded practice and reflection into one learning story without claiming that the practice caused a health outcome.
+        </p>
+      </div>
+      <ol className="grid gap-px bg-slate-200 md:grid-cols-2">
+        <StoryPoint number="1" label="What changed" body={changed} />
+        <StoryPoint number="2" label="What you followed through on" body={followThrough} />
+        <StoryPoint number="3" label="What LVE360 learned" body={learned} />
+        <StoryPoint number="4" label="What appears to work" body={appearsToWork} />
+      </ol>
+      <div className="border-t border-slate-200 bg-[#F4FAF8] p-6 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-8">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">One next decision</p>
+          <p className="mt-2 max-w-2xl font-semibold leading-6 text-[#041B2D]">{nextDecision}</p>
+        </div>
+        <Link href="/today" className="mt-5 inline-flex min-h-12 shrink-0 items-center justify-center rounded-xl bg-[#08A88A] px-5 py-3 text-sm font-bold text-white hover:bg-[#078B74] sm:mt-0">
+          {activeExperiment ? "Open this week" : "Choose the next week"}<ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+function StoryPoint({ number, label, body }: { number: string; label: string; body: string }) {
+  return (
+    <li className="bg-white p-6 sm:p-7">
+      <div className="flex items-start gap-4">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#DDF7F1] text-sm font-bold text-[#087F72]" aria-hidden="true">{number}</span>
+        <div>
+          <h3 className="font-bold text-[#041B2D]">{label}</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{body}</p>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function SupportingDetail({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+  return (
+    <details className="group rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-6 marker:content-none sm:p-7">
+        <div>
+          <h2 className="text-lg font-bold text-[#041B2D]">{title}</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
+        </div>
+        <span className="text-2xl font-light text-[#087F72] transition-transform group-open:rotate-45" aria-hidden="true">+</span>
+      </summary>
+      <div className="space-y-6 border-t border-slate-200 bg-slate-50/50 p-4 sm:p-6">{children}</div>
+    </details>
+  );
+}
+
+function formatReviewRating(value: number | null, label: string): string {
+  return typeof value === "number" ? `${label} ${value}/5` : `${label} as not recorded`;
+}
+
+function describeApparentFit(review: JourneyReview | null): string {
+  if (!review) return "There is not enough reviewed evidence yet. One honest weekly reflection is the next useful signal.";
+  if ((review.value_rating ?? 0) >= 4 && review.completion_count > 0) {
+    return "The practice felt useful and was completed at least once. Repeat or adapt it to learn whether that pattern holds.";
+  }
+  if (review.decision === "keep" || review.decision === "advance") {
+    return "Your decision suggests the practice felt worth continuing. Treat that as a personal signal to test again, not proof of an outcome.";
+  }
+  return "The current evidence does not show a clear fit yet. Your decision to adjust, swap, or pause is useful learning too.";
 }
 
 function NextFocusPrompt({ activeExperiment, blueprint, experiments, experimentBlueprints, latestReview }: {
