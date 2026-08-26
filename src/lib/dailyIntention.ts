@@ -17,6 +17,7 @@ export type DailyIntentionGroundingKey = (typeof DAILY_INTENTION_GROUNDING_KEYS)
 export type DailyIntentionPersonalization = {
   groundingReasons?: Partial<Record<DailyIntentionGroundingKey, string>>;
   excludedPhrases?: string[];
+  requiredGroundingKeys?: DailyIntentionGroundingKey[];
 };
 
 export type DailyIntentionSuggestion = {
@@ -132,6 +133,30 @@ const UNIVERSAL_FALLBACKS: DailyIntentionFallback[] = [
   { focusWord: "Openness", phrase: "I welcome today with openness and self-respect." },
 ];
 
+const CONTEXTUAL_FALLBACKS: Record<DailyIntentionGroundingKey, DailyIntentionFallback[]> = {
+  today_context: [
+    { focusWord: "Presence", phrase: "I meet what is in front of me with calm focus." },
+    { focusWord: "Readiness", phrase: "I bring patient attention to the day before me." },
+  ],
+  active_practice: [
+    { focusWord: "Commitment", phrase: "I bring steady commitment to the practice I chose today." },
+    { focusWord: "Consistency", phrase: "I show up with patient consistency today." },
+  ],
+  saved_goal: [
+    { focusWord: "Alignment", phrase: "I let my priorities guide how I show up today." },
+    { focusWord: "Purpose", phrase: "I bring purposeful attention to what matters today." },
+  ],
+  recent_check_in: [
+    { focusWord: "Awareness", phrase: "I meet my current energy with patience and steady care." },
+    { focusWord: "Responsiveness", phrase: "I listen to my energy with curiosity today." },
+  ],
+  weekly_learning: [
+    { focusWord: "Growth", phrase: "I carry recent learning forward with calm attention." },
+    { focusWord: "Wisdom", phrase: "I let experience shape how I meet today." },
+  ],
+  identity_direction: [],
+};
+
 const DEFAULT_GROUNDING_REASON = "Matches the direction you chose for this week.";
 
 function phraseKey(value: string) {
@@ -161,6 +186,12 @@ function excludedPhraseKeys(personalization?: DailyIntentionPersonalization) {
   return new Set((personalization?.excludedPhrases ?? []).map(phraseKey).filter(Boolean));
 }
 
+function requiredGroundingKeys(personalization?: DailyIntentionPersonalization) {
+  return [...new Set(personalization?.requiredGroundingKeys ?? [])]
+    .filter((key) => Boolean(personalization?.groundingReasons?.[key]))
+    .slice(0, 3);
+}
+
 export function fallbackDailyIntentionSuggestions(
   identityDirection?: string | null,
   personalization?: DailyIntentionPersonalization,
@@ -169,7 +200,24 @@ export function fallbackDailyIntentionSuggestions(
   const primary = FALLBACKS[identityDirection ?? ""] ?? FALLBACKS.overall_health;
   const candidates = [...primary, ...UNIVERSAL_FALLBACKS, ...FALLBACKS.overall_health];
   const suggestions: DailyIntentionSuggestion[] = [];
+  const requiredKeys = requiredGroundingKeys(personalization);
+  for (const key of requiredKeys) {
+    const keyCandidates = key === "identity_direction"
+      ? candidates
+      : [...CONTEXTUAL_FALLBACKS[key], ...UNIVERSAL_FALLBACKS, ...primary];
+    const candidate = keyCandidates.find((item) => (
+      !excluded.has(phraseKey(item.phrase))
+      && !suggestions.some((suggestion) => phraseKey(suggestion.phrase) === phraseKey(item.phrase))
+    ));
+    if (!candidate) continue;
+    suggestions.push({
+      ...candidate,
+      groundingKey: key,
+      whyThisFits: groundingReason(key, personalization),
+    });
+  }
   for (const candidate of candidates) {
+    if (suggestions.length === 3) break;
     if (excluded.has(phraseKey(candidate.phrase))) continue;
     if (suggestions.some((item) => phraseKey(item.phrase) === phraseKey(candidate.phrase))) continue;
     suggestions.push({
@@ -177,7 +225,6 @@ export function fallbackDailyIntentionSuggestions(
       groundingKey: "identity_direction",
       whyThisFits: groundingReason("identity_direction", personalization),
     });
-    if (suggestions.length === 3) break;
   }
   if (suggestions.length < 3) {
     for (const candidate of candidates) {
@@ -230,11 +277,24 @@ export function parseDailyIntentionSuggestions(
       });
     }
   }
-  for (const fallback of fallbackDailyIntentionSuggestions(identityDirection, personalization)) {
-    if (parsed.length >= 3) break;
-    if (!parsed.some((item) => item.phrase.toLowerCase() === fallback.phrase.toLowerCase())) parsed.push(fallback);
+  const fallbacks = fallbackDailyIntentionSuggestions(identityDirection, personalization);
+  const requiredKeys = requiredGroundingKeys(personalization);
+  const selected: DailyIntentionSuggestion[] = [];
+  for (const key of requiredKeys) {
+    const candidate = parsed.find((item) => (
+      item.groundingKey === key
+      && !selected.some((chosen) => phraseKey(chosen.phrase) === phraseKey(item.phrase))
+    )) ?? fallbacks.find((item) => (
+      item.groundingKey === key
+      && !selected.some((chosen) => phraseKey(chosen.phrase) === phraseKey(item.phrase))
+    ));
+    if (candidate) selected.push(candidate);
   }
-  return parsed.slice(0, 3);
+  for (const candidate of [...parsed, ...fallbacks]) {
+    if (selected.length === 3) break;
+    if (!selected.some((item) => phraseKey(item.phrase) === phraseKey(candidate.phrase))) selected.push(candidate);
+  }
+  return selected.slice(0, 3);
 }
 
 export function dailyIntentionErrorMessage(error: DailyIntentionError) {

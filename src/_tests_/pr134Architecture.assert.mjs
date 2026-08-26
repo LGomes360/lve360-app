@@ -14,6 +14,8 @@ assert.match(generator, /recentCheckIns/, "recent member signals should inform i
 assert.match(generator, /weeklyLearning/, "the latest recorded weekly learning should be available to the intention engine");
 assert.match(generator, /priorIntentions/, "recent intention phrases should be available for repetition control");
 assert.match(generator, /allowed_grounding_keys/, "the model should select only an available grounding source");
+assert.match(generator, /required_grounding_keys/, "the model should be required to use the strongest distinct grounding sources");
+assert.match(generator, /\.lte\("local_date", localDate\)/, "today's saved intention should be excluded from regenerated ideas");
 assert.match(generator, /grounding_key/, "the structured response should identify its grounding source");
 assert.equal((generator.match(/generateAI\(\{/g) ?? []).length, 1, "PR134 must not add another model call");
 

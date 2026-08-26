@@ -17,6 +17,7 @@ const personalization: DailyIntentionPersonalization = {
     identity_direction: "Matches the identity you chose for this week: Someone who keeps promises to their health.",
   },
   excludedPhrases: ["I approach today with calm clarity."],
+  requiredGroundingKeys: ["active_practice", "recent_check_in", "identity_direction"],
 };
 
 const personalized = parseDailyIntentionSuggestions({
@@ -49,6 +50,11 @@ assert.equal(personalized.length, 3, "personalized generation must still return 
 assert.ok(personalized.every((item) => validateDailyIntention(item.phrase).ok));
 assert.ok(!personalized.some((item) => item.phrase === "I approach today with calm clarity."), "recent intentions should not be repeated");
 assert.ok(!personalized.some((item) => item.groundingKey === "today_context"), "an unavailable grounding source must be rejected");
+assert.deepEqual(
+  new Set(personalized.map((item) => item.groundingKey)),
+  new Set(personalization.requiredGroundingKeys),
+  "each strongest available grounding source should appear exactly once",
+);
 assert.equal(
   personalized.find((item) => item.groundingKey === "active_practice")?.whyThisFits,
   personalization.groundingReasons?.active_practice,
@@ -62,6 +68,11 @@ const rotatedFallbackSet = fallbackDailyIntentionSuggestions("focus", {
 });
 assert.equal(rotatedFallbackSet.length, 3);
 assert.ok(rotatedFallbackSet.every((item) => item.whyThisFits.length > 0));
+assert.deepEqual(
+  new Set(rotatedFallbackSet.map((item) => item.groundingKey)),
+  new Set(personalization.requiredGroundingKeys),
+  "deterministic fallbacks should preserve grounding diversity",
+);
 assert.ok(rotatedFallbackSet.every((item) => !firstFallbackSet.some((prior) => prior.phrase === item.phrase)), "fallbacks should rotate away from recent choices when possible");
 
 const restored = parseDailyIntentionSuggestions({
