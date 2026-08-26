@@ -88,12 +88,14 @@ async function activeExperiment(userId: string): Promise<WeeklyExperiment | null
 }
 
 export async function buildTodayBriefContext(userId: string, localDate: string): Promise<TodayBriefContext> {
-  const [experiment, blueprint, { data: goals, error: goalsError }] = await Promise.all([
+  const [experiment, blueprint, { data: goals, error: goalsError }, { data: checkIn, error: checkInError }] = await Promise.all([
     activeExperiment(userId),
     getCurrentBlueprintContext(userId),
     getSupabaseAdmin().from("goals").select("id,goals,custom_goal,target_weight,target_sleep,target_energy").eq("user_id", userId).maybeSingle(),
+    getSupabaseAdmin().from("logs").select("sleep,energy,weight").eq("user_id", userId).eq("log_date", localDate).maybeSingle(),
   ]);
   if (goalsError) throw goalsError;
+  if (checkInError) throw checkInError;
   const blueprintContexts = experiment ? await getExperimentBlueprintContexts(userId, [experiment], blueprint) : {};
   const connection = experiment
     ? resolvePracticeConnection(experiment, practiceGoalOptions((goals as PracticeGoalRow | null) ?? null), blueprintContexts[experiment.id] ?? null)
@@ -133,6 +135,11 @@ export async function buildTodayBriefContext(userId: string, localDate: string):
       safetyNeedsAttention: blueprint.safety_status !== "safe" && !blueprint.safety_acknowledged,
       urgentSafetyInterruption: isUrgentBlueprintSafety(blueprint),
     } : null,
+    checkIn: checkIn ? {
+      sleep: typeof checkIn.sleep === "number" ? checkIn.sleep : null,
+      energy: typeof checkIn.energy === "number" ? checkIn.energy : null,
+      weightRecorded: typeof checkIn.weight === "number",
+    } : null,
     reviewDue: Boolean(experiment && isReviewDue(experiment.week_start, localDate)),
   };
 }
@@ -150,7 +157,7 @@ function generatedPrompt(context: TodayBriefContext) {
         "Return only valid JSON with exactly these string fields: noticed and why_it_matters.",
         "noticed must describe the supplied progress neutrally. Never use despite, failed, missed, behind, haven't, or should have.",
         "The weekly target counts completed practice sessions. It is never the number of pushups, minutes, meals, or other units inside the saved practice.",
-        "why_it_matters must explain why today is a useful moment for this saved practice based only on the supplied session progress. Do not restate the explicit practice connection or invent another goal, Blueprint link, physiological, clinical, or performance benefit.",
+        "why_it_matters must explain why today is a useful moment for this saved practice based only on the supplied session progress and structured check-in. Do not restate the explicit practice connection or invent another goal, Blueprint link, physiological, clinical, or performance benefit.",
       ].join(" "),
     },
     {
@@ -163,6 +170,7 @@ function generatedPrompt(context: TodayBriefContext) {
         saved_minimum_version: experiment.minimumVersion,
         planned_sessions: experiment.target,
         completed_sessions: experiment.completed,
+        today_check_in: context.checkIn,
         metric_definition: "These numbers count completed practice sessions this week, not physical repetitions or duration inside the practice.",
         explicit_practice_connection: experiment.connectionSummary,
       }),

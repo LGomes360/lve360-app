@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const TODAY_BRIEF_PROMPT_VERSION = "today-brief-v6";
+export const TODAY_BRIEF_PROMPT_VERSION = "today-brief-v7";
 
 export type TodayBriefPrimaryAction =
   | "mark_complete"
@@ -26,6 +26,11 @@ export type TodayBriefContext = {
     needsRefresh: boolean;
     safetyNeedsAttention: boolean;
     urgentSafetyInterruption?: boolean;
+  } | null;
+  checkIn: {
+    sleep: number | null;
+    energy: number | null;
+    weightRecorded: boolean;
   } | null;
   reviewDue: boolean;
 };
@@ -98,7 +103,15 @@ export function shouldGenerateTodayBrief(context: TodayBriefContext): boolean {
     context.experiment
     && !context.experiment.completedToday
     && !context.reviewDue
+    && !isLowerCapacityCheckIn(context.checkIn)
     && !context.blueprint?.urgentSafetyInterruption,
+  );
+}
+
+export function isLowerCapacityCheckIn(checkIn: TodayBriefContext["checkIn"]): boolean {
+  return Boolean(
+    checkIn
+    && ((checkIn.sleep != null && checkIn.sleep <= 2) || (checkIn.energy != null && checkIn.energy <= 3)),
   );
 }
 
@@ -119,6 +132,16 @@ export function todayBriefGrounding(
       confidence: "direct_record",
       confidenceLabel: "Direct record match",
       sourceLabel: "Saved weekly plan and review date",
+    };
+  }
+
+  if (context.checkIn) {
+    return {
+      confidence: "direct_record",
+      confidenceLabel: "Direct record match",
+      sourceLabel: source === "ai"
+        ? "Today's check-in, saved practice, recorded progress, and bounded AI synthesis"
+        : "Today's check-in, saved practice, and recorded progress",
     };
   }
 
@@ -178,6 +201,24 @@ export function deterministicTodayBrief(context: TodayBriefContext): TodayBriefC
       nextAction: "Let today’s win stand and return to the rest of your day.",
       minimumVersion: "Notice what helped you follow through.",
       primaryAction: "none",
+      primaryHref: null,
+    };
+  }
+
+  if (isLowerCapacityCheckIn(context.checkIn)) {
+    const lowSleep = context.checkIn?.sleep != null && context.checkIn.sleep <= 2;
+    const lowEnergy = context.checkIn?.energy != null && context.checkIn.energy <= 3;
+    const observedState = lowSleep && lowEnergy
+      ? "lower sleep quality and energy"
+      : lowSleep
+        ? "lower sleep quality"
+        : "lower energy";
+    return {
+      noticed: `You recorded ${observedState} today.`,
+      whyItMatters: "A smaller version can protect follow-through without asking you to force the full effort.",
+      nextAction: context.experiment.minimumVersion,
+      minimumVersion: context.experiment.minimumVersion,
+      primaryAction: "mark_complete",
       primaryHref: null,
     };
   }

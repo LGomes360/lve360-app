@@ -1,281 +1,294 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import { Loader2 } from "lucide-react";
-
-/**
- * DailyLog.tsx
- * - Quick logging for sleep (1–5), energy (1–10), weight (lb), notes
- * - POST /api/logs inserts/updates today's row (server sets log_date=today)
- * - Prefills today's values if they exist
- * - Debounced autosave on sliders/weight (manual Save still available)
- * - After save, triggers Insights refresh via #ai-refresh-proxy click
- *
- * Table: public.logs(user_id, log_date, weight, sleep, energy, notes)
- * API:   POST /api/logs  (already in repo)
- */
+import { useEffect, useState } from "react";
+import { ArrowRight, Loader2 } from "lucide-react";
+import { localDateString } from "@/lib/regimenSchedule";
 
 type TodayRow = {
   weight: number | null;
-  sleep: number | null;   // 1–5
-  energy: number | null;  // 1–10
+  sleep: number | null;
+  energy: number | null;
   notes: string | null;
 };
 
-const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
-const AUTOSAVE_MS = 1000;
+export type DailyCheckInSummary = {
+  sleep: number | null;
+  energy: number | null;
+  weight: number | null;
+  hasRequiredState: boolean;
+};
 
-export default function DailyLog() {
-  const supabase = createClientComponentClient();
+type DailyLogProps = {
+  date?: string | null;
+  onCheckInStateChange?: (summary: DailyCheckInSummary) => void;
+  onSaved?: (summary: DailyCheckInSummary) => void;
+  onSkip?: () => void;
+};
 
-  const [sleep, setSleep] = useState<number>(3);
-  const [energy, setEnergy] = useState<number>(5);
-  const [weight, setWeight] = useState<string>(""); // keep as string for input UX
+const SLEEP_OPTIONS = [
+  { value: 1, label: "Very poor" },
+  { value: 2, label: "Poor" },
+  { value: 3, label: "Fair" },
+  { value: 4, label: "Good" },
+  { value: 5, label: "Restorative" },
+] as const;
+
+const ENERGY_OPTIONS = [
+  { value: 1, label: "Very low" },
+  { value: 3, label: "Low" },
+  { value: 5, label: "Steady" },
+  { value: 8, label: "Good" },
+  { value: 10, label: "High" },
+] as const;
+
+function closestEnergyBand(value: number) {
+  return ENERGY_OPTIONS.reduce((closest, option) => (
+    Math.abs(option.value - value) < Math.abs(closest.value - value) ? option : closest
+  )).value;
+}
+
+function parseWeightInput(value: string) {
+  const cleaned = value.replace(/[^\d.]/g, "");
+  const parts = cleaned.split(".");
+  return parts.length > 2 ? parts.slice(0, 2).join(".") : cleaned;
+}
+
+function summaryFor(sleep: number | null, energy: number | null, weight: string): DailyCheckInSummary {
+  const numericWeight = weight.trim() === "" ? null : Number(weight);
+  return {
+    sleep,
+    energy,
+    weight: Number.isFinite(numericWeight) ? numericWeight : null,
+    hasRequiredState: sleep != null && energy != null,
+  };
+}
+
+export default function DailyLog({
+  date,
+  onCheckInStateChange,
+  onSaved,
+  onSkip,
+}: DailyLogProps) {
+  const [sleep, setSleep] = useState<number | null>(null);
+  const [energy, setEnergy] = useState<number | null>(null);
+  const [weight, setWeight] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [prefilled, setPrefilled] = useState(false);
-  const [hasSleepValue, setHasSleepValue] = useState(false);
-  const [hasEnergyValue, setHasEnergyValue] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
-  const userIdRef = useRef<string | null>(null);
-  const loadedRef = useRef(false);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSavedHash = useRef<string>("");
+  const localDate = date ?? localDateString();
 
-  // Auto-hide inline toast
   useEffect(() => {
     if (!msg) return;
-    const t = setTimeout(() => setMsg(null), 2500);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setMsg(null), 3000);
+    return () => clearTimeout(timer);
   }, [msg]);
 
-  // Prefill today's log if it exists
   useEffect(() => {
-    (async () => {
-      const { data: auth } = await supabase.auth.getUser();
-      const uid = auth?.user?.id ?? null;
-      userIdRef.current = uid;
-      if (!uid) return;
+    let cancelled = false;
 
-      // Query today's row (server stores dates as UTC date; match ISO YYYY-MM-DD)
-      const today = new Date().toISOString().slice(0, 10);
-      const { data, error } = await supabase
-        .from("logs")
-        .select("weight, sleep, energy, notes, log_date")
-        .eq("user_id", uid)
-        .eq("log_date", today)
-        .maybeSingle();
+    void (async () => {
+      setLoaded(false);
+      setLoadError(null);
+      setPrefilled(false);
 
-      if (!error && data) {
-        const row = data as TodayRow;
-        if (row.sleep != null) { setSleep(clamp(row.sleep, 1, 5)); setHasSleepValue(true); }
-        if (row.energy != null) { setEnergy(clamp(row.energy, 1, 10)); setHasEnergyValue(true); }
-        if (row.weight != null) setWeight(String(row.weight));
-        if (row.notes != null) setNotes(row.notes);
-        setPrefilled(true);
-        lastSavedHash.current = hashState(row.sleep ?? null, row.energy ?? null, row.weight ?? null, row.notes ?? "");
-      } else {
-        // initialize baseline hash from defaults
-        lastSavedHash.current = hashState(3, 5, null, "");
+      try {
+        const response = await fetch(`/api/logs?date=${encodeURIComponent(localDate)}`, {
+          cache: "no-store",
+        });
+        const body = await response.json().catch(() => null);
+        if (!response.ok || !body?.ok) throw new Error(body?.error || "load_failed");
+        if (cancelled) return;
+
+        if (body.log) {
+          const row = body.log as TodayRow;
+          const loadedSleep = row.sleep == null ? null : Math.max(1, Math.min(5, row.sleep));
+          const loadedEnergy = row.energy == null ? null : Math.max(1, Math.min(10, row.energy));
+          const loadedWeight = row.weight == null ? "" : String(row.weight);
+          setSleep(loadedSleep);
+          setEnergy(loadedEnergy);
+          setWeight(loadedWeight);
+          setNotes(row.notes ?? "");
+          setPrefilled(true);
+          onCheckInStateChange?.(summaryFor(loadedSleep, loadedEnergy, loadedWeight));
+        } else {
+          setSleep(null);
+          setEnergy(null);
+          setWeight("");
+          setNotes("");
+          onCheckInStateChange?.(summaryFor(null, null, ""));
+        }
+      } catch (error) {
+        if (cancelled) return;
+        setLoadError(error instanceof Error && error.message !== "load_failed"
+          ? error.message
+          : "We could not load today's saved check-in. Refresh the page to try again.");
+      } finally {
+        if (!cancelled) setLoaded(true);
       }
-
-      loadedRef.current = true;
     })();
-  }, [supabase]);
-
-  // Debounced autosave for sliders & weight (notes excluded)
-  useEffect(() => {
-    if (!loadedRef.current) return;
-
-    // Build current hash (notes excluded from autosave hash)
-    const numericWeight = weight.trim() === "" ? null : Number(weight);
-    // If only notes changed, do not autosave (manual Save handles notes)
-    const hashWithoutNotes = hashState(hasSleepValue ? sleep : null, hasEnergyValue ? energy : null, Number.isFinite(numericWeight) ? numericWeight : null);
-
-    const lastWithoutNotes = lastSavedHash.current.split("|NOTES:")[0];
-    if (hashWithoutNotes === lastWithoutNotes) return;
-
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      submit(true).catch(() => {});
-    }, AUTOSAVE_MS);
 
     return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
+      cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sleep, energy, weight, hasSleepValue, hasEnergyValue]);
+  }, [localDate, onCheckInStateChange]);
 
-  function onSleepChange(v: number) {
-    setHasSleepValue(true);
-    setSleep(clamp(v, 1, 5));
-  }
-  function onEnergyChange(v: number) {
-    setHasEnergyValue(true);
-    setEnergy(clamp(v, 1, 10));
-  }
+  async function submit() {
+    const summary = summaryFor(sleep, energy, weight);
+    if (!summary.hasRequiredState) {
+      setMsg({ kind: "err", text: "Choose sleep quality and energy before continuing." });
+      return;
+    }
 
-  function parseWeightInput(v: string) {
-    // Allow digits + one dot; strip other chars
-    const cleaned = v.replace(/[^\d.]/g, "");
-    // Prevent multiple dots
-    const parts = cleaned.split(".");
-    if (parts.length > 2) return parts.slice(0, 2).join(".");
-    return cleaned;
-  }
-
-  async function submit(isAutosave = false) {
     try {
       setSaving(true);
-      if (!isAutosave) setMsg(null);
-
-      const w = weight.trim() === "" ? null : Number(weight);
-      const body: Record<string, any> = { notes: (notes || "").trim() || null };
-      if (hasSleepValue) body.sleep = sleep;
-      if (hasEnergyValue) body.energy = energy;
-      if (w != null && Number.isFinite(w)) body.weight = w;
-
-      const res = await fetch("/api/logs", {
+      setMsg(null);
+      const response = await fetch("/api/logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          log_date: localDate,
+          sleep: summary.sleep,
+          energy: summary.energy,
+          weight: summary.weight,
+          notes: notes.trim() || null,
+        }),
       });
-      const json = await safeJson(res);
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "save_failed");
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body?.ok) throw new Error(body?.error || "save_failed");
 
-      // Update last saved signature
-      lastSavedHash.current = hashState(hasSleepValue ? sleep : null, hasEnergyValue ? energy : null, w, notes);
-
-      if (!isAutosave) setMsg({ kind: "ok", text: prefilled ? "Updated ✓" : "Saved ✓" });
       setPrefilled(true);
-
-      // Nudge Insights to refresh
-      try {
-        const btn = document.getElementById("ai-refresh-proxy") as HTMLButtonElement | null;
-        btn?.click();
-      } catch {}
-
-    } catch (e: any) {
-      setMsg({ kind: "err", text: e?.message ?? "Error saving log." });
+      setMsg({ kind: "ok", text: "Saved. Your next step now reflects today's check-in." });
+      onCheckInStateChange?.(summary);
+      onSaved?.(summary);
+    } catch (error) {
+      setMsg({
+        kind: "err",
+        text: error instanceof Error && error.message !== "save_failed"
+          ? error.message
+          : "We could not save your check-in. Please try again.",
+      });
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div id="daily-log" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex items-end justify-between mb-1">
-        <h2 className="text-2xl font-bold text-[#041B2D]">Daily Check-in</h2>
-        {prefilled && <span className="text-xs text-gray-600">Today’s values loaded</span>}
-      </div>
-      <p className="text-gray-600 mb-4">A quick check-in keeps your trends and coaching grounded in how you actually feel.</p>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Sleep (1–5) */}
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <div className="text-xs uppercase tracking-wide text-[#047F6D]">Sleep quality</div>
-          <div className="text-xl font-bold text-[#041B2D] mt-1">{hasSleepValue ? `${sleep} / 5` : "Not logged yet"}</div>
-          <input
-            type="range"
-            min={1}
-            max={5}
-            value={sleep}
-            onChange={(e) => onSleepChange(Number(e.target.value))}
-            className="w-full mt-3"
-            aria-label="Sleep quality"
-          />
-          <div className="text-xs text-gray-600 mt-1">Think: how rested did you feel?</div>
+    <div className="rounded-3xl border border-[#9DCFC3] bg-white p-6 shadow-sm sm:p-8">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#087F72]">How are you starting today?</p>
+          <h2 className="mt-2 text-2xl font-bold text-[#041B2D] sm:text-3xl">A quick check-in</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+            Sleep and energy help LVE360 decide whether today calls for your full practice or its smaller hard-day version.
+          </p>
         </div>
-
-        {/* Energy (1–10) */}
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <div className="text-xs uppercase tracking-wide text-[#047F6D]">Energy</div>
-          <div className="text-xl font-bold text-[#041B2D] mt-1">{hasEnergyValue ? `${energy} / 10` : "Not logged yet"}</div>
-          <input
-            type="range"
-            min={1}
-            max={10}
-            value={energy}
-            onChange={(e) => onEnergyChange(Number(e.target.value))}
-            className="w-full mt-3"
-            aria-label="Energy level"
-          />
-          <div className="text-xs text-gray-600 mt-1">How peppy were you overall?</div>
-        </div>
-
-        {/* Weight (optional) */}
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <div className="text-xs uppercase tracking-wide text-[#047F6D]">Weight (optional)</div>
-          <input
-            inputMode="decimal"
-            value={weight}
-            onChange={(e) => setWeight(parseWeightInput(e.target.value))}
-            placeholder="e.g., 220"
-            className="mt-2 w-full rounded-lg border px-3 py-2"
-            aria-label="Weight in pounds"
-          />
-          <div className="text-xs text-gray-600 mt-1">Pounds. Leave blank if you didn’t weigh in.</div>
-        </div>
+        {prefilled ? <span className="w-fit rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800">Today saved</span> : null}
       </div>
 
-      {/* Notes */}
-      <div className="mt-4">
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={3}
-          placeholder="What stood out today? (workout, sleep, stress, meals...)"
-          className="w-full rounded-lg border px-3 py-2"
-          aria-label="Daily notes"
-        />
-      </div>
+      {!loaded ? (
+        <p className="mt-6 flex items-center text-sm font-semibold text-slate-600">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin text-[#087F72]" aria-hidden="true" /> Loading today&apos;s check-in
+        </p>
+      ) : (
+        <>
+          <fieldset className="mt-6">
+            <legend className="text-sm font-bold text-[#041B2D]">How was your sleep?</legend>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {SLEEP_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={sleep === option.value}
+                  onClick={() => setSleep(option.value)}
+                  className={`min-h-12 rounded-xl border px-3 py-2 text-sm font-semibold transition ${sleep === option.value ? "border-[#087F72] bg-[#EAFBF8] text-[#065F56] ring-2 ring-[#BCE3DA]" : "border-slate-200 bg-white text-slate-700 hover:border-[#9DCFC3] hover:bg-[#F4FAF8]"}`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
 
-      {/* Actions + inline toast */}
-      <div className="mt-4 flex items-center gap-3">
-        <button
-          onClick={() => submit(false)}
-          disabled={saving}
-          className="inline-flex items-center rounded-xl bg-[#047F6D] px-4 py-2 text-white font-semibold shadow-md hover:bg-[#036957] disabled:opacity-60"
-          aria-disabled={saving}
-        >
-          {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />} Save today’s log
-        </button>
+          <fieldset className="mt-6">
+            <legend className="text-sm font-bold text-[#041B2D]">How is your energy?</legend>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {ENERGY_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={energy != null && closestEnergyBand(energy) === option.value}
+                  onClick={() => setEnergy(option.value)}
+                  className={`min-h-12 rounded-xl border px-3 py-2 text-sm font-semibold transition ${energy != null && closestEnergyBand(energy) === option.value ? "border-[#087F72] bg-[#EAFBF8] text-[#065F56] ring-2 ring-[#BCE3DA]" : "border-slate-200 bg-white text-slate-700 hover:border-[#9DCFC3] hover:bg-[#F4FAF8]"}`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
 
-        {/* Saved chip (non-blocking, distinct from toast) */}
-        {msg && (
-          <div
-            className={`text-sm rounded-lg px-3 py-1.5 border ${
-              msg.kind === "ok"
-                ? "text-teal-800 bg-teal-50 border-teal-200"
-                : "text-amber-800 bg-amber-50 border-amber-200"
-            }`}
-            role="status"
-            aria-live="polite"
-          >
-            {msg.text}
+          <div className="mt-6 max-w-xs rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <label className="text-sm font-semibold text-slate-700">
+              Weight in pounds <span className="font-normal text-slate-500">(optional)</span>
+              <input
+                inputMode="decimal"
+                value={weight}
+                onChange={(event) => setWeight(parseWeightInput(event.target.value))}
+                placeholder="e.g., 220"
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal"
+              />
+            </label>
           </div>
-        )}
-      </div>
+
+          <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <summary className="cursor-pointer text-sm font-bold text-[#041B2D]">Add context to today&apos;s record <span className="font-normal text-slate-500">(optional)</span></summary>
+            <div className="mt-4">
+              <label className="text-sm font-semibold text-slate-700">
+                What stood out today?
+                <textarea
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  rows={3}
+                  maxLength={1000}
+                  placeholder="For example: travel, stress, a late meal, or something that made the practice easier."
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal"
+                />
+                <span className="mt-1 block text-xs font-normal text-slate-500">Saved with today&apos;s record. Structured sleep and energy drive today&apos;s adjustment. A note is never treated as a diagnosis or medical instruction.</span>
+              </label>
+            </div>
+          </details>
+
+          {msg ? (
+            <p className={`mt-4 rounded-xl border px-3 py-2 text-sm font-semibold ${msg.kind === "ok" ? "border-teal-200 bg-teal-50 text-teal-800" : "border-amber-200 bg-amber-50 text-amber-900"}`} role={msg.kind === "err" ? "alert" : "status"} aria-live="polite">
+              {msg.text}
+            </p>
+          ) : null}
+
+          {loadError ? (
+            <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900" role="alert">
+              {loadError}
+            </p>
+          ) : null}
+
+          <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <button
+              type="button"
+              onClick={() => void submit()}
+              disabled={saving || sleep == null || energy == null}
+              className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-[#06695F] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+              Save check-in and see my next step
+              {!saving ? <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" /> : null}
+            </button>
+            <button type="button" onClick={onSkip} className="min-h-11 px-4 py-2 text-sm font-semibold text-slate-600 hover:text-[#041B2D]">
+              Continue without a check-in
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
-}
-
-/* utils */
-async function safeJson(res: Response) {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-function hashState(
-  sleep: number | null,
-  energy: number | null,
-  weight: number | null,
-  notes?: string
-) {
-  return `S:${sleep ?? ""}|E:${energy ?? ""}|W:${weight ?? ""}|NOTES:${notes ?? ""}`;
 }

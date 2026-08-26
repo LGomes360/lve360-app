@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import DailyLog from "@/components/dashboard/DailyLog";
+import { useCallback, useEffect, useState } from "react";
+import DailyLog, { type DailyCheckInSummary } from "@/components/dashboard/DailyLog";
 import TodayExperience from "@/components/dashboard/TodayExperience";
 import TodayRoutineAgenda from "@/components/dashboard/TodayRoutineAgenda";
 import type { WeeklyExperiment } from "@/lib/activation";
@@ -32,7 +32,32 @@ export default function TodayClient({
 }) {
   const [firstActionComplete, setFirstActionComplete] = useState(activationProgress.firstActionComplete);
   const [briefVersion, setBriefVersion] = useState(0);
+  const [checkInState, setCheckInState] = useState<"loading" | "missing" | "ready" | "skipped">("loading");
+  const [checkInSummary, setCheckInSummary] = useState<DailyCheckInSummary | null>(null);
   const visibleProgress = { ...activationProgress, firstActionComplete };
+  const decisionReady = checkInState === "ready" || checkInState === "skipped";
+  const preferMinimumVersion = checkInState === "ready"
+    && Boolean(
+      (checkInSummary?.sleep != null && checkInSummary.sleep <= 2)
+      || (checkInSummary?.energy != null && checkInSummary.energy <= 3),
+    );
+
+  const handleCheckInStateChange = useCallback((summary: DailyCheckInSummary) => {
+    setCheckInSummary(summary);
+    setCheckInState(summary.hasRequiredState ? "ready" : "missing");
+  }, []);
+
+  const handleCheckInSaved = useCallback((summary: DailyCheckInSummary) => {
+    setCheckInSummary(summary);
+    setCheckInState("ready");
+    setBriefVersion((version) => version + 1);
+  }, []);
+
+  const handleCheckInSkipped = useCallback(() => {
+    setCheckInState("skipped");
+    setCheckInSummary(null);
+    setBriefVersion((version) => version + 1);
+  }, []);
 
   useEffect(() => {
     setFirstActionComplete(activationProgress.firstActionComplete);
@@ -53,7 +78,16 @@ export default function TodayClient({
           <>
             <DailyIntentionCard date={checkinDate} />
 
-            <ReminderArrivalFeedback deliveryId={reminderDeliveryId} />
+            <section id="daily-log" aria-label="Quick check-in">
+              <DailyLog
+                date={checkinDate}
+                onCheckInStateChange={handleCheckInStateChange}
+                onSaved={handleCheckInSaved}
+                onSkip={handleCheckInSkipped}
+              />
+            </section>
+
+            {decisionReady ? <ReminderArrivalFeedback deliveryId={reminderDeliveryId} /> : null}
 
             <TodayExperience
               initialExperiment={experiment}
@@ -61,17 +95,15 @@ export default function TodayClient({
               experimentBlueprint={experimentBlueprint}
               practiceConnection={practiceConnection}
               initialCompletionDate={checkinDate}
+              decisionReady={decisionReady}
+              preferMinimumVersion={preferMinimumVersion}
               onCompletionStateChange={setFirstActionComplete}
               onTodayProgressChange={() => setBriefVersion((version) => version + 1)}
             >
               <AiTodayBrief key={`${checkinDate ?? "today"}-${briefVersion}`} date={checkinDate} />
             </TodayExperience>
 
-            <TodayRoutineAgenda />
-
-            <section id="daily-log" aria-label="Quick check-in">
-              <DailyLog />
-            </section>
+            {decisionReady ? <TodayRoutineAgenda /> : null}
           </>
         ) : null}
 
