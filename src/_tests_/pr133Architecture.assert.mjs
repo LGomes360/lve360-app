@@ -29,6 +29,8 @@ assert.match(dailyLog, /Save check-in and see my next step/, "The save action sh
 assert.match(dailyLog, /Continue without a check-in/, "Members should be allowed to continue with disclosed limited context.");
 assert.match(dailyLog, /\/api\/logs\?date=/, "The visible check-in should load the server-authoritative daily record.");
 assert.doesNotMatch(dailyLog, /createClientComponentClient/, "The check-in should not bypass the server's public-user identity mapping.");
+assert.match(dailyLog, /date \?\? localDateString\(\)/, "The visible check-in and Today Brief should use the same member-local calendar date.");
+assert.doesNotMatch(dailyLog, /toISOString\(\)\.slice\(0, 10\)/, "The check-in should not switch to tomorrow at UTC midnight.");
 assert.match(logsRoute, /const userId = entitlement\.user\.id/, "Daily logs should use the paid dashboard's canonical signed-in user id.");
 assert.doesNotMatch(logsRoute, /\.eq\("email"/, "Daily logs should not remap a signed-in account by email.");
 

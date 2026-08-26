@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowRight, Loader2 } from "lucide-react";
+import { localDateString } from "@/lib/regimenSchedule";
 
 type TodayRow = {
   weight: number | null;
@@ -78,7 +79,7 @@ export default function DailyLog({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
-  const localDate = date ?? new Date().toISOString().slice(0, 10);
+  const localDate = date ?? localDateString();
 
   useEffect(() => {
     if (!msg) return;
