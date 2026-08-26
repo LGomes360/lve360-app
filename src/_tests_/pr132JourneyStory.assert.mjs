@@ -22,6 +22,8 @@ for (const label of [
 }
 
 assert.match(dashboard, /not proof/, "The weekly story should preserve non-causal language.");
+assert.match(dashboard, /sentenceFragment/, "Embedded practice names should not create doubled punctuation.");
+assert.match(dashboard, /rated the practice/, "Review ratings should read as a natural member-facing sentence.");
 assert.match(dashboard, /SupportingDetail title="Explore your activity and weekly history"/, "Raw weekly history should be supporting detail.");
 assert.match(dashboard, /SupportingDetail title="Explore check-in patterns"/, "Charts should be supporting detail.");
 assert.match(dashboard, /SupportingDetail title="Read past reflections"/, "Past reflections should be supporting detail.");

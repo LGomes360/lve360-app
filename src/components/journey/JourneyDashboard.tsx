@@ -253,24 +253,26 @@ function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experime
     ? experiments.find((item) => item.id === latestReview.next_experiment_id) ?? null
     : null;
   const focusExperiment = reviewedExperiment ?? activeExperiment ?? experiments[0] ?? null;
+  const activeAction = sentenceFragment(activeExperiment?.action_label);
+  const nextAction = sentenceFragment(chosenNextExperiment?.action_label);
 
   const changed = latestReview
-    ? `${latestReview.decision ? DECISION_LABELS[latestReview.decision] : "Completed the weekly review"}${chosenNextExperiment?.action_label ? `, then chose ${chosenNextExperiment.action_label}` : ""}.`
-    : `You started ${activeExperiment?.action_label || "a focused weekly practice"}.`;
+    ? `${latestReview.decision ? DECISION_LABELS[latestReview.decision] : "Completed the weekly review"}${nextAction ? `, then chose ${nextAction}` : ""}.`
+    : `You started ${activeAction || "a focused weekly practice"}.`;
   const followThrough = latestReview
     ? `You recorded ${latestReview.completion_count} of ${latestReview.target_count} planned ${latestReview.target_count === 1 ? "time" : "times"}.${latestReview.known_total_quantity != null && latestReview.known_total_quantity_unit ? ` Known volume: ${formatPracticeQuantity(latestReview.known_total_quantity, latestReview.known_total_quantity_unit)}.` : ""}`
     : `You have recorded ${activeCompletionCount} of ${activeExperiment?.frequency_per_week ?? 1} planned ${(activeExperiment?.frequency_per_week ?? 1) === 1 ? "time" : "times"} so far.`;
   const learned = reviewedSynthesis?.observation
     ?? (latestReview
-      ? `You rated the week ${formatReviewRating(latestReview.value_rating, "usefulness")} and ${formatReviewRating(latestReview.difficulty, "difficulty")}.`
+      ? describeReviewRatings(latestReview)
       : "There is no completed weekly review yet. Finish the week honestly so LVE360 can summarize what you noticed.");
   const appearsToWork = reviewedSynthesis
     ? `${reviewedSynthesis.hypothesis} This is a ${reviewedSynthesis.confidence}-confidence idea to test, not proof.`
     : describeApparentFit(latestReview);
   const nextDecision = activeExperiment
-    ? `At the end of this week, decide whether to keep, shrink, swap, pause, or build on ${activeExperiment.action_label || "this practice"}.`
-    : chosenNextExperiment?.action_label
-      ? `Start the next chosen practice: ${chosenNextExperiment.action_label}.`
+    ? `At the end of this week, decide whether to keep, shrink, swap, pause, or build on ${activeAction || "this practice"}.`
+    : nextAction
+      ? `Start the next chosen practice: ${nextAction}.`
       : "Choose one small practice for the next week when you are ready.";
 
   return (
@@ -331,8 +333,17 @@ function SupportingDetail({ title, description, children }: { title: string; des
   );
 }
 
-function formatReviewRating(value: number | null, label: string): string {
-  return typeof value === "number" ? `${label} ${value}/5` : `${label} as not recorded`;
+function sentenceFragment(value: string | null | undefined): string {
+  return value?.trim().replace(/[.!?]+$/, "") ?? "";
+}
+
+function describeReviewRatings(review: JourneyReview): string {
+  const ratings = [
+    typeof review.value_rating === "number" ? `${review.value_rating}/5 for usefulness` : null,
+    typeof review.difficulty === "number" ? `${review.difficulty}/5 for difficulty` : null,
+  ].filter((value): value is string => Boolean(value));
+  if (!ratings.length) return "You completed the weekly review without recording usefulness or difficulty ratings.";
+  return `You rated the practice ${ratings.join(" and ")}.`;
 }
 
 function describeApparentFit(review: JourneyReview | null): string {
