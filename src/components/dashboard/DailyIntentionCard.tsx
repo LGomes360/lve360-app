@@ -165,17 +165,22 @@ export default function DailyIntentionCard({ date }: { date?: string | null }) {
                   </button>
                 </div>
               ) : (
-                <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                  {suggestions.map((suggestion: DailyIntentionSuggestion) => (
-                    <button key={suggestion.phrase} type="button" onClick={() => void saveIntention(suggestion.phrase, "ask_lve360", suggestion.focusWord)} disabled={busy !== null} className="rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-[#087F72] hover:shadow-sm disabled:opacity-60">
-                      <span className="text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">{suggestion.focusWord}</span>
-                      <span className="mt-2 block text-sm font-bold leading-6 text-[#041B2D]">{suggestion.phrase}</span>
-                      <span className="mt-3 block border-t border-slate-100 pt-3 text-xs leading-5 text-slate-600">
-                        <span className="font-bold text-[#486170]">Why this fits:</span> {suggestion.whyThisFits}
-                      </span>
-                      <span className="mt-3 block text-xs font-bold text-[#06695F]">Use this intention</span>
-                    </button>
-                  ))}
+                <div className="mt-4">
+                  <div className="grid gap-3 lg:grid-cols-3">
+                    {suggestions.map((suggestion: DailyIntentionSuggestion) => (
+                      <button key={suggestion.phrase} type="button" onClick={() => void saveIntention(suggestion.phrase, "ask_lve360", suggestion.focusWord)} disabled={busy !== null} className="rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-[#087F72] hover:shadow-sm disabled:opacity-60">
+                        <span className="text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">{suggestion.focusWord}</span>
+                        <span className="mt-2 block text-sm font-bold leading-6 text-[#041B2D]">{suggestion.phrase}</span>
+                        <span className="mt-3 block border-t border-slate-100 pt-3 text-xs leading-5 text-slate-600">
+                          <span className="font-bold text-[#486170]">Why this fits:</span> {suggestion.whyThisFits}
+                        </span>
+                        <span className="mt-3 block text-xs font-bold text-[#06695F]">Use this intention</span>
+                      </button>
+                    ))}
+                  </div>
+                  <button type="button" onClick={() => void askForIdeas()} disabled={busy !== null} className="mt-4 inline-flex min-h-11 items-center rounded-xl border border-[#9DCFC3] bg-white px-4 py-2 text-sm font-bold text-[#06695F] hover:bg-[#F4FAF8] disabled:opacity-60">
+                    {busy === "ideas" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Refresh with my latest LVE360 context
+                  </button>
                 </div>
               )}
             </div>

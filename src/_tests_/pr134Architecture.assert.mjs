@@ -23,8 +23,10 @@ assert.match(intention, /daily-intention-v2/);
 assert.match(modelConfig, /promptVersion: "daily-intention-v2"/);
 assert.match(route, /why_this_fits: item\.whyThisFits/, "the deterministic reason should persist with each suggestion");
 assert.match(route, /grounding_key: item\.groundingKey/, "grounding provenance should persist with each suggestion");
+assert.match(route, /prompt_version === DAILY_INTENTION_PROMPT_VERSION/, "legacy suggestion payloads should not survive a prompt upgrade");
 assert.match(card, /Why this fits:/, "each choice should explain its personal fit");
 assert.match(card, /Why this fits today:/, "the selected intention should retain its explanation");
+assert.match(card, /Refresh with my latest LVE360 context/, "members should be able to regenerate ideas after their context changes");
 assert.doesNotMatch(card, /streak|points|score/i, "intention should remain reflective rather than gamified");
 
 console.log("PR134 personalized intention architecture assertions passed.");
