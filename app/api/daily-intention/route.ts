@@ -79,7 +79,12 @@ export async function POST(req: NextRequest) {
     const { data, error } = await getSupabaseAdmin().from("daily_intentions").upsert({
       user_id: auth.user.id,
       local_date: body.date,
-      suggestions: result.suggestions.map((item) => ({ focus_word: item.focusWord, phrase: item.phrase })),
+      suggestions: result.suggestions.map((item) => ({
+        focus_word: item.focusWord,
+        phrase: item.phrase,
+        grounding_key: item.groundingKey,
+        why_this_fits: item.whyThisFits,
+      })),
       suggestion_source: result.source,
       suggestion_context_hash: result.contextHash,
       prompt_version: DAILY_INTENTION_PROMPT_VERSION,

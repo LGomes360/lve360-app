@@ -78,7 +78,7 @@ const TASK_PROFILES: Record<AiTask, AiTaskProfile> = {
   },
   daily_intention: {
     capability: "mini",
-    promptVersion: "daily-intention-v1",
+    promptVersion: "daily-intention-v2",
     reasoningEffort: "low",
   },
   contextual_coach: {
