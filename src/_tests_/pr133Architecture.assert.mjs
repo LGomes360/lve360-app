@@ -26,6 +26,8 @@ for (const label of ["Very poor", "Restorative", "Very low", "Steady", "High"]) 
 }
 assert.match(dailyLog, /Save check-in and see my next step/, "The save action should explain the value exchange.");
 assert.match(dailyLog, /Continue without a check-in/, "Members should be allowed to continue with disclosed limited context.");
+assert.match(dailyLog, /\/api\/logs\?date=/, "The visible check-in should load the server-authoritative daily record.");
+assert.doesNotMatch(dailyLog, /createClientComponentClient/, "The check-in should not bypass the server's public-user identity mapping.");
 
 assert.match(todayExperience, /if \(!decisionReady\)/, "TodayExperience should withhold non-urgent lifestyle coaching before the check-in decision.");
 assert.match(todayExperience, /blueprintNotice\?\.tone !== "urgent"/, "Urgent Blueprint safety should remain visible before lifestyle coaching.");

@@ -9,8 +9,9 @@ import { cookies } from "next/headers";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 import { requirePaidApi } from "@/lib/serverEntitlements";
+import { parseLocalDate } from "@/lib/today";
 
-export async function GET() {
+export async function GET(req: Request) {
   const entitlement = await requirePaidApi();
   if (!entitlement.ok) return entitlement.response;
 
@@ -30,6 +31,24 @@ export async function GET() {
 
   if (!publicUser?.id)
     return NextResponse.json({ error: "No matching public user record" }, { status: 400 });
+
+  const requestedDate = new URL(req.url).searchParams.get("date");
+  if (requestedDate != null) {
+    const localDate = parseLocalDate(requestedDate);
+    if (!localDate) {
+      return NextResponse.json({ error: "Invalid local date" }, { status: 400 });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("logs")
+      .select("weight,sleep,energy,notes,log_date")
+      .eq("user_id", publicUser.id)
+      .eq("log_date", localDate)
+      .maybeSingle();
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ ok: true, log: data ?? null });
+  }
 
   const { data, error } = await supabaseAdmin
     .from("logs")

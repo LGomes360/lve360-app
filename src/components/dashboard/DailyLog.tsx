@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { ArrowRight, Loader2 } from "lucide-react";
 
 type TodayRow = {
@@ -69,7 +68,6 @@ export default function DailyLog({
   onSaved,
   onSkip,
 }: DailyLogProps) {
-  const [supabase] = useState(() => createClientComponentClient());
   const [sleep, setSleep] = useState<number | null>(null);
   const [energy, setEnergy] = useState<number | null>(null);
   const [weight, setWeight] = useState("");
@@ -77,6 +75,7 @@ export default function DailyLog({
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [prefilled, setPrefilled] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const localDate = date ?? new Date().toISOString().slice(0, 10);
@@ -91,43 +90,50 @@ export default function DailyLog({
     let cancelled = false;
 
     void (async () => {
-      const { data: auth } = await supabase.auth.getUser();
-      const userId = auth?.user?.id ?? null;
-      if (!userId) {
+      setLoaded(false);
+      setLoadError(null);
+      setPrefilled(false);
+
+      try {
+        const response = await fetch(`/api/logs?date=${encodeURIComponent(localDate)}`, {
+          cache: "no-store",
+        });
+        const body = await response.json().catch(() => null);
+        if (!response.ok || !body?.ok) throw new Error(body?.error || "load_failed");
+        if (cancelled) return;
+
+        if (body.log) {
+          const row = body.log as TodayRow;
+          const loadedSleep = row.sleep == null ? null : Math.max(1, Math.min(5, row.sleep));
+          const loadedEnergy = row.energy == null ? null : Math.max(1, Math.min(10, row.energy));
+          const loadedWeight = row.weight == null ? "" : String(row.weight);
+          setSleep(loadedSleep);
+          setEnergy(loadedEnergy);
+          setWeight(loadedWeight);
+          setNotes(row.notes ?? "");
+          setPrefilled(true);
+          onCheckInStateChange?.(summaryFor(loadedSleep, loadedEnergy, loadedWeight));
+        } else {
+          setSleep(null);
+          setEnergy(null);
+          setWeight("");
+          setNotes("");
+          onCheckInStateChange?.(summaryFor(null, null, ""));
+        }
+      } catch (error) {
+        if (cancelled) return;
+        setLoadError(error instanceof Error && error.message !== "load_failed"
+          ? error.message
+          : "We could not load today's saved check-in. Refresh the page to try again.");
+      } finally {
         if (!cancelled) setLoaded(true);
-        return;
       }
-
-      const { data, error } = await supabase
-        .from("logs")
-        .select("weight, sleep, energy, notes, log_date")
-        .eq("user_id", userId)
-        .eq("log_date", localDate)
-        .maybeSingle();
-
-      if (cancelled) return;
-
-      if (!error && data) {
-        const row = data as TodayRow;
-        const loadedSleep = row.sleep == null ? null : Math.max(1, Math.min(5, row.sleep));
-        const loadedEnergy = row.energy == null ? null : Math.max(1, Math.min(10, row.energy));
-        const loadedWeight = row.weight == null ? "" : String(row.weight);
-        setSleep(loadedSleep);
-        setEnergy(loadedEnergy);
-        setWeight(loadedWeight);
-        setNotes(row.notes ?? "");
-        setPrefilled(true);
-        onCheckInStateChange?.(summaryFor(loadedSleep, loadedEnergy, loadedWeight));
-      } else {
-        onCheckInStateChange?.(summaryFor(null, null, ""));
-      }
-      setLoaded(true);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [localDate, onCheckInStateChange, supabase]);
+  }, [localDate, onCheckInStateChange]);
 
   async function submit() {
     const summary = summaryFor(sleep, energy, weight);
@@ -256,6 +262,12 @@ export default function DailyLog({
           {msg ? (
             <p className={`mt-4 rounded-xl border px-3 py-2 text-sm font-semibold ${msg.kind === "ok" ? "border-teal-200 bg-teal-50 text-teal-800" : "border-amber-200 bg-amber-50 text-amber-900"}`} role={msg.kind === "err" ? "alert" : "status"} aria-live="polite">
               {msg.text}
+            </p>
+          ) : null}
+
+          {loadError ? (
+            <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900" role="alert">
+              {loadError}
             </p>
           ) : null}
 
