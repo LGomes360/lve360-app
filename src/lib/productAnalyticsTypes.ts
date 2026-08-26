@@ -15,6 +15,8 @@ export const PRODUCT_EVENT_NAMES = [
   "blueprint_pdf_opened",
   "blueprint_handoff_ready",
   "blueprint_handoff_retry",
+  "recommendation_viewed",
+  "recommendation_reason_opened",
   "checkout_started",
   "checkout_completed",
   "activation_started",

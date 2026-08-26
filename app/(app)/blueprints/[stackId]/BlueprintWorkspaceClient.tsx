@@ -111,6 +111,12 @@ export default function BlueprintWorkspaceClient({
     setRecommendationItems(recommendations);
   }, [recommendations]);
 
+  useEffect(() => {
+    if (recommendationItems.length > 0) {
+      trackProductEvent({ event_name: "recommendation_viewed", source: "blueprints" });
+    }
+  }, [recommendationItems.length]);
+
   function beginEditing() {
     if (!versioningReady) {
       setError("Blueprint updates are temporarily unavailable while versioning is being enabled.");
@@ -377,7 +383,15 @@ export default function BlueprintWorkspaceClient({
           Start with decisions and safety. Use the full report below when you want the supporting detail.
         </p>
         <div className="mt-5 grid gap-3 md:grid-cols-3">
-          <a href={recommendationTarget} className="rounded-xl border border-slate-200 p-4 transition hover:border-[#9DCFC3] hover:bg-[#F4FAF8]">
+          <a
+            href={recommendationTarget}
+            onClick={() => {
+              if (recommendationItems.length > 0) {
+                trackProductEvent({ event_name: "recommendation_reason_opened", source: "blueprints" });
+              }
+            }}
+            className="rounded-xl border border-slate-200 p-4 transition hover:border-[#9DCFC3] hover:bg-[#F4FAF8]"
+          >
             <span className="flex items-center gap-2 font-bold text-[#041B2D]"><ClipboardCheck className="h-5 w-5 text-[#087F72]" aria-hidden="true" />Ideas to decide</span>
             <span className="mt-2 block text-sm leading-6 text-slate-600">{openRecommendationCount} {openRecommendationCount === 1 ? "idea needs" : "ideas need"} a keep, discuss, defer, or dismiss decision.</span>
           </a>
