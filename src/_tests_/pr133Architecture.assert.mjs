@@ -7,6 +7,7 @@ const [todayClient, dailyLog, todayExperience, briefData] = await Promise.all([
   readFile("src/components/dashboard/TodayExperience.tsx", "utf8"),
   readFile("src/lib/ai/todayBriefData.ts", "utf8"),
 ]);
+const logsRoute = await readFile("app/api/logs/route.ts", "utf8");
 
 const intentionIndex = todayClient.indexOf("<DailyIntentionCard");
 const checkInIndex = todayClient.indexOf('<section id="daily-log"');
@@ -28,6 +29,8 @@ assert.match(dailyLog, /Save check-in and see my next step/, "The save action sh
 assert.match(dailyLog, /Continue without a check-in/, "Members should be allowed to continue with disclosed limited context.");
 assert.match(dailyLog, /\/api\/logs\?date=/, "The visible check-in should load the server-authoritative daily record.");
 assert.doesNotMatch(dailyLog, /createClientComponentClient/, "The check-in should not bypass the server's public-user identity mapping.");
+assert.match(logsRoute, /const userId = entitlement\.user\.id/, "Daily logs should use the paid dashboard's canonical signed-in user id.");
+assert.doesNotMatch(logsRoute, /\.eq\("email"/, "Daily logs should not remap a signed-in account by email.");
 
 assert.match(todayExperience, /if \(!decisionReady\)/, "TodayExperience should withhold non-urgent lifestyle coaching before the check-in decision.");
 assert.match(todayExperience, /blueprintNotice\?\.tone !== "urgent"/, "Urgent Blueprint safety should remain visible before lifestyle coaching.");
