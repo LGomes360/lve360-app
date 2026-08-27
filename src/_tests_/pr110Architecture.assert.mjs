@@ -29,7 +29,7 @@ assert.match(route, /console\.info\("\[coach\.validation\]"/, "Privacy-safe task
 assert.match(route, /generationStatus = diagnostics\.taskPassed \? "succeeded" : "failed"/, "Safe incomplete fallbacks must not be recorded as successful answers.");
 assert.match(route, /regeneration_count: diagnostics\.regenerationCount/, "Repair count must remain stored in the existing diagnostics columns.");
 assert.match(data, /\[coach\.generation\]/, "Generation diagnostics must not hard-code a prompt version.");
-assert.match(promptVersions, /CONTEXTUAL_COACH_PROMPT_VERSION\s*=\s*"contextual-coach-v5"/);
+assert.match(promptVersions, /CONTEXTUAL_COACH_PROMPT_VERSION\s*=\s*"contextual-coach-v6"/);
 assert.match(modelConfig, /promptVersion:\s*CONTEXTUAL_COACH_PROMPT_VERSION/);
 
 console.log("PR110 task-success architecture checks passed.");

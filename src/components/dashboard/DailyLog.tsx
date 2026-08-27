@@ -161,7 +161,12 @@ export default function DailyLog({
       if (!response.ok || !body?.ok) throw new Error(body?.error || "save_failed");
 
       setPrefilled(true);
-      setMsg({ kind: "ok", text: "Saved. Your next step now reflects today's check-in." });
+      setMsg({
+        kind: "ok",
+        text: notes.trim()
+          ? "Saved. Your next step and future reflections can now use the context you shared."
+          : "Saved. Your next step now reflects today's check-in.",
+      });
       onCheckInStateChange?.(summary);
       onSaved?.(summary);
     } catch (error) {
@@ -255,7 +260,7 @@ export default function DailyLog({
                   placeholder="For example: travel, stress, a late meal, or something that made the practice easier."
                   className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal"
                 />
-                <span className="mt-1 block text-xs font-normal text-slate-500">Saved with today&apos;s record. Structured sleep and energy drive today&apos;s adjustment. A note is never treated as a diagnosis or medical instruction.</span>
+                <span className="mt-1 block text-xs font-normal text-slate-500">Saved with today&apos;s record. LVE360 may use a brief version to shape future intentions, coaching, and your weekly review. It remains member-reported context and is never treated as a diagnosis, medical instruction, or proof of cause.</span>
               </label>
             </div>
           </details>

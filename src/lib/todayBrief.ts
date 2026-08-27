@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const TODAY_BRIEF_PROMPT_VERSION = "today-brief-v7";
+export const TODAY_BRIEF_PROMPT_VERSION = "today-brief-v8";
 
 export type TodayBriefPrimaryAction =
   | "mark_complete"
@@ -31,6 +31,7 @@ export type TodayBriefContext = {
     sleep: number | null;
     energy: number | null;
     weightRecorded: boolean;
+    memberReportedContext: string | null;
   } | null;
   reviewDue: boolean;
 };
@@ -136,12 +137,13 @@ export function todayBriefGrounding(
   }
 
   if (context.checkIn) {
+    const includesReportedContext = Boolean(context.checkIn.memberReportedContext);
     return {
       confidence: "direct_record",
       confidenceLabel: "Direct record match",
       sourceLabel: source === "ai"
-        ? "Today's check-in, saved practice, recorded progress, and bounded AI synthesis"
-        : "Today's check-in, saved practice, and recorded progress",
+        ? `Today's check-in${includesReportedContext ? ", member-reported context" : ""}, saved practice, recorded progress, and bounded AI synthesis`
+        : `Today's check-in${includesReportedContext ? ", member-reported context" : ""}, saved practice, and recorded progress`,
     };
   }
 

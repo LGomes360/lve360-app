@@ -8,7 +8,7 @@ const gateway = readFileSync("src/lib/ai/gateway.ts", "utf8");
 const route = readFileSync("app/api/coach/route.ts", "utf8");
 const generation = readFileSync("src/lib/ai/contextualCoachData.ts", "utf8");
 
-assert.match(versions, /export const CONTEXTUAL_COACH_PROMPT_VERSION\s*=\s*"contextual-coach-v5"/);
+assert.match(versions, /export const CONTEXTUAL_COACH_PROMPT_VERSION\s*=\s*"contextual-coach-v6"/);
 assert.match(coach, /import \{ CONTEXTUAL_COACH_PROMPT_VERSION \} from "\.\/ai\/promptVersions\.ts"/);
 assert.match(coach, /COACH_PROMPT_VERSION\s*=\s*CONTEXTUAL_COACH_PROMPT_VERSION/);
 assert.match(modelConfig, /import \{ CONTEXTUAL_COACH_PROMPT_VERSION \} from "\.\/promptVersions\.ts"/);

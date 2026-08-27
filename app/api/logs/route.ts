@@ -8,6 +8,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 import { requirePaidApi } from "@/lib/serverEntitlements";
 import { parseLocalDate } from "@/lib/today";
+import { normalizeMemberReportedContext } from "@/lib/memberReportedContext";
 
 export async function GET(req: Request) {
   const entitlement = await requirePaidApi();
@@ -48,7 +49,15 @@ export async function POST(req: Request) {
   const userId = entitlement.user.id;
 
   const body = await req.json();
-  const payload = { ...body, user_id: userId };
+  const requestedLogDate = typeof body?.log_date === "string" ? body.log_date : new Date().toISOString().slice(0, 10);
+  const logDate = parseLocalDate(requestedLogDate);
+  if (!logDate) return NextResponse.json({ error: "Invalid local date" }, { status: 400 });
+  const payload = {
+    ...body,
+    user_id: userId,
+    log_date: logDate,
+    notes: normalizeMemberReportedContext(body?.notes, 1000),
+  };
 
   const { error } = await supabaseAdmin
     .from("logs")
@@ -108,7 +117,6 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  const logDate = typeof body?.log_date === "string" ? body.log_date.slice(0, 10) : "unknown";
   await recordProductEventSafely({
     event_name: "check_in_completed",
     source: "daily_log",
