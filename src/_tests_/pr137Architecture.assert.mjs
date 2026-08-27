@@ -15,6 +15,7 @@ const documentation = read("docs/qa/persona-regression.md");
 assert.match(packageJson.scripts["qa:personas"], /personaRegression\.assert\.ts/);
 assert.match(packageJson.scripts["qa:personas"], /pr137Architecture\.assert\.mjs/);
 assert.equal(packageJson.scripts["qa:pr137"], "npm run qa:personas");
+assert.match(workflow, /node-version: '22'/);
 assert.match(workflow, /name: Run 24-persona regression harness[\s\S]*npm run qa:personas/);
 assert.match(fixtures, /PERSONA_REGRESSION_PERSONAS/);
 assert.match(fixtures, /PERSONA_REGRESSION_WEEKS/);

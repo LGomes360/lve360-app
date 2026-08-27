@@ -11,6 +11,7 @@ npm run qa:personas
 ```
 
 The command uses no production account, database, secret, network request, or live AI generation.
+It runs on Node 22, which is also used by the repository's CI workflow and supports the existing stripped-TypeScript QA commands.
 
 ## Coverage
 
