@@ -1,5 +1,6 @@
 import type { CoachActionProposal, ProposedWeeklyPractice } from "./coachActions";
 import { CONTEXTUAL_COACH_PROMPT_VERSION } from "./ai/promptVersions.ts";
+import { requestsMemberReportedContext } from "./memberReportedContext.ts";
 
 export const COACH_PROMPT_VERSION = CONTEXTUAL_COACH_PROMPT_VERSION;
 
@@ -163,6 +164,8 @@ export function classifyCoachRequest(question: string): CoachRoutingDecision {
   const value = question.toLowerCase();
   const constraints = explicitCoachConstraints(question);
   const requestedKinds = requestedRegimenKinds(question);
+  const requestsSavedPersonalContext = requestsMemberReportedContext(question);
+  const asksForPersonalizedHelp = /\b(?:suggest|recommend|help|one small way|next step|what should i|how can i|how do i)\b/.test(value);
   const lookupLead = /\b(?:what|which|list|show|am i|do i)\b/.test(value);
   const explicitRegimenLookup = lookupLead && (
     /\b(?:am i|do i)\s+(?:currently\s+)?(?:taking|take)\b/.test(value)
@@ -223,6 +226,9 @@ export function classifyCoachRequest(question: string): CoachRoutingDecision {
   }
   if (/\b(?:why|explain|what does|how does)\b[\s\S]{0,80}\b(?:blueprint|plan|priority|recommendation|routine)\b/.test(value)) {
     return route("PLAN_EXPLANATION");
+  }
+  if (requestsSavedPersonalContext && asksForPersonalizedHelp) {
+    return route("PERSONALIZED_RECOMMENDATION", []);
   }
   if (/\b(?:this week|next[- ]week|progress|trend|recent|check[- ]?ins?|small win|next habit|weekly practice|focus on)\b/.test(value)) {
     return route("PROGRESS_COACHING", []);

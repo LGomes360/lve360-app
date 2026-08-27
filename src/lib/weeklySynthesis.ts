@@ -12,7 +12,7 @@ import {
   type WeeklyPracticeMetrics,
 } from "./practiceQuantity.ts";
 
-export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly-review-synthesis-v7";
+export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly-review-synthesis-v8";
 
 export const WEEKLY_SYNTHESIS_RESPONSE_FORMAT = {
   type: "json_schema" as const,
@@ -65,7 +65,7 @@ export type WeeklySynthesisContext = {
   target: number;
   difficulty: number;
   valueRating: number;
-  checkIns: Array<{ date: string; sleep: number | null; energy: number | null }>;
+  checkIns: Array<{ date: string; sleep: number | null; energy: number | null; memberReportedContext: string | null }>;
   history: WeeklySynthesisHistoryWeek[];
 };
 
@@ -185,6 +185,11 @@ export function weeklySynthesisEvidence(context: WeeklySynthesisContext): Weekly
     const energy = average(context.checkIns.flatMap((item) => typeof item.energy === "number" ? [item.energy] : []));
     if (sleep != null) evidence.push({ label: "Average sleep check-in", value: `${sleep.toFixed(1)} of 5` });
     if (energy != null) evidence.push({ label: "Average energy check-in", value: `${energy.toFixed(1)} of 10` });
+    const reportedContextCount = context.checkIns.filter((item) => item.memberReportedContext).length;
+    if (reportedContextCount) evidence.push({
+      label: "Member-reported context",
+      value: `${reportedContextCount} ${reportedContextCount === 1 ? "note" : "notes"} considered without assuming cause`,
+    });
   }
   if (context.history.length) {
     const comparable = comparableHistory(context);

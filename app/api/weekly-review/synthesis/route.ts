@@ -4,6 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import type { WeeklyExperiment } from "@/lib/activation";
 import { getOrCreateWeeklySynthesis } from "@/lib/ai/weeklySynthesisData";
+import { normalizeMemberReportedContext } from "@/lib/memberReportedContext";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { isReviewDecision, isReviewDue } from "@/lib/weeklyReview";
 import type { WeeklySynthesisHistoryWeek } from "@/lib/weeklySynthesis";
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     const [{ data: completionRows, error: completionError }, { data: checkIns, error: checkInError }, { data: reviewRows, error: reviewError }] = await Promise.all([
       admin.from("daily_practice_completions").select("completion_date,completion_kind,completed_quantity,quantity_unit").eq("user_id", user.id).eq("experiment_id", experimentId)
         .gte("completion_date", typedExperiment.week_start).lte("completion_date", weekEnd).order("completion_date"),
-      admin.from("logs").select("log_date,sleep,energy").eq("user_id", user.id)
+      admin.from("logs").select("log_date,sleep,energy,notes").eq("user_id", user.id)
         .gte("log_date", typedExperiment.week_start).lte("log_date", weekEnd).order("log_date"),
       admin.from("weekly_experiment_reviews")
         .select("experiment_id,completion_count,target_count,difficulty,value_rating,decision,completed_at")
@@ -88,7 +89,12 @@ export async function POST(req: NextRequest) {
       target: typedExperiment.frequency_per_week ?? 1,
       difficulty,
       valueRating,
-      checkIns: (checkIns ?? []).map((row) => ({ date: row.log_date, sleep: row.sleep, energy: row.energy })),
+      checkIns: (checkIns ?? []).map((row) => ({
+        date: row.log_date,
+        sleep: row.sleep,
+        energy: row.energy,
+        memberReportedContext: normalizeMemberReportedContext(row.notes),
+      })),
       history,
     });
     return NextResponse.json({ ok: true, synthesis });

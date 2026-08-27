@@ -58,7 +58,7 @@ const TASK_PROFILES: Record<AiTask, AiTaskProfile> = {
   },
   today_brief: {
     capability: "mini",
-    promptVersion: "today-brief-v2",
+    promptVersion: "today-brief-v8",
     reasoningEffort: "low",
   },
   routine_label_parser: {
@@ -68,7 +68,7 @@ const TASK_PROFILES: Record<AiTask, AiTaskProfile> = {
   },
   weekly_review_synthesis: {
     capability: "mini",
-    promptVersion: "weekly-review-synthesis-v7",
+    promptVersion: "weekly-review-synthesis-v8",
     reasoningEffort: "low",
   },
   weekly_insight: {

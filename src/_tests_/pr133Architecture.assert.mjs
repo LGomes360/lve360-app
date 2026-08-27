@@ -38,7 +38,7 @@ assert.match(todayExperience, /if \(!decisionReady\)/, "TodayExperience should w
 assert.match(todayExperience, /blueprintNotice\?\.tone !== "urgent"/, "Urgent Blueprint safety should remain visible before lifestyle coaching.");
 assert.match(todayExperience, /I did today&apos;s smaller version/, "The adjusted minimum version should become the primary completion action.");
 
-assert.match(briefData, /from\("logs"\).*select\("sleep,energy,weight"\)/s, "The Today Brief context should load today's structured check-in.");
+assert.match(briefData, /from\("logs"\).*select\("sleep,energy,weight(?:,notes)?"\)/s, "The Today Brief context should load today's structured check-in.");
 assert.match(briefData, /today_check_in: context\.checkIn/, "Bounded AI wording should receive the structured check-in.");
 
 console.log("PR133 Today listens-first architecture assertions passed.");

@@ -179,7 +179,7 @@ export async function getMemberIntelligenceContext(userId: string): Promise<Memb
     admin.from("weekly_experiments")
       .select("id,source_stack_id,source_action_id,connection_type,goal_id,goal_key,goal_label_snapshot,identity_direction,action_label,cue,frequency_per_week,target_quantity,quantity_unit,minimum_quantity,minimum_quantity_unit,minimum_version,status,week_start,created_at,updated_at")
       .eq("user_id", userId).order("week_start", { ascending: false }).limit(12),
-    admin.from("logs").select("id,log_date,weight,sleep,energy,updated_at")
+    admin.from("logs").select("id,log_date,weight,sleep,energy,notes,updated_at")
       .eq("user_id", userId).order("log_date", { ascending: false }).limit(30),
   ]);
   for (const result of [memberResult, preferenceResult, submissionResult, goalsResult, experimentResult, checkInResult]) {

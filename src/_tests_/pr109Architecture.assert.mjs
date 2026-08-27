@@ -23,7 +23,7 @@ assert.match(intent, /preserveMedicationPlan/);
 assert.match(intent, /preserveSupplementPlan/);
 assert.match(intent, /CURRENT_REGIMEN_LOOKUP/);
 assert.match(intent, /OUT_OF_SCOPE/);
-assert.match(promptVersions, /CONTEXTUAL_COACH_PROMPT_VERSION\s*=\s*"contextual-coach-v5"/);
+assert.match(promptVersions, /CONTEXTUAL_COACH_PROMPT_VERSION\s*=\s*"contextual-coach-v6"/);
 assert.match(intent, /COACH_PROMPT_VERSION\s*=\s*CONTEXTUAL_COACH_PROMPT_VERSION/);
 assert.match(modelConfig, /promptVersion:\s*CONTEXTUAL_COACH_PROMPT_VERSION/, "Runtime ledger and saved-turn prompt versions must use the same canonical source.");
 

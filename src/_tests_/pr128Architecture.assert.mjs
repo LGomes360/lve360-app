@@ -33,7 +33,7 @@ assert.match(insight, /Confidence:/);
 assert.match(insight, /Source:/);
 assert.doesNotMatch(insight, /Mark complete|I did it today|I did the minimum version/, "the evidence layer must not duplicate completion controls");
 
-assert.match(brief, /today-brief-v7/);
+assert.match(brief, /today-brief-v8/);
 assert.match(brief, /noticed: fallback\.noticed/, "observed facts must remain deterministic even when AI supplies supporting language");
 assert.match(data, /Do not restate the explicit practice connection/, "AI rationale must not repeat the separate personal reason");
 

@@ -1,9 +1,10 @@
 import type { CurrentBlueprintContext, ExperimentBlueprintContext } from "./blueprintContext";
 import type { CurrentRegimenItem } from "./currentRegimenModel";
+import { normalizeMemberReportedContext } from "./memberReportedContext.ts";
 import { buildWeeklyPracticeMetrics } from "./practiceQuantity.ts";
 import { unknownSafetyEvidence, type SafetyEvidenceProvenance, type SafetyFinding } from "./safetyEngine.ts";
 
-export const MEMBER_CONTEXT_VERSION = "member-intelligence-context-v1";
+export const MEMBER_CONTEXT_VERSION = "member-intelligence-context-v2";
 
 export type MemberContextStatus = "present" | "missing" | "stale";
 
@@ -150,6 +151,7 @@ export type MemberCheckInContext = {
   weight: number | null;
   sleep: number | null;
   energy: number | null;
+  memberReportedContext: string | null;
   provenance: MemberContextProvenance;
 };
 
@@ -240,6 +242,7 @@ export type MemberContextCheckInInput = {
   weight: number | null;
   sleep: number | null;
   energy: number | null;
+  notes: string | null;
   updated_at: string | null;
 };
 
@@ -505,6 +508,7 @@ export function buildMemberIntelligenceContext(input: MemberIntelligenceContextI
     weight: item.weight,
     sleep: item.sleep,
     energy: item.energy,
+    memberReportedContext: normalizeMemberReportedContext(item.notes),
     provenance: { source: "logs", recordId: item.id, updatedAt: item.updated_at ?? item.log_date },
   }));
   const recentCheckIns = section(
