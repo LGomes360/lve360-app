@@ -13,28 +13,37 @@ const FULLSCRIPT_API_KEY = process.env.FULLSCRIPT_API_KEY || "";
 // Fallback query against your own supplements table when Fullscript keys are missing
 async function fallbackSearch(q: string) {
   const admin = getSupabaseAdmin();
-  const columns = "id, ingredient, product_name, link_fullscript, link_amazon, notes";
+  const columns = "id, ingredient, product_name, dose, link_fullscript, link_default, link_trusted, link_clean, link_budget, notes";
   const [ingredientMatches, productMatches] = await Promise.all([
     admin.from("supplements").select(columns).ilike("ingredient", `%${q}%`).limit(20),
     admin.from("supplements").select(columns).ilike("product_name", `%${q}%`).limit(20),
   ]);
+  if (ingredientMatches.error && productMatches.error) throw ingredientMatches.error;
   const rows = new Map<string, any>();
   for (const row of [...(ingredientMatches.data ?? []), ...(productMatches.data ?? [])]) {
     rows.set(String(row.id), row);
   }
 
-  return [...rows.values()].slice(0, 20).map((row) => ({
-    vendor: "fallback",
-    sku: row.id, // your own id as pseudo-sku
-    name: row.product_name || row.ingredient,
-    brand: null,
-    dose: row.notes || null,
-    link_fullscript: row.link_fullscript || null,
-    link_amazon: row.link_amazon || null,
-    price: null,
-    reorder_url: safeHttpsUrl(row.link_fullscript || row.link_amazon),
-    image_url: null,
-  }));
+  return [...rows.values()].slice(0, 20).map((row) => {
+    const reorderCandidate = row.link_fullscript
+      || row.link_default
+      || row.link_trusted
+      || row.link_clean
+      || row.link_budget
+      || null;
+    return {
+      vendor: "fallback",
+      sku: row.id, // your own id as pseudo-sku
+      name: row.product_name || row.ingredient,
+      brand: null,
+      dose: row.dose || row.notes || null,
+      link_fullscript: safeHttpsUrl(row.link_fullscript),
+      link_amazon: safeHttpsUrl(row.link_default || row.link_trusted || row.link_clean || row.link_budget),
+      price: null,
+      reorder_url: safeHttpsUrl(reorderCandidate),
+      image_url: null,
+    };
+  });
 }
 
 function safeHttpsUrl(value: unknown): string | null {

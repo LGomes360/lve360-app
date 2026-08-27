@@ -80,6 +80,7 @@
     "qa:personas": "node --experimental-strip-types src/_tests_/personaRegression.assert.ts && node src/_tests_/pr137Architecture.assert.mjs",
     "qa:pr137": "npm run qa:personas",
     "qa:pr138": "node src/_tests_/pr138ReturningMemberRecovery.assert.mjs",
+    "qa:pr139": "node src/_tests_/pr139SupplementCatalogFallback.assert.mjs",
     "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
