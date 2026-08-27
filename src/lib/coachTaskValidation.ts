@@ -445,11 +445,17 @@ function memberReportedContextValidator(input: CoachTaskValidationInput) {
   const answer = normalized(input.answerText);
   const usesReportedDetail = contextTerms.some((term) => answer.includes(term));
   const citesCheckIns = input.structuredAnswer?.sourceIds.includes("recent_check_ins") === true;
-  const passed = usesReportedDetail && citesCheckIns;
+  const attributesReportedContext = /\b(?:you recorded|you noted|you shared|your check[- ]?in (?:says|notes|records|shows))\b/i.test(input.answerText);
+  const passed = usesReportedDetail && citesCheckIns && attributesReportedContext;
+  const missingRequirements = [
+    !citesCheckIns ? "recent_check_ins_source_missing" : null,
+    !usesReportedDetail ? "member_reported_detail_not_used" : null,
+    !attributesReportedContext ? "member_reported_context_not_attributed" : null,
+  ].filter((value): value is string => Boolean(value));
   return result(
     "MEMBER_REPORTED_CONTEXT_USE",
     Number(passed),
-    passed ? [] : [!citesCheckIns ? "recent_check_ins_source_missing" : "member_reported_detail_not_used"],
+    passed ? [] : missingRequirements,
   );
 }
 

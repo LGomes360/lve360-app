@@ -87,4 +87,16 @@ const genericValidation = validateCoachTaskSuccess({
 assert.equal(genericValidation.passed, false, "a generic answer that ignores the saved note should fail");
 assert(genericValidation.failedValidators.includes("MEMBER_REPORTED_CONTEXT_USE"));
 
+const unattributedValidation = validateCoachTaskSuccess({
+  route: contextualRoute,
+  question: contextualQuestion,
+  answerText: "A late meeting can make the evening feel rushed. Next step: protect a two-minute transition before the meeting.",
+  memberContext: context,
+  structuredAnswer: { ...groundedAnswer, directAnswer: "A late meeting can make the evening feel rushed." },
+  evidenceOptionNames: [],
+  safetyChecked: true,
+});
+assert.equal(unattributedValidation.passed, false, "the answer must label the detail as member-reported rather than objective fact");
+assert(unattributedValidation.missingRequirements.includes("member_reported_context_not_attributed"));
+
 console.log("PR135 compounding member context assertions passed.");
