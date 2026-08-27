@@ -162,6 +162,7 @@ export async function buildCoachContext(
     sources.push({
       id: "current_blueprint",
       label: "Current Blueprint",
+      kind: "member_record",
       summary: blueprint
         ? `${blueprint.priorities.length} priorities; ${memberContext.blueprint.status === "stale" ? "saved changes await review" : "current with saved information"}.`
         : "No current Blueprint is recorded.",
@@ -180,6 +181,7 @@ export async function buildCoachContext(
     sources.push({
       id: "current_routine",
       label: "Current Routine",
+      kind: "member_record",
       summary: `${allRegimen.length} active medication, hormone, and supplement records.`,
       href: "/routine",
     });
@@ -202,6 +204,7 @@ export async function buildCoachContext(
     sources.push({
       id: "weekly_practice",
       label: "Weekly Practice",
+      kind: "member_record",
       summary: practice
         ? `${practice.completionCount} completions recorded toward this week's ${practice.frequencyPerWeek ?? 0}-time target.`
         : "No active weekly practice is recorded.",
@@ -231,6 +234,7 @@ export async function buildCoachContext(
     sources.push({
       id: "recent_check_ins",
       label: "Recent check-ins",
+      kind: "member_record",
       summary: `${checkIns.length} recent check-ins${checkIns.some((item) => item.memberReportedContext) ? ", including member-reported context" : ""}.`,
       href: "/journey",
     });
@@ -249,6 +253,7 @@ export async function buildCoachContext(
     sources.push({
       id: "goals",
       label: "Goals",
+      kind: "member_record",
       summary: `${saved.length} saved goals and ${blueprintGoals.length} Blueprint goals.`,
       href: "/settings",
     });
@@ -263,6 +268,7 @@ export async function buildCoachContext(
     sources.push({
       id: "health_profile",
       label: "Health profile",
+      kind: "member_record",
       summary: memberContext.healthProfile.status === "present"
         ? "Saved age/life-stage, conditions, allergies, procedures, and preferences used only when relevant."
         : "No intake health profile is currently available.",
@@ -275,6 +281,7 @@ export async function buildCoachContext(
     sources.push({
       id: "preferences",
       label: "Preferences",
+      kind: "member_record",
       summary: memberContext.preferences.status === "present"
         ? "Saved timezone, reminder, quiet-hour, and unit preferences."
         : "No member preferences are currently recorded.",
@@ -288,6 +295,7 @@ export async function buildCoachContext(
     sources.push({
       id: "safety_review",
       label: "Deterministic safety review",
+      kind: "safety",
       summary: memberContext.unresolvedSafetyItems.status === "missing"
         ? "The current safety evaluation was unavailable."
         : `${safetyItems.length} unresolved finding${safetyItems.length === 1 ? "" : "s"} from the current Routine.`,
@@ -300,6 +308,7 @@ export async function buildCoachContext(
     sources.push({
       id: "context_status",
       label: "Member context status",
+      kind: "member_record",
       summary: `${memberContext.contextFreshness.missingSections.length} missing and ${memberContext.contextFreshness.staleSections.length} stale context sections.`,
       href: "/settings",
     });
@@ -316,6 +325,7 @@ export async function buildCoachContext(
     sources.push({
       id: "recent_coaching",
       label: "Recent coaching",
+      kind: "member_record",
       summary: `${recentTurns.length} recent Ask LVE360 turn${recentTurns.length === 1 ? "" : "s"} used to understand follow-up wording.`,
       href: page === "other" ? "/today" : page === "blueprint" ? "/blueprints" : `/${page}`,
     });
@@ -394,6 +404,10 @@ export async function buildCoachContext(
       label: `${option.name} evidence`,
       summary: `${option.evidenceStrength}; reviewed ${option.lastReviewed}: ${option.citationLabel}`,
       href: option.citationUrl,
+      kind: "evidence",
+      evidence_strength: option.evidenceStrength,
+      reviewed_at: option.lastReviewed,
+      review_status: option.reviewStatus,
     });
   }
   for (const candidate of preSafety?.candidates ?? []) {
@@ -406,6 +420,9 @@ export async function buildCoachContext(
       label: evidence.sourceLabel,
       summary: `${candidate.name} safety rule. Confidence: ${evidence.confidence}.`,
       href: evidence.sourceUrl,
+      kind: "safety",
+      reviewed_at: evidence.lastReviewedOn,
+      confidence: evidence.confidence,
     });
   }
 

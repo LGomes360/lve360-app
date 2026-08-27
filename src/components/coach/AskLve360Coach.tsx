@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarPlus, Check, ExternalLink, Loader2, MessageCircle, Send, Sparkles, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { ArrowRight, BookOpen, CalendarPlus, Check, ExternalLink, Loader2, MessageCircle, Send, ShieldCheck, Sparkles, ThumbsDown, ThumbsUp, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -14,6 +14,7 @@ import {
 } from "@/lib/contextualCoach";
 import { identityLabel } from "@/lib/activation";
 import type { CoachActionProposal } from "@/lib/coachActions";
+import { coachGroundingHeadline, coachGroundingTitle, evidenceReviewLabel, groupCoachSources } from "@/lib/coachGrounding";
 
 type Usage = {
   turns: number;
@@ -250,30 +251,7 @@ export default function AskLve360Coach() {
                           onCancel={() => void updateAction(turn.action_proposal!.id, "cancel")}
                         />
                       ) : null}
-                      {turn.source_refs?.length ? (
-                        <details className="mt-4 border-t border-slate-100 pt-3">
-                          <summary className="cursor-pointer text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">What I used</summary>
-                          <ul className="mt-3 space-y-2">
-                            {turn.source_refs.map((source) => {
-                              const external = /^https?:\/\//i.test(source.href);
-                              return (
-                                <li key={source.id} className="rounded-xl bg-[#F3F8F7] p-3 text-xs leading-5 text-[#486170]">
-                                  <Link
-                                    href={source.href}
-                                    target={external ? "_blank" : undefined}
-                                    rel={external ? "noopener noreferrer" : undefined}
-                                    onClick={() => { if (!external) setOpen(false); }}
-                                    className="inline-flex items-center gap-1 font-bold text-[#06695F] hover:underline"
-                                  >
-                                    {source.label}<ExternalLink className="h-3 w-3" aria-hidden="true" />
-                                  </Link>
-                                  <p>{source.summary}</p>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        </details>
-                      ) : null}
+                      {turn.source_refs?.length ? <CoachGroundingCard sources={turn.source_refs} onInternalNavigate={closeCoach} /> : null}
                       <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3 text-xs text-[#486170]">
                         <span>Was this useful?</span>
                         <button type="button" onClick={() => leaveFeedback(turn.id, "useful")} aria-label="Mark answer useful" aria-pressed={turn.feedback === "useful"} className={`rounded-md p-1.5 ${turn.feedback === "useful" ? "bg-[#DDF7F1] text-[#06695F]" : "hover:bg-slate-100"}`}><ThumbsUp className="h-4 w-4" aria-hidden="true" /></button>
@@ -327,6 +305,87 @@ export default function AskLve360Coach() {
         </div>
       ), document.body) : null}
     </>
+  );
+}
+
+function CoachGroundingCard({
+  sources,
+  onInternalNavigate,
+}: {
+  sources: CoachTurn["source_refs"];
+  onInternalNavigate: () => void;
+}) {
+  const groups = groupCoachSources(sources);
+  return (
+    <section className="mt-4 rounded-2xl border border-[#BCE3DA] bg-[#F4FAF8] p-4" aria-label="Grounding for this answer">
+      <div className="flex items-start gap-3">
+        <div className="rounded-full bg-[#DDF7F1] p-2 text-[#06695F]"><ShieldCheck className="h-4 w-4" aria-hidden="true" /></div>
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.12em] text-[#06695F]">{coachGroundingTitle(groups)}</p>
+          <p className="mt-1 text-sm leading-6 text-[#486170]">{coachGroundingHeadline(groups)}</p>
+        </div>
+      </div>
+
+      {groups.records.length ? (
+        <GroundingGroup title="Your saved LVE360 records" icon={<UserRound className="h-4 w-4" aria-hidden="true" />} sources={groups.records} onInternalNavigate={onInternalNavigate} />
+      ) : null}
+      {groups.evidence.length ? (
+        <GroundingGroup title="Maintained evidence" icon={<BookOpen className="h-4 w-4" aria-hidden="true" />} sources={groups.evidence} onInternalNavigate={onInternalNavigate} evidence />
+      ) : null}
+      {groups.safety.length ? (
+        <GroundingGroup title="Safety rules checked" icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />} sources={groups.safety} onInternalNavigate={onInternalNavigate} safety />
+      ) : null}
+    </section>
+  );
+}
+
+function GroundingGroup({
+  title,
+  icon,
+  sources,
+  onInternalNavigate,
+  evidence = false,
+  safety = false,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  sources: CoachTurn["source_refs"];
+  onInternalNavigate: () => void;
+  evidence?: boolean;
+  safety?: boolean;
+}) {
+  return (
+    <div className="mt-4 border-t border-[#D8EEE9] pt-3">
+      <p className="flex items-center gap-2 text-xs font-bold text-[#17384A]">{icon}{title}</p>
+      <ul className="mt-2 grid gap-2 lg:grid-cols-2">
+        {sources.map((source) => {
+          const external = /^https?:\/\//i.test(source.href);
+          const reviewLabel = evidenceReviewLabel(source);
+          return (
+            <li key={source.id} className={`rounded-xl border p-3 text-xs leading-5 ${safety ? "border-amber-200 bg-amber-50 text-amber-950" : "border-white bg-white text-[#486170]"}`}>
+              <Link
+                href={source.href}
+                target={external ? "_blank" : undefined}
+                rel={external ? "noopener noreferrer" : undefined}
+                onClick={() => { if (!external) onInternalNavigate(); }}
+                className="inline-flex items-center gap-1 font-black text-[#06695F] hover:underline"
+              >
+                {source.label}
+                {external ? <ExternalLink className="h-3 w-3" aria-hidden="true" /> : <ArrowRight className="h-3 w-3" aria-hidden="true" />}
+              </Link>
+              {(evidence && (source.evidence_strength || reviewLabel)) || (safety && (source.confidence || reviewLabel)) ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {source.evidence_strength ? <span className="rounded-full bg-[#EAFBF8] px-2 py-0.5 font-bold text-[#06695F]">{source.evidence_strength} evidence</span> : null}
+                  {reviewLabel ? <span className={`rounded-full px-2 py-0.5 font-bold ${source.review_status === "review_due" || source.review_status === "invalid" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-600"}`}>{reviewLabel}</span> : null}
+                  {safety && source.confidence ? <span className="rounded-full bg-amber-100 px-2 py-0.5 font-bold text-amber-900">{source.confidence} confidence</span> : null}
+                </div>
+              ) : null}
+              <p className="mt-1.5">{source.summary}</p>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 

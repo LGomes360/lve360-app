@@ -100,6 +100,11 @@ export type CoachSource = {
   label: string;
   summary: string;
   href: string;
+  kind?: "member_record" | "evidence" | "safety";
+  evidence_strength?: "Strong" | "Moderate" | "Emerging" | "Limited" | "Mixed" | "Insufficient";
+  reviewed_at?: string | null;
+  review_status?: "current" | "review_due" | "invalid";
+  confidence?: "high" | "moderate" | "low" | "unknown";
 };
 
 export type CoachTurn = {
