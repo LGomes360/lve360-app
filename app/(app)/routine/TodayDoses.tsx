@@ -3,8 +3,8 @@
 import { AlertTriangle, Check, Clock3, History, Loader2, Pencil, RotateCcw, SkipForward } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { regimenDoseDaypart, type AsNeededRegimenItem, type RegimenDoseDay, type RegimenDoseOccurrence, type RegimenDoseStatus } from "@/lib/regimenDose";
-import { localDateString } from "@/lib/regimenSchedule";
+import { regimenDoseDaypart, unrecordedOccurrencesAtOrBefore, type AsNeededRegimenItem, type RegimenDoseDay, type RegimenDoseOccurrence, type RegimenDoseStatus } from "@/lib/regimenDose";
+import { localClock } from "@/lib/reminderSchedule";
 import type { RoutineItem } from "@/lib/routine";
 import { doseIntegrityIssue } from "@/lib/doseIntegrity";
 
@@ -21,14 +21,17 @@ export default function TodayDoses({
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const date = localDateString();
+  const [now, setNow] = useState(() => new Date());
   const dayparts = useMemo(() => groupByDaypart(day?.occurrences ?? []), [day]);
+  const clock = day ? localClock(now, day.timeZone) : null;
+  const currentMinutes = clock ? clock.hour * 60 + clock.minute : 0;
+  const loadedDate = day?.date;
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/routine/doses?date=${encodeURIComponent(date)}`, { cache: "no-store" });
+      const response = await fetch("/api/routine/doses", { cache: "no-store" });
       const body = await response.json().catch(() => null);
       if (!response.ok || !body?.ok) throw new Error(body?.error ?? "routine_doses_unavailable");
       setDay(body.day);
@@ -37,13 +40,23 @@ export default function TodayDoses({
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, []);
 
   useEffect(() => {
     void load();
   }, [load, refreshToken]);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (loadedDate && clock?.date !== loadedDate) void load();
+  }, [clock?.date, loadedDate, load]);
+
   async function record(occurrence: RegimenDoseOccurrence, status: RegimenDoseStatus) {
+    if (!day) return;
     const key = `${occurrence.regimenItemId}:${occurrence.slotKey}`;
     setBusyKey(key);
     setError(null);
@@ -53,7 +66,7 @@ export default function TodayDoses({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           regimen_item_id: occurrence.regimenItemId,
-          date,
+          date: day.date,
           slot_key: occurrence.slotKey,
           status,
         }),
@@ -69,13 +82,14 @@ export default function TodayDoses({
   }
 
   async function recordAsNeeded(item: AsNeededRegimenItem) {
+    if (!day) return;
     setBusyKey(`as-needed:${item.regimenItemId}`);
     setError(null);
     try {
       const response = await fetch("/api/routine/doses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ regimen_item_id: item.regimenItemId, date, slot_key: "as_needed", status: "taken" }),
+        body: JSON.stringify({ regimen_item_id: item.regimenItemId, date: day.date, slot_key: "as_needed", status: "taken" }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok || !body?.ok) throw new Error(body?.error ?? "dose_record_failed");
@@ -88,17 +102,18 @@ export default function TodayDoses({
   }
 
   async function recordGroup(label: string, occurrences: RegimenDoseOccurrence[]) {
-    const remaining = occurrences.filter((occurrence) => !occurrence.status);
-    if (!remaining.length) return;
+    if (!day) return;
+    const available = unrecordedOccurrencesAtOrBefore(occurrences, currentMinutes);
+    if (!available.length) return;
     setBusyKey(`group:${label}`);
     setError(null);
     try {
-      const responses = await Promise.all(remaining.map((occurrence) => fetch("/api/routine/doses", {
+      const responses = await Promise.all(available.map((occurrence) => fetch("/api/routine/doses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           regimen_item_id: occurrence.regimenItemId,
-          date,
+          date: day.date,
           slot_key: occurrence.slotKey,
           status: "taken",
         }),
@@ -142,7 +157,7 @@ export default function TodayDoses({
             Mark each scheduled occurrence separately. This records what happened and does not change your instructions.
           </p>
         </div>
-        <p className="rounded-full bg-[#EAFBF8] px-3 py-2 text-sm font-bold text-[#06695F]">{formatDay(date)}</p>
+        <p className="rounded-full bg-[#EAFBF8] px-3 py-2 text-sm font-bold text-[#06695F]">{formatDay(day?.date ?? "")}</p>
       </div>
 
       {error ? <p className="mt-4 rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-800" role="alert">{error}</p> : null}
@@ -153,6 +168,7 @@ export default function TodayDoses({
           <div className="mt-5 space-y-5">
             {dayparts.map(({ label, occurrences }) => {
               const remaining = occurrences.filter((occurrence) => !occurrence.status);
+              const available = unrecordedOccurrencesAtOrBefore(occurrences, currentMinutes);
               const groupBusy = busyKey === `group:${label}`;
               return (
                 <section key={label} className="overflow-hidden rounded-2xl border border-slate-200" aria-labelledby={`dose-${label.toLowerCase()}`}>
@@ -162,12 +178,17 @@ export default function TodayDoses({
                       <p className="mt-1 text-xs text-slate-600">{occurrences.length} scheduled item{occurrences.length === 1 ? "" : "s"}</p>
                     </div>
                     {remaining.length ? (
-                      <button type="button" disabled={busyKey !== null} onClick={() => void recordGroup(label, occurrences)} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#087F72] bg-white px-4 py-2 text-sm font-bold text-[#06695F] hover:bg-[#EAFBF8] disabled:opacity-60">
+                      <button type="button" disabled={busyKey !== null || available.length === 0} onClick={() => void recordGroup(label, occurrences)} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#087F72] bg-white px-4 py-2 text-sm font-bold text-[#06695F] hover:bg-[#EAFBF8] disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-500 disabled:opacity-70">
                         {groupBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />}
-                        Mark {remaining.length === occurrences.length ? "all" : `${remaining.length} remaining`} taken
+                        {available.length ? `Mark ${available.length} available taken` : "Nothing available yet"}
                       </button>
                     ) : <span className="inline-flex min-h-11 items-center text-sm font-bold text-emerald-800"><Check className="mr-2 h-4 w-4" aria-hidden="true" /> All recorded</span>}
                   </div>
+                  {available.length ? (
+                    <div className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950">
+                      {available.length} item{available.length === 1 ? "" : "s"} scheduled at or before the current time {available.length === 1 ? "is" : "are"} unrecorded. Follow your existing instructions and do not double-dose.
+                    </div>
+                  ) : null}
                   <div className="divide-y divide-slate-100">
                     {occurrences.map((occurrence) => {
                       const key = `${occurrence.regimenItemId}:${occurrence.slotKey}`;
@@ -268,6 +289,7 @@ function groupByDaypart(occurrences: RegimenDoseOccurrence[]): Array<{ label: "M
 }
 
 function formatDay(value: string): string {
+  if (!value) return "Today";
   const [year, month, day] = value.split("-").map(Number);
   return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
     .format(new Date(Date.UTC(year, month - 1, day)));

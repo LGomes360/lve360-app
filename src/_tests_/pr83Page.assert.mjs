@@ -10,7 +10,7 @@ const todaySurface = read("src/lib/todaySurface.ts");
 const migration = read("supabase/migrations/20260808212539_pr83_safety_acknowledgement.sql");
 
 assert.match(today, /groupByDaypart/);
-assert.match(today, /Mark .*remaining.* taken|Mark \{remaining\.length === occurrences\.length/);
+assert.match(today, /Mark \$\{available\.length\} available taken/);
 assert.match(today, /onEditSchedule\(item\)/);
 assert.match(summary, /href="\/routine#routine-ideas"/);
 assert.match(summary, /href="\/routine#schedule-review"/);

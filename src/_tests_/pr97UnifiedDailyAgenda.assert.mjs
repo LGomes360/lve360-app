@@ -13,7 +13,7 @@ assert.doesNotMatch(todayAgenda, /<TodayDoses/, "Today must not duplicate the fu
 assert.match(todayAgenda, /groupRoutineItems\(items\)\.current\.filter\(\(item\) => !item\.schedule\)/, "Today must name items with missing schedules");
 assert.match(todayAgenda, /Personalized nudge/, "Today must frame routine support as a personalized nudge");
 assert.match(todayAgenda, /Your daily rhythm/, "Today must present lightweight routine momentum");
-assert.match(todayAgenda, /nextOccurrence\(remaining\)/, "Today must select one next useful action");
+assert.match(todayAgenda, /nextUpcomingOccurrence\(occurrences, currentMinutes\)/, "Today must select one next useful action");
 assert.match(todayAgenda, /coachMessage\(completed, occurrences\.length\)/, "Today must adapt coaching language to progress");
 assert.match(todayAgenda, /Mark taken/, "Today must make the next action immediately recordable");
 assert.match(todayAgenda, /Open full Routine/, "Detailed routine work must remain in Routine");

@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 
+import { isIanaTimeZone } from "@/lib/accountSettings";
 import { getCurrentRegimen } from "@/lib/currentRegimen";
 import type { RegimenDoseDay, RegimenDoseHistoryItem, RegimenDoseOccurrence, RegimenDoseStatus } from "@/lib/regimenDose";
 import { formatTime, isLocalDate, normalizeRegimenSchedule, regimenDoseSlots } from "@/lib/regimenSchedule";
+import { localClock } from "@/lib/reminderSchedule";
 import { requirePaidApi } from "@/lib/serverEntitlements";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -24,13 +26,22 @@ export async function GET(req: Request) {
   if (!entitlement.ok) return entitlement.response;
 
   try {
-    const date = new URL(req.url).searchParams.get("date");
-    if (!isLocalDate(date)) return NextResponse.json({ ok: false, error: "valid_date_required" }, { status: 400 });
-
     const userId = entitlement.user.id;
     const regimen = await getCurrentRegimen(userId);
     const itemIds = regimen.map((item) => item.id);
     const admin = getSupabaseAdmin();
+    const requestedDate = new URL(req.url).searchParams.get("date");
+    if (requestedDate && !isLocalDate(requestedDate)) {
+      return NextResponse.json({ ok: false, error: "valid_date_required" }, { status: 400 });
+    }
+    const { data: preferences, error: preferenceError } = await admin
+      .from("user_preferences")
+      .select("timezone")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (preferenceError) throw preferenceError;
+    const timeZone = isIanaTimeZone(preferences?.timezone) ? preferences.timezone : "UTC";
+    const date = requestedDate ?? localClock(new Date(), timeZone).date;
     const historyStart = shiftDate(date, -13);
     let events: DoseEventRow[] = [];
 
@@ -99,7 +110,7 @@ export async function GET(req: Request) {
       };
     });
 
-    return NextResponse.json({ ok: true, day: { date, occurrences, asNeeded, history, scheduleReview } satisfies RegimenDoseDay });
+    return NextResponse.json({ ok: true, day: { date, timeZone, occurrences, asNeeded, history, scheduleReview } satisfies RegimenDoseDay });
   } catch (error) {
     console.error("[routine/doses] load failed", error);
     return NextResponse.json({ ok: false, error: "routine_doses_unavailable" }, { status: 500 });
