@@ -37,6 +37,7 @@ export type RegimenDoseHistoryItem = {
 
 export type RegimenDoseDay = {
   date: string;
+  timeZone: string;
   occurrences: RegimenDoseOccurrence[];
   asNeeded: AsNeededRegimenItem[];
   history: RegimenDoseHistoryItem[];
@@ -48,4 +49,36 @@ export function regimenDoseDaypart(time: string): RegimenDoseDaypart {
   if (hour < 12) return "Morning";
   if (hour < 17) return "Afternoon";
   return "Evening";
+}
+
+export function regimenDoseTimeMinutes(time: string): number {
+  const [hour, minute] = time.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+export function unrecordedOccurrencesAtOrBefore(
+  occurrences: RegimenDoseOccurrence[],
+  currentMinutes: number,
+): RegimenDoseOccurrence[] {
+  return occurrences.filter(
+    (occurrence) => !occurrence.status && regimenDoseTimeMinutes(occurrence.time) <= currentMinutes,
+  );
+}
+
+export function earlierUnrecordedOccurrences(
+  occurrences: RegimenDoseOccurrence[],
+  currentMinutes: number,
+): RegimenDoseOccurrence[] {
+  return occurrences.filter(
+    (occurrence) => !occurrence.status && regimenDoseTimeMinutes(occurrence.time) < currentMinutes,
+  );
+}
+
+export function nextUpcomingOccurrence(
+  occurrences: RegimenDoseOccurrence[],
+  currentMinutes: number,
+): RegimenDoseOccurrence | null {
+  return occurrences.find(
+    (occurrence) => !occurrence.status && regimenDoseTimeMinutes(occurrence.time) >= currentMinutes,
+  ) ?? null;
 }

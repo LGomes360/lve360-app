@@ -41,17 +41,22 @@ export function isReminderTiming(value: unknown): value is ReminderTiming {
   return typeof value === "string" && REMINDER_TIMINGS.includes(value as ReminderTiming);
 }
 
-export function localClock(now: Date, timezone: string): { date: string; hour: number } {
+export function localClock(now: Date, timezone: string): { date: string; hour: number; minute: number } {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
+    minute: "2-digit",
     hourCycle: "h23",
   }).formatToParts(now);
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
-  return { date: `${part("year")}-${part("month")}-${part("day")}`, hour: Number(part("hour")) };
+  return {
+    date: `${part("year")}-${part("month")}-${part("day")}`,
+    hour: Number(part("hour")),
+    minute: Number(part("minute")),
+  };
 }
 
 export function isQuietHour(hour: number, start: number, end: number): boolean {

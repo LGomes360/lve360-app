@@ -4,8 +4,14 @@ import { AlertTriangle, ArrowRight, Check, Clock3, Loader2, Sparkles, Trophy } f
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { regimenDoseDaypart, type RegimenDoseDay, type RegimenDoseOccurrence } from "@/lib/regimenDose";
-import { localDateString } from "@/lib/regimenSchedule";
+import {
+  earlierUnrecordedOccurrences,
+  nextUpcomingOccurrence,
+  regimenDoseDaypart,
+  type RegimenDoseDay,
+  type RegimenDoseOccurrence,
+} from "@/lib/regimenDose";
+import { localClock } from "@/lib/reminderSchedule";
 import { groupRoutineItems, type RoutineItem } from "@/lib/routine";
 
 export default function TodayRoutineAgenda() {
@@ -14,14 +20,14 @@ export default function TodayRoutineAgenda() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const date = localDateString();
+  const [now, setNow] = useState(() => new Date());
 
   const load = useCallback(async () => {
     setError(null);
     try {
       const [routineResponse, dosesResponse] = await Promise.all([
         fetch("/api/stacks/combined", { cache: "no-store" }),
-        fetch(`/api/routine/doses?date=${encodeURIComponent(date)}`, { cache: "no-store" }),
+        fetch("/api/routine/doses", { cache: "no-store" }),
       ]);
       const [routineBody, dosesBody] = await Promise.all([
         routineResponse.json().catch(() => null),
@@ -37,11 +43,16 @@ export default function TodayRoutineAgenda() {
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const scheduleReviewItems = useMemo(
     () => groupRoutineItems(items).current.filter((item) => !item.schedule),
@@ -49,13 +60,20 @@ export default function TodayRoutineAgenda() {
   );
   const occurrences = day?.occurrences ?? [];
   const completed = occurrences.filter((occurrence) => occurrence.status).length;
-  const remaining = occurrences.filter((occurrence) => !occurrence.status);
-  const next = nextOccurrence(remaining);
+  const clock = day ? localClock(now, day.timeZone) : null;
+  const currentMinutes = clock ? clock.hour * 60 + clock.minute : 0;
+  const loadedDate = day?.date;
+  const earlierUnrecorded = earlierUnrecordedOccurrences(occurrences, currentMinutes);
+  const next = nextUpcomingOccurrence(occurrences, currentMinutes);
   const progress = occurrences.length ? Math.round((completed / occurrences.length) * 100) : 0;
   const dayparts = daypartProgress(occurrences);
 
+  useEffect(() => {
+    if (loadedDate && clock?.date !== loadedDate) void load();
+  }, [clock?.date, loadedDate, load]);
+
   async function recordNext(status: "taken" | "skipped") {
-    if (!next) return;
+    if (!next || !day) return;
     setBusy(true);
     setError(null);
     try {
@@ -64,7 +82,7 @@ export default function TodayRoutineAgenda() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           regimen_item_id: next.regimenItemId,
-          date,
+          date: day.date,
           slot_key: next.slotKey,
           status,
         }),
@@ -104,7 +122,7 @@ export default function TodayRoutineAgenda() {
             <h2 id="daily-rhythm-title" className="mt-1 text-2xl font-bold text-[#041B2D]">Your daily rhythm</h2>
           </div>
           <div className="shrink-0 rounded-full bg-white px-3 py-2 text-sm font-bold text-[#06695F] shadow-sm">
-            {occurrences.length ? `${completed} of ${occurrences.length}` : "Clear"}
+            {occurrences.length ? `${completed} of ${occurrences.length} recorded` : "Clear"}
           </div>
         </div>
 
@@ -132,19 +150,27 @@ export default function TodayRoutineAgenda() {
             <div><p className="font-bold text-[#041B2D]">Your scheduled routine is clear today.</p><p className="mt-1 text-sm leading-6 text-slate-600">Put your attention toward the focused practice above. Small wins still count.</p></div>
           </div>
         ) : next ? (
-          <div className="grid gap-5 sm:grid-cols-[1fr_auto] sm:items-center">
-            <div>
-              <p className="text-sm font-bold text-[#087F72]">{coachMessage(completed, occurrences.length)}</p>
-              <p className="mt-2 flex items-center text-sm font-semibold text-slate-600"><Clock3 className="mr-2 h-4 w-4" aria-hidden="true" /> Next up at {next.timeLabel}</p>
-              <h3 className="mt-1 text-xl font-bold text-[#041B2D]">{next.itemName}</h3>
-              <p className="mt-1 text-sm text-slate-600">{next.dose || "Dose not recorded"}</p>
+          <>
+            {earlierUnrecorded.length ? <EarlierUnrecordedNotice count={earlierUnrecorded.length} /> : null}
+            <div className="grid gap-5 sm:grid-cols-[1fr_auto] sm:items-center">
+              <div>
+                <p className="text-sm font-bold text-[#087F72]">{coachMessage(completed, occurrences.length)}</p>
+                <p className="mt-2 flex items-center text-sm font-semibold text-slate-600"><Clock3 className="mr-2 h-4 w-4" aria-hidden="true" /> Next up at {next.timeLabel}</p>
+                <h3 className="mt-1 text-xl font-bold text-[#041B2D]">{next.itemName}</h3>
+                <p className="mt-1 text-sm text-slate-600">{next.dose || "Dose not recorded"}</p>
+              </div>
+              <div className="flex flex-wrap gap-2 sm:max-w-56">
+                <button type="button" disabled={busy} onClick={() => void recordNext("taken")} className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-[#087F72] px-5 py-3 font-bold text-white hover:bg-[#06695F] disabled:opacity-60">
+                  {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />} Mark taken
+                </button>
+                <button type="button" disabled={busy} onClick={() => void recordNext("skipped")} className="min-h-11 px-3 py-2 text-sm font-semibold text-slate-600 hover:text-[#041B2D] disabled:opacity-60">Skip</button>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2 sm:max-w-56">
-              <button type="button" disabled={busy} onClick={() => void recordNext("taken")} className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-[#087F72] px-5 py-3 font-bold text-white hover:bg-[#06695F] disabled:opacity-60">
-                {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />} Mark taken
-              </button>
-              <button type="button" disabled={busy} onClick={() => void recordNext("skipped")} className="min-h-11 px-3 py-2 text-sm font-semibold text-slate-600 hover:text-[#041B2D] disabled:opacity-60">Skip</button>
-            </div>
+          </>
+        ) : earlierUnrecorded.length ? (
+          <div>
+            <p className="font-bold text-[#041B2D]">No more scheduled items are upcoming today.</p>
+            <EarlierUnrecordedNotice count={earlierUnrecorded.length} />
           </div>
         ) : (
           <div className="flex items-start gap-3">
@@ -166,15 +192,16 @@ export default function TodayRoutineAgenda() {
   );
 }
 
-function nextOccurrence(remaining: RegimenDoseOccurrence[], now = new Date()): RegimenDoseOccurrence | null {
-  if (!remaining.length) return null;
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  return remaining.find((occurrence) => timeMinutes(occurrence.time) >= currentMinutes) ?? remaining[0];
-}
-
-function timeMinutes(time: string): number {
-  const [hour, minute] = time.split(":").map(Number);
-  return hour * 60 + minute;
+function EarlierUnrecordedNotice({ count }: { count: number }) {
+  return (
+    <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+      <p className="font-bold">{count} earlier scheduled item{count === 1 ? " is" : "s are"} unrecorded.</p>
+      <p className="mt-1 leading-6">Use Routine only if you want to record what happened. Follow your existing instructions and do not double-dose.</p>
+      <Link href="/routine#today-doses-heading" className="mt-2 inline-flex min-h-11 items-center font-bold text-amber-950 hover:underline">
+        Review in Routine <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+      </Link>
+    </div>
+  );
 }
 
 function daypartProgress(occurrences: RegimenDoseOccurrence[]) {
