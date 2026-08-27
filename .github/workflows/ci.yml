@@ -51,5 +51,8 @@ jobs:
             exit 1
           fi
 
+      - name: Run 24-persona regression harness
+        run: npm run qa:personas
+
       - name: Run production build
         run: npm run build

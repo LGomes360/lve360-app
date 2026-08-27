@@ -1,6 +1,6 @@
-import { isSafetySensitiveBlueprintAction } from "./blueprintActions";
+import { isSafetySensitiveBlueprintAction } from "./blueprintActions.ts";
 import { isUsableMinimumVersionText, normalizePracticeQuantityFields } from "./practiceQuantity.ts";
-import { isReminderTiming, type ReminderTiming } from "./reminderSchedule";
+import { isReminderTiming, type ReminderTiming } from "./reminderSchedule.ts";
 
 export const IDENTITY_OPTIONS = [
   { value: "movement", label: "Someone who moves consistently" },
