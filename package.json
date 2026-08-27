@@ -82,6 +82,7 @@
     "qa:pr138": "node src/_tests_/pr138ReturningMemberRecovery.assert.mjs",
     "qa:pr139": "node src/_tests_/pr139SupplementCatalogFallback.assert.mjs",
     "qa:pr140": "node --experimental-strip-types src/_tests_/pr140EvidenceMasterLibrary.assert.ts",
+    "qa:pr141": "node --experimental-strip-types src/_tests_/pr141CoachGrounding.assert.ts && node src/_tests_/pr141Architecture.assert.mjs",
     "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
