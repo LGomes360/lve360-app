@@ -376,6 +376,10 @@ export async function buildCoachContext(
       evidence_strength: option.evidenceStrength,
       evidence_summary: option.evidenceSummary,
       citation_label: option.citationLabel,
+      last_reviewed: option.lastReviewed,
+      review_status: option.reviewStatus,
+      safety_topics: option.safetyTopics,
+      safety_summary: option.safetySummary,
       already_in_stack: Boolean(current),
       current_dose: current?.dose ?? null,
       current_timing: current?.timing ?? null,
@@ -388,7 +392,7 @@ export async function buildCoachContext(
     sources.push({
       id: option.id,
       label: `${option.name} evidence`,
-      summary: `${option.evidenceStrength}: ${option.citationLabel}`,
+      summary: `${option.evidenceStrength}; reviewed ${option.lastReviewed}: ${option.citationLabel}`,
       href: option.citationUrl,
     });
   }
