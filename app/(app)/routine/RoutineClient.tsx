@@ -68,7 +68,7 @@ type RoutineEditPatch = {
   reorderUrl?: string | null;
 };
 type SearchItem = {
-  vendor: "fullscript" | "fallback";
+  vendor: "fullscript" | "fallback" | "member";
   sku: string | null;
   name: string;
   brand: string | null;
@@ -869,15 +869,20 @@ function AddPrescribedItemDialog({ kind, onClose, onAdded }: { kind: "medication
 function AddSupplementDialog({ onClose, onAdded }: { onClose: () => void; onAdded: (name: string, id: string) => Promise<void> }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchItem[]>([]);
+  const [searched, setSearched] = useState(false);
+  const [manualName, setManualName] = useState("");
+  const [manualBrand, setManualBrand] = useState("");
+  const [manualDose, setManualDose] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function search() {
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setSearched(false);
     try {
       const response = await fetch(`/api/fullscript/search?q=${encodeURIComponent(query)}`, { cache: "no-store" });
       const body = await response.json().catch(() => null);
       if (!response.ok || !body?.ok) throw new Error("search_failed");
       setResults(body.items ?? []);
+      setSearched(true);
     } catch { setError("We could not search the catalog right now."); }
     finally { setBusy(false); }
   }
@@ -900,6 +905,22 @@ function AddSupplementDialog({ onClose, onAdded }: { onClose: () => void; onAdde
     } catch { setError("We could not add that supplement. Your routine is unchanged."); }
     finally { setBusy(false); }
   }
+  function addManual(timing: "AM" | "PM" | "AM/PM") {
+    const name = manualName.trim();
+    if (!name) return;
+    return add({
+      vendor: "member",
+      sku: null,
+      name,
+      brand: manualBrand.trim() || null,
+      dose: manualDose.trim() || null,
+      link_fullscript: null,
+      link_amazon: null,
+      price: null,
+      reorder_url: null,
+      image_url: null,
+    }, timing);
+  }
   return (
     <DialogShell title="Add a supplement" onClose={onClose} wide>
       <p className="text-sm leading-6 text-slate-600">Search for a product, then record when you take it. Adding a product records your choice and is not an LVE360 recommendation.</p>
@@ -911,7 +932,23 @@ function AddSupplementDialog({ onClose, onAdded }: { onClose: () => void; onAdde
       {error ? <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">{error}</p> : null}
       <div className="mt-5 max-h-[50vh] space-y-3 overflow-y-auto pr-1">
         {results.map((item, index) => <div key={item.sku ?? `${item.name}-${index}`} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-start gap-4">{item.image_url ? <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white"><Image src={item.image_url} alt={`${item.brand ? `${item.brand} ` : ""}${item.name} product`} fill sizes="80px" className="object-contain p-1.5" /></div> : <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-dashed border-slate-300 text-slate-400"><PackageOpen className="h-8 w-8" aria-hidden="true" /></div>}<div><h3 className="font-bold text-[#041B2D]">{item.name}</h3><p className="mt-1 text-sm text-slate-600">{item.brand || "Brand not listed"}{item.dose ? `, ${item.dose}` : ""}</p></div></div><div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">{(["AM", "PM", "AM/PM"] as const).map((timing) => <button key={timing} type="button" disabled={busy} onClick={() => void add(item, timing)} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-[#9DCFC3] px-3 py-3 font-bold text-[#06695F] hover:bg-[#EAFBF8] disabled:opacity-60">Add {timing}<ChevronRight className="ml-1 h-4 w-4" aria-hidden="true" /></button>)}</div></div>)}
-        {!results.length && !busy ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">Search by supplement or ingredient name.</p> : null}
+        {!results.length && !busy ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">{searched ? "No catalog match was found. You can still record the supplement manually below." : "Search by supplement or ingredient name, or add it manually below."}</p> : null}
+
+        <section className="rounded-2xl border border-[#BCE3DA] bg-[#F4FAF8] p-4" aria-labelledby="manual-supplement-heading">
+          <h3 id="manual-supplement-heading" className="font-bold text-[#041B2D]">Add a supplement manually</h3>
+          <p className="mt-1 text-sm leading-6 text-slate-600">Record what you already take even when the product catalog has no match. You can add exact timing, a link, and other details after saving.</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="text-sm font-bold text-[#041B2D] sm:col-span-2">Supplement name<input value={manualName} onChange={(event) => setManualName(event.target.value)} maxLength={120} placeholder="For example, vitamin C" className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" /></label>
+            <label className="text-sm font-bold text-[#041B2D]">Brand <span className="font-normal text-slate-500">(optional)</span><input value={manualBrand} onChange={(event) => setManualBrand(event.target.value)} maxLength={120} placeholder="For example, Thorne" className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" /></label>
+            <label className="text-sm font-bold text-[#041B2D]">Amount <span className="font-normal text-slate-500">(optional)</span><input value={manualDose} onChange={(event) => setManualDose(event.target.value)} maxLength={120} placeholder="For example, 500 mg" className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal outline-none focus:border-[#087F72] focus:ring-2 focus:ring-[#087F72]/20" /></label>
+          </div>
+          <p className="mt-4 text-sm font-bold text-[#041B2D]">When do you usually take it?</p>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {([{"timing":"AM","label":"Add for morning"},{"timing":"PM","label":"Add for evening"},{"timing":"AM/PM","label":"Add morning and evening"}] as const).map(({ timing, label }) => (
+              <button key={timing} type="button" disabled={busy || !manualName.trim()} onClick={() => void addManual(timing)} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-[#087F72] bg-white px-3 py-3 font-bold text-[#06695F] hover:bg-[#EAFBF8] disabled:opacity-50">{label}<ChevronRight className="ml-1 h-4 w-4" aria-hidden="true" /></button>
+            ))}
+          </div>
+        </section>
       </div>
     </DialogShell>
   );
