@@ -13,14 +13,17 @@ const FULLSCRIPT_API_KEY = process.env.FULLSCRIPT_API_KEY || "";
 // Fallback query against your own supplements table when Fullscript keys are missing
 async function fallbackSearch(q: string) {
   const admin = getSupabaseAdmin();
-  const { data, error } = await admin
-    .from("supplements")
-    .select("id, ingredient, product_name, link_fullscript, link_amazon, notes")
-    .ilike("ingredient", `%${q}%`);
+  const columns = "id, ingredient, product_name, link_fullscript, link_amazon, notes";
+  const [ingredientMatches, productMatches] = await Promise.all([
+    admin.from("supplements").select(columns).ilike("ingredient", `%${q}%`).limit(20),
+    admin.from("supplements").select(columns).ilike("product_name", `%${q}%`).limit(20),
+  ]);
+  const rows = new Map<string, any>();
+  for (const row of [...(ingredientMatches.data ?? []), ...(productMatches.data ?? [])]) {
+    rows.set(String(row.id), row);
+  }
 
-  if (error) return [];
-
-  return (data ?? []).map((row) => ({
+  return [...rows.values()].slice(0, 20).map((row) => ({
     vendor: "fallback",
     sku: row.id, // your own id as pseudo-sku
     name: row.product_name || row.ingredient,
@@ -100,6 +103,7 @@ export async function GET(req: Request) {
     if (FULLSCRIPT_API_KEY) {
       try {
         items = await fullscriptSearch(q);
+        if (!items.length) items = await fallbackSearch(q);
       } catch {
         // If Fullscript fails, fall back transparently
         items = await fallbackSearch(q);
