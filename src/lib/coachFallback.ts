@@ -1,4 +1,5 @@
 import type { CoachIntent, CoachPage } from "./contextualCoach.ts";
+import { requestsMemberReportedContext } from "./memberReportedContext.ts";
 import { isUsableMinimumVersionText } from "./practiceQuantity.ts";
 
 export type GroundedCoachFallbackInput = {
@@ -18,6 +19,7 @@ export type GroundedCoachFallbackInput = {
     totalQuantityUnit: string | null;
   } | null;
   blueprintPriorities: string[];
+  memberReportedContexts: string[];
 };
 
 export type GroundedCoachFallback = {
@@ -48,6 +50,29 @@ function uniqueAvailable(ids: string[], available: Set<string>) {
 
 function sentenceFragment(value: string) {
   return value.trim().replace(/[.!?]+$/, "");
+}
+
+function memberContextFallback(input: GroundedCoachFallbackInput): GroundedCoachFallback | null {
+  if (!requestsMemberReportedContext(input.question)) return null;
+  const note = input.memberReportedContexts.find((value) => value.trim())?.trim();
+  if (!note || !input.availableSourceIds.includes("recent_check_ins")) return null;
+  const noteNamesHelpfulExperience = /\b(?:helped|worked|felt better|made .{0,30} easier)\b/i.test(note);
+  const experiment = noteNamesHelpfulExperience
+    ? "One small way to protect what worked is to repeat the smallest practical version of the helpful behavior your note names before the next busy part of your day."
+    : "Use this observation for one small experiment: make the challenging moment you named slightly easier without assuming what caused it.";
+  const nextStep = noteNamesHelpfulExperience
+    ? "Next step: choose a brief version you can complete once before the next busy block, then notice whether it helps."
+    : "Next step: choose one brief preparation or transition you can try before the same kind of situation, then notice what changes.";
+
+  return {
+    answer: [
+      `You recorded that “${sentenceFragment(note)}.” This is your observation, not proof that one behavior caused the result.`,
+      experiment,
+      nextStep,
+      "Your saved information and Routine are unchanged.",
+    ].join("\n\n"),
+    sourceIds: ["recent_check_ins"],
+  };
 }
 
 function requestedOutcome(question: string) {
@@ -165,6 +190,9 @@ function nextStepFor(input: GroundedCoachFallbackInput) {
 }
 
 export function buildGroundedCoachFallback(input: GroundedCoachFallbackInput): GroundedCoachFallback {
+  const contextualFallback = memberContextFallback(input);
+  if (contextualFallback) return contextualFallback;
+
   const available = new Set(input.availableSourceIds);
   const partial = groundedPortion(input);
   const safetyBoundary = input.intent === "SAFETY_REVIEW" || input.intent === "TIMING_OR_DOSING"

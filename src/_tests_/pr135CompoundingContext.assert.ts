@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 
 import { classifyCoachRequest, type StructuredCoachAnswer } from "../lib/contextualCoach.ts";
+import { buildGroundedCoachFallback } from "../lib/coachFallback.ts";
 import { validateCoachTaskSuccess } from "../lib/coachTaskValidation.ts";
 import { buildMemberIntelligenceContext, type MemberIntelligenceContextInput } from "../lib/memberContext.ts";
-import { normalizeMemberReportedContext } from "../lib/memberReportedContext.ts";
+import { normalizeMemberReportedContext, requestsMemberReportedContext } from "../lib/memberReportedContext.ts";
 
 assert.equal(
   normalizeMemberReportedContext("  Travel\nmade my evening cue harder.  "),
@@ -54,6 +55,25 @@ assert.equal(
   "PERSONALIZED_RECOMMENDATION",
   "an explicit request to use a saved check-in must not collapse into generic progress coaching",
 );
+assert.equal(requestsMemberReportedContext(contextualQuestion), true);
+
+const contextualFallback = buildGroundedCoachFallback({
+  question: contextualQuestion,
+  intent: contextualRoute.intent,
+  page: "today",
+  availableSourceIds: ["recent_check_ins"],
+  missingContextLabels: [],
+  routineCount: 0,
+  evidenceOptions: [],
+  activePractice: null,
+  blueprintPriorities: [],
+  memberReportedContexts: ["A short morning walk helped me feel focused, but my afternoon became busy."],
+});
+assert.match(contextualFallback.answer, /You recorded that/);
+assert.match(contextualFallback.answer, /morning walk/);
+assert.match(contextualFallback.answer, /smallest practical version/);
+assert.doesNotMatch(contextualFallback.answer, /curated evidence|exact option named/i);
+assert.deepEqual(contextualFallback.sourceIds, ["recent_check_ins"]);
 
 const groundedAnswer: StructuredCoachAnswer = {
   intent: "PERSONALIZED_RECOMMENDATION",

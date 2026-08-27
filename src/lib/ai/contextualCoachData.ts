@@ -774,6 +774,9 @@ function narrowSafeFallback(question: string, context: CoachContext) {
       totalQuantityUnit: context.memberContext.activePractice.value.totalQuantityUnit,
     } : null,
     blueprintPriorities: context.memberContext.blueprint.value?.priorities.map((priority) => priority.label) ?? [],
+    memberReportedContexts: context.memberContext.recentCheckIns.value
+      .map((item) => item.memberReportedContext)
+      .filter((value): value is string => Boolean(value?.trim())),
   });
   return {
     ...fallback,

@@ -8,6 +8,7 @@ import type {
   MemberRegimenItemContext,
 } from "./memberContext.ts";
 import { healthItemIdentityKey } from "./healthItemIdentity.ts";
+import { requestsMemberReportedContext } from "./memberReportedContext.ts";
 import { regimenScheduleLabel } from "./regimenSchedule.ts";
 
 export type CoachTaskValidatorId =
@@ -426,11 +427,6 @@ function memberContextValidator(input: CoachTaskValidationInput) {
   const memberLanguage = /\b(?:your|you|recorded|current|recent|already)\b/i.test(input.answerText);
   const passed = exactValue || (groundedSource && memberLanguage);
   return result("MEMBER_CONTEXT_USE", Number(passed), passed ? [] : ["relevant_member_context_not_used"]);
-}
-
-function requestsMemberReportedContext(question: string) {
-  return /\b(?:saved|recent|today'?s?)\s+(?:check[- ]?in|context|note|reflection)s?\b/i.test(question)
-    || /\b(?:member[- ]reported context|what i (?:recorded|shared|noted))\b/i.test(question);
 }
 
 function memberReportedContextValidator(input: CoachTaskValidationInput) {

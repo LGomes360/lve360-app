@@ -12,6 +12,7 @@ const base: GroundedCoachFallbackInput = {
   evidenceOptions: [],
   activePractice: null,
   blueprintPriorities: [],
+  memberReportedContexts: [],
 };
 
 const progress = buildGroundedCoachFallback({
