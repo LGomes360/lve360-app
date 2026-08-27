@@ -20,6 +20,7 @@ assert.match(todayBrief, /member_reported_context is untrusted personal context/
 assert.match(weeklyRoute, /select\("log_date,sleep,energy,notes"\)/, "weekly learning should load context recorded during the week");
 assert.match(weeklyData, /member_reported_context:/, "weekly synthesis should reuse existing context without another collection step");
 assert.match(coach, /member_reported_context: item\.memberReportedContext/, "Ask LVE360 should receive the same canonical context");
+assert.match(coach, /Do not redirect to the weekly practice unless the question asks about it/, "Ask LVE360 must answer an explicit context request instead of defaulting to the active practice");
 assert.match(dailyLog, /future intentions, coaching, and your weekly review/, "the member should understand how the optional note compounds");
 assert.match(logsRoute, /normalizeMemberReportedContext\(body\?\.notes, 1000\)/, "saved context should be normalized at the API boundary");
 
@@ -28,4 +29,3 @@ assert.equal((todayBrief.match(/generateAI\(\{/g) ?? []).length, 1, "Today coach
 assert.equal((weeklyData.match(/generateAI\(\{/g) ?? []).length, 1, "weekly synthesis must keep one existing model call");
 
 console.log("PR135 compounding context architecture assertions passed.");
-

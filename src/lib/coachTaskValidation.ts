@@ -26,6 +26,7 @@ export type CoachTaskValidatorId =
   | "CAUSAL_BOUNDARY"
   | "CONTROLLED_ACTION_PROPOSAL"
   | "MEMBER_CONTEXT_USE"
+  | "MEMBER_REPORTED_CONTEXT_USE"
   | "OUT_OF_SCOPE_BOUNDARY"
   | "EVIDENCE_COVERAGE"
   | "REASONING"
@@ -427,6 +428,31 @@ function memberContextValidator(input: CoachTaskValidationInput) {
   return result("MEMBER_CONTEXT_USE", Number(passed), passed ? [] : ["relevant_member_context_not_used"]);
 }
 
+function requestsMemberReportedContext(question: string) {
+  return /\b(?:saved|recent|today'?s?)\s+(?:check[- ]?in|context|note|reflection)s?\b/i.test(question)
+    || /\b(?:member[- ]reported context|what i (?:recorded|shared|noted))\b/i.test(question);
+}
+
+function memberReportedContextValidator(input: CoachTaskValidationInput) {
+  if (!requestsMemberReportedContext(input.question)) return result("MEMBER_REPORTED_CONTEXT_USE", 1);
+  const notes = input.memberContext.recentCheckIns.value
+    .map((item) => item.memberReportedContext)
+    .filter((value): value is string => Boolean(value?.trim()));
+  if (!notes.length) return result("MEMBER_REPORTED_CONTEXT_USE", 0, ["member_reported_context_missing"]);
+
+  const contextTerms = [...new Set(notes.flatMap((note) => normalized(note).split(" ")))]
+    .filter((term) => term.length >= 4 && !STOP_WORDS.has(term) && !["today", "test", "that", "this"].includes(term));
+  const answer = normalized(input.answerText);
+  const usesReportedDetail = contextTerms.some((term) => answer.includes(term));
+  const citesCheckIns = input.structuredAnswer?.sourceIds.includes("recent_check_ins") === true;
+  const passed = usesReportedDetail && citesCheckIns;
+  return result(
+    "MEMBER_REPORTED_CONTEXT_USE",
+    Number(passed),
+    passed ? [] : [!citesCheckIns ? "recent_check_ins_source_missing" : "member_reported_detail_not_used"],
+  );
+}
+
 function generalValidators(input: CoachTaskValidationInput) {
   const structured = input.structuredAnswer;
   const hasReason = Boolean(structured?.recommendation?.reason)
@@ -459,7 +485,7 @@ export function validateCoachTaskSuccess(input: CoachTaskValidationInput): Coach
   else if (input.route.intent === "OUT_OF_SCOPE") validators.push(outOfScopeValidator(input));
   else if (["EVIDENCE_COMPARISON", "OPTION_COMPARISON"].includes(input.route.intent)) validators.push(...evidenceValidators(input));
   else if (input.route.intent === "PERSONALIZED_RECOMMENDATION") {
-    validators.push(memberContextValidator(input), ...generalValidators(input));
+    validators.push(memberContextValidator(input), memberReportedContextValidator(input), ...generalValidators(input));
     if (input.evidenceOptionNames?.length) validators.push(...evidenceValidators(input, 1));
   }
   else validators.push(...generalValidators(input));
@@ -474,7 +500,7 @@ export function validateCoachTaskSuccess(input: CoachTaskValidationInput): Coach
   const factualValidators = validators.filter((item) => [
     "REGIMEN_COVERAGE", "REQUESTED_FIELDS", "TYPE_EXCLUSIONS", "SAFETY_FINDINGS",
     "SAFETY_REASONING", "PRIORITY_ALIGNMENT", "MISSING_CONTEXT_ACCURACY", "PROGRESS_METRICS",
-    "CAUSAL_BOUNDARY", "MEMBER_CONTEXT_USE", "EVIDENCE_COVERAGE",
+    "CAUSAL_BOUNDARY", "MEMBER_CONTEXT_USE", "MEMBER_REPORTED_CONTEXT_USE", "EVIDENCE_COVERAGE",
   ].includes(item.validator));
   const factualCoverage = factualValidators.length
     ? factualValidators.reduce((sum, item) => sum + item.completeness, 0) / factualValidators.length

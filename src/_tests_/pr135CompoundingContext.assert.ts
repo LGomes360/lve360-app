@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 
+import { classifyCoachRequest, type StructuredCoachAnswer } from "../lib/contextualCoach.ts";
+import { validateCoachTaskSuccess } from "../lib/coachTaskValidation.ts";
 import { buildMemberIntelligenceContext, type MemberIntelligenceContextInput } from "../lib/memberContext.ts";
 import { normalizeMemberReportedContext } from "../lib/memberReportedContext.ts";
 
@@ -45,5 +47,44 @@ const context = buildMemberIntelligenceContext(input);
 assert.equal(context.recentCheckIns.value[0]?.memberReportedContext, "A late meeting made the evening feel rushed.");
 assert.equal(context.recentCheckIns.value[0]?.provenance.source, "logs");
 
-console.log("PR135 compounding member context assertions passed.");
+const contextualQuestion = "Using my saved check-in context, suggest one small way to protect what worked when my day gets busy.";
+const contextualRoute = classifyCoachRequest(contextualQuestion);
+assert.equal(
+  contextualRoute.intent,
+  "PERSONALIZED_RECOMMENDATION",
+  "an explicit request to use a saved check-in must not collapse into generic progress coaching",
+);
 
+const groundedAnswer: StructuredCoachAnswer = {
+  intent: "PERSONALIZED_RECOMMENDATION",
+  directAnswer: "You recorded that a late meeting made the evening feel rushed, so protect a two-minute transition before the meeting.",
+  options: [],
+  recommendation: null,
+  nextStep: "Pause for two minutes before the meeting and note whether the evening feels less rushed.",
+  sourceIds: ["recent_check_ins"],
+  proposedAction: null,
+};
+const groundedValidation = validateCoachTaskSuccess({
+  route: contextualRoute,
+  question: contextualQuestion,
+  answerText: `${groundedAnswer.directAnswer} ${groundedAnswer.nextStep}`,
+  memberContext: context,
+  structuredAnswer: groundedAnswer,
+  evidenceOptionNames: [],
+  safetyChecked: true,
+});
+assert.equal(groundedValidation.passed, true, "a cautious answer that uses the recorded detail should pass");
+
+const genericValidation = validateCoachTaskSuccess({
+  route: contextualRoute,
+  question: contextualQuestion,
+  answerText: "Try taking a short break. Next step: pause for two minutes.",
+  memberContext: context,
+  structuredAnswer: { ...groundedAnswer, directAnswer: "Try taking a short break.", sourceIds: [] },
+  evidenceOptionNames: [],
+  safetyChecked: true,
+});
+assert.equal(genericValidation.passed, false, "a generic answer that ignores the saved note should fail");
+assert(genericValidation.failedValidators.includes("MEMBER_REPORTED_CONTEXT_USE"));
+
+console.log("PR135 compounding member context assertions passed.");
