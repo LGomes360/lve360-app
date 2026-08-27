@@ -26,7 +26,7 @@ jobs:
       - name: Use Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install
@@ -50,6 +50,9 @@ jobs:
             echo "::error ::Required secrets missing for non-PR build."
             exit 1
           fi
+
+      - name: Run 24-persona regression harness
+        run: npm run qa:personas
 
       - name: Run production build
         run: npm run build

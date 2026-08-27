@@ -1,4 +1,4 @@
-import { cleanText, isSafeLifestyleAction, type WeeklyExperiment } from "./activation";
+import { cleanText, isSafeLifestyleAction, type WeeklyExperiment } from "./activation.ts";
 import { isUsableMinimumVersionText, normalizePracticeQuantityFields } from "./practiceQuantity.ts";
 
 export const REVIEW_DECISIONS = ["keep", "shrink", "swap", "pause", "advance"] as const;

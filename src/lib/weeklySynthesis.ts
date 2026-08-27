@@ -1,9 +1,9 @@
 import { z } from "zod";
 
-import { STARTER_ACTIONS, type IdentityDirection, type WeeklyExperiment } from "./activation";
-import { suggestedNextPlan, type NextWeekPlan, type ReviewDecision } from "./weeklyReview";
-import { comparableAdaptiveHistory, isAdaptiveLowData, recommendedAdaptiveReviewDecision } from "./weeklySynthesisDecision";
-import { hypothesisSupportsDecision, normalizeMemberVoice, usesDirectMemberVoice } from "./weeklySynthesisLanguage";
+import { STARTER_ACTIONS, type IdentityDirection, type WeeklyExperiment } from "./activation.ts";
+import { suggestedNextPlan, type NextWeekPlan, type ReviewDecision } from "./weeklyReview.ts";
+import { comparableAdaptiveHistory, isAdaptiveLowData, recommendedAdaptiveReviewDecision } from "./weeklySynthesisDecision.ts";
+import { hypothesisSupportsDecision, normalizeMemberVoice, usesDirectMemberVoice } from "./weeklySynthesisLanguage.ts";
 import {
   buildWeeklyPracticeMetrics,
   formatPracticeQuantity,

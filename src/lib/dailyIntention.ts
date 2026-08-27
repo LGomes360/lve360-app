@@ -143,7 +143,7 @@ const CONTEXTUAL_FALLBACKS: Record<DailyIntentionGroundingKey, DailyIntentionFal
     { focusWord: "Consistency", phrase: "I show up with patient consistency today." },
   ],
   saved_goal: [
-    { focusWord: "Alignment", phrase: "I let my priorities guide how I show up today." },
+    { focusWord: "Alignment", phrase: "I bring steady attention to my priorities today." },
     { focusWord: "Purpose", phrase: "I bring purposeful attention to what matters today." },
   ],
   recent_check_in: [
@@ -152,7 +152,7 @@ const CONTEXTUAL_FALLBACKS: Record<DailyIntentionGroundingKey, DailyIntentionFal
   ],
   weekly_learning: [
     { focusWord: "Growth", phrase: "I carry recent learning forward with calm attention." },
-    { focusWord: "Wisdom", phrase: "I let experience shape how I meet today." },
+    { focusWord: "Wisdom", phrase: "I carry experience into how I meet today." },
   ],
   identity_direction: [],
 };
