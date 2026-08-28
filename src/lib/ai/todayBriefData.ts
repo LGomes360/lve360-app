@@ -13,10 +13,12 @@ import {
   parseGeneratedTodayBrief,
   shouldGenerateTodayBrief,
   todayBriefGrounding,
+  todayRecommendationGrounding,
   TODAY_BRIEF_PROMPT_VERSION,
   type TodayBriefContent,
   type TodayBriefContext,
   type TodayBriefGrounding,
+  type TodayRecommendationGrounding,
 } from "@/lib/todayBrief";
 import { isReviewDue } from "@/lib/weeklyReview";
 import { isUrgentBlueprintSafety } from "@/lib/todaySurface";
@@ -48,6 +50,7 @@ export type TodayBrief = TodayBriefContent & {
   actionState: TodayBriefRow["action_state"];
   hidden: boolean;
   grounding: TodayBriefGrounding;
+  groundingDetails: TodayRecommendationGrounding;
 };
 
 function stableHash(value: unknown) {
@@ -72,6 +75,7 @@ function rowToBrief(row: TodayBriefRow, context: TodayBriefContext, now = new Da
     actionState: row.action_state,
     hidden: snoozed || row.action_state === "dismissed",
     grounding: todayBriefGrounding(context, row.source),
+    groundingDetails: todayRecommendationGrounding(context, row.source),
   };
 }
 
@@ -129,6 +133,11 @@ export async function buildTodayBriefContext(userId: string, localDate: string):
       completed: completionCount(completions),
       completedToday: completions.some((item) => item.completion_date === localDate),
       connectionSummary: connection?.summary ?? "Independently chosen for this week",
+      connection: connection ? {
+        type: connection.type,
+        goal: connection.goal ? { label: connection.goal.label, status: connection.goal.status } : null,
+        blueprint: connection.blueprint ? { label: connection.blueprint.label, status: connection.blueprint.status } : null,
+      } : undefined,
     } : null,
     blueprint: blueprint ? {
       stackId: blueprint.stack_id,

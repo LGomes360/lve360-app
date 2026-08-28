@@ -20,6 +20,17 @@ export type TodayBriefContext = {
     completed: number;
     completedToday: boolean;
     connectionSummary: string;
+    connection?: {
+      type: "goal" | "blueprint" | "both" | "independent";
+      goal: {
+        label: string | null;
+        status: "current" | "historical" | "unresolved";
+      } | null;
+      blueprint: {
+        label: string | null;
+        status: "current" | "historical" | "unresolved";
+      } | null;
+    };
   } | null;
   blueprint: {
     stackId: string;
@@ -49,6 +60,23 @@ export type TodayBriefGrounding = {
   confidence: "direct_record" | "limited_context";
   confidenceLabel: "Direct record match" | "Limited personal context";
   sourceLabel: string;
+};
+
+export type TodayRecommendationSource = {
+  kind: "weekly_practice" | "check_in" | "saved_goal" | "blueprint" | "safety";
+  label: string;
+  detail: string;
+  href: string;
+  status?: "current" | "historical" | "needs_review";
+};
+
+export type TodayRecommendationGrounding = {
+  title: "Why LVE360 chose this today";
+  summary: string;
+  sources: TodayRecommendationSource[];
+  methodNote: string;
+  confidence: TodayBriefGrounding["confidence"];
+  confidenceLabel: TodayBriefGrounding["confidenceLabel"];
 };
 
 const GeneratedBriefSchema = z.object({
@@ -159,6 +187,122 @@ export function todayBriefGrounding(
     sourceLabel: source === "ai"
       ? "Saved practice, recorded progress, and bounded AI synthesis"
       : "Saved practice and recorded progress",
+  };
+}
+
+function connectionStatus(status: "current" | "historical" | "unresolved") {
+  return status === "unresolved" ? "needs_review" as const : status;
+}
+
+function checkInDetail(checkIn: NonNullable<TodayBriefContext["checkIn"]>) {
+  const facts = [
+    checkIn.sleep == null ? null : `sleep quality ${checkIn.sleep}/5`,
+    checkIn.energy == null ? null : `energy ${checkIn.energy}/10`,
+    checkIn.weightRecorded ? "weight recorded" : null,
+    checkIn.memberReportedContext ? "optional reflection available" : null,
+  ].filter((item): item is string => Boolean(item));
+  return facts.length ? `Today: ${facts.join(" · ")}.` : "A check-in is saved for today.";
+}
+
+/**
+ * Turns the exact context already used by Today into visible provenance. This
+ * does not retrieve new data, call a model, or change the saved recommendation.
+ */
+export function todayRecommendationGrounding(
+  context: TodayBriefContext,
+  source: "ai" | "fallback",
+): TodayRecommendationGrounding {
+  const sources: TodayRecommendationSource[] = [];
+  const experiment = context.experiment;
+  const confidence = todayBriefGrounding(context, source);
+
+  if (experiment) {
+    const progress = `${experiment.completed} of ${experiment.target} planned ${experiment.target === 1 ? "session" : "sessions"} recorded${experiment.completedToday ? ", including today" : ""}`;
+    sources.push({
+      kind: "weekly_practice",
+      label: "Saved weekly practice",
+      detail: `${experiment.actionLabel} · ${progress}.`,
+      href: "/journey",
+      status: "current",
+    });
+
+    if (experiment.connection?.goal) {
+      const goal = experiment.connection.goal;
+      sources.push({
+        kind: "saved_goal",
+        label: goal.label ? "Saved goal" : "Saved goal connection",
+        detail: goal.label ?? "The saved goal connection needs review.",
+        href: "/onboarding",
+        status: connectionStatus(goal.status),
+      });
+    }
+
+    if (experiment.connection?.blueprint) {
+      const blueprint = experiment.connection.blueprint;
+      sources.push({
+        kind: "blueprint",
+        label: blueprint.label ? "Blueprint priority" : "Blueprint connection",
+        detail: blueprint.label ?? "The saved Blueprint connection needs review.",
+        href: context.blueprint ? `/blueprints/${context.blueprint.stackId}` : "/blueprints",
+        status: connectionStatus(blueprint.status),
+      });
+    }
+
+    if (!experiment.connection && !/^independently chosen/i.test(experiment.connectionSummary)) {
+      sources.push({
+        kind: "saved_goal",
+        label: "Saved practice connection",
+        detail: experiment.connectionSummary,
+        href: "/onboarding",
+        status: "current",
+      });
+    }
+  }
+
+  if (context.checkIn) {
+    sources.push({
+      kind: "check_in",
+      label: "Today’s check-in",
+      detail: checkInDetail(context.checkIn),
+      href: "/today#daily-log",
+      status: "current",
+    });
+  }
+
+  if (context.blueprint?.urgentSafetyInterruption) {
+    sources.unshift({
+      kind: "safety",
+      label: "Current Blueprint safety status",
+      detail: "LVE360 could not confirm the current safety section, so this status temporarily outranked lifestyle coaching.",
+      href: `/blueprints/${context.blueprint.stackId}#safety-notes`,
+      status: "needs_review",
+    });
+  }
+
+  let summary = "Your saved weekly plan remains the action. Recorded progress determines what is useful today.";
+  if (context.blueprint?.urgentSafetyInterruption) {
+    summary = "A current Blueprint safety status temporarily replaced the normal lifestyle recommendation.";
+  } else if (experiment && context.reviewDue) {
+    summary = "Your saved week reached its review point, so reflection now creates more value than another completion.";
+  } else if (experiment?.completedToday) {
+    summary = "Today’s completion is already saved, so LVE360 is protecting the win instead of adding another task.";
+  } else if (isLowerCapacityCheckIn(context.checkIn) && experiment) {
+    summary = "Today’s check-in selected your saved minimum version. It did not change your weekly practice.";
+  } else if (!experiment) {
+    summary = "No active weekly practice is saved, so LVE360 is asking for one clear focus before offering more advice.";
+  } else if (context.checkIn) {
+    summary = "Your saved practice remains the action. Today’s check-in and recorded progress shaped why it matters now.";
+  }
+
+  return {
+    title: "Why LVE360 chose this today",
+    summary,
+    sources,
+    methodNote: source === "ai"
+      ? "AI only shaped the short explanation. Saved records selected the action and remain unchanged."
+      : "This recommendation came directly from saved records. No AI interpretation was required.",
+    confidence: confidence.confidence,
+    confidenceLabel: confidence.confidenceLabel,
   };
 }
 
