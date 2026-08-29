@@ -279,11 +279,11 @@ function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experime
     : nextAction
       ? `Start the next chosen practice: ${nextAction}.`
       : "Choose one small practice for the next week when you are ready.";
-  const grounding = reviewedSynthesis && reviewedExperiment && latestReview
+  const grounding = reviewedExperiment && latestReview
     ? journeySynthesisGrounding({
       experiment: reviewedExperiment,
       review: latestReview,
-      synthesis: reviewedSynthesis,
+      synthesis: reviewedSynthesis ?? null,
       connection: practiceConnections[reviewedExperiment.id] ?? null,
       blueprintContext: experimentBlueprints[reviewedExperiment.id] ?? null,
     })

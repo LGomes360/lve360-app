@@ -7,6 +7,7 @@ const synthesisData = readFileSync("src/lib/ai/weeklySynthesisData.ts", "utf8");
 
 assert.match(dashboard, /Grounding for this weekly learning/, "Journey must render a visible weekly grounding card.");
 assert.match(dashboard, /grounding\.title/);
+assert.match(dashboard, /reviewedExperiment && latestReview/, "A saved review must remain grounded when an optional synthesis is absent.");
 assert.match(grounding, /What this weekly learning used/);
 assert.match(dashboard, /journey-week-history/);
 assert.match(dashboard, /journey-check-in-patterns/);

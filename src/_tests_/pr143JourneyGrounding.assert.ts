@@ -86,4 +86,17 @@ const unsafeUnknownEvidence = journeySynthesisGrounding({
 assert.equal(unsafeUnknownEvidence.sources.length, 1);
 assert.doesNotMatch(JSON.stringify(unsafeUnknownEvidence), /private member note/i);
 
+const reviewOnly = journeySynthesisGrounding({
+  experiment: { action_label: "Wall sit for 1 minute." },
+  review: { completion_count: 5, target_count: 5, difficulty: 3, value_rating: 4 },
+  synthesis: null,
+  connection: null,
+  blueprintContext: null,
+});
+assert.equal(reviewOnly.confidenceLabel, "Early signal");
+assert.deepEqual(reviewOnly.sources.map((source) => source.kind), ["practice", "reflection"]);
+assert.match(reviewOnly.sources[0]?.detail ?? "", /5 of 5 planned/);
+assert.match(reviewOnly.sources[1]?.detail ?? "", /Difficulty reflection: 3 of 5/);
+assert.match(reviewOnly.sources[1]?.detail ?? "", /Usefulness reflection: 4 of 5/);
+
 console.log("PR143 Journey grounding assertions passed.");

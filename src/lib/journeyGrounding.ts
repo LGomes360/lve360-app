@@ -22,7 +22,7 @@ export type JourneySynthesisGrounding = {
 type GroundingInput = {
   experiment: Pick<JourneyExperiment, "action_label">;
   review: Pick<JourneyReview, "completion_count" | "target_count" | "difficulty" | "value_rating">;
-  synthesis: Pick<JourneySynthesis, "confidence" | "evidence">;
+  synthesis?: Pick<JourneySynthesis, "confidence" | "evidence"> | null;
   connection: PracticeConnectionContext | null;
   blueprintContext: ExperimentBlueprintContext | null;
 };
@@ -83,8 +83,10 @@ function connectionStatus(
 
 export function journeySynthesisGrounding(input: GroundingInput): JourneySynthesisGrounding {
   const sources: JourneyGroundingSource[] = [];
+  const evidence = input.synthesis?.evidence ?? [];
+  const confidence = input.synthesis?.confidence ?? "low";
   const practice = cleanText(input.experiment.action_label) ?? "Weekly practice";
-  const practiceEvidence = evidenceDetail(input.synthesis.evidence, ["Practice completions", "Exercise volume"])
+  const practiceEvidence = evidenceDetail(evidence, ["Practice completions", "Exercise volume"])
     ?? `Practice completions: ${input.review.completion_count} of ${input.review.target_count} planned`;
   sources.push({
     kind: "practice",
@@ -93,7 +95,7 @@ export function journeySynthesisGrounding(input: GroundingInput): JourneySynthes
     href: "#journey-week-history",
   });
 
-  const reflectionEvidence = evidenceDetail(input.synthesis.evidence, ["Difficulty reflection", "Usefulness reflection"])
+  const reflectionEvidence = evidenceDetail(evidence, ["Difficulty reflection", "Usefulness reflection"])
     ?? [
       typeof input.review.difficulty === "number" ? `Difficulty reflection: ${input.review.difficulty} of 5` : null,
       typeof input.review.value_rating === "number" ? `Usefulness reflection: ${input.review.value_rating} of 5` : null,
@@ -107,7 +109,7 @@ export function journeySynthesisGrounding(input: GroundingInput): JourneySynthes
     });
   }
 
-  const checkInEvidence = evidenceDetail(input.synthesis.evidence, [
+  const checkInEvidence = evidenceDetail(evidence, [
     "Daily check-ins",
     "Average sleep check-in",
     "Average energy check-in",
@@ -122,7 +124,7 @@ export function journeySynthesisGrounding(input: GroundingInput): JourneySynthes
     });
   }
 
-  const historyEvidence = evidenceDetail(input.synthesis.evidence, [
+  const historyEvidence = evidenceDetail(evidence, [
     "History considered",
     "Comparable focus history",
     "Comparable completion trend",
@@ -161,8 +163,8 @@ export function journeySynthesisGrounding(input: GroundingInput): JourneySynthes
     summary: sources.some((source) => source.kind === "connection")
       ? "This story uses only the saved practice, reflection, check-in, history, and connection records shown below."
       : "This story uses only the saved practice, reflection, check-in, and history records available for this review.",
-    confidence: input.synthesis.confidence,
-    confidenceLabel: input.synthesis.confidence === "moderate" ? "Moderate pattern" : "Early signal",
+    confidence,
+    confidenceLabel: confidence === "moderate" ? "Moderate pattern" : "Early signal",
     sources,
     methodNote: "The working hypothesis is a possibility to test, not proof that the practice caused a health outcome.",
   };
