@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type ReactNode, useEffect, useState } from "react";
+import { type MouseEvent, type ReactNode, useEffect, useState } from "react";
 import {
   ArrowRight,
   CheckCircle2,
@@ -30,6 +30,7 @@ import {
 import { blueprintSafetyLabel, type CurrentBlueprintContext, type ExperimentBlueprintContext } from "@/lib/blueprintContext";
 import type { PracticeConnectionContext } from "@/lib/practiceConnection";
 import { formatPracticeCue, formatPracticeQuantity, isUsableMinimumVersionText } from "@/lib/practiceQuantity";
+import { journeySynthesisGrounding, type JourneySynthesisGrounding } from "@/lib/journeyGrounding";
 
 type MetricKey = "sleep" | "energy" | "weight";
 
@@ -122,6 +123,8 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
         experiments={data.experiments}
         reviews={completedReviews}
         syntheses={data.syntheses}
+        practiceConnections={data.practice_connections}
+        experimentBlueprints={data.experiment_blueprints}
       />
 
       {activeExperiment ? <CurrentChapter experiment={activeExperiment} connection={data.practice_connections[activeExperiment.id]} blueprintContext={data.experiment_blueprints[activeExperiment.id] ?? null} completed={activeCompletionCount} /> : (
@@ -133,7 +136,7 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
         />
       )}
 
-      <SupportingDetail title="Review the Blueprint and next-focus context" description="See how your weekly practice connects to longer-term priorities.">
+      <SupportingDetail title="Review the Blueprint and next-focus context" description="See how your weekly practice connects to longer-term priorities." id="journey-blueprint-context">
         {data.blueprint ? <BlueprintJourneyContext blueprint={data.blueprint} /> : null}
         <NextFocusPrompt
           activeExperiment={activeExperiment}
@@ -144,7 +147,7 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
         />
       </SupportingDetail>
 
-      <SupportingDetail title="Explore your activity and weekly history" description="Open the counts, life areas, and complete record behind the story.">
+      <SupportingDetail title="Explore your activity and weekly history" description="Open the counts, life areas, and complete record behind the story." id="journey-week-history">
         <section aria-labelledby="journey-summary-title" className="rounded-3xl bg-[#041B2D] p-6 text-white sm:p-8">
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8DE5D5]">Your journey so far</p>
           <h2 id="journey-summary-title" className="mt-2 text-2xl font-bold sm:text-3xl">
@@ -186,7 +189,7 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
         </section>
       </SupportingDetail>
 
-      <SupportingDetail title="Explore check-in patterns" description="Open charts and date-level comparisons when you want the supporting detail.">
+      <SupportingDetail title="Explore check-in patterns" description="Open charts and date-level comparisons when you want the supporting detail." id="journey-check-in-patterns">
         <section aria-labelledby="patterns-title" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
         <div className="flex items-start gap-3">
           <LineChart className="mt-1 h-5 w-5 text-[#087F72]" aria-hidden="true" />
@@ -220,7 +223,7 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
         </section>
       </SupportingDetail>
 
-      <SupportingDetail title="Read past reflections" description="Open earlier wins and weekly learning notes.">
+      <SupportingDetail title="Read past reflections" description="Open earlier wins and weekly learning notes." id="journey-reflections">
         <div className="grid gap-6 lg:grid-cols-2">
           <WinsTimeline reviews={completedReviews} completionTotal={completionTotal} />
           <LearningLoop
@@ -235,12 +238,14 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
   );
 }
 
-function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experiments, reviews, syntheses }: {
+function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experiments, reviews, syntheses, practiceConnections, experimentBlueprints }: {
   activeExperiment: JourneyExperiment | null;
   activeCompletionCount: number;
   experiments: JourneyExperiment[];
   reviews: JourneyReview[];
   syntheses: JourneySynthesis[];
+  practiceConnections: Record<string, PracticeConnectionContext>;
+  experimentBlueprints: Record<string, ExperimentBlueprintContext>;
 }) {
   const latestReview = reviews[0] ?? null;
   const reviewedExperiment = latestReview
@@ -274,6 +279,15 @@ function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experime
     : nextAction
       ? `Start the next chosen practice: ${nextAction}.`
       : "Choose one small practice for the next week when you are ready.";
+  const grounding = reviewedSynthesis && reviewedExperiment && latestReview
+    ? journeySynthesisGrounding({
+      experiment: reviewedExperiment,
+      review: latestReview,
+      synthesis: reviewedSynthesis,
+      connection: practiceConnections[reviewedExperiment.id] ?? null,
+      blueprintContext: experimentBlueprints[reviewedExperiment.id] ?? null,
+    })
+    : null;
 
   return (
     <section aria-labelledby="weekly-learning-story-title" className="overflow-hidden rounded-3xl border border-[#9DCFC3] bg-white shadow-sm">
@@ -291,6 +305,7 @@ function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experime
         <StoryPoint number="3" label="What LVE360 learned" body={learned} />
         <StoryPoint number="4" label="What appears to work" body={appearsToWork} />
       </ol>
+      {grounding ? <JourneyGroundingCard grounding={grounding} /> : null}
       <div className="border-t border-slate-200 bg-[#F4FAF8] p-6 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-8">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">One next decision</p>
@@ -301,6 +316,49 @@ function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experime
         </Link>
       </div>
     </section>
+  );
+}
+
+function JourneyGroundingCard({ grounding }: { grounding: JourneySynthesisGrounding }) {
+  function openSupportingDetail(event: MouseEvent<HTMLAnchorElement>, href: string) {
+    if (!href.startsWith("#")) return;
+    const target = document.querySelector<HTMLDetailsElement>(href);
+    if (!target) return;
+    event.preventDefault();
+    target.open = true;
+    window.history.replaceState(null, "", href);
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  return (
+    <aside className="border-t border-slate-200 bg-white p-6 sm:p-8" aria-label="Grounding for this weekly learning">
+      <div className="rounded-2xl border border-[#CFE8E2] bg-[#F4FAF8] p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">{grounding.title}</p>
+          <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${grounding.confidence === "moderate" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>
+            {grounding.confidenceLabel}
+          </span>
+        </div>
+        <p className="mt-1 text-sm leading-6 text-slate-600">{grounding.summary}</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {grounding.sources.map((source) => (
+            <Link key={source.kind} href={source.href} onClick={(event) => openSupportingDetail(event, source.href)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 transition hover:border-[#9DCFC3] hover:bg-white">
+              <span className="flex items-center justify-between gap-2 text-sm font-bold text-[#06695F]">
+                {source.label}
+                <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-slate-600">{source.detail}</span>
+              {source.status && source.status !== "current" ? (
+                <span className={`mt-2 inline-flex rounded-full px-2 py-1 text-[11px] font-bold ${source.status === "needs_review" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}>
+                  {source.status === "needs_review" ? "Needs review" : "Historical connection"}
+                </span>
+              ) : null}
+            </Link>
+          ))}
+        </div>
+        <p className="mt-3 text-xs leading-5 text-slate-500">{grounding.methodNote}</p>
+      </div>
+    </aside>
   );
 }
 
@@ -318,9 +376,9 @@ function StoryPoint({ number, label, body }: { number: string; label: string; bo
   );
 }
 
-function SupportingDetail({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+function SupportingDetail({ id, title, description, children }: { id?: string; title: string; description: string; children: ReactNode }) {
   return (
-    <details className="group rounded-3xl border border-slate-200 bg-white shadow-sm">
+    <details className="group scroll-mt-24 rounded-3xl border border-slate-200 bg-white shadow-sm" id={id}>
       <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-6 marker:content-none sm:p-7">
         <div>
           <h2 className="text-lg font-bold text-[#041B2D]">{title}</h2>
