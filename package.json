@@ -86,6 +86,7 @@
     "qa:pr142": "node --experimental-strip-types src/_tests_/pr142TodayGrounding.assert.ts && node src/_tests_/pr142Architecture.assert.mjs",
     "qa:pr143": "node --experimental-strip-types src/_tests_/pr143JourneyGrounding.assert.ts && node src/_tests_/pr143Architecture.assert.mjs",
     "qa:pr144": "node src/_tests_/pr144SecurityFunctionLockdown.assert.mjs",
+    "qa:pr145": "node src/_tests_/pr145RlsPolicyOptimization.assert.mjs",
     "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
