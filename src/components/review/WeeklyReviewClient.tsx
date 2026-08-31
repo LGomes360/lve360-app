@@ -47,9 +47,12 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
   const [synthesisLoading, setSynthesisLoading] = useState(false);
   const [synthesis, setSynthesis] = useState<WeeklySynthesis | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setError(null);
     fetch(`/api/weekly-review?experiment=${encodeURIComponent(experimentId)}`, { cache: "no-store" })
       .then(async (response) => {
         const json = await response.json().catch(() => null) as ReviewResponse | null;
@@ -68,7 +71,7 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
       .catch((loadError: Error) => { if (!cancelled) setError(loadError.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [experimentId]);
+  }, [experimentId, reloadKey]);
 
   const ready = useMemo(() => difficulty > 0 && valueRating > 0 && !!decision && (decision === "pause" || !!validateNextPlan(nextPlan)), [difficulty, valueRating, decision, nextPlan]);
 
@@ -165,7 +168,16 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
   }
 
   if (loading) return <ReviewShell><div className="flex min-h-72 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-[#087F72]" /></div></ReviewShell>;
-  if (!experiment) return <ReviewShell><p className="rounded-2xl bg-rose-50 p-5 text-rose-800">{error ?? "This review is not available."}</p></ReviewShell>;
+  if (!experiment) return (
+    <ReviewShell>
+      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800" role="alert">
+        <p>{error ?? "This review is not available."} Your saved week is unchanged.</p>
+        <button type="button" onClick={() => setReloadKey((value) => value + 1)} className="mt-4 inline-flex min-h-11 items-center rounded-xl border border-rose-300 bg-white px-4 py-2 text-sm font-bold text-rose-800 hover:bg-rose-100">
+          <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" /> Try loading again
+        </button>
+      </div>
+    </ReviewShell>
+  );
 
   return (
     <ReviewShell>

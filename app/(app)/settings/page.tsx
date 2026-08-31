@@ -47,6 +47,8 @@ export default function SettingsPage() {
   }, []);
 
   async function loadAccount() {
+    setLoading(true);
+    setNotice(null);
     try {
       const response = await fetch("/api/account", { cache: "no-store" });
       if (response.status === 401) {

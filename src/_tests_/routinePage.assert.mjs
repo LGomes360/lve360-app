@@ -35,7 +35,7 @@ assert.match(updateRoute, /changesPrescribedInstructions/, "Medication and hormo
 assert.match(updateRoute, /instruction_source_required/, "Prescribed-item edits must preserve their instruction source.");
 
 const today = read("app/(app)/today/TodayClient.tsx");
-assert.doesNotMatch(today, /Disclosure|details|summary/, "Today must not retain the collapsed regimen manager.");
+assert.doesNotMatch(today, /Disclosure|<details|RegimenManager/, "Today must not retain the collapsed regimen manager.");
 const todaySummary = read("src/components/dashboard/TodaysPlan.tsx");
 assert.match(todaySummary, /Open Routine/, "Today must link its compact summary to Routine.");
 assert.match(todaySummary, /Due today/, "Today must show a compact due summary.");

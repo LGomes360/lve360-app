@@ -64,6 +64,7 @@ export default function TodayExperience({
   const [busy, setBusy] = useState(false);
   const [loadingState, setLoadingState] = useState(!!initialExperiment);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const date = initialCompletionDate ?? toLocalDate(new Date());
@@ -74,6 +75,8 @@ export default function TodayExperience({
     }
 
     let cancelled = false;
+    setLoadingState(true);
+    setError(null);
     fetch(`/api/today?date=${date}`, { cache: "no-store" })
       .then(async (response) => {
         const json = await response.json().catch(() => null) as TodayResponse | null;
@@ -93,7 +96,7 @@ export default function TodayExperience({
         if (!cancelled) setLoadingState(false);
       });
     return () => { cancelled = true; };
-  }, [initialExperiment, initialCompletionDate]);
+  }, [initialExperiment, initialCompletionDate, reloadKey]);
 
   const todayCompletion = useMemo(
     () => completions.find((item) => item.completion_date === localDate) ?? null,
@@ -311,7 +314,14 @@ export default function TodayExperience({
               )}
             </div>
           )}
-          {error ? <p className="mt-3 text-sm font-medium text-rose-700">{error}</p> : null}
+          {error ? (
+            <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3" role="alert">
+              <p className="text-sm font-medium text-rose-800">{error} Your saved progress is unchanged.</p>
+              <button type="button" onClick={() => setReloadKey((value) => value + 1)} disabled={loadingState} className="mt-2 inline-flex min-h-10 items-center rounded-lg border border-rose-300 bg-white px-3 py-2 text-sm font-bold text-rose-800 hover:bg-rose-100 disabled:opacity-50">
+                <RotateCcw className={`mr-2 h-4 w-4 ${loadingState ? "animate-spin" : ""}`} aria-hidden="true" /> Reload progress
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:p-6" aria-live="polite">
