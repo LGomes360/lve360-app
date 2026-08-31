@@ -22,7 +22,7 @@ The new write functions are executable only by the server role. Members retain o
 ## Release order
 
 1. Merge and deploy application code.
-2. Apply `20260831030031_pr150_practice_reconciliation.sql` to production.
+2. Apply `20260831031512_pr150_practice_reconciliation.sql` to production.
 3. Verify every non-draft experiment has a Practice ID, every active experiment points to an active Practice, and incomplete drafts remain allowed to be null.
 4. Run Supabase security and performance advisors.
 
