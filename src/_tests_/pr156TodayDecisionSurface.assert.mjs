@@ -42,6 +42,9 @@ assert.doesNotMatch(decision, /grid-cols-7/, "Today must not duplicate Journey's
 
 assert.match(insight, /<details className=/, "AI reasoning and sources should be available without competing with the priority.");
 assert.match(insight, /Open reasoning and sources/, "The disclosure must describe what it opens.");
+assert.match(insight, /flex-col items-start gap-2/, "The reasoning disclosure must stack cleanly on narrow screens.");
+assert.match(insight, /sm:flex-row sm:items-center/, "The reasoning disclosure may return to a row on wider screens.");
+assert.match(insight, /group-open:inline/, "The expanded disclosure must offer a clear way to hide the reasoning.");
 assert.match(insight, /Grounding for today’s recommendation/, "Evidence provenance must remain available.");
 
 assert.match(routine, /Open full Routine/, "Today must preserve a direct path to detailed regimen work.");

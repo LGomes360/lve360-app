@@ -91,15 +91,19 @@ export default function AiTodayBrief({ date }: { date?: string | null }) {
   if (!brief || brief.hidden) return null;
 
   return (
-    <details className="rounded-2xl border border-[#BCE3DA] bg-gradient-to-br from-[#EAFBF8] via-white to-[#F4EEFF]">
-      <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 marker:content-none sm:px-5">
+    <details className="group rounded-2xl border border-[#BCE3DA] bg-gradient-to-br from-[#EAFBF8] via-white to-[#F4EEFF]">
+      <summary className="flex min-h-14 cursor-pointer list-none flex-col items-start gap-2 px-4 py-4 marker:content-none sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
         <span className="min-w-0">
           <span className="flex items-center text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">
             <Sparkles className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" /> Insight for today
           </span>
           <span className="mt-1 block truncate text-sm font-bold text-[#041B2D]">{brief.noticed}</span>
         </span>
-        <span className="shrink-0 text-sm font-bold text-[#06695F]">Open reasoning and sources</span>
+        <span className="shrink-0 text-sm font-bold text-[#06695F]">
+          <span className="group-open:hidden sm:hidden">Open reasoning</span>
+          <span className="hidden group-open:hidden sm:inline">Open reasoning and sources</span>
+          <span className="hidden group-open:inline">Hide reasoning</span>
+        </span>
       </summary>
 
       <div className="border-t border-[#D8EEE9] p-5 sm:p-6">
