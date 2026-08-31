@@ -37,7 +37,10 @@ async function pingModel(model: string, callOpenAI: CallOpenAI) {
 }
 
 export async function GET() {
-  if (process.env.NODE_ENV === "production") {
+  const vercelEnvironment = process.env.VERCEL_ENV;
+  const isProduction = vercelEnvironment === "production"
+    || (!vercelEnvironment && process.env.NODE_ENV === "production");
+  if (isProduction) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
