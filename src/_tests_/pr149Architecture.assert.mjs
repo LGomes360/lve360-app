@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const migration = await readFile(
-  "supabase/migrations/20260831023801_pr149_durable_practices.sql",
+  "supabase/migrations/20260831025812_pr149_durable_practices.sql",
   "utf8",
 );
 const domain = await readFile("src/lib/practiceDomain.ts", "utf8");

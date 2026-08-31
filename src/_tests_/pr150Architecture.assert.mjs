@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const read = (path) => fs.readFileSync(path, "utf8");
-const migration = read("supabase/migrations/20260831030031_pr150_practice_reconciliation.sql");
+const migration = read("supabase/migrations/20260831031512_pr150_practice_reconciliation.sql");
 const activation = read("app/api/activation/route.ts");
 const review = read("app/api/weekly-review/route.ts");
 const memberData = read("src/lib/memberContextData.ts");
