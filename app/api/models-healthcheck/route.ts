@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
+import OpenAI from "openai";
 
 type CallOpenAI = typeof import("@/lib/openai").callOpenAI;
 
@@ -51,6 +52,20 @@ export async function GET() {
   ]);
   const key_present = Boolean(process.env.OPENAI_API_KEY);
   const resolved = resolvedModels();
+  let available_latest_models: string[] = [];
+  let model_catalog_error: string | null = null;
+
+  if (key_present) {
+    try {
+      const models = await new OpenAI({ apiKey: process.env.OPENAI_API_KEY }).models.list();
+      available_latest_models = models.data
+        .map((model) => model.id)
+        .filter((id) => /^gpt-5\.(4|5|6)(-|$)/.test(id))
+        .sort();
+    } catch (error) {
+      model_catalog_error = error instanceof Error ? error.message : String(error);
+    }
+  }
 
   // Try 5* first, then 4o fallbacks — but report each explicitly.
   const [mini, main, fallbackMini, fallbackMain] = await Promise.all([
@@ -74,6 +89,8 @@ export async function GET() {
       FALLBACK_MAIN: resolved.FALLBACK_MAIN,
       FALLBACK_MINI: resolved.FALLBACK_MINI,
     },
+    available_latest_models,
+    model_catalog_error,
     key_present,
   });
 }

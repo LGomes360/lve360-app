@@ -26,6 +26,8 @@ assert.match(gateway, /estimatedCostUsd\(modelUsed, response\.usage\)/);
 assert.match(modelHealth, /process\.env\.VERCEL_ENV/);
 assert.match(modelHealth, /vercelEnvironment === "production"/);
 assert.match(modelHealth, /maxTokens: 256/);
+assert.match(modelHealth, /available_latest_models/);
+assert.match(modelHealth, /\.models\.list\(\)/);
 assert.match(openai, /extractResponsesText/);
 assert.doesNotMatch(openai, /k\.endsWith\("_text"\)/);
 
