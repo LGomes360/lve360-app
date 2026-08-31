@@ -76,7 +76,15 @@ export default function TodayClient({
 
         {experiment?.status === "active" || firstActionComplete ? (
           <>
-            <DailyIntentionCard date={checkinDate} />
+            <header className="rounded-3xl border border-[#BCE3DA] bg-white px-5 py-5 shadow-sm sm:px-7 sm:py-6">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#087F72]">Today</p>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-[#041B2D] sm:text-4xl">One clear priority for today</h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
+                Start with an optional intention and a quick check-in. LVE360 will keep the next action tied to your saved plan.
+              </p>
+            </header>
+
+            <DailyIntentionCard date={checkinDate} compact />
 
             <section id="daily-log" aria-label="Quick check-in">
               <DailyLog
@@ -86,8 +94,6 @@ export default function TodayClient({
                 onSkip={handleCheckInSkipped}
               />
             </section>
-
-            {decisionReady ? <ReminderArrivalFeedback deliveryId={reminderDeliveryId} /> : null}
 
             <TodayExperience
               initialExperiment={experiment}
@@ -102,6 +108,8 @@ export default function TodayClient({
             >
               <AiTodayBrief key={`${checkinDate ?? "today"}-${briefVersion}`} date={checkinDate} />
             </TodayExperience>
+
+            {decisionReady ? <ReminderArrivalFeedback deliveryId={reminderDeliveryId} /> : null}
 
             {decisionReady ? <TodayRoutineAgenda /> : null}
           </>

@@ -7,7 +7,6 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  Circle,
   Goal,
   Loader2,
   RotateCcw,
@@ -60,7 +59,6 @@ export default function TodayExperience({
   const [localDate, setLocalDate] = useState("");
   const [experiment, setExperiment] = useState(initialExperiment);
   const [completions, setCompletions] = useState<DailyPracticeCompletion[]>([]);
-  const [weekDays, setWeekDays] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [loadingState, setLoadingState] = useState(!!initialExperiment);
   const [error, setError] = useState<string | null>(null);
@@ -87,7 +85,6 @@ export default function TodayExperience({
         if (cancelled) return;
         setExperiment(json.experiment);
         setCompletions(json.completions ?? []);
-        setWeekDays(json.bounds?.days ?? []);
       })
       .catch((loadError: Error) => {
         if (!cancelled) setError(loadError.message);
@@ -120,7 +117,6 @@ export default function TodayExperience({
       const json = await response.json().catch(() => null) as TodayResponse | null;
       if (!response.ok || !json?.ok) throw new Error("Your progress was not saved. Please try again.");
       setCompletions(json.completions ?? []);
-      setWeekDays(json.bounds?.days ?? []);
       onCompletionStateChange?.((json.completions ?? []).length > 0);
       onTodayProgressChange?.();
     } catch (saveError) {
@@ -139,7 +135,6 @@ export default function TodayExperience({
       const json = await response.json().catch(() => null) as TodayResponse | null;
       if (!response.ok || !json?.ok) throw new Error("We could not undo that completion.");
       setCompletions(json.completions ?? []);
-      setWeekDays(json.bounds?.days ?? []);
       onCompletionStateChange?.((json.completions ?? []).length > 0);
       onTodayProgressChange?.();
     } catch (undoError) {
@@ -168,9 +163,9 @@ export default function TodayExperience({
     return (
       <section id="focused-practice" className="rounded-3xl border border-[#9DCFC3] bg-white p-6 shadow-sm sm:p-8" aria-labelledby="today-heading">
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#087F72]">Today</p>
-        <h1 id="today-heading" className="mt-2 text-3xl font-bold tracking-tight text-[#041B2D] sm:text-4xl">
+        <h2 id="today-heading" className="mt-2 text-3xl font-bold tracking-tight text-[#041B2D] sm:text-4xl">
           Choose one practice for this week.
-        </h1>
+        </h2>
         <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
           Set up one focused practice so LVE360 can help you turn your Blueprint into a week you can actually follow.
         </p>
@@ -202,7 +197,7 @@ export default function TodayExperience({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8DE5D5]">Today</p>
-            <h1 id="today-heading" className="mt-1 text-2xl font-bold sm:text-3xl">Your best next step</h1>
+            <h2 id="today-heading" className="mt-1 text-2xl font-bold sm:text-3xl">Your best next step</h2>
           </div>
           <p className="max-w-md text-sm leading-6 text-white/75">One useful action is enough to move this week forward.</p>
         </div>
@@ -229,26 +224,19 @@ export default function TodayExperience({
             ) : null}
             {practiceConnection ? <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-slate-200"><span className="text-[#087F72]">Why this matters for you:</span> {practiceConnection.summary}</p> : null}
             <p className="mt-4 text-sm font-semibold text-slate-600">
+              <span className="sr-only">This week&apos;s direction. </span>
               <span className="text-[#041B2D]">Saved direction:</span> {identityLabel(experiment.identity_direction)}
             </p>
             <p className="mt-4 text-base leading-7 text-slate-600">
               <strong className="text-[#041B2D]">Your cue:</strong> {formatPracticeCue(experiment.cue)}
             </p>
             {experiment.target_quantity != null && experiment.quantity_unit ? <p className="mt-2 text-base leading-7 text-slate-600"><strong className="text-[#041B2D]">Target each time:</strong> {formatPracticeQuantity(experiment.target_quantity, experiment.quantity_unit)}</p> : null}
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              <strong className="text-[#041B2D]">Minimum version if today gets hard:</strong> {hasUsableMinimum ? experiment.minimum_version : "Choose a concrete hard-day version before recording it."}
+            </p>
           </div>
           <a href="/onboarding" className="shrink-0 text-sm font-semibold text-[#087F72] hover:underline">Review practice</a>
         </div>
-
-        {children ? <div className="mt-6">{children}</div> : null}
-
-        {!useMinimumRecommendation ? (
-          <div className="mt-7 rounded-2xl border border-[#BCE3DA] bg-[#F4FAF8] p-4 sm:p-5">
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">Minimum version if today gets hard</p>
-            <p className="mt-2 text-lg font-semibold text-[#041B2D]">{hasUsableMinimum ? experiment.minimum_version : "Choose a concrete hard-day version before recording it."}</p>
-            {hasUsableMinimum && experiment.minimum_quantity != null && experiment.minimum_quantity_unit ? <p className="mt-1 text-sm text-slate-600">Structured minimum: {formatPracticeQuantity(experiment.minimum_quantity, experiment.minimum_quantity_unit)}</p> : null}
-            {!hasUsableMinimum ? <a href="/onboarding" className="mt-3 inline-flex text-sm font-bold text-[#087F72] hover:underline">Review hard-day version <ArrowRight className="ml-1 h-4 w-4" /></a> : null}
-          </div>
-        ) : null}
 
         <div className="mt-7" aria-live="polite">
           {weekEnded ? (
@@ -324,34 +312,26 @@ export default function TodayExperience({
           ) : null}
         </div>
 
-        <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:p-6" aria-live="polite">
+        {children ? <div className="mt-5">{children}</div> : null}
+
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5" aria-live="polite">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]"><Goal className="h-4 w-4" /> Weekly promise</p>
-              <p className="mt-2 text-2xl font-bold text-[#041B2D]">{completedCount} of {target}</p>
-              <p className="mt-1 text-sm text-slate-600">planned practice completions</p>
+              <p className="mt-2 text-lg font-bold text-[#041B2D]">{completedCount} of {target} planned practice completions</p>
+              <p className="mt-1 text-sm font-medium leading-6 text-slate-700">{momentum.message}</p>
             </div>
-            <div className={`w-fit rounded-full px-3 py-1.5 text-xs font-bold ${momentum.stage === "kept" ? "bg-emerald-100 text-emerald-800" : momentum.stage === "building" ? "bg-teal-100 text-teal-800" : "bg-white text-slate-700 ring-1 ring-slate-200"}`}>
-              {momentum.label}
+            <div className="flex flex-wrap items-center gap-3">
+              <span className={`w-fit rounded-full px-3 py-1.5 text-xs font-bold ${momentum.stage === "kept" ? "bg-emerald-100 text-emerald-800" : momentum.stage === "building" ? "bg-teal-100 text-teal-800" : "bg-white text-slate-700 ring-1 ring-slate-200"}`}>
+                {momentum.label}
+              </span>
+              <a href="/journey" className="inline-flex min-h-11 items-center text-sm font-bold text-[#087F72] hover:underline">
+                View progress <ArrowRight className="ml-1 h-4 w-4" aria-hidden="true" />
+              </a>
             </div>
           </div>
-          <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label="Weekly practice momentum" aria-valuemin={0} aria-valuemax={target} aria-valuenow={Math.min(completedCount, target)}>
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label="Weekly practice momentum" aria-valuemin={0} aria-valuemax={target} aria-valuenow={Math.min(completedCount, target)}>
             <div className="h-full rounded-full bg-gradient-to-r from-[#08A88A] to-[#58CDB8] transition-[width] duration-500" style={{ width: `${progressPercent}%` }} />
-          </div>
-          <p className="mt-3 text-sm font-medium leading-6 text-slate-700">{momentum.message}</p>
-          <div className="mt-4 grid grid-cols-7 gap-2" aria-label={`${completedCount} weekly completions`}>
-            {weekDays.map((day) => {
-              const completion = completions.find((item) => item.completion_date === day);
-              const isToday = day === localDate;
-              return (
-                <div key={day} className="text-center">
-                  <p className="mb-2 text-xs font-semibold text-slate-500">{weekdayLabel(day)}</p>
-                  <div className={`mx-auto flex h-9 w-9 items-center justify-center rounded-full border ${completion ? "border-[#08A88A] bg-[#08A88A] text-white" : isToday ? "border-[#087F72] bg-white text-[#087F72]" : "border-slate-200 bg-slate-50 text-slate-300"}`} title={completion ? `${completion.completion_kind} version completed` : "Not completed"}>
-                    {completion ? <Check className="h-4 w-4" /> : <Circle className="h-3 w-3" />}
-                  </div>
-                </div>
-              );
-            })}
           </div>
           {loadingState ? <p className="mt-3 text-xs text-slate-500">Loading this week's progress...</p> : null}
         </div>
@@ -438,8 +418,4 @@ function toLocalDate(date: Date): string {
 function formatCheckinDate(value: string): string {
   return new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" })
     .format(new Date(`${value}T12:00:00.000Z`));
-}
-
-function weekdayLabel(date: string): string {
-  return new Intl.DateTimeFormat("en-US", { weekday: "narrow", timeZone: "UTC" }).format(new Date(`${date}T12:00:00.000Z`));
 }
