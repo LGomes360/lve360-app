@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { estimatedCostUsd, modelPrice } from "../lib/ai/modelPricing.ts";
+import { extractResponsesText } from "../lib/ai/responsesText.ts";
 
 assert.deepEqual(modelPrice("gpt-5.6-terra"), { input: 2, cachedInput: 0.2, output: 12 });
 assert.deepEqual(modelPrice("gpt-5.6-luna"), { input: 0.2, cachedInput: 0.02, output: 1.2 });
@@ -23,5 +24,20 @@ assert.equal(
   0.275
 );
 assert.equal(estimatedCostUsd("unpriced-model", { prompt_tokens: 100 }), null);
+
+assert.equal(extractResponsesText({ output_text: "  Useful answer  " }), "Useful answer");
+assert.equal(extractResponsesText({
+  output: [{
+    id: "msg_123",
+    type: "message",
+    status: "completed",
+    content: [{ type: "output_text", text: "Grounded answer" }],
+  }],
+}), "Grounded answer");
+assert.equal(extractResponsesText({
+  id: "resp_123",
+  status: "incomplete",
+  output: [{ id: "rs_internal_identifier", type: "reasoning", summary: [] }],
+}), "");
 
 console.log("PR148 model pricing assertions passed.");

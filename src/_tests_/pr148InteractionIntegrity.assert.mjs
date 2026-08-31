@@ -10,6 +10,7 @@ const todayRoute = read("app/api/today/route.ts");
 const reviewRoute = read("app/api/weekly-review/route.ts");
 const gateway = read("src/lib/ai/gateway.ts");
 const modelHealth = read("app/api/models-healthcheck/route.ts");
+const openai = read("src/lib/openai.ts");
 
 assert.match(today, /Reload progress/);
 assert.match(today, /saved progress is unchanged/i);
@@ -24,5 +25,8 @@ assert.match(reviewRoute, /onConflict: "experiment_id"/);
 assert.match(gateway, /estimatedCostUsd\(modelUsed, response\.usage\)/);
 assert.match(modelHealth, /process\.env\.VERCEL_ENV/);
 assert.match(modelHealth, /vercelEnvironment === "production"/);
+assert.match(modelHealth, /maxTokens: 256/);
+assert.match(openai, /extractResponsesText/);
+assert.doesNotMatch(openai, /k\.endsWith\("_text"\)/);
 
 console.log("PR148 interaction integrity assertions passed.");

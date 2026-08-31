@@ -10,8 +10,9 @@ async function pingModel(model: string, callOpenAI: CallOpenAI) {
   try {
     // Single-string input works for both families via our wrapper.
     const res = await callOpenAI(model, "Reply exactly: ok", {
-      maxTokens: 32,
+      maxTokens: 256,
       timeoutMs: 10_000,
+      reasoningEffort: "low",
     });
     const sample = (res.text || "").trim().toLowerCase();
     const ok = sample.includes("ok");

@@ -3,6 +3,7 @@
 // gateway in src/lib/ai/gateway.ts instead of selecting models directly.
 
 import OpenAI from "openai";
+import { extractResponsesText } from "@/lib/ai/responsesText";
 
 /** ANCHOR: ChatMsg */
 export type ChatMsg = {
@@ -92,76 +93,6 @@ function toResponsesPayload(model: string, messages: ChatMsg[], opts?: CallOpts)
 
   return body;
 }
-
-/**
- * Robust extractor for Responses API shapes (output_text, summary/summary_text,
- * nested content blocks, etc.). If truly no text is found, last-ditch returns "ok"
- * if that literal appears anywhere in the raw JSON (for healthchecks only).
- */
-function extractResponsesText(resp: any): string {
-  // 0) Fast path
-  if (typeof resp?.output_text === "string" && resp.output_text.trim()) {
-    return resp.output_text.trim();
-  }
-
-  // Deep collector: hunts through summary/content/message trees for any text-y fields
-  const seen = new Set<any>();
-  let firstText: string = ""; // <-- avoid nullable; prevents 'never' inference
-
-  const take = (s: any) => {
-    if (typeof s === "string") {
-      const t = s.trim();
-      if (t && !firstText) firstText = t;
-    }
-  };
-
-  const visit = (node: any) => {
-    if (!node || typeof node === "number" || typeof node === "boolean") return;
-    if (typeof node === "string") { take(node); return; }
-    if (seen.has(node)) return;
-    seen.add(node);
-
-    if (Array.isArray(node)) {
-      for (const it of node) visit(it);
-      return;
-    }
-
-    // Objects: try common text carriers first
-    if (typeof node.output_text === "string") take(node.output_text);
-    if (typeof node.summary_text === "string") take(node.summary_text);
-    if (typeof node.text === "string") take(node.text);
-    if (typeof node.content === "string") take(node.content);
-
-    // Then traverse known containers
-    if (node.summary) visit(node.summary);
-    if (node.content) visit(node.content);
-    if (node.message) visit(node.message);
-    if (node.output) visit(node.output);
-
-    // Finally traverse any remaining props (future-proof)
-    for (const k of Object.keys(node)) {
-      if (
-        k === "summary" || k === "content" || k === "message" || k === "output" ||
-        k.endsWith("_text") || k === "text"
-      ) continue;
-      visit(node[k]);
-    }
-  };
-
-  visit(resp);
-
-  if (firstText.trim()) return firstText.trim();
-
-  // Last-ditch: if the model returned structured output that literally contains "ok",
-  // allow healthcheck to succeed (handy for Responses API oddities).
-  try {
-    const raw = JSON.stringify(resp);
-    if (/"ok"/i.test(raw)) return "ok";
-  } catch { /* ignore */ }
-
-  return "";
-}
-
 
 function usageFromResponses(resp: any) {
   const u = resp?.usage || {};
