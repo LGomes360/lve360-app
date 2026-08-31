@@ -8,7 +8,7 @@ const card = read("src/components/dashboard/DailyIntentionCard.tsx");
 const route = read("app/api/daily-intention/route.ts");
 const generator = read("src/lib/ai/dailyIntentionData.ts");
 const gateway = read("src/lib/ai/gateway.ts");
-const migration = read("supabase/migrations/20260824031138_pr126_daily_intentions.sql");
+const migration = read("supabase/migrations/20260824033047_pr126_daily_intentions.sql");
 
 assert.ok(today.indexOf("<DailyIntentionCard") < today.indexOf("<TodayExperience"), "the daily intention must begin the active Today experience");
 assert.match(card, /How do you want to show up today\?/);

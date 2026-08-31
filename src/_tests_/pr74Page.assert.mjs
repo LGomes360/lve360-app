@@ -29,7 +29,7 @@ assert.match(journey, /Review only\. This cannot become a practice/, "Safety-sen
 const medicationRoute = read("app/api/routine/medications/route.ts");
 const updateRoute = read("app/api/stacks/update/route.ts");
 const routine = read("app/(app)/routine/RoutineClient.tsx");
-const migration = read("supabase/migrations/20260801182027_pr74_medication_instruction_authority.sql");
+const migration = read("supabase/migrations/20260801182814_pr74_medication_instruction_authority.sql");
 assert.match(medicationRoute, /normalizeMedicationRecordInput/, "New medications must use the strict provenance validator.");
 assert.match(medicationRoute, /upsertReportedMedication/, "New medications must enter the canonical regimen.");
 assert.match(updateRoute, /instruction_source_required/, "Prescribed-item updates must require provenance.");

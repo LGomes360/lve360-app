@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(path, "utf8");
 
-const migration = read("supabase/migrations/20260801202927_pr76_flexible_regimen_organizer.sql");
+const migration = read("supabase/migrations/20260801205745_pr76_flexible_regimen_organizer.sql");
 assert.match(migration, /add column if not exists schedule jsonb/i, "PR76 must persist structured schedules.");
 assert.match(migration, /create table if not exists public\.regimen_dose_events/i, "PR76 must store dose occurrences separately.");
 assert.match(migration, /unique \(user_id, regimen_item_id, scheduled_date, slot_key\)/i, "One scheduled occurrence must have one owner-scoped record.");

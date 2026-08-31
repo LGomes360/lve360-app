@@ -7,7 +7,7 @@ const client = read("app/(app)/routine/RoutineClient.tsx");
 const printPage = read("app/(app)/routine/print/page.tsx");
 const summary = read("src/lib/clinicianRoutineSummary.ts");
 const authority = read("src/lib/medicationRecord.ts");
-const migration = read("supabase/migrations/20260823004922_pr123_member_safety_wording.sql");
+const migration = read("supabase/migrations/20260824003355_pr123_member_safety_wording.sql");
 
 assert.match(routine, /routineScheduleConflicts/, "PR123 must use one shared conflict detector.");
 assert.match(routine, /Ambiguous language is intentionally left alone/, "The detector must avoid guessing from vague schedule text.");

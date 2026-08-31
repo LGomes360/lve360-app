@@ -7,7 +7,7 @@ const route = read("app/api/today-brief/route.ts");
 const data = read("src/lib/ai/todayBriefData.ts");
 const component = read("src/components/dashboard/AiTodayBrief.tsx");
 const modelConfig = read("src/lib/ai/modelConfig.ts");
-const migration = read("supabase/migrations/20260811024500_pr100_ai_today_briefs.sql");
+const migration = read("supabase/migrations/20260811023525_pr100_ai_today_briefs.sql");
 const login = read("app/login/page.tsx");
 
 assert.match(modelConfig, /today_brief:[\s\S]*capability: "mini"/, "The daily brief must use the cost-conscious task router.");

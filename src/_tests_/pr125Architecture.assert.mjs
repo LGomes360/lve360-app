@@ -8,7 +8,7 @@ const synthesis = read("src/lib/ai/weeklySynthesisData.ts");
 const journey = read("src/components/journey/JourneyDashboard.tsx");
 const journeyRoute = read("app/api/journey/route.ts");
 const today = read("src/components/dashboard/TodayExperience.tsx");
-const migration = read("supabase/migrations/20260824012650_pr125_weekly_practice_quantity.sql");
+const migration = read("supabase/migrations/20260824021603_pr125_weekly_practice_quantity.sql");
 
 for (const source of [onboarding, review]) {
   assert.match(source, /type="number"[^>]*inputMode="decimal"/, "Quantity fields must use decimal numeric inputs.");

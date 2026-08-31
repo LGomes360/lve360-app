@@ -33,7 +33,7 @@ assert.ok(
 assert.match(generator, /versionColumnsMissing/, "The legacy upsert must be limited to the pre-migration compatibility path.");
 assert.match(generator, /input_snapshot_hash/, "Generated versions must store their input snapshot hash.");
 
-const migration = read("supabase/migrations/20260729032920_interactive_blueprint_versions.sql");
+const migration = read("supabase/migrations/20260729035142_interactive_blueprint_versions.sql");
 assert.match(migration, /drop index if exists public\.stacks_submission_id_key/, "The legacy one-stack-per-submission index must be removed.");
 assert.match(migration, /unique index if not exists stacks_submission_snapshot_key/, "The migration must deduplicate identical input snapshots.");
 assert.match(migration, /stacks_submission_created_idx/, "Version history must have a submission/date index.");

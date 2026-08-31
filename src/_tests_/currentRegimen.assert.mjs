@@ -3,13 +3,13 @@ import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(path, "utf8");
 
-const migration = read("supabase/migrations/20260801172222_canonical_current_regimen.sql");
+const migration = read("supabase/migrations/20260801173403_canonical_current_regimen.sql");
 assert.match(migration, /create table if not exists public\.current_regimen_items/i, "PR72 needs a canonical regimen table.");
 assert.match(migration, /item_kind in \('medication', 'supplement', 'hormone', 'endocrine_active_supplement'\)/i, "Every regimen item must retain an explicit type.");
 assert.match(migration, /instruction_source in \('intake', 'member_update', 'adopted_recommendation', 'manual_add'\)/i, "Every instruction needs provenance.");
 assert.match(migration, /using \(\(select auth\.uid\(\)\) = user_id\)/i, "Regimen rows must be owner-isolated with RLS.");
 assert.match(migration, /intake_events_user_regimen_date_key/i, "Adherence must use stable regimen IDs.");
-const writePrivileges = read("supabase/migrations/20260801182000_server_control_current_regimen_writes.sql");
+const writePrivileges = read("supabase/migrations/20260801173703_server_control_current_regimen_writes.sql");
 assert.match(writePrivileges, /revoke update[^;]*from authenticated/i, "Member regimen writes must remain server-controlled.");
 
 const combined = read("app/api/stacks/combined/route.ts");

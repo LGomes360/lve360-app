@@ -5,7 +5,7 @@ const settings = fs.readFileSync("app/(app)/settings/page.tsx", "utf8");
 const accountRoute = fs.readFileSync("app/api/account/route.ts", "utf8");
 const deleteRoute = fs.readFileSync("app/api/account/delete/route.ts", "utf8");
 const exportRoute = fs.readFileSync("app/api/account/export/route.ts", "utf8");
-const migration = fs.readFileSync("supabase/migrations/20260726090000_account_preferences.sql", "utf8");
+const migration = fs.readFileSync("supabase/migrations/20260726180400_account_preferences.sql", "utf8");
 
 assert.match(settings, /\/api\/account\/export/, "Settings must provide a data download");
 assert.match(settings, /deleteConfirmation\.trim\(\)\.toLowerCase\(\)/, "Deletion must require typed confirmation");

@@ -8,7 +8,7 @@ const coachData = readFileSync("src/lib/ai/contextualCoachData.ts", "utf8");
 const coachIntent = readFileSync("src/lib/coachIntent.ts", "utf8");
 const coachValidation = readFileSync("src/lib/coachTaskValidation.ts", "utf8");
 const blueprintPage = readFileSync("app/(app)/blueprints/[stackId]/page.tsx", "utf8");
-const migration = readFileSync("supabase/migrations/20260815135335_safety_provenance_unit_normalization.sql", "utf8");
+const migration = readFileSync("supabase/migrations/20260815140848_safety_provenance_unit_normalization.sql", "utf8");
 
 for (const field of [
   "source_label",

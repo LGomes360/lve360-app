@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(path, "utf8");
 
-const migration = read("supabase/migrations/20260801212242_pr77_supplement_product_cards.sql");
+const migration = read("supabase/migrations/20260801212917_pr77_supplement_product_cards.sql");
 assert.match(migration, /add column if not exists brand text/i);
 assert.match(migration, /add column if not exists reorder_url text/i);
 assert.match(migration, /assets\[\.\]fullscript\[\.\]io/i, "Only the trusted catalog image host should be persisted.");

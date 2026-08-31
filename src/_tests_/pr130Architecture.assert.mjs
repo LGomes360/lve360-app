@@ -3,7 +3,7 @@ import fs from "node:fs";
 
 const api = fs.readFileSync("app/api/coach/route.ts", "utf8");
 const coach = fs.readFileSync("src/components/coach/AskLve360Coach.tsx", "utf8");
-const migration = fs.readFileSync("supabase/migrations/20260825030339_pr130_coach_allowance_adjustments.sql", "utf8");
+const migration = fs.readFileSync("supabase/migrations/20260825031329_pr130_coach_allowance_adjustments.sql", "utf8");
 const topUp = fs.readFileSync("scripts/top-up-coach-allowance.mjs", "utf8");
 const operations = fs.readFileSync("docs/coach-allowance-operations.md", "utf8");
 

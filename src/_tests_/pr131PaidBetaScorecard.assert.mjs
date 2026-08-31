@@ -9,7 +9,7 @@ const read = (relativePath) => readFileSync(path.join(root, relativePath), "utf8
 const analyticsTypes = read("src/lib/productAnalyticsTypes.ts");
 const eventRoute = read("app/api/analytics/event/route.ts");
 const blueprint = read("app/(app)/blueprints/[stackId]/BlueprintWorkspaceClient.tsx");
-const migration = read("supabase/migrations/20260826004105_pr131_paid_beta_learning_scorecard.sql");
+const migration = read("supabase/migrations/20260826004608_pr131_paid_beta_learning_scorecard.sql");
 const documentation = read("docs/analytics-event-taxonomy.md");
 
 for (const eventName of ["recommendation_viewed", "recommendation_reason_opened", "blueprint_handoff_ready", "blueprint_handoff_retry"]) {
