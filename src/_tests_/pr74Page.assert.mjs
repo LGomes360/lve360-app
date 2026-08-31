@@ -20,9 +20,11 @@ assert.match(today, /blueprints\/\$\{blueprint\.stack_id\}/, "Today safety notic
 
 const journeyRoute = read("app/api/journey/route.ts");
 const journey = read("src/components/journey/JourneyDashboard.tsx");
+const practiceConnection = read("src/lib/practiceConnection.ts");
 assert.match(journeyRoute, /source_stack_id, source_action_id/, "Journey must load Blueprint provenance for every practice.");
 assert.match(journeyRoute, /experiment_blueprints: experimentBlueprints/, "Journey must return resolved Blueprint links.");
-assert.match(journey, /Supports Blueprint priority:/, "Journey must name the priority each practice supports.");
+assert.match(practiceConnection, /Supports Blueprint priority:/, "The canonical practice connection must name its Blueprint priority.");
+assert.match(journey, /connection\.summary/, "Journey must render the resolved practice connection instead of duplicating its wording.");
 assert.match(journey, /was preserved and was not automatically changed/, "Journey must explain that refreshed Blueprints do not overwrite practices.");
 assert.match(journey, /Review only\. This cannot become a practice/, "Safety-sensitive actions must remain review-only.");
 

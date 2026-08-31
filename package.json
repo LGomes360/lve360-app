@@ -93,6 +93,7 @@
     "qa:pr150": "node src/_tests_/pr150Architecture.assert.mjs && node --experimental-strip-types src/_tests_/pr149DurablePractice.assert.ts && npm run qa:personas",
     "qa:pr151": "node src/_tests_/pr151MigrationHistory.assert.mjs && node src/_tests_/pr149Architecture.assert.mjs && node src/_tests_/pr150Architecture.assert.mjs",
     "qa:pr152": "node src/_tests_/pr152CompleteMigrationHistory.assert.mjs && npm run qa:pr151",
+    "qa:pr153": "npm run qa:blueprints && npm run qa:pr74 && npm run qa:pr105 && npm run qa:pr106 && npm run qa:pr141",
     "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",

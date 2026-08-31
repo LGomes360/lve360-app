@@ -46,7 +46,7 @@ assert.match(exportRoute, /authorizeStackPayload/, "PDF export must retain owner
 const workspace = read("app/(app)/blueprints/[stackId]/BlueprintWorkspaceClient.tsx");
 assert.match(workspace, /Refresh Blueprint and safety review/, "Stale reports need one honest refresh action.");
 assert.match(workspace, /Mark an item stopped to preserve the history/, "Stopping a supplement must preserve its history.");
-assert.match(workspace, /Start this weekly practice/, "Lifestyle guidance must connect to the existing practice loop.");
+assert.doesNotMatch(workspace, /Start this weekly practice/, "Blueprint must remain a long-term record instead of starting the weekly practice flow.");
 assert.match(workspace, /timeZone: "UTC"/, "Blueprint dates must render consistently during hydration.");
 assert.doesNotMatch(workspace, /\bNo safety issues detected\b/i, "Customer-facing copy must not make an absolute safety claim.");
 

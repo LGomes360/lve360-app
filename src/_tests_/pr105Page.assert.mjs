@@ -11,7 +11,8 @@ const migration = fs.readFileSync("supabase/migrations/20260812024830_pr105_cont
 const sourceMigration = fs.readFileSync("supabase/migrations/20260812030553_pr105_deterministic_coaching_source.sql", "utf8");
 
 assert.match(header, /AskLve360Coach/, "The paid dashboard must expose coaching globally.");
-assert.match(coach, /What I used/, "Every grounded answer must let the member inspect its sources.");
+assert.match(coach, /CoachGroundingCard/, "Every grounded answer must visibly explain what informed it.");
+assert.match(coach, /coachGroundingTitle/, "Grounding copy must reflect whether member records informed the answer.");
 assert.match(coach, /cannot diagnose or silently change saved records/i);
 assert.match(coach, /useful/);
 assert.match(coach, /not_useful/);
