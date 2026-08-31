@@ -22,6 +22,7 @@ export type PracticeConnectionType = "independent" | "goal" | "blueprint" | "bot
 export type WeeklyExperiment = {
   id: string;
   user_id: string;
+  practice_id?: string | null;
   source_stack_id: string | null;
   source_action_id: string | null;
   connection_type: PracticeConnectionType;

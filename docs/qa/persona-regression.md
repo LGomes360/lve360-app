@@ -31,6 +31,8 @@ Each persona experiences the same required product states with persona-specific 
 3. A gap followed by a neutral weekly review.
 4. Changed context that should inform later intentions and weekly learning without rewriting history.
 
+The same four weeks now also exercise Practice continuity in order: keep, shrink, pause, and swap. The first two retain one durable Practice, pause retains the Practice without creating another weekly experiment, and swap requires a new Practice identity.
+
 ## What it asserts
 
 - Daily intentions remain valid identity statements and explain which saved context supports them.
@@ -38,6 +40,7 @@ Each persona experiences the same required product states with persona-specific 
 - Today preserves the saved practice, selects the minimum version on lower-capacity days, and uses nonjudgmental return language.
 - Weekly learning shows recorded evidence, considers prior weeks, and avoids diagnosis or clinical direction.
 - Routine timing separates earlier unrecorded occurrences from the next upcoming occurrence and excludes future items from bulk completion.
+- Durable Practice continuity survives keep and shrink decisions, pause retains history without creating another week, and swap requires a new Practice instead of rewriting the old one.
 - Source persona fixtures remain immutable.
 
 Failures include the persona ID, week, scenario, invariant, and explanation so the responsible product path can be found quickly.
