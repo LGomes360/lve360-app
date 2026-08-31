@@ -24,6 +24,7 @@ import {
   type WeeklySynthesisContext,
   type WeeklySynthesisHistoryWeek,
 } from "../lib/weeklySynthesis.ts";
+import { resolvePracticeContinuity } from "../lib/practiceDomain.ts";
 import {
   PERSONA_REGRESSION_PERSONAS,
   PERSONA_REGRESSION_WEEKS,
@@ -269,6 +270,7 @@ export function runPersonaRegressionHarness(): PersonaRegressionReport {
     const originalFixture = JSON.stringify(persona);
     const priorIntentionPhrases: string[] = [];
     const history: WeeklySynthesisHistoryWeek[] = [];
+    const durablePracticeId = `${persona.id}-durable-practice`;
 
     for (const { week, scenario } of PERSONA_REGRESSION_WEEKS) {
       const check: Check = (condition, invariant, detail) => {
@@ -288,6 +290,28 @@ export function runPersonaRegressionHarness(): PersonaRegressionReport {
         const note = normalizeMemberReportedContext(signal.note);
         check(note === signal.note, "bounded_member_context", "Saved qualitative context should remain readable after normalization.");
         check(!note || (note.length <= 280 && !/[<>]/.test(note)), "sanitized_member_context", "Member-reported context must remain bounded and free of markup delimiters.");
+
+        const continuityDecision = ({ 1: "keep", 2: "shrink", 3: "pause", 4: "swap" } as const)[week];
+        const continuity = resolvePracticeContinuity(continuityDecision, durablePracticeId);
+        if (continuityDecision === "keep" || continuityDecision === "shrink") {
+          check(
+            continuity.kind === "continue" && continuity.nextExperimentPracticeId === durablePracticeId,
+            "durable_practice_continuity",
+            `${continuityDecision} must preserve the durable Practice across weekly experiments.`,
+          );
+        } else if (continuityDecision === "pause") {
+          check(
+            continuity.kind === "pause" && continuity.currentPracticeId === durablePracticeId && continuity.nextExperimentPracticeId === null,
+            "durable_practice_pause",
+            "Pause must retain the durable Practice without creating another weekly experiment.",
+          );
+        } else {
+          check(
+            continuity.kind === "replace" && continuity.requiresNewPractice && continuity.nextExperimentPracticeId === null,
+            "durable_practice_replacement",
+            "Swap must require a new durable Practice instead of rewriting the prior one.",
+          );
+        }
 
         const { reasons, requiredKeys } = intentionGrounding(persona, week, note, history.length);
         const suggestions = fallbackDailyIntentionSuggestions(persona.identityDirection, {
