@@ -1,0 +1,193 @@
+{
+  "schemaVersion": "1.0.0",
+  "pullRequest": 147,
+  "status": "contract-only",
+  "implementationBoundaries": {
+    "changesRuntimeBehavior": false,
+    "changesDatabaseSchema": false,
+    "changesMemberNavigation": false,
+    "createsPlanChangeLedger": false,
+    "externalBetaBeforeFounderGate": false
+  },
+  "productThesis": {
+    "consumerFraming": "Health plan continuity and follow-through",
+    "internalShorthand": "Personal Health Change OS",
+    "promise": "Keep the member's current plan, confirmed changes, follow-through, observations, and next decision connected.",
+    "loop": [
+      "baseline",
+      "current-plan",
+      "confirmed-change",
+      "execution",
+      "observation",
+      "member-decision",
+      "updated-plan"
+    ]
+  },
+  "informationArchitecture": {
+    "currentPaidPrimaryNavigation": [
+      { "label": "Today", "route": "/today" },
+      { "label": "Routine", "route": "/routine" },
+      { "label": "Journey", "route": "/journey" },
+      { "label": "Blueprints", "route": "/blueprints" },
+      { "label": "Settings", "route": "/settings" }
+    ],
+    "targetPaidPrimaryNavigation": [
+      { "label": "Today", "route": "/today", "role": "daily-execution" },
+      { "label": "Plan", "route": "/plan", "role": "canonical-current-plan" },
+      { "label": "Journey", "route": "/journey", "role": "change-and-learning" }
+    ],
+    "globalUtilities": [
+      { "label": "Ask LVE360", "role": "read-only-coach-with-confirmed-proposals" },
+      { "label": "Settings", "route": "/settings", "role": "account-trust-and-preferences" }
+    ],
+    "secondarySurfaces": [
+      { "label": "Blueprints", "route": "/blueprints", "role": "free-baseline-and-paid-archive" },
+      { "label": "Routine", "route": "/routine", "role": "compatibility-route-to-plan-regimen" },
+      { "label": "Change History", "role": "detail-within-plan-and-journey" }
+    ],
+    "compatibilityRules": [
+      "Do not remove /routine until Plan contains equivalent regimen and schedule controls.",
+      "Do not remove /blueprints because it remains the free product and paid historical archive.",
+      "Preserve existing /dashboard, /dashboard/my-quiz, /quiz/premium, and /account redirects.",
+      "Introduce /plan only after its current-state reads and mutation paths pass interaction integrity checks.",
+      "Do not redirect a route until the destination supports the same member task."
+    ]
+  },
+  "surfaceRoles": {
+    "today": "Show one primary priority, its reason, a minimum version, and only relevant supporting actions or exceptions.",
+    "plan": "Hold the canonical current focus, durable practices, regimen, schedule, reminders, health priorities, and safety state.",
+    "journey": "Show confirmed changes, follow-through, observations, uncertainty, and the next member decision.",
+    "coach": "Explain the current Plan and confirmed history, then propose actions without silently changing records.",
+    "blueprint": "Remain the free baseline and a dated historical reference for paid members.",
+    "healthProfile": "Hold descriptive and historical context that should not clutter the current Plan.",
+    "regimen": "Represent medication, hormone, and supplement current state inside Plan.",
+    "changeHistory": "Provide human-readable plan history from Plan and Journey without becoming primary navigation."
+  },
+  "recordSemantics": [
+    {
+      "kind": "canonical-state",
+      "purpose": "What is true now for the member's plan or preferences.",
+      "examples": ["current regimen", "active practice", "reminder preferences", "health profile"],
+      "writeRule": "Only an authenticated member-confirmed mutation or an explicitly authorized system reconciliation may update canonical state."
+    },
+    {
+      "kind": "change-event",
+      "purpose": "What confirmed plan change occurred, including before, after, source, reason, and effective date.",
+      "examples": ["medication dose updated", "supplement paused", "practice modified"],
+      "writeRule": "Append atomically with the corresponding canonical-state mutation. Never edit a prior event to rewrite history."
+    },
+    {
+      "kind": "execution-event",
+      "purpose": "What the member did or intentionally skipped on a specific date or occurrence.",
+      "examples": ["dose marked taken", "practice completed", "check-in saved"],
+      "writeRule": "Record execution separately from both the current plan and the plan-change ledger."
+    },
+    {
+      "kind": "observation",
+      "purpose": "What the member noticed or measured without implying causation.",
+      "examples": ["sleep quality", "energy", "weight", "reflection"],
+      "writeRule": "Preserve member wording and distinguish fact, observation, hypothesis, and unknown."
+    },
+    {
+      "kind": "generated-artifact",
+      "purpose": "A dated or generated interpretation that is not canonical member state.",
+      "examples": ["Blueprint", "Today brief", "weekly synthesis", "coach response"],
+      "writeRule": "Store provenance and version where retained. Never silently promote generated content into canonical state."
+    },
+    {
+      "kind": "product-analytics",
+      "purpose": "How the product is used and whether a workflow succeeds.",
+      "examples": ["page viewed", "checkout started", "mutation failed"],
+      "writeRule": "Never use analytics as the source of truth for health state, execution, or plan history."
+    }
+  ],
+  "interactionContract": {
+    "requiredStates": ["idle", "submitting", "success", "recoverable-error", "terminal-error"],
+    "requirements": [
+      "A control must describe the action it will perform.",
+      "Submitting disables duplicate submission while preserving visible progress.",
+      "Success states name what changed and expose the updated state.",
+      "Errors explain what remained unchanged and offer a safe retry or next step.",
+      "Health-plan mutations require explicit member confirmation before the canonical state changes.",
+      "Destructive actions require a confirmation that names the affected record.",
+      "Retries must not create duplicate canonical records, execution events, or future change events.",
+      "AI output may prefill or propose a mutation but cannot silently submit it.",
+      "Safety-sensitive mutations trigger the canonical safety review workflow when implemented.",
+      "Every confirmed health-plan mutation must retain actor and source provenance when the ledger is implemented."
+    ]
+  },
+  "mutationInventoryStatus": "Target requirements mapped to current endpoints. PR148 must verify observed UI and server behavior against each requirement.",
+  "memberMutationInventory": [
+    { "method": "PATCH", "route": "/api/account", "domain": "account-preferences", "semantic": "canonical-state", "confirmation": "submit", "ledgerIntent": "none" },
+    { "method": "DELETE", "route": "/api/account/delete", "domain": "account", "semantic": "canonical-state", "confirmation": "destructive", "ledgerIntent": "none" },
+    { "method": "PUT", "route": "/api/activation", "domain": "practice", "semantic": "canonical-state", "confirmation": "submit", "ledgerIntent": "practice-change" },
+    { "method": "POST", "route": "/api/blueprint-action", "domain": "blueprint-handoff", "semantic": "canonical-state", "confirmation": "submit", "ledgerIntent": "none" },
+    { "method": "DELETE", "route": "/api/blueprint-action", "domain": "blueprint-handoff", "semantic": "canonical-state", "confirmation": "explicit", "ledgerIntent": "none" },
+    { "method": "POST", "route": "/api/blueprints/[stackId]/refresh", "domain": "blueprint", "semantic": "generated-artifact", "confirmation": "explicit", "ledgerIntent": "none" },
+    { "method": "POST", "route": "/api/blueprints/[stackId]/safety-acknowledgement", "domain": "safety", "semantic": "canonical-state", "confirmation": "explicit", "ledgerIntent": "none" },
+    { "method": "PUT", "route": "/api/blueprints/[stackId]/supplements", "domain": "regimen", "semantic": "canonical-state", "confirmation": "explicit", "ledgerIntent": "regimen-change" },
+    { "method": "POST", "route": "/api/coach/actions", "domain": "practice-proposal", "semantic": "canonical-state", "confirmation": "explicit", "ledgerIntent": "practice-change" },
+    { "method": "PATCH", "route": "/api/coach", "domain": "coach-feedback", "semantic": "product-analytics", "confirmation": "submit", "ledgerIntent": "none" },
+    { "method": "POST", "route": "/api/daily-intention", "domain": "daily-intention", "semantic": "generated-artifact", "confirmation": "submit", "ledgerIntent": "none" },
+    { "method": "PUT", "route": "/api/daily-intention", "domain": "daily-intention", "semantic": "canonical-state", "confirmation": "submit", "ledgerIntent": "none" },
+    { "method": "POST", "route": "/api/fullscript/add", "domain": "regimen", "semantic": "canonical-state", "confirmation": "explicit", "ledgerIntent": "regimen-change" },
+    { "method": "POST", "route": "/api/goals", "domain": "goals", "semantic": "canonical-state", "confirmation": "submit", "ledgerIntent": "none" },
+    { "method": "POST", "route": "/api/goals/upsert", "domain": "goals", "semantic": "canonical-state", "confirmation": "submit", "ledgerIntent": "none" },
+    { "method": "POST", "route": "/api/logs", "domain": "daily-observation", "semantic": "observation", "confirmation": "submit", "ledgerIntent": "none" },
+    { "method": "POST", "route": "/api/recommendations/decision", "domain": "recommendation-decision", "semantic": "canonical-state", "confirmation": "explicit", "ledgerIntent": "none" },
+    { "method": "POST", "route": "/api/reminders/behavior", "domain": "reminder-preferences", "semantic": "canonical-state", "confirmation": "submit", "ledgerIntent": "none" },
+    { "method": "POST", "route": "/api/routine/doses", "domain": "regimen-execution", "semantic": "execution-event", "confirmation": "submit", "ledgerIntent": "none" },
+    { "method": "DELETE", "route": "/api/routine/doses", "domain": "regimen-execution", "semantic": "execution-event", "confirmation": "explicit", "ledgerIntent": "none" },
+    { "method": "POST", "route": "/api/routine/hormones", "domain": "regimen", "semantic": "canonical-state", "confirmation": "explicit", "ledgerIntent": "regimen-change" },
+    { "method": "POST", "route": "/api/routine/medications", "domain": "regimen", "semantic": "canonical-state", "confirmation": "explicit", "ledgerIntent": "regimen-change" },
+    { "method": "POST", "route": "/api/stack-items/activate", "domain": "regimen", "semantic": "canonical-state", "confirmation": "explicit", "ledgerIntent": "regimen-change" },
+    { "method": "POST", "route": "/api/stacks/update", "domain": "regimen", "semantic": "canonical-state", "confirmation": "explicit", "ledgerIntent": "regimen-change" },
+    { "method": "PUT", "route": "/api/today", "domain": "daily-check-in", "semantic": "execution-event", "confirmation": "submit", "ledgerIntent": "none" },
+    { "method": "DELETE", "route": "/api/today", "domain": "daily-check-in", "semantic": "execution-event", "confirmation": "explicit", "ledgerIntent": "none" },
+    { "method": "POST", "route": "/api/weekly-review", "domain": "practice-review", "semantic": "observation", "confirmation": "submit", "ledgerIntent": "none" },
+    { "method": "POST", "route": "/api/stripe/checkout", "domain": "billing", "semantic": "canonical-state", "confirmation": "explicit", "ledgerIntent": "none" },
+    { "method": "POST", "route": "/api/stripe/portal", "domain": "billing", "semantic": "canonical-state", "confirmation": "explicit", "ledgerIntent": "none" }
+  ],
+  "plannedLedger": {
+    "implementationPullRequest": 151,
+    "approach": "lightweight-append-only",
+    "initialDomains": ["regimen", "practice"],
+    "requiredEnvelope": [
+      "id",
+      "userId",
+      "domain",
+      "entityType",
+      "entityId",
+      "action",
+      "before",
+      "after",
+      "sourceType",
+      "sourceLabel",
+      "reason",
+      "effectiveOn",
+      "actorType",
+      "requestId",
+      "createdAt"
+    ],
+    "invariants": [
+      "The current regimen and future durable practice records remain authoritative current state.",
+      "A ledger event is appended in the same transaction as the confirmed canonical-state mutation.",
+      "A ledger event is immutable and a correction is represented by a later event.",
+      "Dose completions, daily check-ins, observations, generated content, and product analytics never enter this ledger.",
+      "AI may structure a proposed before-and-after envelope but may not confirm or write the change.",
+      "Member RLS, account export, and account deletion include ledger records.",
+      "The first release covers regimen and durable practice changes only."
+    ]
+  },
+  "deliverySequence": [147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162],
+  "founderGate": {
+    "requiredBeforeExternalRecruitment": true,
+    "minimumEvidence": [
+      "two complete founder weekly cycles without P0 or P1 defects",
+      "passing 24-persona regression coverage",
+      "accurate before-and-after capture for regimen and practice changes",
+      "no silent or ambiguous health-record mutations",
+      "passing owner isolation, export, deletion, browser, notification, and cost checks"
+    ]
+  }
+}
