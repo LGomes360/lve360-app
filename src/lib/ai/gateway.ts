@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { callOpenAI, type ChatMsg, type JsonSchemaResponseFormat, type NormalizedLLMResponse } from "@/lib/openai";
 import { candidateModels, taskProfile, type AiTask } from "@/lib/ai/modelConfig";
+import { estimatedCostUsd } from "@/lib/ai/modelPricing";
 
 type GenerateAiOptions = {
   task: AiTask;
@@ -15,48 +16,12 @@ type GenerateAiOptions = {
   responseFormat?: JsonSchemaResponseFormat;
 };
 
-type ModelPrice = {
-  input: number;
-  cachedInput: number;
-  output: number;
-};
-
-// USD per one million tokens. Update centrally when OpenAI pricing changes.
-// Effective 2026-08-10. Unknown model versions intentionally return no estimate.
-const MODEL_PRICES: Record<string, ModelPrice> = {
-  "gpt-5.6-terra": { input: 2.5, cachedInput: 0.25, output: 15 },
-  "gpt-5.6-luna": { input: 1, cachedInput: 0.1, output: 6 },
-  "gpt-5": { input: 1.25, cachedInput: 0.125, output: 10 },
-  "gpt-5-mini": { input: 0.25, cachedInput: 0.025, output: 2 },
-  "gpt-4o": { input: 2.5, cachedInput: 1.25, output: 10 },
-  "gpt-4o-mini": { input: 0.15, cachedInput: 0.075, output: 0.6 },
-};
-
 function stableHash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 function safetyIdentifier(userId?: string | null) {
   return userId ? stableHash({ namespace: "lve360-member", userId }) : undefined;
-}
-
-function modelPrice(model: string) {
-  const exact = MODEL_PRICES[model];
-  if (exact) return exact;
-  const alias = Object.keys(MODEL_PRICES).find((name) => model.startsWith(`${name}-`));
-  return alias ? MODEL_PRICES[alias] : undefined;
-}
-
-function estimatedCostUsd(model: string, response?: NormalizedLLMResponse) {
-  const price = modelPrice(model);
-  const usage = response?.usage;
-  if (!price || !usage) return null;
-
-  const input = Math.max(0, Number(usage.prompt_tokens ?? 0));
-  const cached = Math.min(input, Math.max(0, Number(usage.cached_tokens ?? 0)));
-  const uncached = Math.max(0, input - cached);
-  const output = Math.max(0, Number(usage.completion_tokens ?? 0));
-  return ((uncached * price.input) + (cached * price.cachedInput) + (output * price.output)) / 1_000_000;
 }
 
 function errorCode(error: unknown) {
@@ -116,7 +81,7 @@ export async function generateAI(options: GenerateAiOptions): Promise<Normalized
         reasoning_tokens: usage?.reasoning_tokens ?? null,
         total_tokens: usage?.total_tokens ?? null,
         latency_ms: Date.now() - startedAt,
-        estimated_cost_usd: estimatedCostUsd(modelUsed, response),
+        estimated_cost_usd: estimatedCostUsd(modelUsed, response.usage),
       });
 
       return response;
