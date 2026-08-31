@@ -91,26 +91,38 @@ export default function AiTodayBrief({ date }: { date?: string | null }) {
   if (!brief || brief.hidden) return null;
 
   return (
-    <section className="rounded-2xl border border-[#BCE3DA] bg-gradient-to-br from-[#EAFBF8] via-white to-[#F4EEFF] p-5 sm:p-6" aria-labelledby="ai-today-brief-title">
-      <div className="max-w-3xl">
-        <p className="flex items-center text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">
-          <Sparkles className="mr-2 h-4 w-4" aria-hidden="true" /> Insight for today
-        </p>
-        <p className="mt-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">What LVE360 noticed</p>
-        <h2 id="ai-today-brief-title" className="mt-1 text-xl font-bold leading-tight text-[#041B2D] sm:text-2xl">{brief.noticed}</h2>
-        <p className="mt-4 text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">Why this matters today</p>
-        <p className="mt-1 text-sm leading-6 text-slate-600">{brief.whyItMatters}</p>
-        {brief.groundingDetails ? <TodayGroundingCard grounding={brief.groundingDetails} /> : (
-          <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-slate-600" aria-label="Decision confidence and source">
-            <span className={`rounded-full px-3 py-1.5 ${brief.grounding.confidence === "direct_record" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>
-              Confidence: {brief.grounding.confidenceLabel}
-            </span>
-            <span className="rounded-full bg-white px-3 py-1.5 ring-1 ring-slate-200">Source: {brief.grounding.sourceLabel}</span>
-          </div>
-        )}
-      </div>
+    <details className="group rounded-2xl border border-[#BCE3DA] bg-gradient-to-br from-[#EAFBF8] via-white to-[#F4EEFF]">
+      <summary className="flex min-h-14 cursor-pointer list-none flex-col items-start gap-2 px-4 py-4 marker:content-none sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
+        <span className="min-w-0">
+          <span className="flex items-center text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">
+            <Sparkles className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" /> Insight for today
+          </span>
+          <span className="mt-1 block truncate text-sm font-bold text-[#041B2D]">{brief.noticed}</span>
+        </span>
+        <span className="shrink-0 text-sm font-bold text-[#06695F]">
+          <span className="group-open:hidden sm:hidden">Open reasoning</span>
+          <span className="hidden group-open:hidden sm:inline">Open reasoning and sources</span>
+          <span className="hidden group-open:inline">Hide reasoning</span>
+        </span>
+      </summary>
 
-      <div className="mt-4 flex flex-col gap-4 border-t border-[#D8EEE9] pt-4">
+      <div className="border-t border-[#D8EEE9] p-5 sm:p-6">
+        <div className="max-w-3xl">
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">What LVE360 noticed</p>
+          <h2 id="ai-today-brief-title" className="mt-1 text-xl font-bold leading-tight text-[#041B2D] sm:text-2xl">{brief.noticed}</h2>
+          <p className="mt-4 text-xs font-bold uppercase tracking-[0.12em] text-[#087F72]">Why this matters today</p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{brief.whyItMatters}</p>
+          {brief.groundingDetails ? <TodayGroundingCard grounding={brief.groundingDetails} /> : (
+            <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-slate-600" aria-label="Decision confidence and source">
+              <span className={`rounded-full px-3 py-1.5 ${brief.grounding.confidence === "direct_record" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>
+                Confidence: {brief.grounding.confidenceLabel}
+              </span>
+              <span className="rounded-full bg-white px-3 py-1.5 ring-1 ring-slate-200">Source: {brief.grounding.sourceLabel}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 flex flex-col gap-4 border-t border-[#D8EEE9] pt-4">
         {error ? <p className="rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-800" role="alert">{error}</p> : null}
         <div className="flex flex-wrap items-center gap-2">
           {brief.primaryAction !== "mark_complete" && brief.primaryHref ? (
@@ -139,7 +151,8 @@ export default function AiTodayBrief({ date }: { date?: string | null }) {
           </div>
         </div>
       </div>
-    </section>
+      </div>
+    </details>
   );
 }
 

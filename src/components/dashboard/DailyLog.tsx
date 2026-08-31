@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { ArrowRight, Loader2, Pencil } from "lucide-react";
 import { localDateString } from "@/lib/regimenSchedule";
 
 type TodayRow = {
@@ -76,6 +76,7 @@ export default function DailyLog({
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [prefilled, setPrefilled] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -113,12 +114,14 @@ export default function DailyLog({
           setWeight(loadedWeight);
           setNotes(row.notes ?? "");
           setPrefilled(true);
+          setEditing(false);
           onCheckInStateChange?.(summaryFor(loadedSleep, loadedEnergy, loadedWeight));
         } else {
           setSleep(null);
           setEnergy(null);
           setWeight("");
           setNotes("");
+          setEditing(true);
           onCheckInStateChange?.(summaryFor(null, null, ""));
         }
       } catch (error) {
@@ -161,6 +164,7 @@ export default function DailyLog({
       if (!response.ok || !body?.ok) throw new Error(body?.error || "save_failed");
 
       setPrefilled(true);
+      setEditing(false);
       setMsg({
         kind: "ok",
         text: notes.trim()
@@ -179,6 +183,27 @@ export default function DailyLog({
     } finally {
       setSaving(false);
     }
+  }
+
+  if (loaded && prefilled && !editing) {
+    return (
+      <section className="rounded-2xl border border-[#9DCFC3] bg-white p-4 shadow-sm sm:p-5" aria-labelledby="saved-check-in-title">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Today saved</p>
+            <h2 id="saved-check-in-title" className="mt-1 text-xl font-bold text-[#041B2D]">Your check-in is shaping today&apos;s priority</h2>
+            <div className="mt-3 flex flex-wrap gap-2 text-sm font-semibold text-slate-700">
+              <span className="rounded-full bg-[#EAFBF8] px-3 py-1.5">Sleep: {SLEEP_OPTIONS.find((option) => option.value === sleep)?.label ?? `${sleep}/5`}</span>
+              <span className="rounded-full bg-[#EAFBF8] px-3 py-1.5">Energy: {energy == null ? "Not recorded" : ENERGY_OPTIONS.find((option) => option.value === closestEnergyBand(energy))?.label}</span>
+              {weight ? <span className="rounded-full bg-slate-100 px-3 py-1.5">Weight: {weight} lb</span> : null}
+            </div>
+          </div>
+          <button type="button" onClick={() => setEditing(true)} className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-[#9DCFC3] bg-white px-4 py-2 text-sm font-bold text-[#06695F] hover:bg-[#F4FAF8]">
+            <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> Edit check-in
+          </button>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -291,6 +316,11 @@ export default function DailyLog({
             <button type="button" onClick={onSkip} className="min-h-11 px-4 py-2 text-sm font-semibold text-slate-600 hover:text-[#041B2D]">
               Continue without a check-in
             </button>
+            {prefilled ? (
+              <button type="button" onClick={() => setEditing(false)} className="min-h-11 px-4 py-2 text-sm font-semibold text-slate-600 hover:text-[#041B2D]">
+                Keep saved check-in
+              </button>
+            ) : null}
           </div>
         </>
       )}
