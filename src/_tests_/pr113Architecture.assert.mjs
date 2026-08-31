@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const read = (path) => fs.readFileSync(path, "utf8");
-const migration = read("supabase/migrations/20260816000245_pr113_practice_connections.sql");
+const migration = read("supabase/migrations/20260816011404_pr113_practice_connections.sql");
 const activation = read("app/api/activation/route.ts");
 const onboarding = read("app/onboarding/OnboardingHandoffClient.tsx");
 const today = read("src/components/dashboard/TodayExperience.tsx");

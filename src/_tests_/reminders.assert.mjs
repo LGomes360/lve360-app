@@ -6,7 +6,7 @@ const schedule = fs.readFileSync("src/lib/reminderSchedule.ts", "utf8");
 const cron = fs.readFileSync("app/api/cron/reminders/route.ts", "utf8");
 const settings = fs.readFileSync("app/(app)/settings/page.tsx", "utf8");
 const onboarding = fs.readFileSync("app/onboarding/OnboardingHandoffClient.tsx", "utf8");
-const migration = fs.readFileSync("supabase/migrations/20260726222150_reminder_recovery_loop.sql", "utf8");
+const migration = fs.readFileSync("supabase/migrations/20260726224010_reminder_recovery_loop.sql", "utf8");
 const workflow = fs.readFileSync(".github/workflows/reminders.yml", "utf8");
 
 assert.match(cron, /authorization.*Bearer/si, "Cron route must require CRON_SECRET authorization");

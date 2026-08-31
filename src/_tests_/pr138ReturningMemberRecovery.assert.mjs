@@ -10,7 +10,7 @@ const packageJson = JSON.parse(read("package.json"));
 const supplementSearch = read("app/api/fullscript/search/route.ts");
 const routine = read("app/(app)/routine/RoutineClient.tsx");
 const blueprintRefresh = read("app/api/blueprints/[stackId]/refresh/route.ts");
-const migration = read("supabase/migrations/20260827213340_pr138_repeat_blueprint_snapshots.sql");
+const migration = read("supabase/migrations/20260827215843_pr138_repeat_blueprint_snapshots.sql");
 
 assert.match(packageJson.scripts["qa:pr138"], /pr138ReturningMemberRecovery\.assert\.mjs/);
 

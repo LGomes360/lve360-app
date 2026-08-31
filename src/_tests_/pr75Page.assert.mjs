@@ -10,7 +10,7 @@ const routine = read("app/(app)/routine/RoutineClient.tsx");
 const hormoneRoute = read("app/api/routine/hormones/route.ts");
 const updateRoute = read("app/api/stacks/update/route.ts");
 const today = read("src/components/dashboard/TodayExperience.tsx");
-const migration = read("supabase/migrations/20260801192204_pr75_practice_aware_reminders.sql");
+const migration = read("supabase/migrations/20260801195147_pr75_practice_aware_reminders.sql");
 
 assert.match(onboarding, /Help me prepare beforehand/, "Members must be able to prepare before a practice.");
 assert.match(onboarding, /Check in the next morning/, "Members must be able to protect phone-free bedtime practices.");

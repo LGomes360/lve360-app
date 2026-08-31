@@ -7,8 +7,8 @@ const context = fs.readFileSync("src/lib/ai/contextualCoachData.ts", "utf8");
 const header = fs.readFileSync("src/components/DashboardHeader.tsx", "utf8");
 const modelConfig = fs.readFileSync("src/lib/ai/modelConfig.ts", "utf8");
 const accountExport = fs.readFileSync("app/api/account/export/route.ts", "utf8");
-const migration = fs.readFileSync("supabase/migrations/20260812024043_pr105_contextual_coaching.sql", "utf8");
-const sourceMigration = fs.readFileSync("supabase/migrations/20260812030448_pr105_deterministic_coaching_source.sql", "utf8");
+const migration = fs.readFileSync("supabase/migrations/20260812024830_pr105_contextual_coaching.sql", "utf8");
+const sourceMigration = fs.readFileSync("supabase/migrations/20260812030553_pr105_deterministic_coaching_source.sql", "utf8");
 
 assert.match(header, /AskLve360Coach/, "The paid dashboard must expose coaching globally.");
 assert.match(coach, /What I used/, "Every grounded answer must let the member inspect its sources.");

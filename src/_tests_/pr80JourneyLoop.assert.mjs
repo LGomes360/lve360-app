@@ -5,7 +5,7 @@ const [route, dashboard, helpers, migration] = await Promise.all([
   readFile("app/api/journey/route.ts", "utf8"),
   readFile("src/components/journey/JourneyDashboard.tsx", "utf8"),
   readFile("src/lib/journey.ts", "utf8"),
-  readFile("supabase/migrations/20260801233949_preserve_blueprint_journey_rollover.sql", "utf8"),
+  readFile("supabase/migrations/20260802022807_preserve_blueprint_journey_rollover.sql", "utf8"),
 ]);
 
 assert.match(route, /next_experiment_id/, "Journey should load the member's next chosen experiment.");

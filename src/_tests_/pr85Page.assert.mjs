@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const migration = fs.readFileSync("supabase/migrations/20260808221918_pr85_recommendation_decisions.sql", "utf8");
+const migration = fs.readFileSync("supabase/migrations/20260808233641_pr85_recommendation_decisions.sql", "utf8");
 const decisionData = fs.readFileSync("src/lib/recommendationDecisionData.ts", "utf8");
 const routineData = fs.readFileSync("src/lib/routineData.ts", "utf8");
 const routineClient = fs.readFileSync("app/(app)/routine/RoutineClient.tsx", "utf8");

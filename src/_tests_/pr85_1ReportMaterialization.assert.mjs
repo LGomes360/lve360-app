@@ -8,7 +8,7 @@ const routineData = fs.readFileSync("src/lib/routineData.ts", "utf8");
 const currentContext = fs.readFileSync("src/lib/currentBlueprintContext.ts", "utf8");
 const today = fs.readFileSync("src/components/dashboard/TodayExperience.tsx", "utf8");
 const generator = fs.readFileSync("src/lib/generateStack.ts", "utf8");
-const migration = fs.readFileSync("supabase/migrations/20260809150602_pr85_1_unique_report_recommendation_proposals.sql", "utf8");
+const migration = fs.readFileSync("supabase/migrations/20260809151241_pr85_1_unique_report_recommendation_proposals.sql", "utf8");
 
 assert.match(helper, /parseMarkdownToItems\(reportMarkdown\)/, "The dated report must be the source for missing proposals.");
 assert.match(helper, /ACTIONABLE_REPORT_STATUS/, "Only an explicit actionable report status may be materialized.");

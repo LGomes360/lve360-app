@@ -4,7 +4,7 @@ import fs from "node:fs";
 const data = fs.readFileSync("src/lib/ai/contextualCoachData.ts", "utf8");
 const route = fs.readFileSync("app/api/coach/route.ts", "utf8");
 const coach = fs.readFileSync("src/components/coach/AskLve360Coach.tsx", "utf8");
-const migration = fs.readFileSync("supabase/migrations/20260813090000_pr107_coaching_diagnostics.sql", "utf8");
+const migration = fs.readFileSync("supabase/migrations/20260814023126_pr107_coaching_diagnostics.sql", "utf8");
 
 assert.match(data, /classif(?:ied_intent|ied intent)/i, "The model must receive a deterministic intent.");
 assert.match(data, /curated evidence_options/i, "The prompt must distinguish LVE360 evidence from member records.");
