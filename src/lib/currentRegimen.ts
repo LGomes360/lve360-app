@@ -78,27 +78,43 @@ export async function replaceCurrentSupplements(
   const existingProducts = new Map(
     existing
       .filter((item) => item.item_kind === "supplement" || item.item_kind === "endocrine_active_supplement")
-      .map((item) => [item.normalized_name, item])
+      .map((item) => [`${item.item_kind}:${item.normalized_name}`, item])
   );
   const now = new Date().toISOString();
-  const { error: deactivateError } = await admin
-    .from("current_regimen_items")
-    .update({ active: false, updated_at: now })
-    .eq("user_id", userId)
-    .in("item_kind", ["supplement", "endocrine_active_supplement"]);
-  if (deactivateError) throw deactivateError;
-
   const active = supplements.filter((item) => item.active !== false);
+  const desiredKeys = new Set(active.map((item) => {
+    const kind = regimenKindForSupplement(item.name);
+    return `${kind}:${normalizeRegimenName(item.name)}`;
+  }));
+  const removedIds = existing
+    .filter((item) =>
+      item.active
+      && (item.item_kind === "supplement" || item.item_kind === "endocrine_active_supplement")
+      && !desiredKeys.has(`${item.item_kind}:${item.normalized_name}`)
+    )
+    .map((item) => item.id);
+
+  if (removedIds.length) {
+    const { error: deactivateError } = await admin
+      .from("current_regimen_items")
+      .update({ active: false, instruction_source: "member_update", updated_at: now })
+      .eq("user_id", userId)
+      .in("id", removedIds);
+    if (deactivateError) throw deactivateError;
+  }
+
   if (active.length) {
     const rows = active.map((item) => {
-      const previous = existingProducts.get(normalizeRegimenName(item.name));
+      const itemKind = regimenKindForSupplement(item.name);
+      const normalizedName = normalizeRegimenName(item.name);
+      const previous = existingProducts.get(`${itemKind}:${normalizedName}`);
       return {
         user_id: userId,
         source_submission_id: submissionId,
         source_stack_item_id: null,
-        item_kind: regimenKindForSupplement(item.name),
+        item_kind: itemKind,
         name: item.name,
-        normalized_name: normalizeRegimenName(item.name),
+        normalized_name: normalizedName,
         purpose: null,
         dose: item.dose ?? null,
         timing: item.timing ?? null,

@@ -4,7 +4,7 @@ import path from "node:path";
 
 const migrationDirectory = "supabase/migrations";
 const migrations = fs.readdirSync(migrationDirectory).filter((name) => name.endsWith(".sql")).sort();
-const expectedProductionHistory = [
+const expectedCanonicalHistory = [
   "20260722013900_paid_activation_onboarding.sql",
   "20260722021322_today_dashboard_v1.sql",
   "20260722021449_lock_down_today_writes.sql",
@@ -51,9 +51,10 @@ const expectedProductionHistory = [
   "20260829184707_pr146_foreign_key_indexes.sql",
   "20260831025812_pr149_durable_practices.sql",
   "20260831031512_pr150_practice_reconciliation.sql",
+  "20260831040616_pr154_plan_change_ledger.sql",
 ];
 
-assert.deepEqual(migrations, expectedProductionHistory, "Local migration history must exactly match the verified production snapshot.");
+assert.deepEqual(migrations, expectedCanonicalHistory, "Local migration history must exactly match the canonical repository history.");
 assert.ok(!migrations.some((name) => name.includes("intake_page_analytics")), "The obsolete, unapplied intake migration must not return.");
 
 const versions = migrations.map((name) => name.split("_")[0]);
@@ -68,4 +69,4 @@ for (const testName of fs.readdirSync("src/_tests_").filter((name) => name.endsW
   }
 }
 
-console.log("PR152 complete local migration history matches production.");
+console.log("Complete local migration history matches the canonical repository history.");
