@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { estimatedCostUsd, modelPrice } from "../lib/ai/modelPricing.ts";
 import { extractResponsesText } from "../lib/ai/responsesText.ts";
 
@@ -39,5 +40,9 @@ assert.equal(extractResponsesText({
   status: "incomplete",
   output: [{ id: "rs_internal_identifier", type: "reasoning", summary: [] }],
 }), "");
+
+const healthcheck = readFileSync("app/api/models-healthcheck/route.ts", "utf8");
+assert.match(healthcheck, /const ok = mini\.ok && main\.ok && key_present/, "Preview health must fail unless both configured GPT-5.6 models pass.");
+assert.doesNotMatch(healthcheck, /fallbackMini|fallbackMain/, "Preview health must not accept an older fallback model.");
 
 console.log("PR148 model pricing assertions passed.");

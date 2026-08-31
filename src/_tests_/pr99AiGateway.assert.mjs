@@ -21,12 +21,13 @@ const migration = read(`supabase/migrations/${migrationName}`);
 for (const name of [
   "OPENAI_MAIN_MODEL",
   "OPENAI_MINI_MODEL",
-  "OPENAI_FALLBACK_MAIN_MODEL",
-  "OPENAI_FALLBACK_MINI_MODEL",
 ]) {
   assert.match(config, new RegExp(name), `${name} must be resolved centrally.`);
   assert.match(envExample, new RegExp(`^${name}=`, "m"), `${name} must be documented.`);
 }
+
+assert.doesNotMatch(config, /OPENAI_FALLBACK_/, "Production model routing must not silently downgrade to an older model.");
+assert.match(config, /return \[capability === "main" \? models\.MAIN : models\.MINI\]/, "Each capability must resolve to exactly one configured model.");
 
 assert.match(config, /weekly_insight[\s\S]*capability: "mini"/, "Routine insights must use the cost-efficient capability.");
 assert.match(config, /blueprint_narrative[\s\S]*capability: "main"/, "Blueprint narrative must use the quality capability.");

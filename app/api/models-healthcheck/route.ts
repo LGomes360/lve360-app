@@ -67,27 +67,20 @@ export async function GET() {
     }
   }
 
-  // Try 5* first, then 4o fallbacks — but report each explicitly.
-  const [mini, main, fallbackMini, fallbackMain] = await Promise.all([
+  const [mini, main] = await Promise.all([
     pingModel(resolved.MINI, callOpenAI),
     pingModel(resolved.MAIN, callOpenAI),
-    pingModel(resolved.FALLBACK_MINI, callOpenAI),
-    pingModel(resolved.FALLBACK_MAIN, callOpenAI),
   ]);
 
-  const ok = (mini.ok || main.ok || fallbackMini.ok || fallbackMain.ok) && key_present;
+  const ok = mini.ok && main.ok && key_present;
 
   return NextResponse.json({
     ok,
     mini,
     main,
-    fallbackMini,
-    fallbackMain,
     resolved: {
       MAIN: resolved.MAIN,
       MINI: resolved.MINI,
-      FALLBACK_MAIN: resolved.FALLBACK_MAIN,
-      FALLBACK_MINI: resolved.FALLBACK_MINI,
     },
     available_latest_models,
     model_catalog_error,
