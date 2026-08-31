@@ -4,7 +4,7 @@ import { normalizeMemberReportedContext } from "./memberReportedContext.ts";
 import { buildWeeklyPracticeMetrics } from "./practiceQuantity.ts";
 import { unknownSafetyEvidence, type SafetyEvidenceProvenance, type SafetyFinding } from "./safetyEngine.ts";
 
-export const MEMBER_CONTEXT_VERSION = "member-intelligence-context-v2";
+export const MEMBER_CONTEXT_VERSION = "member-intelligence-context-v3";
 
 export type MemberContextStatus = "present" | "missing" | "stale";
 
@@ -15,6 +15,7 @@ export type MemberContextSource =
   | "goals"
   | "stacks"
   | "current_regimen_items"
+  | "practices"
   | "weekly_experiments"
   | "daily_practice_completions"
   | "weekly_experiment_reviews"
@@ -118,6 +119,7 @@ export type PracticeBlueprintLink = {
 
 export type MemberPracticeContext = {
   id: string;
+  durablePracticeId: string | null;
   identityDirection: string | null;
   actionLabel: string | null;
   cue: string | null;
@@ -194,6 +196,7 @@ export type MemberIntelligenceContext = {
 
 export type MemberContextExperimentInput = {
   id: string;
+  practice_id: string | null;
   source_stack_id: string | null;
   source_action_id: string | null;
   connection_type: "independent" | "goal" | "blueprint" | "both";
@@ -212,6 +215,12 @@ export type MemberContextExperimentInput = {
   status: "draft" | "active" | "completed" | "archived";
   week_start: string;
   created_at: string;
+  updated_at: string;
+};
+
+export type MemberContextDurablePracticeInput = {
+  id: string;
+  status: "active" | "paused" | "archived";
   updated_at: string;
 };
 
@@ -255,6 +264,7 @@ export type MemberIntelligenceContextInput = {
   goalsUpdatedAt: string | null;
   blueprint: CurrentBlueprintContext | null;
   regimen: CurrentRegimenItem[];
+  practices: MemberContextDurablePracticeInput[];
   experiments: MemberContextExperimentInput[];
   reviews: MemberContextReviewInput[];
   completions: MemberContextCompletionInput[];
@@ -328,11 +338,13 @@ function regimenSection(items: CurrentRegimenItem[], kind: CurrentRegimenItem["i
 
 function practiceContext(
   experiment: MemberContextExperimentInput,
+  durablePractices: Map<string, MemberContextDurablePracticeInput>,
   reviews: MemberContextReviewInput[],
   completions: MemberContextCompletionInput[],
   blueprintContexts: Record<string, ExperimentBlueprintContext>,
   savedGoals: MemberGoalContext[],
 ): MemberPracticeContext {
+  const durablePractice = experiment.practice_id ? durablePractices.get(experiment.practice_id) ?? null : null;
   const review = reviews.find((item) => item.experiment_id === experiment.id) ?? null;
   const recorded = completions.filter((item) => item.experiment_id === experiment.id);
   const metrics = buildWeeklyPracticeMetrics({
@@ -384,12 +396,14 @@ function practiceContext(
   }
 
   const provenance: MemberContextProvenance[] = [
+    ...(durablePractice ? [{ source: "practices" as const, recordId: durablePractice.id, updatedAt: durablePractice.updated_at }] : []),
     { source: "weekly_experiments", recordId: experiment.id, updatedAt: experiment.updated_at },
     ...recorded.map((item) => ({ source: "daily_practice_completions" as const, recordId: item.id, updatedAt: item.updated_at })),
     ...(review ? [{ source: "weekly_experiment_reviews" as const, recordId: review.id, updatedAt: review.updated_at }] : []),
   ];
   return {
     id: experiment.id,
+    durablePracticeId: durablePractice?.id ?? experiment.practice_id,
     identityDirection: experiment.identity_direction,
     actionLabel: experiment.action_label,
     cue: experiment.cue,
@@ -486,9 +500,10 @@ export function buildMemberIntelligenceContext(input: MemberIntelligenceContextI
     )
     : section<CurrentBlueprintContext | null>(null, "missing", null, [], "No Blueprint is currently available.");
 
+  const durablePractices = new Map((input.practices ?? []).map((practice) => [practice.id, practice]));
   const practices = [...input.experiments]
     .sort((left, right) => right.week_start.localeCompare(left.week_start) || right.updated_at.localeCompare(left.updated_at))
-    .map((experiment) => practiceContext(experiment, input.reviews, input.completions, input.practiceBlueprintContexts, input.savedGoals));
+    .map((experiment) => practiceContext(experiment, durablePractices, input.reviews, input.completions, input.practiceBlueprintContexts, input.savedGoals));
   const active = practices.find((practice) => practice.status === "active") ?? null;
   const activePractice = active
     ? section<MemberPracticeContext>(active, "present", latestTimestamp(active.provenance.map((item) => item.updatedAt)), active.provenance)

@@ -7,6 +7,7 @@ import {
   buildMemberIntelligenceContext,
   type MemberContextCheckInInput,
   type MemberContextCompletionInput,
+  type MemberContextDurablePracticeInput,
   type MemberContextExperimentInput,
   type MemberContextReviewInput,
   type MemberGoalContext,
@@ -162,6 +163,7 @@ export async function getMemberIntelligenceContext(userId: string): Promise<Memb
     goalsResult,
     blueprint,
     regimen,
+    practiceResult,
     experimentResult,
     checkInResult,
   ] = await Promise.all([
@@ -176,13 +178,16 @@ export async function getMemberIntelligenceContext(userId: string): Promise<Memb
       .eq("user_id", userId).maybeSingle(),
     getCurrentBlueprintContext(userId),
     getCurrentRegimen(userId),
+    admin.from("practices")
+      .select("id,status,updated_at")
+      .eq("user_id", userId).order("updated_at", { ascending: false }),
     admin.from("weekly_experiments")
-      .select("id,source_stack_id,source_action_id,connection_type,goal_id,goal_key,goal_label_snapshot,identity_direction,action_label,cue,frequency_per_week,target_quantity,quantity_unit,minimum_quantity,minimum_quantity_unit,minimum_version,status,week_start,created_at,updated_at")
+      .select("id,practice_id,source_stack_id,source_action_id,connection_type,goal_id,goal_key,goal_label_snapshot,identity_direction,action_label,cue,frequency_per_week,target_quantity,quantity_unit,minimum_quantity,minimum_quantity_unit,minimum_version,status,week_start,created_at,updated_at")
       .eq("user_id", userId).order("week_start", { ascending: false }).limit(12),
     admin.from("logs").select("id,log_date,weight,sleep,energy,notes,updated_at")
       .eq("user_id", userId).order("log_date", { ascending: false }).limit(30),
   ]);
-  for (const result of [memberResult, preferenceResult, submissionResult, goalsResult, experimentResult, checkInResult]) {
+  for (const result of [memberResult, preferenceResult, submissionResult, goalsResult, practiceResult, experimentResult, checkInResult]) {
     if (result.error) throw result.error;
   }
 
@@ -243,6 +248,7 @@ export async function getMemberIntelligenceContext(userId: string): Promise<Memb
     goalsUpdatedAt: goalsRow?.updated_at ?? null,
     blueprint,
     regimen,
+    practices: (practiceResult.data ?? []) as MemberContextDurablePracticeInput[],
     experiments,
     reviews,
     completions,
