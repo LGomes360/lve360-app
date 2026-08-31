@@ -181,11 +181,18 @@ export async function POST(req: NextRequest) {
     if (queuedProposal && typeof data === "string") {
       const now = new Date().toISOString();
       const admin = getSupabaseAdmin();
-      const { error: identityError } = await admin.from("weekly_experiments").update({
+      const { data: identityLink, error: identityError } = await admin.from("weekly_experiments").update({
         identity_direction: queuedProposal.identityDirection,
         updated_at: now,
-      }).eq("id", data).eq("user_id", auth.user.id);
+      }).eq("id", data).eq("user_id", auth.user.id).select("practice_id").maybeSingle();
       if (identityError) console.warn("[weekly-review] coach action identity linkage failed", identityError.message);
+      if (identityLink?.practice_id) {
+        const { error: practiceIdentityError } = await admin.from("practices").update({
+          identity_direction: queuedProposal.identityDirection,
+          updated_at: now,
+        }).eq("id", identityLink.practice_id).eq("user_id", auth.user.id);
+        if (practiceIdentityError) console.warn("[weekly-review] durable practice identity linkage failed", practiceIdentityError.message);
+      }
       const { error: proposalError } = await admin.from("coach_action_proposals").update({
         status: "applied",
         applied_at: now,

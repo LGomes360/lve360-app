@@ -188,7 +188,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const experiment = await getOrCreateExperiment(req, auth.user.id);
-    if (experiment.status === "active" && step === 6) {
+    if (experiment.status === "active" && experiment.practice_id && step === 6) {
       return NextResponse.json({ ok: true, experiment });
     }
 
@@ -313,19 +313,35 @@ export async function PUT(req: NextRequest) {
       if (!isReadyToActivate(experiment)) {
         return NextResponse.json({ ok: false, error: "complete_required_steps" }, { status: 409 });
       }
-      changes.status = "active";
-      changes.activated_at = new Date().toISOString();
     }
 
     const admin = getSupabaseAdmin();
-    const { data, error } = await admin
-      .from("weekly_experiments")
-      .update(changes)
-      .eq("id", experiment.id)
-      .eq("user_id", auth.user.id)
-      .select("*")
-      .single();
-    if (error) throw error;
+    let data: WeeklyExperiment;
+    if (step === 6) {
+      const { error: activationError } = await admin.rpc("activate_weekly_experiment", {
+        p_user_id: auth.user.id,
+        p_experiment_id: experiment.id,
+      });
+      if (activationError) throw activationError;
+      const { data: activated, error: reloadError } = await admin
+        .from("weekly_experiments")
+        .select("*")
+        .eq("id", experiment.id)
+        .eq("user_id", auth.user.id)
+        .single();
+      if (reloadError) throw reloadError;
+      data = activated as WeeklyExperiment;
+    } else {
+      const { data: updated, error } = await admin
+        .from("weekly_experiments")
+        .update(changes)
+        .eq("id", experiment.id)
+        .eq("user_id", auth.user.id)
+        .select("*")
+        .single();
+      if (error) throw error;
+      data = updated as WeeklyExperiment;
+    }
 
     await admin.from("activation_events").insert({
       user_id: auth.user.id,

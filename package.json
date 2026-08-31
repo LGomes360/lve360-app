@@ -90,6 +90,7 @@
     "qa:pr147": "node src/_tests_/pr147ProductSystemContract.assert.mjs",
     "qa:pr148": "node --experimental-strip-types src/_tests_/pr148InteractionIntegrity.assert.ts && node src/_tests_/pr148InteractionIntegrity.assert.mjs",
     "qa:pr149": "node --experimental-strip-types src/_tests_/pr149DurablePractice.assert.ts && node src/_tests_/pr149Architecture.assert.mjs && npm run qa:personas",
+    "qa:pr150": "node src/_tests_/pr150Architecture.assert.mjs && node --experimental-strip-types src/_tests_/pr149DurablePractice.assert.ts && npm run qa:personas",
     "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
