@@ -12,6 +12,7 @@ import {
   FileDown,
   HeartPulse,
   History,
+  ListChecks,
   Loader2,
   Pencil,
   Plus,
@@ -175,7 +176,7 @@ export default function BlueprintWorkspaceClient({
       setDraft(data.supplements);
       setStale(Boolean(data.stale));
       setEditing(false);
-      setMessage("Your current supplements were updated. Refresh your Blueprint to review the new context.");
+      setMessage("Your current supplement information was updated in Plan and Routine. Older Blueprints remain unchanged. Refresh when you want a new dated report.");
       router.refresh();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "We could not save those changes.");
@@ -307,7 +308,7 @@ export default function BlueprintWorkspaceClient({
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#087F72]">
-              {isLatest ? "Current Blueprint" : "Previous Blueprint"}
+              {isLatest ? "Latest saved Blueprint" : "Archived Blueprint"}
             </p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#041B2D] sm:text-4xl">
               Your health Blueprint
@@ -332,6 +333,26 @@ export default function BlueprintWorkspaceClient({
         </div>
       </header>
 
+      <section className="mt-6 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5 shadow-sm sm:p-6" aria-labelledby="blueprint-plan-handoff-title">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Blueprint and Plan</p>
+            <h2 id="blueprint-plan-handoff-title" className="mt-1 text-2xl font-bold text-[#041B2D]">This report is a snapshot. Plan stays current.</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Use this Blueprint for its baseline reasoning, safety notes, PDF, and history. Use Plan for your current focus and confirmed changes, and Routine for current medications, hormones, supplements, doses, and timing.
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-col gap-3 sm:flex-row">
+            <Link href="/plan" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#087F72] px-5 py-3 text-sm font-bold text-white hover:bg-[#06695F]">
+              <ListChecks className="mr-2 h-4 w-4" aria-hidden="true" /> Open current Plan
+            </Link>
+            <Link href="/routine" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#9DCFC3] bg-white px-5 py-3 text-sm font-bold text-[#06695F] hover:bg-[#F4FAF8]">
+              Edit current Routine
+            </Link>
+          </div>
+        </div>
+      </section>
+
       {!isLatest ? (
         <div className="mt-6 rounded-2xl border border-blue-200 bg-blue-50 p-5 text-sm leading-6 text-blue-950">
           You are viewing an earlier version. It remains available for reference, but edits apply to your current health context.
@@ -347,10 +368,10 @@ export default function BlueprintWorkspaceClient({
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
             <div className="flex-1">
               <h2 className="font-bold text-amber-950">
-                {refreshIssue ? "Your current Blueprint is still available" : "Your saved changes are ready for review"}
+                {refreshIssue ? "Your saved Blueprint is still available" : "Your Plan has changed since this Blueprint"}
               </h2>
               <p className="mt-1 text-sm leading-6 text-amber-900">
-                {refreshIssue ?? "Your current health information differs from this dated report. Create an updated Blueprint when you are ready to review those changes and rerun the safety check."}
+                {refreshIssue ?? "Your living Plan now differs from this dated report. Create a new Blueprint version when you are ready to review those changes and rerun the safety check."}
               </p>
               <button
                 type="button"
@@ -367,7 +388,7 @@ export default function BlueprintWorkspaceClient({
       ) : (
         <section className="mt-6 flex gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm leading-6 text-emerald-950">
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" aria-hidden="true" />
-          <p>This Blueprint reflects your current saved inputs. Recheck it whenever a supplement or other safety-relevant detail changes.</p>
+          <p>This dated Blueprint matches your currently saved inputs. Plan remains the place to review what is current; return here when you need the report, PDF, or history.</p>
         </section>
       )}
 
@@ -377,10 +398,10 @@ export default function BlueprintWorkspaceClient({
       {delta ? <BlueprintDeltaPanel delta={delta} stale={stale} /> : null}
 
       <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6" aria-labelledby="blueprint-next-steps-title">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Your decision map</p>
-        <h2 id="blueprint-next-steps-title" className="mt-1 text-2xl font-bold text-[#041B2D]">What needs your attention</h2>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Report review</p>
+        <h2 id="blueprint-next-steps-title" className="mt-1 text-2xl font-bold text-[#041B2D]">What this Blueprint asks you to review</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-          Start with decisions and safety. Use the full report below when you want the supporting detail.
+          Review the report&apos;s ideas and safety notes here. Use Plan and Routine for information that changes over time.
         </p>
         <div className="mt-5 grid gap-3 md:grid-cols-3">
           <a
@@ -411,11 +432,11 @@ export default function BlueprintWorkspaceClient({
           <section id="current-supplements" className="scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Current health context</p>
-                <h2 className="mt-1 text-2xl font-bold text-[#041B2D]">Your current supplements</h2>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Report correction</p>
+                <h2 className="mt-1 text-2xl font-bold text-[#041B2D]">Correct the supplement information behind this report</h2>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
                   {activeCount} active {activeCount === 1 ? "supplement" : "supplements"}.
-                  {hasMemberOverride ? " You have reviewed this list in LVE360." : " This list came from your original intake."}
+                  {hasMemberOverride ? " You have reviewed this list in LVE360." : " This list came from your original intake."} Corrections update your living Plan and Routine while preserving every older Blueprint.
                 </p>
                 {!versioningReady ? (
                   <p className="mt-2 text-sm font-semibold text-amber-800">
@@ -431,7 +452,7 @@ export default function BlueprintWorkspaceClient({
                   className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#087F72] px-4 py-2 text-sm font-bold text-[#087F72] hover:bg-[#EFFBF8] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Pencil className="mr-2 h-4 w-4" aria-hidden="true" />
-                  Update supplements
+                  Correct supplement information
                 </button>
               ) : null}
             </div>
@@ -518,14 +539,18 @@ export default function BlueprintWorkspaceClient({
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-5 text-sm leading-6 text-slate-600 shadow-sm">
-            <h2 className="font-bold text-[#041B2D]">When to update</h2>
+            <h2 className="font-bold text-[#041B2D]">When to create a new version</h2>
             <p className="mt-2">
-              Refresh after changing supplements. Update your broader health context when medications, conditions,
-              allergies, hormones, pregnancy status, laboratory information, or major goals change.
+              Keep medications, hormones, supplements, doses, and timing accurate in Routine. Refresh this Blueprint after a relevant change when you want a new dated report and safety review.
             </p>
-            <Link href="/quiz" className="mt-3 inline-flex font-bold text-[#087F72] hover:underline">
-              Update broader health context
-            </Link>
+            <div className="mt-3 flex flex-col items-start gap-2">
+              <Link href="/routine" className="inline-flex font-bold text-[#087F72] hover:underline">
+                Edit current Routine
+              </Link>
+              <Link href="/quiz" className="inline-flex font-bold text-[#087F72] hover:underline">
+                Update broader health context
+              </Link>
+            </div>
           </section>
         </aside>
       </div>
@@ -847,7 +872,7 @@ function ReportSection({
         {isCurrent ? (
           <button type="button" onClick={onEditSupplements} className="mt-5 inline-flex min-h-11 items-center text-sm font-bold text-[#087F72] hover:underline">
             <Pencil className="mr-2 h-4 w-4" aria-hidden="true" />
-            Update my current supplements
+            Correct current supplement information
           </button>
         ) : null}
         {isSafety && stale ? (
@@ -862,8 +887,8 @@ function ReportSection({
           </button>
         ) : null}
         {isRecommendations ? (
-          <Link href="/today#todays-plan" className="mt-5 inline-flex min-h-11 items-center text-sm font-bold text-[#087F72] hover:underline">
-            Review my current plan
+          <Link href="/plan" className="mt-5 inline-flex min-h-11 items-center text-sm font-bold text-[#087F72] hover:underline">
+            Open current Plan
           </Link>
         ) : null}
       </div>

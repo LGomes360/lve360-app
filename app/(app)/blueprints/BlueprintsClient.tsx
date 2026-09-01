@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FileDown, FileText, History } from "lucide-react";
+import { ArrowRight, FileDown, FileText, History } from "lucide-react";
 
 import { trackProductEvent } from "@/lib/productAnalyticsClient";
 import type { PremiumActivationProgress } from "@/lib/premiumActivation";
@@ -31,17 +31,35 @@ export default function BlueprintsClient({
   return (
     <div className="mx-auto min-h-[60vh] w-full max-w-5xl px-0 py-4 sm:px-2">
       <header>
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#087F72]">Blueprints</p>
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#087F72]">{paid ? "Blueprint archive" : "Blueprint"}</p>
         <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#041B2D] sm:text-4xl">
-          Your health Blueprints
+          {paid ? "Your saved health baselines" : "Your health Blueprint"}
         </h1>
         <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
-          Review the plan built from your health context, keep your current supplement routine accurate,
-          and refresh your guidance when something changes.
+          {paid
+            ? "Each Blueprint is a dated report you can return to for its reasoning, safety notes, PDF, and version history. Your current focus, Practices, regimen, and schedule live in Plan."
+            : "Your free Blueprint organizes your health context, current stack, safety considerations, and useful next steps into one baseline report."}
         </p>
       </header>
 
-      {paid ? <div className="mt-8"><PremiumActivationChecklist progress={activationProgress} surface="blueprints" /></div> : null}
+      {paid ? (
+        <section className="mt-8 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5 shadow-sm sm:p-6" aria-labelledby="living-plan-handoff-title">
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Living information</p>
+          <div className="mt-1 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 id="living-plan-handoff-title" className="text-2xl font-bold text-[#041B2D]">Looking for what is current?</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                Open Plan for your current focus, active Practices, regimen, schedule coverage, safety status, and confirmed changes.
+              </p>
+            </div>
+            <Link href="/plan" className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-[#087F72] px-5 py-3 text-sm font-bold text-white hover:bg-[#06695F]">
+              Open current Plan <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+            </Link>
+          </div>
+        </section>
+      ) : null}
+
+      {paid ? <div className="mt-6"><PremiumActivationChecklist progress={activationProgress} surface="blueprints" /></div> : null}
 
       {!latest ? (
         paid ? null : (
@@ -63,13 +81,13 @@ export default function BlueprintsClient({
           <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <p className="text-sm font-semibold text-[#087F72]">Latest Blueprint</p>
+                <p className="text-sm font-semibold text-[#087F72]">Latest saved Blueprint</p>
                 <h2 className="mt-1 text-2xl font-bold text-[#041B2D]">
                   {formatDate(latest.created_at) ?? "Date unavailable"}
                 </h2>
                 {paid ? (
                   <p className="mt-2 text-sm text-slate-600">
-                    Open your interactive workspace to review sections, update supplements, or refresh the report.
+                    Read the complete dated report, open its PDF, correct recorded information, or create a refreshed version.
                   </p>
                 ) : (
                   <p className="mt-2 text-sm text-slate-600">
@@ -86,7 +104,7 @@ export default function BlueprintsClient({
                 className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#087F72] px-5 py-3 font-bold text-white hover:bg-[#06695F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] focus-visible:ring-offset-2"
               >
                 <FileText className="mr-2 h-4 w-4" aria-hidden="true" />
-                {paid ? "Open Blueprint workspace" : "View Blueprint"}
+                {paid ? "Read saved Blueprint" : "View Blueprint"}
               </Link>
               <a
                 href={exportHref(latest)}
@@ -105,7 +123,7 @@ export default function BlueprintsClient({
             <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-center gap-2">
                 <History className="h-5 w-5 text-[#087F72]" aria-hidden="true" />
-                <h2 className="text-lg font-bold text-[#041B2D]">Previous versions</h2>
+                <h2 className="text-lg font-bold text-[#041B2D]">Earlier Blueprint versions</h2>
               </div>
               <ul className="mt-4 divide-y divide-slate-100">
                 {stacks.slice(1).map((stack) => (

@@ -3,8 +3,8 @@ import fs from "node:fs";
 
 const blueprint = fs.readFileSync("app/(app)/blueprints/[stackId]/BlueprintWorkspaceClient.tsx", "utf8");
 
-assert.match(blueprint, /Your decision map/);
-assert.match(blueprint, /What needs your attention/);
+assert.match(blueprint, /Report review/);
+assert.match(blueprint, /What this Blueprint asks you to review/);
 assert.match(blueprint, /Ideas to decide/);
 assert.match(blueprint, /Safety review/);
 assert.match(blueprint, /Put it into practice/);

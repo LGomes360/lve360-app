@@ -101,6 +101,7 @@
     "qa:pr158": "node --experimental-strip-types src/_tests_/authenticatedNavigation.assert.ts && node src/_tests_/pr158NavigationRollout.assert.mjs && npm run qa:pr157 && npm run qa:gating",
     "qa:pr159": "node --experimental-strip-types src/_tests_/pr159PracticeAdaptation.assert.ts && node src/_tests_/pr159Architecture.assert.mjs && npm run qa:pr158 && npm run qa:personas",
     "qa:pr160": "node --experimental-strip-types src/_tests_/pr160JourneyIntelligence.assert.ts && node src/_tests_/pr160Architecture.assert.mjs && npm run qa:pr159",
+    "qa:pr161": "node src/_tests_/pr161BlueprintArchive.assert.mjs && node --experimental-strip-types src/_tests_/pr160JourneyIntelligence.assert.ts && node src/_tests_/pr160Architecture.assert.mjs && npm run qa:pr159 && npm run qa:blueprints && npm run qa:pr91 && npm run qa:pr93",
     "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
