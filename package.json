@@ -97,6 +97,7 @@
     "qa:pr154": "node src/_tests_/pr154PlanChangeLedger.assert.mjs && npm run qa:pr152",
     "qa:pr155": "node src/_tests_/pr155LedgerPrivilegeHardening.assert.mjs && npm run qa:pr154",
     "qa:pr156": "node src/_tests_/pr156TodayDecisionSurface.assert.mjs && npm run qa:pr155 && npm run qa:pr128 && npm run qa:pr133 && npm run qa:pr142",
+    "qa:pr157": "node src/_tests_/pr157PlanHub.assert.mjs && npm run qa:pr156",
     "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
