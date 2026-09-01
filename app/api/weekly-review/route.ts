@@ -3,7 +3,14 @@ import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 
 import type { WeeklyExperiment } from "@/lib/activation";
-import { isReviewDecision, isReviewDue, validateNextPlan, type NextWeekPlan } from "@/lib/weeklyReview";
+import {
+  cleanAdaptationRationale,
+  isPracticeAdaptation,
+  isReviewDue,
+  reviewDecisionForAdaptation,
+  validateAdaptationPlan,
+  type NextWeekPlan,
+} from "@/lib/weeklyReview";
 import { synthesisResponseState, type WeeklySynthesisContent } from "@/lib/weeklySynthesis";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
@@ -138,10 +145,11 @@ export async function POST(req: NextRequest) {
     if (auth.error || !auth.user) return authErrorResponse(auth.error ?? "unauthorized");
     const body = await req.json().catch(() => null) as Record<string, unknown> | null;
     const experimentId = typeof body?.experiment_id === "string" ? body.experiment_id : "";
-    const decision = body?.decision;
+    const adaptation = body?.adaptation;
+    const rationale = cleanAdaptationRationale(body?.rationale);
     const difficulty = Number(body?.difficulty);
     const valueRating = Number(body?.value_rating);
-    if (!experimentId || !isReviewDecision(decision) || !Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5 || !Number.isInteger(valueRating) || valueRating < 1 || valueRating > 5) {
+    if (!experimentId || !isPracticeAdaptation(adaptation) || !rationale || !Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5 || !Number.isInteger(valueRating) || valueRating < 1 || valueRating > 5) {
       return NextResponse.json({ ok: false, error: "invalid_review" }, { status: 400 });
     }
     const experiment = await loadExperiment(auth.user.id, experimentId);
@@ -149,11 +157,13 @@ export async function POST(req: NextRequest) {
     if (!isReviewDue(experiment.week_start, todayUtc())) return NextResponse.json({ ok: false, error: "review_not_due" }, { status: 409 });
     const proposalId = typeof body?.coach_action_proposal_id === "string" ? body.coach_action_proposal_id : null;
     const queuedProposal = proposalId ? await loadConfirmedCoachAction(auth.user.id, proposalId) : null;
-    if (proposalId && (!queuedProposal || decision !== "swap")) {
+    if (proposalId && (!queuedProposal || adaptation !== "replace")) {
       return NextResponse.json({ ok: false, error: "invalid_coach_action" }, { status: 409 });
     }
-    const nextPlan = decision === "pause" ? null : validateNextPlan(body?.next_plan);
-    if (decision !== "pause" && !nextPlan) return NextResponse.json({ ok: false, error: "invalid_next_plan" }, { status: 400 });
+    const closesPractice = adaptation === "pause" || adaptation === "graduate";
+    const nextPlan = closesPractice ? null : validateAdaptationPlan(experiment, adaptation, body?.next_plan);
+    if (!closesPractice && !nextPlan) return NextResponse.json({ ok: false, error: "invalid_next_plan" }, { status: 400 });
+    const decision = reviewDecisionForAdaptation(adaptation);
 
     const { data, error } = await getSupabaseAdmin().rpc("complete_weekly_review", {
       p_user_id: auth.user.id,
@@ -161,6 +171,8 @@ export async function POST(req: NextRequest) {
       p_difficulty: difficulty,
       p_value_rating: valueRating,
       p_decision: decision,
+      p_adaptation_kind: adaptation,
+      p_adaptation_rationale: rationale,
       p_action_label: nextPlan?.action_label ?? null,
       p_cue: nextPlan?.cue ?? null,
       p_frequency_per_week: nextPlan?.frequency_per_week ?? null,

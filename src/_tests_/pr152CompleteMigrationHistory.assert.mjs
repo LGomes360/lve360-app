@@ -53,6 +53,7 @@ const expectedCanonicalHistory = [
   "20260831031512_pr150_practice_reconciliation.sql",
   "20260831040616_pr154_plan_change_ledger.sql",
   "20260831222704_pr155_plan_change_ledger_privilege_hardening.sql",
+  "20260901004820_pr159_practice_adaptation.sql",
 ];
 
 assert.deepEqual(migrations, expectedCanonicalHistory, "Local migration history must exactly match the canonical repository history.");

@@ -99,6 +99,7 @@
     "qa:pr156": "node src/_tests_/pr156TodayDecisionSurface.assert.mjs && npm run qa:pr155 && npm run qa:pr128 && npm run qa:pr133 && npm run qa:pr142",
     "qa:pr157": "node src/_tests_/pr157PlanHub.assert.mjs && npm run qa:pr156",
     "qa:pr158": "node --experimental-strip-types src/_tests_/authenticatedNavigation.assert.ts && node src/_tests_/pr158NavigationRollout.assert.mjs && npm run qa:pr157 && npm run qa:gating",
+    "qa:pr159": "node --experimental-strip-types src/_tests_/pr159PracticeAdaptation.assert.ts && node src/_tests_/pr159Architecture.assert.mjs && npm run qa:pr158 && npm run qa:personas",
     "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",

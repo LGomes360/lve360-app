@@ -19,6 +19,7 @@ import {
   distinctWeeks,
   domainLabel,
   hasFourWeeksOfHistory,
+  journeyReviewDecision,
   journeyDomainSummaries,
   measuredMetricsForDomain,
   type JourneyCheckIn,
@@ -261,8 +262,9 @@ function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experime
   const activeAction = sentenceFragment(activeExperiment?.action_label);
   const nextAction = sentenceFragment(chosenNextExperiment?.action_label);
 
+  const latestReviewDecision = latestReview ? journeyReviewDecision(latestReview) : null;
   const changed = latestReview
-    ? `${latestReview.decision ? DECISION_LABELS[latestReview.decision] : "Completed the weekly review"}${nextAction ? `, then chose ${nextAction}` : ""}.`
+    ? `${latestReviewDecision ? DECISION_LABELS[latestReviewDecision] : "Completed the weekly review"}${nextAction ? `, then chose ${nextAction}` : ""}.`
     : `You started ${activeAction || "a focused weekly practice"}.`;
   const followThrough = latestReview
     ? `You recorded ${latestReview.completion_count} of ${latestReview.target_count} planned ${latestReview.target_count === 1 ? "time" : "times"}.${latestReview.known_total_quantity != null && latestReview.known_total_quantity_unit ? ` Known volume: ${formatPracticeQuantity(latestReview.known_total_quantity, latestReview.known_total_quantity_unit)}.` : ""}`
@@ -275,7 +277,7 @@ function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experime
     ? `${reviewedSynthesis.hypothesis} This is a ${reviewedSynthesis.confidence}-confidence idea to test, not proof.`
     : describeApparentFit(latestReview);
   const nextDecision = activeExperiment
-    ? `At the end of this week, decide whether to keep, shrink, swap, pause, or build on ${activeAction || "this practice"}.`
+    ? `At the end of this week, decide whether to continue, decrease, increase, modify, pause, replace, or graduate ${activeAction || "this practice"}.`
     : nextAction
       ? `Start the next chosen practice: ${nextAction}.`
       : "Choose one small practice for the next week when you are ready.";
@@ -409,10 +411,10 @@ function describeApparentFit(review: JourneyReview | null): string {
   if ((review.value_rating ?? 0) >= 4 && review.completion_count > 0) {
     return "The practice felt useful and was completed at least once. Repeat or adapt it to learn whether that pattern holds.";
   }
-  if (review.decision === "keep" || review.decision === "advance") {
+  if (["keep", "advance", "continue", "increase", "graduate"].includes(journeyReviewDecision(review) ?? "")) {
     return "Your decision suggests the practice felt worth continuing. Treat that as a personal signal to test again, not proof of an outcome.";
   }
-  return "The current evidence does not show a clear fit yet. Your decision to adjust, swap, or pause is useful learning too.";
+  return "The current evidence does not show a clear fit yet. Your decision to adapt, replace, or pause is useful learning too.";
 }
 
 function NextFocusPrompt({ activeExperiment, blueprint, experiments, experimentBlueprints, latestReview }: {
@@ -437,7 +439,7 @@ function NextFocusPrompt({ activeExperiment, blueprint, experiments, experimentB
         <h2 id="next-focus-title" className="mt-1 text-2xl font-bold text-[#041B2D]">Learn from this week before adding more.</h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
           {latestReview?.decision ? `Your last review: ${DECISION_LABELS[latestReview.decision].toLowerCase()}. ` : ""}
-          Complete this week, notice usefulness and difficulty, then choose whether to keep, adjust, or replace the practice.
+          Complete this week, notice usefulness and difficulty, then choose whether to continue, adapt, replace, pause, or graduate the practice.
         </p>
         {context?.priority_label ? <p className="mt-4 rounded-2xl bg-[#F4FAF8] p-4 text-sm text-slate-700"><strong className="text-[#041B2D]">Current Blueprint connection:</strong> {context.priority_label}</p> : null}
       </section>
@@ -568,6 +570,7 @@ function CurrentChapter({ experiment, connection, blueprintContext, completed }:
 
 function ExperimentCard({ experiment, connection, blueprintContext, review, completed }: { experiment: JourneyExperiment; connection: PracticeConnectionContext | undefined; blueprintContext: ExperimentBlueprintContext | null; review: JourneyReview | null; completed: number }) {
   const target = review?.target_count ?? experiment.frequency_per_week ?? 1;
+  const reviewDecision = review ? journeyReviewDecision(review) : null;
   return (
     <li className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
@@ -586,7 +589,7 @@ function ExperimentCard({ experiment, connection, blueprintContext, review, comp
         <span>{completed} of {target} completions</span>
         {review?.difficulty ? <span>Difficulty {review.difficulty}/5</span> : null}
         {review?.value_rating ? <span>Usefulness {review.value_rating}/5</span> : null}
-        {review?.decision ? <span>{DECISION_LABELS[review.decision]}</span> : null}
+        {reviewDecision ? <span>{DECISION_LABELS[reviewDecision]}</span> : null}
       </div>
     </li>
   );
@@ -668,12 +671,15 @@ function BehaviorOutcomeTable({ checkIns, completionDates }: { checkIns: Journey
 }
 
 function WinsTimeline({ reviews, completionTotal }: { reviews: JourneyReview[]; completionTotal: number }) {
-  const wins = reviews.filter((review) => review.completion_count > 0 || (review.value_rating ?? 0) >= 4 || review.decision === "keep" || review.decision === "advance");
+  const wins = reviews.filter((review) => review.completion_count > 0 || (review.value_rating ?? 0) >= 4 || ["keep", "advance", "continue", "increase", "graduate"].includes(journeyReviewDecision(review) ?? ""));
   return (
     <section aria-labelledby="wins-title" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-[#087F72]" aria-hidden="true" /><h2 id="wins-title" className="text-xl font-bold text-[#041B2D]">Wins worth remembering</h2></div>
       {wins.length ? (
-        <ul className="mt-5 space-y-4">{wins.map((review) => <li key={review.experiment_id} className="flex gap-3"><CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#08A88A]" aria-hidden="true" /><div><p className="font-semibold text-[#041B2D]">{review.completion_count} practice {review.completion_count === 1 ? "completion" : "completions"}</p><p className="mt-1 text-sm text-slate-600">{review.decision ? DECISION_LABELS[review.decision] : "Captured what worked"}. {formatDate(review.completed_at?.slice(0, 10) ?? "")}</p></div></li>)}</ul>
+        <ul className="mt-5 space-y-4">{wins.map((review) => {
+          const decision = journeyReviewDecision(review);
+          return <li key={review.experiment_id} className="flex gap-3"><CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#08A88A]" aria-hidden="true" /><div><p className="font-semibold text-[#041B2D]">{review.completion_count} practice {review.completion_count === 1 ? "completion" : "completions"}</p><p className="mt-1 text-sm text-slate-600">{decision ? DECISION_LABELS[decision] : "Captured what worked"}. {formatDate(review.completed_at?.slice(0, 10) ?? "")}</p></div></li>;
+        })}</ul>
       ) : (
         <EmptyPanel title={completionTotal ? `${completionTotal} practice ${completionTotal === 1 ? "completion" : "completions"} already count.` : "Your first win can be very small."} body="Complete the minimum version or finish a weekly review. Journey will save the evidence without demanding a perfect streak." />
       )}
@@ -692,18 +698,20 @@ function LearningLoop({ reviews, experiments, practiceConnections, syntheses }: 
           const nextExperiment = experiments.find((item) => item.id === review.next_experiment_id) ?? null;
           const connection = experiment ? practiceConnections[experiment.id] : null;
           const synthesis = synthesisByExperiment.get(review.experiment_id) ?? null;
+          const decision = journeyReviewDecision(review);
           return <li key={review.experiment_id} className="rounded-2xl bg-slate-50 p-4">
             <dl className="space-y-3 text-sm leading-6">
               <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Tried</dt><dd className="font-semibold text-[#041B2D]">{experiment?.action_label || "Weekly practice"}</dd></div>
               <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Why it mattered</dt><dd className="text-slate-600">{connection?.summary ?? "No explicit connection was recorded for this week."}</dd></div>
               <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Noticed</dt><dd className="text-slate-600">You reported usefulness {review.value_rating}/5 and difficulty {review.difficulty}/5 after completing the practice {review.completion_count} of {review.target_count} planned times.{review.known_total_quantity != null && review.known_total_quantity_unit ? ` Known volume: ${formatPracticeQuantity(review.known_total_quantity, review.known_total_quantity_unit)}.` : ""}</dd></div>
               {synthesis ? <><div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Recorded observation</dt><dd className="text-slate-600">{synthesis.observation}</dd></div><div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Working hypothesis</dt><dd className="text-slate-600">{synthesis.hypothesis} <span className="font-semibold">This is a {synthesis.confidence}-confidence idea to test, not proof.</span></dd></div></> : null}
-              <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Chose next</dt><dd className="text-slate-600">{review.decision ? DECISION_LABELS[review.decision] : "Reviewed"}{nextExperiment?.action_label ? `: ${nextExperiment.action_label}` : "."}</dd></div>
+              <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Chose next</dt><dd className="text-slate-600">{decision ? DECISION_LABELS[decision] : "Reviewed"}{nextExperiment?.action_label ? `: ${nextExperiment.action_label}` : "."}</dd></div>
+              {review.adaptation_rationale ? <div><dt className="text-xs font-bold uppercase tracking-wide text-[#087F72]">Why</dt><dd className="text-slate-600">{review.adaptation_rationale}</dd></div> : null}
             </dl>
           </li>;
         })}</ul>
       ) : (
-        <EmptyPanel title="Your first weekly reflection will appear here." body="At the end of the week, notice usefulness and difficulty, then decide whether to keep, shrink, swap, pause, or build on the practice." />
+        <EmptyPanel title="Your first weekly reflection will appear here." body="At the end of the week, notice usefulness and difficulty, then decide whether to continue, decrease, increase, modify, pause, replace, or graduate the practice." />
       )}
     </section>
   );
