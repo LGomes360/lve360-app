@@ -17,6 +17,7 @@ import { regimenToLedger } from "@/lib/currentRegimenModel";
 import { extractBlueprintGoalNames, isActionableRecommendationStatus } from "@/lib/recommendationDecision";
 import { getStackRecommendationDecisions } from "@/lib/recommendationDecisionData";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { deriveCanonicalSafetyState, isSafetyRelevantRegimenChange } from "@/lib/safetyState";
 
 type StackSource = {
   id: string;
@@ -26,6 +27,14 @@ type StackSource = {
   created_at: string;
   input_snapshot_hash: string | null;
   safety_acknowledged_at: string | null;
+};
+
+type RegimenPlanChange = {
+  created_at: string;
+  change_summary: string | null;
+  change_type: string;
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
 };
 
 function stackActions(stack: Pick<StackSource, "sections" | "summary">) {
@@ -46,8 +55,26 @@ export async function getCurrentBlueprintContext(userId: string): Promise<Curren
   if (!latest) return null;
 
   const stack = latest as StackSource;
+  const { data: recentRegimenChanges, error: planChangeError } = await admin
+    .from("plan_change_events")
+    .select("created_at,change_summary,change_type,before_state,after_state")
+    .eq("user_id", userId)
+    .eq("domain", "regimen")
+    .gt("created_at", stack.created_at)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (planChangeError) throw planChangeError;
+
   const markdown = blueprintMarkdownFromStack(stack);
   const report = parseBlueprintReport(markdown);
+  const safetyStatus = deriveBlueprintSafetyStatus(markdown);
+  const regimenChange = ((recentRegimenChanges ?? []) as RegimenPlanChange[]).find((change) =>
+    isSafetyRelevantRegimenChange({
+      changeType: change.change_type,
+      beforeState: change.before_state,
+      afterState: change.after_state,
+    })
+  ) ?? null;
   let needsRefresh = false;
   let regimen: Awaited<ReturnType<typeof getCurrentRegimen>> | null = null;
   if (stack.submission_id) {
@@ -78,9 +105,19 @@ export async function getCurrentBlueprintContext(userId: string): Promise<Curren
     stack_id: stack.id,
     created_at: stack.created_at,
     goals: extractBlueprintGoalNames(report.sections.Goals),
-    safety_status: deriveBlueprintSafetyStatus(markdown),
+    safety_status: safetyStatus,
     safety_acknowledged: Boolean(stack.safety_acknowledged_at),
     needs_refresh: needsRefresh,
+    safety: deriveCanonicalSafetyState({
+      stackId: stack.id,
+      stackCreatedAt: stack.created_at,
+      reportStatus: safetyStatus,
+      acknowledgedAt: stack.safety_acknowledged_at,
+      latestRegimenChange: regimenChange ? {
+        createdAt: regimenChange.created_at,
+        summary: regimenChange.change_summary,
+      } : null,
+    }),
     actionable_recommendation_count: recommendations.filter(({ decision }) =>
       isActionableRecommendationStatus(decision.status)
     ).length,

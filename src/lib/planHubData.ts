@@ -2,8 +2,8 @@ import "server-only";
 
 import { getCurrentBlueprintContext } from "@/lib/currentBlueprintContext";
 import { getCurrentRegimen } from "@/lib/currentRegimen";
-import type { BlueprintSafetyStatus } from "@/lib/blueprintSafetyStatus";
 import { buildPlanRegimenGroups, buildPlanScheduleCoverage } from "@/lib/planHub";
+import { deriveCanonicalSafetyState, type CanonicalSafetyState } from "@/lib/safetyState";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type PlanFocus = {
@@ -39,12 +39,7 @@ export type PlanHubData = {
   regimenGroups: ReturnType<typeof buildPlanRegimenGroups>;
   scheduleCoverage: ReturnType<typeof buildPlanScheduleCoverage>;
   regimenCount: number;
-  safety: {
-    stackId: string | null;
-    status: BlueprintSafetyStatus | null;
-    acknowledged: boolean;
-    needsRefresh: boolean;
-  };
+  safety: CanonicalSafetyState;
   recentChanges: PlanChange[];
 };
 
@@ -139,12 +134,11 @@ export async function getPlanHubData(userId: string): Promise<PlanHubData> {
     regimenGroups: buildPlanRegimenGroups(regimen),
     scheduleCoverage: buildPlanScheduleCoverage(regimen),
     regimenCount: regimen.length,
-    safety: {
-      stackId: blueprint?.stack_id ?? null,
-      status: blueprint?.safety_status ?? null,
-      acknowledged: blueprint?.safety_acknowledged ?? false,
-      needsRefresh: blueprint?.needs_refresh ?? false,
-    },
+    safety: blueprint?.safety ?? deriveCanonicalSafetyState({
+      stackId: null,
+      stackCreatedAt: null,
+      reportStatus: null,
+    }),
     recentChanges: ((changesResult.data ?? []) as ChangeRow[]).map((change) => ({
       id: change.id,
       domain: change.domain,

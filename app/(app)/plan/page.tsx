@@ -183,35 +183,16 @@ function CurrentFocusCard({ plan }: { plan: PlanHubData }) {
 
 function SafetyCard({ plan }: { plan: PlanHubData }) {
   const safety = plan.safety;
-  const requiresAttention = safety.needsRefresh || safety.status === "error" || (safety.status === "warning" && !safety.acknowledged);
-  const title = safety.needsRefresh
-    ? "Review after plan changes"
-    : safety.status === "safe"
-      ? "No material concern identified"
-      : safety.status === "warning" && safety.acknowledged
-        ? "Safety notes reviewed"
-        : safety.status === "warning"
-          ? "Safety notes need review"
-          : "Safety review unavailable";
-  const description = safety.needsRefresh
-    ? "Your current plan differs from the latest Blueprint snapshot."
-    : safety.status === "safe"
-      ? "Your latest Blueprint did not identify a material concern from the information provided."
-      : safety.status === "warning" && safety.acknowledged
-        ? "You acknowledged the current Blueprint safety notes."
-        : safety.status === "warning"
-          ? "Your latest Blueprint contains items to review with a clinician or healthcare provider."
-          : "Open your Blueprint to confirm the latest safety context.";
 
   return (
-    <article className={`rounded-3xl border p-5 shadow-sm sm:p-6 ${requiresAttention ? "border-amber-300 bg-amber-50" : "border-[#CFE8E2] bg-white"}`}>
-      <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] ${requiresAttention ? "text-amber-800" : "text-[#087F72]"}`}>
-        {requiresAttention ? <ShieldAlert className="h-4 w-4" aria-hidden="true" /> : <ShieldCheck className="h-4 w-4" aria-hidden="true" />} Safety status
+    <article className={`rounded-3xl border p-5 shadow-sm sm:p-6 ${safety.needsAttention ? "border-amber-300 bg-amber-50" : "border-[#CFE8E2] bg-white"}`}>
+      <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] ${safety.needsAttention ? "text-amber-800" : "text-[#087F72]"}`}>
+        {safety.needsAttention ? <ShieldAlert className="h-4 w-4" aria-hidden="true" /> : <ShieldCheck className="h-4 w-4" aria-hidden="true" />} Safety status
       </div>
-      <h2 className="mt-3 text-xl font-bold text-[#041B2D]">{title}</h2>
-      <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
-      <Link href={safety.stackId ? `/blueprints/${safety.stackId}` : "/blueprints"} className="mt-4 inline-flex min-h-11 items-center gap-2 font-bold text-[#06695F]">
-        Open safety review <ArrowRight className="h-4 w-4" aria-hidden="true" />
+      <h2 className="mt-3 text-xl font-bold text-[#041B2D]">{safety.label}</h2>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{safety.detail}</p>
+      <Link href={safety.href} className="mt-4 inline-flex min-h-11 items-center gap-2 font-bold text-[#06695F]">
+        {safety.actionLabel} <ArrowRight className="h-4 w-4" aria-hidden="true" />
       </Link>
     </article>
   );

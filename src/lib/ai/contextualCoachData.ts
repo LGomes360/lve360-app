@@ -170,8 +170,7 @@ export async function buildCoachContext(
     });
     facts.blueprint = blueprint ? {
       generated_at: blueprint.created_at,
-      safety_status: blueprint.safety_status,
-      safety_acknowledged: blueprint.safety_acknowledged,
+      safety: blueprint.safety,
       needs_refresh: blueprint.needs_refresh,
       priorities: blueprint.priorities.slice(0, 8).map((item) => ({ label: compact(item.label), category: item.category, kind: item.kind })),
     } : null;
@@ -292,15 +291,20 @@ export async function buildCoachContext(
 
   if (requested.has("safety_review")) {
     const safetyItems = memberContext.unresolvedSafetyItems.value;
+    const canonicalSafety = memberContext.blueprint.value?.safety ?? null;
+    const currentFindingSummary = memberContext.unresolvedSafetyItems.status === "missing"
+      ? "The current Routine evaluation was unavailable."
+      : `${safetyItems.length} unresolved current Routine finding${safetyItems.length === 1 ? "" : "s"}.`;
     sources.push({
       id: "safety_review",
-      label: "Deterministic safety review",
+      label: "Current safety review",
       kind: "safety",
-      summary: memberContext.unresolvedSafetyItems.status === "missing"
-        ? "The current safety evaluation was unavailable."
-        : `${safetyItems.length} unresolved finding${safetyItems.length === 1 ? "" : "s"} from the current Routine.`,
-      href: "/blueprints",
+      summary: canonicalSafety
+        ? `${canonicalSafety.label}. ${currentFindingSummary}`
+        : `No current Blueprint safety state is recorded. ${currentFindingSummary}`,
+      href: canonicalSafety?.href ?? "/blueprints",
     });
+    facts.safety_review = canonicalSafety;
     facts.safety_items = safetyItems;
   }
 

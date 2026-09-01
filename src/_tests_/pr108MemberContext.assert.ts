@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import type { CurrentBlueprintContext, ExperimentBlueprintContext } from "../lib/blueprintContext.ts";
 import type { CurrentRegimenItem, CurrentRegimenKind } from "../lib/currentRegimenModel.ts";
+import { deriveCanonicalSafetyState } from "../lib/safetyState.ts";
 import {
   buildMemberIntelligenceContext,
   MEMBER_CONTEXT_VERSION,
@@ -47,6 +48,11 @@ function blueprint(overrides: Partial<CurrentBlueprintContext> = {}): CurrentBlu
     safety_status: "safe",
     safety_acknowledged: false,
     needs_refresh: false,
+    safety: deriveCanonicalSafetyState({
+      stackId: "stack-1",
+      stackCreatedAt: "2026-08-10T12:00:00.000Z",
+      reportStatus: "safe",
+    }),
     priorities: [{ id: "priority-1", label: "Keep a consistent wake time", category: "sleep", kind: "lifestyle" }],
     ...overrides,
   };

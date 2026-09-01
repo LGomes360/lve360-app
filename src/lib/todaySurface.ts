@@ -13,11 +13,7 @@ export type TodayBlueprintNotice = {
  * treats a missing or unreadable safety section as an urgent interruption.
  */
 export function isUrgentBlueprintSafety(blueprint: CurrentBlueprintContext | null): boolean {
-  return Boolean(
-    blueprint
-    && blueprint.safety_status === "error"
-    && !blueprint.safety_acknowledged,
-  );
+  return Boolean(blueprint?.safety.status === "unavailable" && blueprint.safety.needsAttention);
 }
 
 export function deriveTodayBlueprintNotice(
@@ -29,27 +25,23 @@ export function deriveTodayBlueprintNotice(
   if (isUrgentBlueprintSafety(blueprint)) {
     return {
       tone: "urgent",
-      title: "The current Blueprint safety review needs attention",
-      detail: "LVE360 could not confirm the current safety section. Review the Blueprint before using health-sensitive guidance. Your lifestyle practice remains available below.",
-      href: `/blueprints/${blueprint.stack_id}#safety-notes`,
-      actionLabel: "Review safety section",
+      title: blueprint.safety.label,
+      detail: `${blueprint.safety.detail} Your lifestyle practice remains available below.`,
+      href: blueprint.safety.href,
+      actionLabel: blueprint.safety.actionLabel,
     };
   }
 
-  const safetyWaiting = blueprint.safety_status === "warning" && !blueprint.safety_acknowledged;
   const sourceChanged = Boolean(experimentBlueprint?.needs_review);
 
-  if (safetyWaiting) {
-    const additionalContext = [
-      blueprint.needs_refresh ? "Your saved health information also differs from this report." : null,
-      sourceChanged ? "This weekly practice came from an earlier Blueprint." : null,
-    ].filter(Boolean).join(" ");
+  if (blueprint.safety.needsAttention) {
+    const practiceContext = sourceChanged ? " This weekly practice came from an earlier Blueprint, but your focused lifestyle action remains unchanged." : " Your focused lifestyle action remains unchanged.";
     return {
       tone: "maintenance",
-      title: "Review your current Blueprint safety notes",
-      detail: `${additionalContext ? `${additionalContext} ` : ""}Your focused lifestyle action is unchanged.`,
-      href: `/blueprints/${blueprint.stack_id}#safety-notes`,
-      actionLabel: "Open Blueprint",
+      title: blueprint.safety.label,
+      detail: `${blueprint.safety.detail}${practiceContext}`,
+      href: blueprint.safety.href,
+      actionLabel: blueprint.safety.actionLabel,
     };
   }
 
@@ -67,7 +59,7 @@ export function deriveTodayBlueprintNotice(
     return {
       tone: "maintenance",
       title: "Your saved changes are ready for Blueprint review",
-      detail: "Refresh the Blueprint when convenient. Today’s focused lifestyle action is unchanged.",
+      detail: "Your saved information differs from this dated report. This is not a new safety alert. Refresh the Blueprint when convenient. Today’s focused lifestyle action is unchanged.",
       href: `/blueprints/${blueprint.stack_id}`,
       actionLabel: "Review changes",
     };
