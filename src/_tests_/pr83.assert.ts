@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { blueprintSafetyLabel, type CurrentBlueprintContext } from "../lib/blueprintContext.ts";
 import { regimenDoseDaypart } from "../lib/regimenDose.ts";
+import { deriveCanonicalSafetyState } from "../lib/safetyState.ts";
 
 const warning: CurrentBlueprintContext = {
   stack_id: "stack-83",
@@ -9,15 +10,26 @@ const warning: CurrentBlueprintContext = {
   safety_status: "warning",
   safety_acknowledged: false,
   needs_refresh: false,
+  safety: deriveCanonicalSafetyState({
+    stackId: "stack-83",
+    stackCreatedAt: "2026-08-08T12:00:00.000Z",
+    reportStatus: "warning",
+  }),
   priorities: [],
 };
 
-assert.equal(blueprintSafetyLabel(warning), "Safety notes need your attention");
-assert.equal(blueprintSafetyLabel({ ...warning, safety_acknowledged: true }), "Safety notes reviewed");
+assert.equal(blueprintSafetyLabel(warning), "Safety notes need review");
+const acknowledgedSafety = deriveCanonicalSafetyState({
+  stackId: warning.stack_id,
+  stackCreatedAt: warning.created_at,
+  reportStatus: "warning",
+  acknowledgedAt: "2026-08-08T13:00:00.000Z",
+});
+assert.equal(blueprintSafetyLabel({ ...warning, safety_acknowledged: true, safety: acknowledgedSafety }), "Safety notes reviewed");
 assert.equal(
-  blueprintSafetyLabel({ ...warning, safety_acknowledged: true, needs_refresh: true }),
-  "Review after your recent changes",
-  "A new input change must take priority over an older acknowledgement",
+  blueprintSafetyLabel({ ...warning, safety_acknowledged: true, needs_refresh: true, safety: acknowledgedSafety }),
+  "Safety notes reviewed",
+  "A broad Blueprint refresh flag must not override a still-current safety acknowledgement",
 );
 
 assert.equal(regimenDoseDaypart("06:30"), "Morning");

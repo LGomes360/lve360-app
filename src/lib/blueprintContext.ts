@@ -1,5 +1,6 @@
 import type { BlueprintActionCategory } from "@/lib/blueprintActions";
 import type { BlueprintSafetyStatus } from "@/lib/blueprintSafetyStatus";
+import type { CanonicalSafetyState } from "@/lib/safetyState";
 
 export type BlueprintPriorityContext = {
   id: string;
@@ -15,6 +16,7 @@ export type CurrentBlueprintContext = {
   safety_status: BlueprintSafetyStatus;
   safety_acknowledged: boolean;
   needs_refresh: boolean;
+  safety: CanonicalSafetyState;
   actionable_recommendation_count?: number;
   priorities: BlueprintPriorityContext[];
 };
@@ -31,9 +33,5 @@ export type ExperimentBlueprintContext = {
 };
 
 export function blueprintSafetyLabel(context: CurrentBlueprintContext): string {
-  if (context.needs_refresh) return "Review after your recent changes";
-  if (context.safety_status === "safe") return "No material safety flags identified";
-  if (context.safety_acknowledged) return "Safety notes reviewed";
-  if (context.safety_status === "warning") return "Safety notes need your attention";
-  return "Safety section needs review";
+  return context.safety.label;
 }

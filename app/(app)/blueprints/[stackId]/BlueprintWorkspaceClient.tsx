@@ -101,6 +101,7 @@ export default function BlueprintWorkspaceClient({
   const [refreshIssue, setRefreshIssue] = useState<string | null>(null);
   const [safetyAcknowledged, setSafetyAcknowledged] = useState(Boolean(stack.safetyAcknowledgedAt));
   const [acknowledgingSafety, setAcknowledgingSafety] = useState(false);
+  const [unacknowledgingSafety, setUnacknowledgingSafety] = useState(false);
   const [recommendationItems, setRecommendationItems] = useState(recommendations);
   const [recommendationBusyId, setRecommendationBusyId] = useState<string | null>(null);
 
@@ -226,6 +227,25 @@ export default function BlueprintWorkspaceClient({
       setError("We could not save that acknowledgement. Please try again.");
     } finally {
       setAcknowledgingSafety(false);
+    }
+  }
+
+  async function markSafetyNotesForReview() {
+    setUnacknowledgingSafety(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/blueprints/${encodeURIComponent(stack.id)}/safety-acknowledgement`, {
+        method: "DELETE",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok) throw new Error("safety_acknowledgement_unavailable");
+      setSafetyAcknowledged(false);
+      setMessage("Safety notes marked for review again.");
+      router.refresh();
+    } catch {
+      setError("We could not update that review status. Please try again.");
+    } finally {
+      setUnacknowledgingSafety(false);
     }
   }
 
@@ -496,7 +516,9 @@ export default function BlueprintWorkspaceClient({
               refreshing={refreshing}
               safetyAcknowledged={safetyAcknowledged}
               acknowledgingSafety={acknowledgingSafety}
+              unacknowledgingSafety={unacknowledgingSafety}
               onAcknowledgeSafety={acknowledgeSafetyNotes}
+              onMarkSafetyForReview={markSafetyNotesForReview}
               safetyNeedsReview={stack.safetyStatus !== "safe"}
             />
           ))}
@@ -815,7 +837,9 @@ function ReportSection({
   refreshing,
   safetyAcknowledged,
   acknowledgingSafety,
+  unacknowledgingSafety,
   onAcknowledgeSafety,
+  onMarkSafetyForReview,
   safetyNeedsReview,
 }: {
   sectionNumber: number;
@@ -827,7 +851,9 @@ function ReportSection({
   refreshing: boolean;
   safetyAcknowledged: boolean;
   acknowledgingSafety: boolean;
+  unacknowledgingSafety: boolean;
   onAcknowledgeSafety: () => void;
+  onMarkSafetyForReview: () => void;
   safetyNeedsReview: boolean;
 }) {
   const isSafety = name.includes("Contraindications");
@@ -864,9 +890,20 @@ function ReportSection({
           </button>
         ) : null}
         {isSafety && safetyNeedsReview && !stale && safetyAcknowledged ? (
-          <p className="mt-5 inline-flex min-h-11 items-center rounded-xl bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-900">
-            <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" /> Safety notes reviewed for this Blueprint
-          </p>
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <p className="inline-flex min-h-11 items-center rounded-xl bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-900">
+              <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" /> Safety notes reviewed for this Blueprint
+            </p>
+            <button
+              type="button"
+              onClick={onMarkSafetyForReview}
+              disabled={unacknowledgingSafety}
+              className="inline-flex min-h-11 items-center px-2 py-2 text-sm font-bold text-[#06695F] hover:underline disabled:opacity-60"
+            >
+              {unacknowledgingSafety ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+              Mark as needing review again
+            </button>
+          </div>
         ) : null}
         <BlueprintMarkdown name={name} body={body} />
         {isCurrent ? (

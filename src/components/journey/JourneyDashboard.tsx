@@ -32,7 +32,7 @@ import {
   type JourneySynthesis,
 } from "@/lib/journey";
 import { formatPlanChangeDate, planChangeSourceLabel } from "@/lib/planHub";
-import { blueprintSafetyLabel, type CurrentBlueprintContext, type ExperimentBlueprintContext } from "@/lib/blueprintContext";
+import type { CurrentBlueprintContext, ExperimentBlueprintContext } from "@/lib/blueprintContext";
 import type { PracticeConnectionContext } from "@/lib/practiceConnection";
 import { formatPracticeCue, formatPracticeQuantity, isUsableMinimumVersionText } from "@/lib/practiceQuantity";
 import { journeySynthesisGrounding, type JourneySynthesisGrounding } from "@/lib/journeyGrounding";
@@ -578,12 +578,12 @@ function BlueprintJourneyContext({ blueprint }: { blueprint: CurrentBlueprintCon
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Current Blueprint</p>
           <h2 id="journey-blueprint-title" className="mt-1 text-2xl font-bold text-[#041B2D]">The priorities your weeks can support</h2>
-          <p className={`mt-2 text-sm ${blueprint.needs_refresh || blueprint.safety_status !== "safe" ? "font-semibold text-amber-800" : "text-slate-600"}`}>
-            {blueprintSafetyLabel(blueprint)}. Refreshed {formatDateTime(blueprint.created_at)}.
+          <p className={`mt-2 text-sm ${blueprint.safety.needsAttention ? "font-semibold text-amber-800" : "text-slate-600"}`}>
+            {blueprint.safety.label}. {blueprint.safety.detail} Refreshed {formatDateTime(blueprint.created_at)}.
           </p>
         </div>
-        <Link href={`/blueprints/${blueprint.stack_id}`} className="inline-flex min-h-12 shrink-0 items-center justify-center rounded-xl border border-[#9DCFC3] bg-white px-4 py-3 text-sm font-bold text-[#06695F] hover:bg-[#EAFBF8]">
-          Open current Blueprint <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+        <Link href={blueprint.safety.href} className="inline-flex min-h-12 shrink-0 items-center justify-center rounded-xl border border-[#9DCFC3] bg-white px-4 py-3 text-sm font-bold text-[#06695F] hover:bg-[#EAFBF8]">
+          {blueprint.safety.actionLabel} <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
         </Link>
       </div>
       <ul className="mt-5 grid gap-3 lg:grid-cols-3">

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { blueprintSafetyLabel, type CurrentBlueprintContext } from "../lib/blueprintContext.ts";
+import { deriveCanonicalSafetyState } from "../lib/safetyState.ts";
 import {
   isMedicationInstructionAuthority,
   normalizeMedicationRecordInput,
@@ -30,12 +31,17 @@ const context: CurrentBlueprintContext = {
   safety_status: "safe",
   safety_acknowledged: false,
   needs_refresh: true,
+  safety: deriveCanonicalSafetyState({
+    stackId: "stack",
+    stackCreatedAt: "2026-08-01T12:00:00.000Z",
+    reportStatus: "safe",
+  }),
   priorities: [],
 };
-assert.equal(blueprintSafetyLabel(context), "Review after your recent changes");
+assert.equal(blueprintSafetyLabel(context), "No material concern identified", "A broad Blueprint refresh flag is not automatically a safety change.");
 assert.equal(
   blueprintSafetyLabel({ ...context, needs_refresh: false }),
-  "No material safety flags identified",
+  "No material concern identified",
 );
 
 console.log("PR74 behavior assertions passed.");

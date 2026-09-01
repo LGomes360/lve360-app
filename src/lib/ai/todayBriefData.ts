@@ -142,7 +142,7 @@ export async function buildTodayBriefContext(userId: string, localDate: string):
     blueprint: blueprint ? {
       stackId: blueprint.stack_id,
       needsRefresh: blueprint.needs_refresh,
-      safetyNeedsAttention: blueprint.safety_status !== "safe" && !blueprint.safety_acknowledged,
+      safetyNeedsAttention: blueprint.safety.needsAttention,
       urgentSafetyInterruption: isUrgentBlueprintSafety(blueprint),
     } : null,
     checkIn: checkIn ? {

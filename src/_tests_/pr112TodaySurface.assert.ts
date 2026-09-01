@@ -3,16 +3,28 @@ import assert from "node:assert/strict";
 import type { CurrentBlueprintContext, ExperimentBlueprintContext } from "../lib/blueprintContext.ts";
 import { deterministicTodayBrief, shouldGenerateTodayBrief, type TodayBriefContext } from "../lib/todayBrief.ts";
 import { deriveTodayBlueprintNotice, isUrgentBlueprintSafety } from "../lib/todaySurface.ts";
+import { deriveCanonicalSafetyState } from "../lib/safetyState.ts";
 
-const blueprint = (overrides: Partial<CurrentBlueprintContext> = {}): CurrentBlueprintContext => ({
-  stack_id: "22222222-2222-4222-8222-222222222222",
-  created_at: "2026-08-15T12:00:00.000Z",
-  safety_status: "safe",
-  safety_acknowledged: false,
-  needs_refresh: false,
-  priorities: [],
-  ...overrides,
-});
+const blueprint = (overrides: Partial<CurrentBlueprintContext> = {}): CurrentBlueprintContext => {
+  const base = {
+    stack_id: "22222222-2222-4222-8222-222222222222",
+    created_at: "2026-08-15T12:00:00.000Z",
+    safety_status: "safe" as const,
+    safety_acknowledged: false,
+    needs_refresh: false,
+    priorities: [],
+  };
+  const merged = { ...base, ...overrides };
+  return {
+    ...merged,
+    safety: overrides.safety ?? deriveCanonicalSafetyState({
+      stackId: merged.stack_id,
+      stackCreatedAt: merged.created_at,
+      reportStatus: merged.safety_status,
+      acknowledgedAt: merged.safety_acknowledged ? merged.created_at : null,
+    }),
+  };
+};
 
 const experimentBlueprint = (overrides: Partial<ExperimentBlueprintContext> = {}): ExperimentBlueprintContext => ({
   source_stack_id: blueprint().stack_id,
@@ -33,18 +45,25 @@ assert.equal(staleNotice?.tone, "maintenance");
 assert.match(staleNotice?.detail ?? "", /focused lifestyle action is unchanged/i);
 
 const combinedNotice = deriveTodayBlueprintNotice(
-  blueprint({ needs_refresh: true, safety_status: "warning" }),
+  blueprint({
+    needs_refresh: true,
+    safety_status: "warning",
+    safety: deriveCanonicalSafetyState({
+      stackId: "22222222-2222-4222-8222-222222222222",
+      stackCreatedAt: "2026-08-15T12:00:00.000Z",
+      reportStatus: "warning",
+    }),
+  }),
   experimentBlueprint({ needs_review: true }),
 );
 assert.equal(combinedNotice?.tone, "maintenance", "Ordinary stale and warning states must collapse into one maintenance notice.");
-assert.match(combinedNotice?.detail ?? "", /saved health information/i);
 assert.match(combinedNotice?.detail ?? "", /earlier Blueprint/i);
 
 const unavailableSafety = blueprint({ safety_status: "error" });
 assert.equal(isUrgentBlueprintSafety(unavailableSafety), true, "Only an unacknowledged unavailable safety section interrupts the brief.");
 assert.equal(deriveTodayBlueprintNotice(unavailableSafety, experimentBlueprint())?.tone, "urgent");
 assert.equal(isUrgentBlueprintSafety(blueprint({ safety_status: "warning" })), false, "A reviewable warning is maintenance, not an urgent interruption.");
-assert.equal(isUrgentBlueprintSafety(blueprint({ safety_status: "error", safety_acknowledged: true })), false, "An acknowledged safety state must not keep interrupting Today.");
+assert.equal(isUrgentBlueprintSafety(blueprint({ safety_status: "error", safety_acknowledged: true })), true, "An unavailable safety section cannot be cleared by acknowledgement.");
 
 const briefContext = (blueprintContext: TodayBriefContext["blueprint"]): TodayBriefContext => ({
   localDate: "2026-08-15",
