@@ -15,11 +15,14 @@ assert.match(route, /plan_changes: \(planChanges \?\? \[\]\)/, "Journey must ret
 assert.match(journey, /journeyPlanChangeForReview/, "Weekly learning must resolve the exact attributable change event.");
 assert.match(journey, /journeyChangeDetails/, "Journey must expose only a bounded, human-readable before-and-after diff.");
 assert.match(dashboard, /What changed \(confirmed\)/);
+assert.match(dashboard, /What the weekly review recorded/);
+assert.match(dashboard, /Historical review; no linked ledger event/);
 assert.match(dashboard, /What you followed through on/);
 assert.match(dashboard, /What you observed/);
 assert.match(dashboard, /What remains unknown/);
 assert.match(dashboard, /One next decision/);
 assert.match(dashboard, /What actually changed/);
+assert.match(dashboard, /changes saved to your Plan/);
 assert.match(dashboard, /Observations and generated insights remain separate from Plan facts/);
 assert.match(dashboard, /not a causal claim/);
 assert.match(dashboard, /Other influences may have changed at the same time/);

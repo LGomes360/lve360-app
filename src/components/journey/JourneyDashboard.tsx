@@ -273,6 +273,7 @@ function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experime
   const activeAction = sentenceFragment(activeExperiment?.action_label);
   const nextAction = sentenceFragment(chosenNextExperiment?.action_label);
   const confirmedChange = journeyPlanChangeForReview(latestReview, planChanges);
+  const changeLabel = confirmedChange ? "What changed (confirmed)" : "What the weekly review recorded";
 
   const latestReviewDecision = latestReview ? journeyReviewDecision(latestReview) : null;
   const changed = confirmedChange
@@ -319,7 +320,7 @@ function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experime
         </p>
       </div>
       <ol className="grid gap-px bg-slate-200 md:grid-cols-2">
-        <StoryPoint number="1" label="What changed (confirmed)" body={changed} meta={confirmedChange ? `${planChangeSourceLabel(confirmedChange.source)} · ${formatPlanChangeDate(confirmedChange.created_at)}` : "Recorded weekly history"} />
+        <StoryPoint number="1" label={changeLabel} body={changed} meta={confirmedChange ? `${planChangeSourceLabel(confirmedChange.source)} · ${formatPlanChangeDate(confirmedChange.created_at)}` : "Historical review; no linked ledger event"} />
         <StoryPoint number="2" label="What you followed through on" body={followThrough} />
         <StoryPoint number="3" label="What you observed" body={learned} meta="What LVE360 learned begins with member-reported evidence" />
         <StoryPoint number="4" label="What appears to work (uncertain)" body={appearsToWork} meta="Working interpretation, not a causal claim" />
@@ -422,7 +423,7 @@ function PlanChangeTimeline({ changes }: { changes: JourneyPlanChange[] }) {
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Confirmed Plan history</p>
           <h2 id="confirmed-changes-title" className="mt-1 text-2xl font-bold text-[#041B2D]">What actually changed</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-            This is the attributable record of changes you confirmed. Observations and generated insights remain separate from Plan facts.
+            This is the attributable record of changes saved to your Plan. Observations and generated insights remain separate from Plan facts.
           </p>
         </div>
       </div>
