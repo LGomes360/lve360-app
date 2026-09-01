@@ -6,6 +6,7 @@ import type {
   JourneyCheckIn,
   JourneyCompletion,
   JourneyExperiment,
+  JourneyPlanChange,
   JourneyReview,
   JourneySynthesis,
 } from "@/lib/journey";
@@ -46,7 +47,7 @@ export async function GET() {
 
     const admin = getSupabaseAdmin();
     const blueprintPromise = getCurrentBlueprintContext(auth.user.id);
-    const [{ data: experiments, error: experimentError }, { data: reviews, error: reviewError }, { data: checkIns, error: checkInError }, { data: syntheses, error: synthesisError }, { data: goals, error: goalsError }] = await Promise.all([
+    const [{ data: experiments, error: experimentError }, { data: reviews, error: reviewError }, { data: checkIns, error: checkInError }, { data: syntheses, error: synthesisError }, { data: goals, error: goalsError }, { data: planChanges, error: planChangesError }] = await Promise.all([
       admin
         .from("weekly_experiments")
         .select("id, source_stack_id, source_action_id, connection_type, goal_id, goal_key, goal_label_snapshot, identity_direction, action_label, cue, frequency_per_week, target_quantity, quantity_unit, minimum_quantity, minimum_quantity_unit, minimum_version, status, week_start, activated_at, completed_at")
@@ -73,9 +74,15 @@ export async function GET() {
         .order("created_at", { ascending: false })
         .limit(52),
       admin.from("goals").select("id,goals,custom_goal,target_weight,target_sleep,target_energy").eq("user_id", auth.user.id).maybeSingle(),
+      admin
+        .from("plan_change_events")
+        .select("id,domain,entity_type,entity_id,change_type,source,change_summary,before_state,after_state,source_record_type,source_record_id,created_at")
+        .eq("user_id", auth.user.id)
+        .order("created_at", { ascending: false })
+        .limit(52),
     ]);
-    if (experimentError || reviewError || checkInError || synthesisError || goalsError) {
-      throw experimentError ?? reviewError ?? checkInError ?? synthesisError ?? goalsError;
+    if (experimentError || reviewError || checkInError || synthesisError || goalsError || planChangesError) {
+      throw experimentError ?? reviewError ?? checkInError ?? synthesisError ?? goalsError ?? planChangesError;
     }
 
     const experimentRows = (experiments ?? []) as JourneyExperiment[];
@@ -112,6 +119,7 @@ export async function GET() {
       check_ins: (checkIns ?? []) as JourneyCheckIn[],
       syntheses: ((syntheses ?? []) as JourneySynthesis[])
         .filter((item) => isTrustworthyJourneySynthesisVersion(item.prompt_version)),
+      plan_changes: (planChanges ?? []) as JourneyPlanChange[],
       blueprint,
       experiment_blueprints: experimentBlueprints,
       practice_connections: practiceConnections,

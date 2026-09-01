@@ -19,15 +19,19 @@ import {
   distinctWeeks,
   domainLabel,
   hasFourWeeksOfHistory,
+  journeyChangeDetails,
+  journeyPlanChangeForReview,
   journeyReviewDecision,
   journeyDomainSummaries,
   measuredMetricsForDomain,
   type JourneyCheckIn,
   type JourneyExperiment,
+  type JourneyPlanChange,
   type JourneyResponse,
   type JourneyReview,
   type JourneySynthesis,
 } from "@/lib/journey";
+import { formatPlanChangeDate, planChangeSourceLabel } from "@/lib/planHub";
 import { blueprintSafetyLabel, type CurrentBlueprintContext, type ExperimentBlueprintContext } from "@/lib/blueprintContext";
 import type { PracticeConnectionContext } from "@/lib/practiceConnection";
 import { formatPracticeCue, formatPracticeQuantity, isUsableMinimumVersionText } from "@/lib/practiceQuantity";
@@ -107,12 +111,15 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
 
   if (!data.experiments.length) {
     return (
-      <EmptyState
-        title="Your first chapter starts with one focused week."
-        body="Choose a small lifestyle practice in Today. Journey will preserve each week, what you learned, and the patterns that become visible over time."
-        action="Choose this week's practice"
-        href="/today"
-      />
+      <div className="space-y-6">
+        <EmptyState
+          title="Your first chapter starts with one focused week."
+          body="Choose a small lifestyle practice in Today. Journey will preserve each week, what you learned, and the patterns that become visible over time."
+          action="Choose this week's practice"
+          href="/today"
+        />
+        <PlanChangeTimeline changes={data.plan_changes} />
+      </div>
     );
   }
 
@@ -126,6 +133,7 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
         syntheses={data.syntheses}
         practiceConnections={data.practice_connections}
         experimentBlueprints={data.experiment_blueprints}
+        planChanges={data.plan_changes}
       />
 
       {activeExperiment ? <CurrentChapter experiment={activeExperiment} connection={data.practice_connections[activeExperiment.id]} blueprintContext={data.experiment_blueprints[activeExperiment.id] ?? null} completed={activeCompletionCount} /> : (
@@ -136,6 +144,8 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
           href="/today"
         />
       )}
+
+      <PlanChangeTimeline changes={data.plan_changes} />
 
       <SupportingDetail title="Review the Blueprint and next-focus context" description="See how your weekly practice connects to longer-term priorities." id="journey-blueprint-context">
         {data.blueprint ? <BlueprintJourneyContext blueprint={data.blueprint} /> : null}
@@ -239,7 +249,7 @@ function JourneyContent({ data }: { data: JourneyResponse }) {
   );
 }
 
-function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experiments, reviews, syntheses, practiceConnections, experimentBlueprints }: {
+function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experiments, reviews, syntheses, practiceConnections, experimentBlueprints, planChanges }: {
   activeExperiment: JourneyExperiment | null;
   activeCompletionCount: number;
   experiments: JourneyExperiment[];
@@ -247,6 +257,7 @@ function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experime
   syntheses: JourneySynthesis[];
   practiceConnections: Record<string, PracticeConnectionContext>;
   experimentBlueprints: Record<string, ExperimentBlueprintContext>;
+  planChanges: JourneyPlanChange[];
 }) {
   const latestReview = reviews[0] ?? null;
   const reviewedExperiment = latestReview
@@ -261,11 +272,14 @@ function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experime
   const focusExperiment = reviewedExperiment ?? activeExperiment ?? experiments[0] ?? null;
   const activeAction = sentenceFragment(activeExperiment?.action_label);
   const nextAction = sentenceFragment(chosenNextExperiment?.action_label);
+  const confirmedChange = journeyPlanChangeForReview(latestReview, planChanges);
 
   const latestReviewDecision = latestReview ? journeyReviewDecision(latestReview) : null;
-  const changed = latestReview
-    ? `${latestReviewDecision ? DECISION_LABELS[latestReviewDecision] : "Completed the weekly review"}${nextAction ? `, then chose ${nextAction}` : ""}.`
-    : `You started ${activeAction || "a focused weekly practice"}.`;
+  const changed = confirmedChange
+    ? confirmedChangeSummary(confirmedChange, latestReview?.adaptation_rationale)
+    : latestReview
+      ? `${latestReviewDecision ? DECISION_LABELS[latestReviewDecision] : "Completed the weekly review"}${nextAction ? `, then chose ${nextAction}` : ""}.`
+      : `You started ${activeAction || "a focused weekly practice"}.`;
   const followThrough = latestReview
     ? `You recorded ${latestReview.completion_count} of ${latestReview.target_count} planned ${latestReview.target_count === 1 ? "time" : "times"}.${latestReview.known_total_quantity != null && latestReview.known_total_quantity_unit ? ` Known volume: ${formatPracticeQuantity(latestReview.known_total_quantity, latestReview.known_total_quantity_unit)}.` : ""}`
     : `You have recorded ${activeCompletionCount} of ${activeExperiment?.frequency_per_week ?? 1} planned ${(activeExperiment?.frequency_per_week ?? 1) === 1 ? "time" : "times"} so far.`;
@@ -276,8 +290,11 @@ function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experime
   const appearsToWork = reviewedSynthesis
     ? `${reviewedSynthesis.hypothesis} This is a ${reviewedSynthesis.confidence}-confidence idea to test, not proof.`
     : describeApparentFit(latestReview);
+  const uncertainty = reviewedSynthesis
+    ? "This record cannot show that the practice caused a change in sleep, energy, weight, mood, or another health outcome. Other influences may have changed at the same time."
+    : "There is not enough reviewed evidence to connect this practice with a health outcome. A completed weekly reflection is the next useful signal.";
   const nextDecision = activeExperiment
-    ? `At the end of this week, decide whether to continue, decrease, increase, modify, pause, replace, or graduate ${activeAction || "this practice"}.`
+    ? `Review ${activeAction || "this practice"} after this week. Compare follow-through, usefulness, and difficulty, then choose the smallest useful adjustment.`
     : nextAction
       ? `Start the next chosen practice: ${nextAction}.`
       : "Choose one small practice for the next week when you are ready.";
@@ -302,12 +319,16 @@ function WeeklyLearningStory({ activeExperiment, activeCompletionCount, experime
         </p>
       </div>
       <ol className="grid gap-px bg-slate-200 md:grid-cols-2">
-        <StoryPoint number="1" label="What changed" body={changed} />
+        <StoryPoint number="1" label="What changed (confirmed)" body={changed} meta={confirmedChange ? `${planChangeSourceLabel(confirmedChange.source)} · ${formatPlanChangeDate(confirmedChange.created_at)}` : "Recorded weekly history"} />
         <StoryPoint number="2" label="What you followed through on" body={followThrough} />
-        <StoryPoint number="3" label="What LVE360 learned" body={learned} />
-        <StoryPoint number="4" label="What appears to work" body={appearsToWork} />
+        <StoryPoint number="3" label="What you observed" body={learned} meta="What LVE360 learned begins with member-reported evidence" />
+        <StoryPoint number="4" label="What appears to work (uncertain)" body={appearsToWork} meta="Working interpretation, not a causal claim" />
       </ol>
       {grounding ? <JourneyGroundingCard grounding={grounding} /> : null}
+      <div className="border-t border-slate-200 bg-amber-50 px-6 py-4 sm:px-8">
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-amber-900">What remains unknown</p>
+        <p className="mt-1 text-sm leading-6 text-amber-950/80">{uncertainty}</p>
+      </div>
       <div className="border-t border-slate-200 bg-[#F4FAF8] p-6 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-8">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">One next decision</p>
@@ -364,7 +385,7 @@ function JourneyGroundingCard({ grounding }: { grounding: JourneySynthesisGround
   );
 }
 
-function StoryPoint({ number, label, body }: { number: string; label: string; body: string }) {
+function StoryPoint({ number, label, body, meta }: { number: string; label: string; body: string; meta?: string }) {
   return (
     <li className="bg-white p-6 sm:p-7">
       <div className="flex items-start gap-4">
@@ -372,9 +393,76 @@ function StoryPoint({ number, label, body }: { number: string; label: string; bo
         <div>
           <h3 className="font-bold text-[#041B2D]">{label}</h3>
           <p className="mt-2 text-sm leading-6 text-slate-600">{body}</p>
+          {meta ? <p className="mt-3 text-xs font-semibold text-[#087F72]">{meta}</p> : null}
         </div>
       </div>
     </li>
+  );
+}
+
+function confirmedChangeSummary(change: JourneyPlanChange, rationale: string | null | undefined): string {
+  const summary = change.change_summary.trim();
+  if (!rationale?.trim()) return summary.endsWith(".") ? summary : `${summary}.`;
+  const rationaleSuffix = `: ${rationale.trim()}`;
+  const rationaleDelimiter = change.source === "weekly_review" ? summary.lastIndexOf(": ") : -1;
+  const withoutRepeatedRationale = rationaleDelimiter > 0
+    ? summary.slice(0, rationaleDelimiter)
+    : summary.endsWith(rationaleSuffix)
+      ? summary.slice(0, -rationaleSuffix.length)
+      : summary;
+  return `${withoutRepeatedRationale}. You chose this because ${sentenceFragment(rationale)}.`;
+}
+
+function PlanChangeTimeline({ changes }: { changes: JourneyPlanChange[] }) {
+  return (
+    <section aria-labelledby="confirmed-changes-title" className="rounded-3xl border border-[#CFE8E2] bg-white p-6 shadow-sm sm:p-8">
+      <div className="flex items-start gap-3">
+        <History className="mt-1 h-5 w-5 text-[#087F72]" aria-hidden="true" />
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Confirmed Plan history</p>
+          <h2 id="confirmed-changes-title" className="mt-1 text-2xl font-bold text-[#041B2D]">What actually changed</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+            This is the attributable record of changes you confirmed. Observations and generated insights remain separate from Plan facts.
+          </p>
+        </div>
+      </div>
+
+      {changes.length ? (
+        <ol className="mt-6 divide-y divide-slate-200">
+          {changes.slice(0, 6).map((change) => {
+            const details = journeyChangeDetails(change).slice(0, 3);
+            return (
+              <li key={change.id} className="py-5 first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-bold text-[#041B2D]">{change.change_summary}</p>
+                    <p className="mt-1 text-xs text-slate-500">{formatPlanChangeDate(change.created_at)} · {planChangeSourceLabel(change.source)}</p>
+                  </div>
+                  <span className="rounded-full bg-[#EAFBF8] px-3 py-1 text-xs font-bold text-[#087F72]">
+                    {change.domain === "practice" ? "Practice" : "Regimen"}
+                  </span>
+                </div>
+                {details.length ? (
+                  <dl className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {details.map((detail) => (
+                      <div key={detail.label} className="rounded-xl bg-slate-50 p-3 text-xs leading-5">
+                        <dt className="font-bold uppercase tracking-wide text-slate-500">{detail.label}</dt>
+                        <dd className="mt-1 text-slate-600"><span className="line-through decoration-slate-400">{detail.before}</span> <span aria-hidden="true">→</span> <strong className="text-[#041B2D]">{detail.after}</strong></dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5">
+          <p className="font-bold text-[#041B2D]">No confirmed Plan changes since tracking began.</p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">Future regimen and Practice changes will appear here after you confirm them.</p>
+        </div>
+      )}
+    </section>
   );
 }
 
