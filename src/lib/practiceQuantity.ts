@@ -1,5 +1,24 @@
 export const MAX_PRACTICE_QUANTITY = 100_000;
 
+const COUNTABLE_UNIT_FORMS: Record<string, { singular: string; plural: string }> = {
+  minute: { singular: "minute", plural: "minutes" },
+  minutes: { singular: "minute", plural: "minutes" },
+  second: { singular: "second", plural: "seconds" },
+  seconds: { singular: "second", plural: "seconds" },
+  hour: { singular: "hour", plural: "hours" },
+  hours: { singular: "hour", plural: "hours" },
+  repetition: { singular: "repetition", plural: "repetitions" },
+  repetitions: { singular: "repetition", plural: "repetitions" },
+  rep: { singular: "rep", plural: "reps" },
+  reps: { singular: "rep", plural: "reps" },
+  step: { singular: "step", plural: "steps" },
+  steps: { singular: "step", plural: "steps" },
+  page: { singular: "page", plural: "pages" },
+  pages: { singular: "page", plural: "pages" },
+  mile: { singular: "mile", plural: "miles" },
+  miles: { singular: "mile", plural: "miles" },
+};
+
 export type PracticeQuantityFields = {
   target_quantity: number | null;
   quantity_unit: string | null;
@@ -134,7 +153,12 @@ export function buildWeeklyPracticeMetrics(input: {
 
 export function formatPracticeQuantity(quantity: number, unit: string): string {
   const amount = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(quantity);
-  return `${amount} ${unit}`;
+  const cleanedUnit = unit.trim();
+  const countableUnit = COUNTABLE_UNIT_FORMS[cleanedUnit.toLowerCase()];
+  const displayedUnit = countableUnit
+    ? quantity === 1 ? countableUnit.singular : countableUnit.plural
+    : cleanedUnit;
+  return `${amount} ${displayedUnit}`;
 }
 
 export function formatPracticeCue(value: string | null | undefined): string {

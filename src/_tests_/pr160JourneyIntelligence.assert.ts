@@ -6,6 +6,11 @@ import {
   type JourneyPlanChange,
   type JourneyReview,
 } from "../lib/journey.ts";
+import { formatPracticeQuantity } from "../lib/practiceQuantity.ts";
+
+assert.equal(formatPracticeQuantity(1, "minutes"), "1 minute");
+assert.equal(formatPracticeQuantity(3, "minute"), "3 minutes");
+assert.equal(formatPracticeQuantity(500, "mg"), "500 mg");
 
 const review: JourneyReview = {
   experiment_id: "experiment-1",
