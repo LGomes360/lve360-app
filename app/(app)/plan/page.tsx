@@ -3,6 +3,7 @@ import {
   ArrowRight,
   CalendarClock,
   CheckCircle2,
+  FileText,
   History,
   ShieldAlert,
   ShieldCheck,
@@ -30,6 +31,9 @@ export default async function PlanPage() {
         <p className="mt-3 max-w-3xl text-base leading-7 text-slate-200">
           See what you are focusing on, the Practices you are building, what you take, how it is scheduled, and what changed recently.
         </p>
+        <Link href="/blueprints" className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/25 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/10">
+          <FileText className="h-4 w-4" aria-hidden="true" /> Open Blueprint archive
+        </Link>
       </header>
 
       <section className="grid gap-5 lg:grid-cols-[1.35fr_0.65fr]" aria-label="Current focus and safety">
