@@ -74,6 +74,29 @@ export type JourneySynthesis = {
   created_at: string;
 };
 
+export type JourneyPlanChangeState = Record<string, unknown>;
+
+export type JourneyPlanChange = {
+  id: string;
+  domain: "regimen" | "practice";
+  entity_type: string;
+  entity_id: string;
+  change_type: string;
+  source: string;
+  change_summary: string;
+  before_state: JourneyPlanChangeState | null;
+  after_state: JourneyPlanChangeState | null;
+  source_record_type: string | null;
+  source_record_id: string | null;
+  created_at: string;
+};
+
+export type JourneyChangeDetail = {
+  label: string;
+  before: string;
+  after: string;
+};
+
 export type JourneyResponse = {
   ok: boolean;
   experiments: JourneyExperiment[];
@@ -81,6 +104,7 @@ export type JourneyResponse = {
   completions: JourneyCompletion[];
   check_ins: JourneyCheckIn[];
   syntheses: JourneySynthesis[];
+  plan_changes: JourneyPlanChange[];
   blueprint: import("@/lib/blueprintContext").CurrentBlueprintContext | null;
   experiment_blueprints: Record<string, import("@/lib/blueprintContext").ExperimentBlueprintContext>;
   practice_connections: Record<string, import("@/lib/practiceConnection").PracticeConnectionContext>;
@@ -113,10 +137,69 @@ export const DECISION_LABELS: Record<string, string> = {
   graduate: "Graduated the practice",
 };
 
+const CHANGE_DETAIL_FIELDS: Record<JourneyPlanChange["domain"], Array<{ key: string; label: string }>> = {
+  practice: [
+    { key: "action_label", label: "Practice" },
+    { key: "cue", label: "Cue" },
+    { key: "frequency_per_week", label: "Weekly target" },
+    { key: "target_quantity", label: "Amount" },
+    { key: "minimum_version", label: "Minimum version" },
+    { key: "status", label: "Status" },
+  ],
+  regimen: [
+    { key: "name", label: "Item" },
+    { key: "dose", label: "Dose" },
+    { key: "timing", label: "Timing" },
+    { key: "brand", label: "Brand" },
+    { key: "active", label: "Status" },
+  ],
+};
+
 export function journeyReviewDecision(
   review: JourneyReview,
 ): JourneyReview["decision"] | JourneyReview["adaptation_kind"] {
   return review.adaptation_kind ?? review.decision;
+}
+
+export function journeyPlanChangeForReview(
+  review: JourneyReview | null,
+  changes: JourneyPlanChange[],
+): JourneyPlanChange | null {
+  if (!review) return null;
+  return changes.find((change) =>
+    change.domain === "practice"
+    && change.source_record_type === "weekly_experiment"
+    && change.source_record_id === review.experiment_id
+  ) ?? null;
+}
+
+export function journeyChangeDetails(change: JourneyPlanChange): JourneyChangeDetail[] {
+  const before = change.before_state ?? {};
+  const after = change.after_state ?? {};
+
+  return CHANGE_DETAIL_FIELDS[change.domain].flatMap(({ key, label }) => {
+    const beforeValue = formatJourneyStateValue(before[key], key, before);
+    const afterValue = formatJourneyStateValue(after[key], key, after);
+    if (beforeValue === afterValue) return [];
+    return [{ label, before: beforeValue, after: afterValue }];
+  });
+}
+
+function formatJourneyStateValue(value: unknown, key: string, state: JourneyPlanChangeState): string {
+  if (value == null || value === "") return "Not recorded";
+  if (key === "active" && typeof value === "boolean") return value ? "Active" : "Stopped";
+  if (key === "status" && typeof value === "string") {
+    return value.charAt(0).toUpperCase() + value.slice(1).replaceAll("_", " ");
+  }
+  if (key === "frequency_per_week" && typeof value === "number") {
+    return `${value} ${value === 1 ? "time" : "times"} per week`;
+  }
+  if (key === "target_quantity" && typeof value === "number") {
+    const unit = typeof state.quantity_unit === "string" ? state.quantity_unit.trim() : "";
+    return unit ? `${value} ${unit}` : String(value);
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  return "Updated";
 }
 
 export function domainLabel(value: string | null): string {

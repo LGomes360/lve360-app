@@ -1,6 +1,7 @@
 import type { ExperimentBlueprintContext } from "./blueprintContext.ts";
 import type { JourneyExperiment, JourneyReview, JourneySynthesis } from "./journey.ts";
 import type { PracticeConnectionContext } from "./practiceConnection.ts";
+import { formatPracticeQuantity } from "./practiceQuantity.ts";
 
 export type JourneyGroundingSource = {
   kind: "practice" | "reflection" | "check_in" | "history" | "connection";
@@ -48,6 +49,13 @@ function cleanText(value: unknown, maximum = 240): string | null {
 }
 
 function safeEvidenceValue(label: string, value: string): string | null {
+  if (label === "Exercise volume") {
+    const match = value.match(/^(-?\d+(?:\.\d+)?)\s+(.+)$/);
+    if (match) {
+      const quantity = Number(match[1]);
+      if (Number.isFinite(quantity)) return formatPracticeQuantity(quantity, match[2]);
+    }
+  }
   if (label !== "Member-reported context") return value;
   const count = value.match(/^(\d{1,3})\s+notes?\b/i)?.[1];
   if (!count) return null;
