@@ -141,8 +141,8 @@ export default async function PlanPage() {
           </ol>
         ) : (
           <div className="mt-5 rounded-2xl border border-dashed border-slate-300 p-5">
-            <p className="font-bold text-[#041B2D]">No confirmed changes recorded yet.</p>
-            <p className="mt-1 text-sm leading-6 text-slate-600">New regimen and Practice changes will appear here after you confirm them.</p>
+            <p className="font-bold text-[#041B2D]">No confirmed changes since tracking began.</p>
+            <p className="mt-1 text-sm leading-6 text-slate-600">Future regimen and Practice changes will appear here after you confirm them.</p>
           </div>
         )}
       </section>
