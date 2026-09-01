@@ -55,7 +55,7 @@ export async function GET() {
         .limit(52),
       admin
         .from("weekly_experiment_reviews")
-        .select("experiment_id, next_experiment_id, completion_count, target_count, target_quantity_per_session, quantity_unit, known_total_quantity, known_total_quantity_unit, difficulty, value_rating, decision, status, completed_at")
+        .select("experiment_id, next_experiment_id, completion_count, target_count, target_quantity_per_session, quantity_unit, known_total_quantity, known_total_quantity_unit, difficulty, value_rating, decision, adaptation_kind, adaptation_rationale, status, completed_at")
         .eq("user_id", auth.user.id)
         .order("completed_at", { ascending: false })
         .limit(52),

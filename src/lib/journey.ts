@@ -33,6 +33,8 @@ export type JourneyReview = {
   difficulty: number | null;
   value_rating: number | null;
   decision: "keep" | "shrink" | "swap" | "pause" | "advance" | null;
+  adaptation_kind: import("@/lib/weeklyReview").PracticeAdaptation | null;
+  adaptation_rationale: string | null;
   status: "draft" | "completed";
   completed_at: string | null;
 };
@@ -42,7 +44,7 @@ export type JourneyDomainSummary = {
   weeks: number;
   completions: number;
   reviews: number;
-  latest_decision: JourneyReview["decision"];
+  latest_decision: JourneyReview["decision"] | JourneyReview["adaptation_kind"];
 };
 
 export type JourneyCompletion = {
@@ -103,7 +105,19 @@ export const DECISION_LABELS: Record<string, string> = {
   swap: "Swapped the practice",
   pause: "Paused",
   advance: "Built on it",
+  continue: "Continued the practice",
+  decrease: "Decreased the practice",
+  increase: "Increased the practice",
+  modify: "Modified the practice",
+  replace: "Replaced the practice",
+  graduate: "Graduated the practice",
 };
+
+export function journeyReviewDecision(
+  review: JourneyReview,
+): JourneyReview["decision"] | JourneyReview["adaptation_kind"] {
+  return review.adaptation_kind ?? review.decision;
+}
 
 export function domainLabel(value: string | null): string {
   return value ? DOMAIN_LABELS[value] ?? "Overall health" : "Overall health";
@@ -169,7 +183,8 @@ export function journeyDomainSummaries(
     existing.weeks += 1;
     existing.completions += completionsByExperiment.get(experiment.id) ?? 0;
     existing.reviews += review?.status === "completed" ? 1 : 0;
-    if (!existing.latest_decision && review?.decision) existing.latest_decision = review.decision;
+    const latestDecision = review ? journeyReviewDecision(review) : null;
+    if (!existing.latest_decision && latestDecision) existing.latest_decision = latestDecision;
     summaries.set(domain, existing);
   }
 

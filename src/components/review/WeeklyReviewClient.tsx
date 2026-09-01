@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, Lightbulb, Loader2, Pause, RefreshCw, Repeat2, Sparkles, TrendingUp, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, GraduationCap, Lightbulb, Loader2, Pause, Pencil, RefreshCw, Repeat2, Sparkles, TrendingDown, TrendingUp, X } from "lucide-react";
 
 import type { WeeklyExperiment } from "@/lib/activation";
-import { suggestedNextPlan, validateNextPlan, type NextWeekPlan, type ReviewDecision } from "@/lib/weeklyReview";
+import {
+  adaptationForReviewDecision,
+  cleanAdaptationRationale,
+  suggestedAdaptationPlan,
+  validateAdaptationPlan,
+  type NextWeekPlan,
+  type PracticeAdaptation,
+} from "@/lib/weeklyReview";
 import type { WeeklySynthesis } from "@/lib/weeklySynthesis";
 import type { PracticeConnectionContext } from "@/lib/practiceConnection";
 import type { CoachActionProposal } from "@/lib/coachActions";
@@ -21,12 +28,14 @@ type ReviewResponse = {
   error?: string;
 };
 
-const decisions: Array<{ value: ReviewDecision; title: string; description: string; icon: typeof Check }> = [
-  { value: "keep", title: "Keep it", description: "Repeat the same practice next week.", icon: Repeat2 },
-  { value: "shrink", title: "Make it smaller", description: "Lower the weekly target so it is easier to repeat.", icon: ArrowLeft },
-  { value: "swap", title: "Swap it", description: "Choose a different small lifestyle practice.", icon: RefreshCw },
-  { value: "pause", title: "Pause", description: "Close this experiment without starting another.", icon: Pause },
-  { value: "advance", title: "Build on it", description: "Add one practice completion next week.", icon: TrendingUp },
+const decisions: Array<{ value: PracticeAdaptation; title: string; description: string; icon: typeof Check }> = [
+  { value: "continue", title: "Continue", description: "Repeat this practice exactly as it is.", icon: Repeat2 },
+  { value: "decrease", title: "Decrease", description: "Reduce its frequency or target amount.", icon: TrendingDown },
+  { value: "increase", title: "Increase", description: "Add one manageable step to its frequency or amount.", icon: TrendingUp },
+  { value: "modify", title: "Modify", description: "Keep the practice but change its cue, target, or hard-day version.", icon: Pencil },
+  { value: "pause", title: "Pause", description: "Set it aside for now without losing its history.", icon: Pause },
+  { value: "replace", title: "Replace", description: "Retire this practice and choose a different one.", icon: RefreshCw },
+  { value: "graduate", title: "Graduate", description: "Mark it complete as an active focus because it no longer needs a focused week.", icon: GraduationCap },
 ];
 
 export default function WeeklyReviewClient({ experimentId }: { experimentId: string }) {
@@ -40,7 +49,8 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
   const [coachActionBusy, setCoachActionBusy] = useState(false);
   const [difficulty, setDifficulty] = useState(0);
   const [valueRating, setValueRating] = useState(0);
-  const [decision, setDecision] = useState<ReviewDecision | null>(null);
+  const [adaptation, setAdaptation] = useState<PracticeAdaptation | null>(null);
+  const [rationale, setRationale] = useState("");
   const [nextPlan, setNextPlan] = useState<NextWeekPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -73,11 +83,15 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
     return () => { cancelled = true; };
   }, [experimentId, reloadKey]);
 
-  const ready = useMemo(() => difficulty > 0 && valueRating > 0 && !!decision && (decision === "pause" || !!validateNextPlan(nextPlan)), [difficulty, valueRating, decision, nextPlan]);
+  const ready = useMemo(() => {
+    if (!difficulty || !valueRating || !adaptation || !experiment || !cleanAdaptationRationale(rationale)) return false;
+    if (adaptation === "pause" || adaptation === "graduate") return nextPlan == null;
+    return !!validateAdaptationPlan(experiment, adaptation, nextPlan);
+  }, [difficulty, valueRating, adaptation, experiment, nextPlan, rationale]);
 
-  function chooseDecision(value: ReviewDecision) {
-    setDecision(value);
-    setNextPlan(experiment ? suggestedNextPlan(experiment, value) : null);
+  function chooseDecision(value: PracticeAdaptation) {
+    setAdaptation(value);
+    setNextPlan(experiment ? suggestedAdaptationPlan(experiment, value) : null);
     setSelectedCoachActionId(null);
   }
 
@@ -103,14 +117,14 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
 
   function useSuggestion() {
     if (!synthesis) return;
-    setDecision(synthesis.suggestedDecision);
+    setAdaptation(adaptationForReviewDecision(synthesis.suggestedDecision));
     setNextPlan(synthesis.suggestedPlan);
     setSelectedCoachActionId(null);
   }
 
   function useQueuedCoachAction() {
     if (!queuedCoachAction) return;
-    setDecision("swap");
+    setAdaptation("replace");
     setNextPlan({
       action_label: queuedCoachAction.actionLabel,
       cue: queuedCoachAction.cue,
@@ -138,7 +152,7 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
       setQueuedCoachAction(null);
       if (selectedCoachActionId === queuedCoachAction.id) {
         setSelectedCoachActionId(null);
-        setDecision(null);
+        setAdaptation(null);
         setNextPlan(null);
       }
     } catch {
@@ -149,14 +163,14 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
   }
 
   async function finishReview() {
-    if (!ready || !decision) return;
+    if (!ready || !adaptation) return;
     setSaving(true);
     setError(null);
     try {
       const response = await fetch("/api/weekly-review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ experiment_id: experimentId, difficulty, value_rating: valueRating, decision, next_plan: nextPlan, synthesis_id: synthesis?.id ?? null, coach_action_proposal_id: selectedCoachActionId }),
+        body: JSON.stringify({ experiment_id: experimentId, difficulty, value_rating: valueRating, adaptation, rationale, next_plan: nextPlan, synthesis_id: synthesis?.id ?? null, coach_action_proposal_id: selectedCoachActionId }),
       });
       const json = await response.json().catch(() => null) as ReviewResponse | null;
       if (!response.ok || !json?.ok) throw new Error(reviewError(json?.error));
@@ -225,9 +239,9 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {decisions.map((item) => {
             const Icon = item.icon;
-            const selected = decision === item.value;
+            const selected = adaptation === item.value;
             return (
-              <button key={item.value} type="button" onClick={() => chooseDecision(item.value)} className={`rounded-2xl border p-5 text-left transition ${selected ? "border-[#087F72] bg-[#EAFBF8] ring-2 ring-[#087F72]/20" : "border-slate-200 bg-white hover:border-[#9DCFC3]"}`}>
+              <button key={item.value} type="button" aria-pressed={selected} onClick={() => chooseDecision(item.value)} className={`rounded-2xl border p-5 text-left transition ${selected ? "border-[#087F72] bg-[#EAFBF8] ring-2 ring-[#087F72]/20" : "border-slate-200 bg-white hover:border-[#9DCFC3]"}`}>
                 <Icon className="h-5 w-5 text-[#087F72]" />
                 <span className="mt-3 block font-bold text-[#041B2D]">{item.title}</span>
                 <span className="mt-1 block text-sm leading-6 text-slate-600">{item.description}</span>
@@ -237,8 +251,19 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
         </div>
       </section>
 
-      {decision && nextPlan ? <NextPlanEditor plan={nextPlan} onChange={setNextPlan} swap={decision === "swap"} /> : null}
-      {decision === "pause" ? <p className="mt-6 rounded-2xl bg-[#F4FAF8] p-5 text-sm leading-6 text-slate-700">Your completed week will stay in your history. You can start a new focused week from Today whenever you are ready.</p> : null}
+      {adaptation ? (
+        <label className="mt-8 block rounded-2xl border border-[#BCE3DA] bg-[#F4FAF8] p-5 text-sm font-bold text-[#041B2D]">
+          Why is this the right next decision? <span className="text-[#087F72]">Required</span>
+          <textarea required aria-describedby="adaptation-rationale-help" value={rationale} onChange={(event) => setRationale(event.target.value)} maxLength={500} rows={3} placeholder="For example: The cue worked, but five times was more than I could repeat." className="mt-3 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal leading-6" />
+          <span id="adaptation-rationale-help" className="mt-2 block font-normal leading-5 text-slate-500">Add at least three characters. This reason becomes part of your private Practice history so future reviews can distinguish what changed from why.</span>
+        </label>
+      ) : null}
+      {adaptation && nextPlan && adaptation !== "continue" && adaptation !== "pause" && adaptation !== "graduate"
+        ? <NextPlanEditor plan={nextPlan} onChange={setNextPlan} adaptation={adaptation} />
+        : null}
+      {adaptation === "continue" && nextPlan ? <DecisionNote>Next week will repeat the same practice, cue, target, and hard-day version.</DecisionNote> : null}
+      {adaptation === "pause" ? <DecisionNote>Your completed week will stay in your history. This Practice will be paused, and you can resume it later.</DecisionNote> : null}
+      {adaptation === "graduate" ? <DecisionNote>Your completed week will stay in your history. This Practice will leave active focus without being treated as a replacement or a failure.</DecisionNote> : null}
       {error ? <p className="mt-5 text-sm font-semibold text-rose-700">{error}</p> : null}
       <button onClick={finishReview} disabled={!ready || saving} className="mt-8 inline-flex min-h-12 items-center rounded-xl bg-[#08A88A] px-6 py-3 font-bold text-white hover:bg-[#078B74] disabled:cursor-not-allowed disabled:opacity-50">
         {saving ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Check className="mr-2 h-5 w-5" />} Finish review <ArrowRight className="ml-2 h-4 w-4" />
@@ -248,7 +273,8 @@ export default function WeeklyReviewClient({ experimentId }: { experimentId: str
 }
 
 function SynthesisCard({ synthesis, onUse }: { synthesis: WeeklySynthesis; onUse: () => void }) {
-  const decisionLabel = decisions.find((item) => item.value === synthesis.suggestedDecision)?.title ?? "Try the suggestion";
+  const suggestedAdaptation = adaptationForReviewDecision(synthesis.suggestedDecision);
+  const decisionLabel = decisions.find((item) => item.value === suggestedAdaptation)?.title ?? "Try the suggestion";
   return (
     <section className="mt-8 rounded-3xl border border-[#9DCFC3] bg-[#EAFBF8] p-6 sm:p-8">
       <div className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-[#087F72]" aria-hidden="true" /><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">LVE360 weekly reflection</p></div>
@@ -277,11 +303,12 @@ function Rating({ title, low, high, value, onChange }: { title: string; low: str
   );
 }
 
-function NextPlanEditor({ plan, onChange, swap }: { plan: NextWeekPlan; onChange: (plan: NextWeekPlan) => void; swap: boolean }) {
+function NextPlanEditor({ plan, onChange, adaptation }: { plan: NextWeekPlan; onChange: (plan: NextWeekPlan) => void; adaptation: Exclude<PracticeAdaptation, "continue" | "pause" | "graduate"> }) {
+  const replacing = adaptation === "replace";
   return (
     <section className="mt-8 rounded-3xl border border-[#BCE3DA] bg-[#F4FAF8] p-6 sm:p-8">
-      <h2 className="text-xl font-bold text-[#041B2D]">{swap ? "Choose next week's practice" : "Your next week"}</h2>
-      {swap ? <p className="mt-2 text-sm leading-6 text-slate-600">A different practice starts as an independent choice. After this review, use Review practice in Today if you want to connect it to a saved goal.</p> : null}
+      <h2 className="text-xl font-bold text-[#041B2D]">{replacing ? "Choose the replacement practice" : "Confirm the adapted practice"}</h2>
+      {replacing ? <p className="mt-2 text-sm leading-6 text-slate-600">The replacement starts as an independent choice. After this review, use Review practice in Today if you want to connect it to a saved goal.</p> : null}
       <label className="mt-5 block text-sm font-bold text-[#041B2D]">Practice<input value={plan.action_label} onChange={(event) => onChange({ ...plan, action_label: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /></label>
       <label className="mt-4 block text-sm font-bold text-[#041B2D]">After I...<input value={plan.cue} onChange={(event) => onChange({ ...plan, cue: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal" /></label>
       <div className="mt-4 grid gap-4 sm:grid-cols-3">
@@ -297,6 +324,10 @@ function NextPlanEditor({ plan, onChange, swap }: { plan: NextWeekPlan; onChange
       {!readyQuantity(plan) ? <p className="mt-3 text-sm font-semibold text-rose-700">Quantity fields need a positive amount and a unit, or both should be blank.</p> : null}
     </section>
   );
+}
+
+function DecisionNote({ children }: { children: React.ReactNode }) {
+  return <p className="mt-6 rounded-2xl bg-[#F4FAF8] p-5 text-sm leading-6 text-slate-700">{children}</p>;
 }
 
 function readyQuantity(plan: NextWeekPlan): boolean {
