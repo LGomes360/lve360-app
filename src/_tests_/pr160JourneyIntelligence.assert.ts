@@ -7,10 +7,30 @@ import {
   type JourneyReview,
 } from "../lib/journey.ts";
 import { formatPracticeQuantity } from "../lib/practiceQuantity.ts";
+import { journeySynthesisGrounding } from "../lib/journeyGrounding.ts";
 
 assert.equal(formatPracticeQuantity(1, "minutes"), "1 minute");
 assert.equal(formatPracticeQuantity(3, "minute"), "3 minutes");
 assert.equal(formatPracticeQuantity(500, "mg"), "500 mg");
+
+const grounding = journeySynthesisGrounding({
+  experiment: { action_label: "Wall sit for 1 minute." },
+  review: { completion_count: 3, target_count: 5, difficulty: 4, value_rating: 3 },
+  synthesis: {
+    confidence: "moderate",
+    evidence: [
+      { label: "Practice completions", value: "3 of 5 planned" },
+      { label: "Exercise volume", value: "3 minute" },
+    ],
+  },
+  connection: null,
+  blueprintContext: null,
+});
+assert.match(
+  grounding.sources[0]?.detail ?? "",
+  /Exercise volume: 3 minutes/,
+  "Legacy evidence quantities should use the same human-readable grammar as the weekly story.",
+);
 
 const review: JourneyReview = {
   experiment_id: "experiment-1",
