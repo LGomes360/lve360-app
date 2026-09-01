@@ -1,15 +1,17 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Menu, X } from "lucide-react";
+import { ChevronDown, Menu, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
 import {
   AUTHENTICATED_NAV_ITEMS,
+  PAID_PRIMARY_NAV_ITEMS,
+  PAID_SECONDARY_NAV_ITEMS,
   isAuthenticatedRouteActive,
 } from "@/lib/authenticatedNavigation";
 import AskLve360Coach from "@/components/coach/AskLve360Coach";
@@ -23,10 +25,42 @@ export default function DashboardHeader({ tier = "free" }: Props) {
   const router = useRouter();
   const supabase = createClientComponentClient();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [secondaryOpen, setSecondaryOpen] = useState(false);
+  const secondaryMenuRef = useRef<HTMLDivElement>(null);
+  const secondaryMenuButtonRef = useRef<HTMLButtonElement>(null);
   const paid = tier === "premium" || tier === "trial";
   const navigationItems = paid
-    ? AUTHENTICATED_NAV_ITEMS
+    ? PAID_PRIMARY_NAV_ITEMS
     : AUTHENTICATED_NAV_ITEMS.filter((item) => item.href === "/blueprints" || item.href === "/settings");
+  const secondaryItems = paid ? PAID_SECONDARY_NAV_ITEMS : [];
+  const secondaryActive = secondaryItems.some((item) => isAuthenticatedRouteActive(pathname, item.href));
+
+  useEffect(() => {
+    setMenuOpen(false);
+    setSecondaryOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!secondaryOpen) return;
+
+    function closeSecondaryMenu(event: PointerEvent | KeyboardEvent) {
+      if (event instanceof KeyboardEvent && event.key === "Escape") {
+        setSecondaryOpen(false);
+        secondaryMenuButtonRef.current?.focus();
+        return;
+      }
+      if (event instanceof PointerEvent && !secondaryMenuRef.current?.contains(event.target as Node)) {
+        setSecondaryOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeSecondaryMenu);
+    document.addEventListener("keydown", closeSecondaryMenu);
+    return () => {
+      document.removeEventListener("pointerdown", closeSecondaryMenu);
+      document.removeEventListener("keydown", closeSecondaryMenu);
+    };
+  }, [secondaryOpen]);
 
   async function handleSignOut() {
     setMenuOpen(false);
@@ -41,7 +75,7 @@ export default function DashboardHeader({ tier = "free" }: Props) {
         <Link
           href={paid ? "/today" : "/blueprints"}
           className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] focus-visible:ring-offset-2"
-          aria-label="LVE360 Today"
+          aria-label={paid ? "LVE360 Today" : "LVE360 Blueprints"}
         >
           <Image
             src="/icons/lve360-logo.png"
@@ -62,6 +96,37 @@ export default function DashboardHeader({ tier = "free" }: Props) {
             </NavLink>
           ))}
         </nav>
+
+        {paid ? (
+          <div ref={secondaryMenuRef} className="relative hidden md:block">
+            <button
+              ref={secondaryMenuButtonRef}
+              type="button"
+              onClick={() => setSecondaryOpen((open) => !open)}
+              aria-expanded={secondaryOpen}
+              aria-haspopup="true"
+              aria-controls="member-secondary-navigation"
+              className={[
+                "inline-flex items-center rounded-lg px-3 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] focus-visible:ring-offset-2",
+                secondaryActive ? "bg-[#EAFBF8] text-[#06695F]" : "text-[#041B2D] hover:bg-slate-50 hover:text-[#087F72]",
+              ].join(" ")}
+            >
+              More
+              <ChevronDown className={`ml-1 h-4 w-4 transition ${secondaryOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+            </button>
+            {secondaryOpen ? (
+              <div id="member-secondary-navigation" className="absolute right-0 top-full z-50 mt-2 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                <nav className="space-y-1 text-sm font-semibold text-[#041B2D]" aria-label="Member tools and archive">
+                  {secondaryItems.map((item) => (
+                    <NavLink key={item.href} href={item.href} pathname={pathname} onClick={() => setSecondaryOpen(false)} mobile>
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </nav>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {paid ? <AskLve360Coach /> : null}
         <span className="hidden h-6 w-px bg-slate-200 md:block" aria-hidden="true" />
@@ -118,6 +183,22 @@ export default function DashboardHeader({ tier = "free" }: Props) {
                   {item.label}
                 </NavLink>
               ))}
+              {paid ? (
+                <div className="mt-2 border-t border-slate-200 pt-3">
+                  <p className="px-4 pb-1 text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Tools and archive</p>
+                  {secondaryItems.map((item) => (
+                    <NavLink
+                      key={item.href}
+                      href={item.href}
+                      pathname={pathname}
+                      onClick={() => setMenuOpen(false)}
+                      mobile
+                    >
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              ) : null}
               {!paid ? (
                 <Link
                   href="/upgrade"
@@ -163,7 +244,7 @@ function NavLink({
       aria-current={active ? "page" : undefined}
       className={[
         "rounded-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F72] focus-visible:ring-offset-2",
-        mobile ? "min-h-11 px-4 py-3" : "px-3 py-2",
+        mobile ? "block min-h-11 px-4 py-3" : "px-3 py-2",
         active ? "bg-[#EAFBF8] text-[#06695F]" : "hover:bg-slate-50 hover:text-[#087F72]",
       ].join(" ")}
     >
