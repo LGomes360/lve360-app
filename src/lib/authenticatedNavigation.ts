@@ -1,9 +1,18 @@
-export const AUTHENTICATED_NAV_ITEMS = [
+export const PAID_PRIMARY_NAV_ITEMS = [
   { href: "/today", label: "Today" },
-  { href: "/routine", label: "Routine" },
+  { href: "/plan", label: "Plan" },
   { href: "/journey", label: "Journey" },
-  { href: "/blueprints", label: "Blueprints" },
+] as const;
+
+export const PAID_SECONDARY_NAV_ITEMS = [
+  { href: "/routine", label: "Routine" },
+  { href: "/blueprints", label: "Blueprint archive" },
   { href: "/settings", label: "Settings" },
+] as const;
+
+export const AUTHENTICATED_NAV_ITEMS = [
+  ...PAID_PRIMARY_NAV_ITEMS,
+  ...PAID_SECONDARY_NAV_ITEMS,
 ] as const;
 
 export const LEGACY_AUTHENTICATED_REDIRECTS = {
