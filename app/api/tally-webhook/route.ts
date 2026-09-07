@@ -440,9 +440,7 @@ const submissionRow = {
       });
     }
     const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://app.lve360.com").replace(/\/+$/, "");
-    const resultsUrl = `${appUrl}/results?submission_id=${submissionId}&email=${encodeURIComponent(
-      userEmail ?? ""
-    )}`;
+    const resultsUrl = `${appUrl}/results?submission_id=${submissionId}`;
 
     // Keep generation alive after the webhook response without making Tally wait.
     const internalSecret = process.env.CRON_SECRET;

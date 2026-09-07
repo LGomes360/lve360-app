@@ -52,9 +52,12 @@ export function resolveProductMode(env: ProductModeEnvironment): ProductMode {
 
   return Object.freeze({
     accessMode,
-    publicPricingEnabled: readBoolean(env, "LVE360_PUBLIC_PRICING_ENABLED", !inviteOnly),
-    publicSignupEnabled: readBoolean(env, "LVE360_PUBLIC_SIGNUP_ENABLED", !inviteOnly),
-    billingCheckoutEnabled: readBoolean(env, "LVE360_BILLING_CHECKOUT_ENABLED", !inviteOnly),
+    publicPricingEnabled:
+      !inviteOnly && readBoolean(env, "LVE360_PUBLIC_PRICING_ENABLED", true),
+    publicSignupEnabled:
+      !inviteOnly && readBoolean(env, "LVE360_PUBLIC_SIGNUP_ENABLED", true),
+    billingCheckoutEnabled:
+      !inviteOnly && readBoolean(env, "LVE360_BILLING_CHECKOUT_ENABLED", true),
     invitationIssuanceEnabled,
     founderUserId,
     invitationsOperationallyUnlocked:

@@ -1,5 +1,6 @@
 export const PRODUCT_EVENT_NAMES = [
   "homepage_viewed",
+  "login_started",
   "pricing_viewed",
   "intake_started",
   "intake_page_viewed",
@@ -33,6 +34,7 @@ export const PRODUCT_EVENT_NAMES = [
 
 export const PRODUCT_EVENT_SOURCES = [
   "homepage",
+  "login",
   "pricing",
   "tally",
   "results",
