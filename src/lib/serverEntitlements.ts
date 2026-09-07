@@ -5,19 +5,23 @@ import type { User } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-import { getSupabaseAdmin } from "./supabaseAdmin";
+import {
+  type AccessStatus,
+  type AccountTier,
+  type BillingMode,
+} from "./accessModel";
+import { loadPrivateAccess } from "./privateAccess";
 
-export type AccountTier = "free" | "trial" | "premium";
+export type { AccountTier } from "./accessModel";
 
 export type RequestEntitlement = {
   user: User | null;
   tier: AccountTier;
   paid: boolean;
+  privateAccess: boolean;
+  accessStatus: AccessStatus;
+  billingMode: BillingMode;
 };
-
-function normalizeTier(value: unknown): AccountTier {
-  return value === "premium" || value === "trial" ? value : "free";
-}
 
 export function isPaidTier(tier: unknown): tier is "trial" | "premium" {
   return tier === "premium" || tier === "trial";
@@ -36,24 +40,61 @@ export async function getRequestEntitlement(): Promise<RequestEntitlement> {
   } = await supabase.auth.getUser();
 
   if (authError || !user?.id) {
-    return { user: null, tier: "free", paid: false };
+    return {
+      user: null,
+      tier: "free",
+      paid: false,
+      privateAccess: false,
+      accessStatus: "blueprint_only",
+      billingMode: "none",
+    };
   }
 
-  const { data: profile, error: profileError } = await getSupabaseAdmin()
-    .from("users")
-    .select("tier")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (profileError) {
+  let access = null;
+  try {
+    access = await loadPrivateAccess(user.id);
+  } catch (profileError) {
     console.error("[entitlements] profile lookup failed", {
       userId: user.id,
-      message: profileError.message,
+      message: profileError instanceof Error ? profileError.message : "unknown_error",
     });
   }
 
-  const tier = normalizeTier(profile?.tier);
-  return { user, tier, paid: isPaidTier(tier) };
+  const tier = access?.tier ?? "free";
+  return {
+    user,
+    tier,
+    paid: isPaidTier(tier),
+    privateAccess: access?.privateAccess ?? false,
+    accessStatus: access?.accessStatus ?? "blueprint_only",
+    billingMode: access?.billingMode ?? "none",
+  };
+}
+
+export async function requirePrivateAccessApi(): Promise<
+  | { ok: true; user: User; tier: AccountTier; accessStatus: "private_member"; billingMode: BillingMode }
+  | { ok: false; response: NextResponse }
+> {
+  const entitlement = await getRequestEntitlement();
+  if (!entitlement.user) {
+    return {
+      ok: false,
+      response: NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 }),
+    };
+  }
+  if (!entitlement.privateAccess) {
+    return {
+      ok: false,
+      response: NextResponse.json({ ok: false, error: "private_access_required" }, { status: 403 }),
+    };
+  }
+  return {
+    ok: true,
+    user: entitlement.user,
+    tier: entitlement.tier,
+    accessStatus: "private_member",
+    billingMode: entitlement.billingMode,
+  };
 }
 
 export async function requirePaidApi(): Promise<

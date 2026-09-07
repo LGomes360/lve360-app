@@ -2,6 +2,7 @@
 import { redirect } from "next/navigation";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type Tier = "free" | "trial" | "premium";
 
@@ -27,7 +28,7 @@ export async function requireTier(allowed: Tier[], opts?: { next?: string }) {
 
   if (!me) {
     console.warn("[requireTier] no profile → upsert free", { userId: user.id, email: user.email });
-    await supabase
+    await getSupabaseAdmin()
       .from("users")
       .upsert({ id: user.id, email: user.email ?? "", tier: "free" }, { onConflict: "id" });
     const again = await supabase
