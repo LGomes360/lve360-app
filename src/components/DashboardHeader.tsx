@@ -15,12 +15,15 @@ import {
   isAuthenticatedRouteActive,
 } from "@/lib/authenticatedNavigation";
 import AskLve360Coach from "@/components/coach/AskLve360Coach";
+import { useProductMode } from "@/components/ProductModeProvider";
 
 type Props = {
   tier?: "free" | "trial" | "premium";
 };
 
 export default function DashboardHeader({ tier = "free" }: Props) {
+  const { accessMode } = useProductMode();
+  const inviteOnly = accessMode === "invite_only";
   const pathname = usePathname() ?? "";
   const router = useRouter();
   const supabase = createClientComponentClient();
@@ -133,10 +136,10 @@ export default function DashboardHeader({ tier = "free" }: Props) {
         <span className="sr-only">Current plan: {tier}</span>
         {!paid ? (
           <Link
-            href="/upgrade"
+            href={inviteOnly ? "/request-invitation" : "/upgrade"}
             className="hidden rounded-lg border border-[#6D36C9] px-3 py-2 text-sm font-semibold text-[#6D36C9] transition hover:bg-purple-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6D36C9] focus-visible:ring-offset-2 md:inline-flex"
           >
-            Join LVE360
+            {inviteOnly ? "Request access" : "Join LVE360"}
           </Link>
         ) : null}
         <button
@@ -201,11 +204,11 @@ export default function DashboardHeader({ tier = "free" }: Props) {
               ) : null}
               {!paid ? (
                 <Link
-                  href="/upgrade"
+                  href={inviteOnly ? "/request-invitation" : "/upgrade"}
                   onClick={() => setMenuOpen(false)}
                   className="min-h-11 rounded-xl border border-[#6D36C9] px-4 py-3 text-[#6D36C9]"
                 >
-                  Join LVE360
+                  {inviteOnly ? "Request access" : "Join LVE360"}
                 </Link>
               ) : null}
               <button

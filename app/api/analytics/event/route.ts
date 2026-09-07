@@ -8,6 +8,7 @@ import { validateProductEvent } from "@/lib/productAnalyticsTypes";
 const VISITOR_COOKIE = "lve_visitor_id";
 const CLIENT_EVENTS = new Set([
   "homepage_viewed",
+  "login_started",
   "pricing_viewed",
   "intake_started",
   "intake_page_viewed",
@@ -31,7 +32,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "server_event_required" }, { status: 403 });
     }
 
-    const supabase = createRouteHandlerClient({ cookies });
+    const cookieStore = await cookies();
+    const supabase = createRouteHandlerClient({
+      cookies: (() => cookieStore) as unknown as typeof cookies,
+    });
     const { data: { user } } = await supabase.auth.getUser();
     const existingVisitor = req.cookies.get(VISITOR_COOKIE)?.value;
     const visitorIsValid = isUuid(existingVisitor);

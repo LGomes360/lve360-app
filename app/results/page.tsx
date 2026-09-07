@@ -13,6 +13,7 @@ import { parseBlueprintReport } from "@/lib/blueprintReport";
 import { blueprintStatusTone, cleanReportDisplayText, reportSectionTitle } from "@/lib/reportPresentation";
 import { AFFILIATE_DISCLOSURE_NEAR_LINKS, AFFILIATE_DISCLOSURE_SUPPORT } from "@/lib/reportDisclosures";
 import { trackProductEvent } from "@/lib/productAnalyticsClient";
+import { useProductMode } from "@/components/ProductModeProvider";
 
 /* ───────── helpers ───────── */
 function sanitizeMarkdown(md: string): string {
@@ -311,6 +312,8 @@ function Stepper({
 
 /* ───────── page ───────── */
 function ResultsContent() {
+  const { accessMode } = useProductMode();
+  const inviteOnly = accessMode === "invite_only";
   const [error, setError] = useState<string | null>(null);
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [warmingUp, setWarmingUp] = useState(false);
@@ -533,7 +536,7 @@ async function exportPDF() {
           : "We could not save that action. Please try again.");
       }
       trackProductEvent({ event_name: "blueprint_action_selected", source: "results" });
-      window.location.assign("/upgrade");
+      window.location.assign(inviteOnly ? "/request-invitation" : "/upgrade");
     } catch (error) {
       setHandoffError(error instanceof Error ? error.message : "We could not save that action. Please try again.");
       setHandoffActionId(null);
@@ -567,7 +570,11 @@ async function exportPDF() {
           </h1>
           <div className="mx-auto mt-3 h-1 w-24 rounded-full bg-[#06C1A0]" />
           <p className="text-gray-600 mt-4 text-lg">Personalized insights for Longevity • Vitality • Energy</p>
-          <p className="mt-2 text-gray-500 text-sm">$15/month Premium Access</p>
+          {inviteOnly ? (
+            <p className="mt-2 text-gray-500 text-sm">Your free personalized starting point</p>
+          ) : (
+            <p className="mt-2 text-gray-500 text-sm">$15/month Premium Access</p>
+          )}
         </div>
 
         {/* two-column layout */}
@@ -580,9 +587,15 @@ async function exportPDF() {
                 <CTAButton onClick={generateStack} variant="gradient" disabled={warmingUp || generating || !ready}>
                   {warmingUp ? "⏳ Warming up…" : generating ? "🤖 Generating..." : ready ? "✨ Generate Free Report" : "⏳ Preparing…"}
                 </CTAButton>
-                <CTAButton href="/upgrade" variant="premium">
-                  Upgrade to Premium
-                </CTAButton>
+                {inviteOnly ? (
+                  <CTAButton href="/request-invitation" variant="secondary">
+                    Request private access
+                  </CTAButton>
+                ) : (
+                  <CTAButton href="/upgrade" variant="premium">
+                    Upgrade to Premium
+                  </CTAButton>
+                )}
               </div>
 
               {/* tiny stepper + status text */}

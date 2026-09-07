@@ -17,6 +17,7 @@ import {
 
 import type { AccountSettings } from "@/lib/accountSettings";
 import ReminderBehaviorCard from "@/components/settings/ReminderBehaviorCard";
+import { useProductMode } from "@/components/ProductModeProvider";
 
 type AccountResponse = {
   ok: boolean;
@@ -33,6 +34,8 @@ type AccountSaveResponse = {
 const supportEmail = "support@lve360.com";
 
 export default function SettingsPage() {
+  const { accessMode } = useProductMode();
+  const inviteOnly = accessMode === "invite_only";
   const [account, setAccount] = useState<AccountSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -298,8 +301,8 @@ export default function SettingsPage() {
               Manage billing
             </button>
           ) : (
-            <Link href="/upgrade" className="inline-flex items-center justify-center rounded-xl bg-[#6D36C9] px-4 py-2.5 font-semibold text-white hover:bg-[#5b2caf]">
-              View membership
+            <Link href={inviteOnly ? "/request-invitation" : "/upgrade"} className="inline-flex items-center justify-center rounded-xl bg-[#6D36C9] px-4 py-2.5 font-semibold text-white hover:bg-[#5b2caf]">
+              {inviteOnly ? "Request access" : "View membership"}
               <ChevronRight className="ml-1 h-4 w-4" />
             </Link>
           )}

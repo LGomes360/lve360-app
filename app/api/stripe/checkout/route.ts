@@ -8,6 +8,7 @@ import {
   MEMBERSHIP_PLANS,
   validateStripePrice,
 } from "@/lib/stripePlanCatalog";
+import { getProductMode } from "@/lib/productMode";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -15,6 +16,13 @@ export const revalidate = false;
 
 export async function POST(req: NextRequest) {
   try {
+    if (!getProductMode().billingCheckoutEnabled) {
+      return NextResponse.json(
+        { error: "Private membership is currently offered by invitation." },
+        { status: 404 }
+      );
+    }
+
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     const priceMonthly = process.env.STRIPE_PRICE_PREMIUM;
     const priceAnnual = process.env.STRIPE_PRICE_ANNUAL;
@@ -35,7 +43,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Get current user (preferred source of truth for id/email)
-    const supabase = createRouteHandlerClient({ cookies });
+    const cookieStore = await cookies();
+    const supabase = createRouteHandlerClient({
+      cookies: (() => cookieStore) as unknown as typeof cookies,
+    });
     const { data: { user } } = await supabase.auth.getUser();
     if (!user?.id || !user.email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
