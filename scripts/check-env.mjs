@@ -39,6 +39,12 @@ const recommended = [
   "REPORT_EMAIL_FROM",
   "FULLSCRIPT_BASE_URL",
   "FULLSCRIPT_API_KEY",
+  "LVE360_ACCESS_MODE",
+  "LVE360_PUBLIC_PRICING_ENABLED",
+  "LVE360_PUBLIC_SIGNUP_ENABLED",
+  "LVE360_BILLING_CHECKOUT_ENABLED",
+  "LVE360_INVITATION_ISSUANCE_ENABLED",
+  "LVE360_FOUNDER_USER_ID",
 ];
 
 const missingRequired = requiredForLaunch.filter((name) => !process.env[name]);
