@@ -12,7 +12,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
 
-  if (!isFounderUser(user?.id) || !UUID_PATTERN.test(id)) {
+  if (!user || !isFounderUser(user.id) || !UUID_PATTERN.test(id)) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
 
@@ -49,3 +49,4 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
 
   return NextResponse.json({ request: data });
 }
+
