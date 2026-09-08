@@ -24,19 +24,24 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   }
 
   const parsed = parseFounderReview(payload);
-  if (!parsed.ok) {
-    return NextResponse.json({ error: parsed.error }, { status: 400 });
-  }
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
   const admin = getSupabaseAdmin();
+  const { data: activeInvitation } = await admin
+    .from("invitations")
+    .select("id")
+    .eq("access_request_id", id)
+    .eq("status", "issued")
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+  if (activeInvitation) {
+    return NextResponse.json({ error: "Revoke the active invitation before changing triage status." }, { status: 409 });
+  }
+
+  const now = new Date().toISOString();
   const { data, error } = await admin
     .from("access_requests")
-    .update({
-      status: parsed.status,
-      founder_notes: parsed.notes,
-      reviewed_at: new Date().toISOString(),
-      reviewed_by: user.id,
-    })
+    .update({ status: parsed.status, founder_notes: parsed.notes, reviewed_at: now, reviewed_by: user.id, updated_at: now })
     .eq("id", id)
     .select("id,status,founder_notes,reviewed_at")
     .maybeSingle();
@@ -46,7 +51,5 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     return NextResponse.json({ error: "Review could not be saved." }, { status: 503 });
   }
   if (!data) return NextResponse.json({ error: "Not found." }, { status: 404 });
-
   return NextResponse.json({ request: data });
 }
-

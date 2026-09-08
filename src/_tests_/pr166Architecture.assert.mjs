@@ -1,0 +1,30 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+
+const read = (path) => fs.readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
+const issueRoute = read("app/api/access-requests/[id]/invitation/route.ts");
+const revokeRoute = read("app/api/invitations/[id]/route.ts");
+const claim = read("app/invite/[token]/InvitationClaim.tsx");
+const callback = read("app/auth/callback/route.ts");
+const appLayout = read("app/(app)/layout.tsx");
+const migration = read("supabase/migrations/20260908004800_pr166_secure_invitations.sql");
+
+assert.match(issueRoute, /isFounderUser/);
+assert.match(issueRoute, /invitationsOperationallyUnlocked/);
+assert.match(issueRoute, /createInvitationToken/);
+assert.doesNotMatch(issueRoute, /token[^\n]*insert/i);
+assert.match(revokeRoute, /revoke_private_invitation/);
+assert.match(claim, /shouldCreateUser:\s*true/);
+assert.match(callback, /accept_private_invitation/);
+assert.match(callback, /supabase\.auth\.signOut/);
+assert.match(appLayout, /loadPrivateAccess/);
+assert.match(appLayout, /access\?\.privateAccess/);
+assert.match(migration, /token_hash text not null/);
+assert.doesNotMatch(migration, /raw_token|token_plaintext/);
+assert.match(migration, /for update/gi);
+assert.match(migration, /force row level security/i);
+assert.match(migration, /revoke all on table public\.invitations from public, anon, authenticated, service_role/i);
+assert.match(migration, /grant execute on function public\.accept_private_invitation\(text, uuid, text\) to service_role/i);
+assert.doesNotMatch(migration, /grant execute[^;]+to anon|grant execute[^;]+to authenticated/i);
+
+console.log("PR166 architecture assertions passed.");
