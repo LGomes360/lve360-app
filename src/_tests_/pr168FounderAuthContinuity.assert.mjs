@@ -12,7 +12,7 @@ const migration = read("supabase/migrations/20260908025516_pr168_founder_auth_co
 const documentation = read("docs/qa/pr168-founder-auth-continuity.md");
 
 assert.match(supabaseServer, /getAll\(\)/);
-assert.match(supabaseServer, /setAll\(cookiesToSet\)/);
+assert.match(supabaseServer, /setAll:\s*\(\(cookiesToSet\) =>/);
 assert.match(supabaseServer, /cookieStore\.set\(name, value, options\)/);
 assert.doesNotMatch(supabaseServer, /get\(name: string\)/);
 assert.doesNotMatch(supabaseServer, /remove\(\) \{\}/);
