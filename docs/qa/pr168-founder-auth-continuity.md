@@ -6,12 +6,12 @@ PR168 repairs the founder-only invitation queue discovered during the PR167 prod
 
 An authenticated premium founder could use standard member pages, but `/settings/access-requests` returned a redirect to `/login`. Production runtime logs confirmed repeated `307` responses from that route without a server error.
 
-The founder surfaces used a shared `@supabase/ssr` server client with the legacy individual cookie methods. Current Supabase SSR clients require the bulk `getAll` and `setAll` cookie interface to preserve the complete session cookie set.
+The founder surfaces used `@supabase/ssr`, while login, session refresh, and the working member dashboard still use `@supabase/auth-helpers-nextjs`. The two client families did not read the active Preview session consistently. The founder queue therefore treated a valid member session as signed out.
 
 ## Repair
 
-- Replace the legacy cookie adapter with the supported `getAll` and `setAll` interface.
-- Continue treating cookie writes from Server Components as best-effort because the request proxy owns session refresh.
+- Use the same server-component and route-handler clients as the rest of the current application.
+- Keep the compatibility helpers isolated so the application can move to `@supabase/ssr` in one deliberate follow-up instead of mixing session formats.
 - Force the founder queue to render dynamically so an authentication redirect is never reused from a cached response.
 - Add the index recommended for `access_request_events.actor_id`.
 - Keep every founder page and API protected by verified-user and founder-ID checks.

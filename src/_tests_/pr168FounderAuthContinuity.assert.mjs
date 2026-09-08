@@ -11,24 +11,29 @@ const invitationRevokeRoute = read("app/api/invitations/[id]/route.ts");
 const migration = read("supabase/migrations/20260908025516_pr168_founder_auth_continuity.sql");
 const documentation = read("docs/qa/pr168-founder-auth-continuity.md");
 
-assert.match(supabaseServer, /getAll\(\)/);
-assert.match(supabaseServer, /setAll:\s*\(\(cookiesToSet\) =>/);
-assert.match(supabaseServer, /cookieStore\.set\(name, value, options\)/);
-assert.doesNotMatch(supabaseServer, /get\(name: string\)/);
-assert.doesNotMatch(supabaseServer, /remove\(\) \{\}/);
+assert.match(supabaseServer, /createServerComponentClient\(\{ cookies \}\)/);
+assert.match(supabaseServer, /createRouteHandlerClient\(\{ cookies \}\)/);
+assert.doesNotMatch(supabaseServer, /createServerClient/);
 
 assert.match(founderPage, /export const dynamic = "force-dynamic"/);
 assert.match(founderPage, /export const revalidate = 0/);
 
 for (const protectedSurface of [
   founderPage,
-  founderReviewRoute,
-  invitationIssueRoute,
-  invitationRevokeRoute,
 ]) {
   assert.match(protectedSurface, /supabaseServer/);
   assert.match(protectedSurface, /auth\.getUser\(\)/);
   assert.match(protectedSurface, /isFounderUser/);
+}
+
+for (const protectedRoute of [
+  founderReviewRoute,
+  invitationIssueRoute,
+  invitationRevokeRoute,
+]) {
+  assert.match(protectedRoute, /supabaseRoute/);
+  assert.match(protectedRoute, /auth\.getUser\(\)/);
+  assert.match(protectedRoute, /isFounderUser/);
 }
 
 assert.match(migration, /create index if not exists access_request_events_actor_id_idx/);
