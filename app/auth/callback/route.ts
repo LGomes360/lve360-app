@@ -3,24 +3,11 @@ import { NextResponse } from "next/server";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 
 import { hashInvitationToken, isInvitationToken } from "@/src/lib/invitationTokens";
-import { getProductMode } from "@/src/lib/productMode";
+import { getProductMode, isFounderUser } from "@/src/lib/productMode";
+import { authDestination } from "@/src/lib/authDestination";
 import { getSupabaseAdmin } from "@/src/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
-
-const ALLOW_NEXT_PATHS = new Set<string>([
-  "/today", "/journey", "/blueprints", "/settings", "/dashboard",
-  "/results", "/account", "/upgrade", "/premium", "/onboarding",
-]);
-
-function safeNext(raw: string): string {
-  if (!raw.startsWith("/") || raw.startsWith("//")) return "/today";
-  const target = new URL(raw, "https://app.lve360.com");
-  if (!ALLOW_NEXT_PATHS.has(target.pathname)) return "/today";
-  if (target.pathname !== "/upgrade") return target.pathname;
-  const plan = target.searchParams.get("plan");
-  return plan === "monthly" || plan === "annual" ? `/upgrade?plan=${plan}` : "/upgrade";
-}
 
 function loginError(origin: string, message: string) {
   return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(message)}`, origin));
@@ -77,5 +64,5 @@ export async function GET(req: Request) {
     } catch {}
   }
 
-  return NextResponse.redirect(new URL(safeNext(next), url.origin));
+  return NextResponse.redirect(new URL(authDestination(next, isFounderUser(user.id)), url.origin));
 }
