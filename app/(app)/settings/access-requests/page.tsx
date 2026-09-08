@@ -35,7 +35,7 @@ type RequestRow = {
 export default async function AccessRequestsPage() {
   const supabase = supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  if (!user) redirect("/login?next=%2Fsettings%2Faccess-requests");
   if (!isFounderUser(user.id)) redirect("/dashboard");
 
   const mode = getProductMode();
