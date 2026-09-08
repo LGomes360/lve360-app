@@ -23,7 +23,7 @@ type RequestRow = {
   request_reason: string | null;
   referral_source: string | null;
   referral_code: string | null;
-  status: "pending" | "waitlisted" | "declined" | "approved" | "revoked";
+  status: "submitted" | "reviewing" | "declined" | "approved" | "withdrawn";
   founder_notes: string | null;
   created_at: string;
   invitations: InvitationRow[] | InvitationRow | null;
@@ -51,7 +51,7 @@ export default async function AccessRequestsPage() {
       <div>
         <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">Founder only</p>
         <h1 className="mt-2 text-3xl font-bold text-slate-950">Invitation requests</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Review the private-membership queue, issue seven-day single-use links, and revoke unaccepted links. Raw tokens are shown only once.</p>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Review the private-membership queue, issue seven-day single-use links, and revoke unaccepted links. Every state change is audited, and raw tokens are shown only once.</p>
         <p className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${mode.invitationsOperationallyUnlocked ? "bg-emerald-100 text-emerald-900" : "bg-amber-100 text-amber-950"}`}>
           {mode.invitationsOperationallyUnlocked ? "GO gate open: issuance enabled" : "GO gate locked: issuance disabled"}
         </p>

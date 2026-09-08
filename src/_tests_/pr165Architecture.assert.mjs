@@ -14,7 +14,7 @@ assert.doesNotMatch(publicRoute, /\.select\(/);
 assert.match(founderRoute, /isFounderUser/);
 assert.match(founderRoute, /parseFounderReview/);
 assert.match(requestForm, /do not include diagnoses, medication details, lab results/);
-assert.match(founderPage, /Approval and account admission remain locked/);
+assert.match(founderPage, /invitationsOperationallyUnlocked/);
 assert.match(migration, /force row level security/i);
 assert.match(migration, /revoke all on table public\.access_requests from public, anon, authenticated, service_role/i);
 assert.match(migration, /grant select, insert, update on table public\.access_requests to service_role/i);

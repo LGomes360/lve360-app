@@ -84,6 +84,14 @@ export async function DELETE(req: NextRequest) {
       if (error) throw error;
     }
 
+    const { data: privateAccessDeleted, error: privateAccessDeleteError } = await admin.rpc(
+      "delete_invitation_request_data",
+      { p_email: user.email.toLowerCase(), p_user_id: user.id },
+    );
+    if (privateAccessDeleteError || privateAccessDeleted !== true) {
+      throw privateAccessDeleteError ?? new Error("private access request deletion was rejected");
+    }
+
     const { error: eventsError } = await admin.from("product_events").delete().eq("user_id", user.id);
     if (eventsError) throw eventsError;
 

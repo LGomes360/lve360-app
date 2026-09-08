@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 import { parseInvitationRequest } from "@/src/lib/invitationRequest";
@@ -5,6 +6,16 @@ import { getSupabaseAdmin } from "@/src/lib/supabaseAdmin";
 
 const MAX_REQUEST_BYTES = 16_384;
 const ACCEPTED_MESSAGE = "Thanks. Your request is on the list for founder review.";
+
+function requestFingerprint(request: NextRequest): string {
+  const forwarded = request.headers.get("x-vercel-forwarded-for")
+    ?? request.headers.get("x-forwarded-for")
+    ?? request.headers.get("x-real-ip")
+    ?? "unknown";
+  const clientAddress = forwarded.split(",")[0]?.trim() || "unknown";
+  const serverSecret = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "missing-service-role";
+  return createHash("sha256").update(`${serverSecret}\0${clientAddress}`).digest("hex");
+}
 
 export async function POST(request: NextRequest) {
   const contentLength = Number(request.headers.get("content-length") ?? 0);
@@ -34,6 +45,22 @@ export async function POST(request: NextRequest) {
 
   try {
     const supabase = getSupabaseAdmin();
+    const { data: allowed, error: rateLimitError } = await supabase.rpc(
+      "consume_invitation_request_rate_limit",
+      {
+        p_request_hash: requestFingerprint(request),
+        p_limit: 5,
+        p_window_seconds: 3600,
+      },
+    );
+    if (rateLimitError) throw rateLimitError;
+    if (allowed !== true) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": "3600" } },
+      );
+    }
+
     const { error } = await supabase.from("access_requests").upsert(
       {
         email: parsed.data.email,

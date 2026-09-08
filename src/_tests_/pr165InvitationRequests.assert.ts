@@ -19,7 +19,8 @@ if (valid.ok) {
 }
 
 assert.equal(parseInvitationRequest({ firstName: "Alex", email: "bad", organizingHelp: "Routines" }).ok, false);
-assert.equal(parseFounderReview({ status: "waitlisted", notes: "Follow up later" }).ok, true);
+assert.equal(parseFounderReview({ status: "reviewing", notes: "Follow up later" }).ok, true);
+assert.equal(parseFounderReview({ status: "withdrawn" }).ok, true);
 assert.equal(parseFounderReview({ status: "approved" }).ok, false);
 assert.equal(parseFounderReview({ status: "revoked" }).ok, false);
 
