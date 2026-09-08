@@ -19,20 +19,21 @@ export function InvitationClaim({ email, token }: { email: string; token: string
   async function claim() {
     setState("sending");
     setMessage("");
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: callbackUrl,
-        shouldCreateUser: true,
-      },
-    });
-    if (error) {
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: callbackUrl,
+          shouldCreateUser: true,
+        },
+      });
+      if (error) throw error;
+      setState("sent");
+      setMessage("Check the invited inbox for a secure sign-in link. The invitation is used only after that link confirms the same email address.");
+    } catch {
       setState("error");
       setMessage("The secure login email could not be sent. Please try again.");
-      return;
     }
-    setState("sent");
-    setMessage("Check the invited inbox for a secure sign-in link. The invitation is used only after that link confirms the same email address.");
   }
 
   return (
@@ -44,3 +45,4 @@ export function InvitationClaim({ email, token }: { email: string; token: string
     </div>
   );
 }
+
