@@ -50,12 +50,20 @@ export async function GET(req: Request) {
     }
 
     const admin = getSupabaseAdmin();
+    const tokenHash = hashInvitationToken(invite);
     const { data: accepted, error: acceptanceError } = await admin.rpc("accept_private_invitation", {
-      p_token_hash: hashInvitationToken(invite),
+      p_token_hash: tokenHash,
       p_user_id: user.id,
       p_email: user.email.toLowerCase(),
     });
     if (acceptanceError || accepted !== true) {
+      const { error: rejectionAuditError } = await admin.rpc("record_private_invitation_rejection", {
+        p_token_hash: tokenHash,
+        p_user_id: user.id,
+      });
+      if (rejectionAuditError) {
+        console.warn("invitation rejection audit failed", { userId: user.id, message: rejectionAuditError.message });
+      }
       console.error("invitation acceptance failed", { userId: user.id, message: acceptanceError?.message ?? "not accepted" });
       await supabase.auth.signOut();
       return loginError(url.origin, "This invitation is invalid, expired, used, or belongs to another email address.");

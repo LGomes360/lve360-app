@@ -9,7 +9,7 @@ export const INVITATION_INTERESTS = [
 ] as const;
 
 export type InvitationInterest = (typeof INVITATION_INTERESTS)[number];
-export type AccessRequestStatus = "pending" | "waitlisted" | "declined";
+export type AccessRequestStatus = "submitted" | "reviewing" | "declined" | "withdrawn";
 
 export type InvitationRequestInput = {
   firstName: string;
@@ -85,7 +85,7 @@ export function parseFounderReview(value: unknown):
   const raw = value as Record<string, unknown>;
   const status = cleanString(raw.status, 20);
   const notes = cleanString(raw.notes, 2000);
-  if (status !== "pending" && status !== "waitlisted" && status !== "declined") {
+  if (status !== "submitted" && status !== "reviewing" && status !== "declined" && status !== "withdrawn") {
     return { ok: false, error: "Approval is not available until secure invitation issuance ships." };
   }
 

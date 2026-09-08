@@ -14,6 +14,7 @@ const checkout = read("app/api/stripe/checkout/route.ts");
 const results = read("app/results/page.tsx");
 const tallyWebhook = read("app/api/tally-webhook/route.ts");
 const requestPage = read("app/request-invitation/page.tsx");
+const requestForm = read("app/request-invitation/InvitationRequestForm.tsx");
 const healthPrivacy = read("app/consumer-health-data-privacy/page.tsx");
 const modeProvider = read("src/components/ProductModeProvider.tsx");
 
@@ -47,8 +48,9 @@ assert.match(results, /inviteOnly \? "\/request-invitation" : "\/upgrade"/);
 assert.match(results, /Request private access/);
 
 assert.doesNotMatch(tallyWebhook, /results\?submission_id=\$\{submissionId\}&email=/, "Blueprint redirects must not put email addresses in URLs");
-assert.match(requestPage, /founder completes the product readiness gate/);
-assert.match(requestPage, /does not guarantee access/);
+assert.match(requestPage, /Request an invitation/);
+assert.match(requestPage, /free LVE360 Blueprint remains available/);
+assert.match(requestForm, /does not create an account or guarantee an invitation/);
 assert.match(healthPrivacy, /does not sell consumer health data for money/);
 assert.match(healthPrivacy, /free Blueprint and private workspace are separate access experiences/);
 

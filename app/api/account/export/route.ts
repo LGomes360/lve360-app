@@ -11,6 +11,7 @@ type ExportQuery = {
   table: string;
   column: string;
   value: string;
+  select?: string;
 };
 
 export async function GET() {
@@ -46,11 +47,18 @@ export async function GET() {
     { label: "plan_change_events", table: "plan_change_events", column: "user_id", value: user.id },
     { label: "regimen_dose_events", table: "regimen_dose_events", column: "user_id", value: user.id },
     { label: "product_events", table: "product_events", column: "user_id", value: user.id },
+    {
+      label: "access_requests",
+      table: "access_requests",
+      column: "email",
+      value: user.email.toLowerCase(),
+      select: "id,email,first_name,organizing_help,interests,request_reason,referral_source,referral_code,status,created_at,updated_at,reviewed_at",
+    },
   ];
 
   const results = await Promise.all(
-    queries.map(async ({ label, table, column, value }) => {
-      const { data, error } = await admin.from(table).select("*").eq(column, value);
+    queries.map(async ({ label, table, column, value, select }) => {
+      const { data, error } = await admin.from(table).select(select ?? "*").eq(column, value);
       if (error) throw new Error(`${label}: ${error.message}`);
       return [label, data ?? []] as const;
     })
@@ -66,6 +74,7 @@ export async function GET() {
   const resultMap = Object.fromEntries(results) as Record<string, Array<{ id?: string }>>;
   const submissionIds = (resultMap.submissions ?? []).flatMap((row) => row.id ? [row.id] : []);
   const stackIds = (resultMap.blueprints ?? []).flatMap((row) => row.id ? [row.id] : []);
+  const accessRequestIds = (resultMap.access_requests ?? []).flatMap((row) => row.id ? [row.id] : []);
   const linkClickQueries = [
     submissionIds.length ? admin.from("link_clicks").select("*").in("submission_id", submissionIds) : Promise.resolve({ data: [], error: null }),
     stackIds.length ? admin.from("link_clicks").select("*").in("stack_id", stackIds) : Promise.resolve({ data: [], error: null }),
@@ -80,12 +89,34 @@ export async function GET() {
     ...(clicksByStack.data ?? []),
   ].filter((row, index, rows) => rows.findIndex((candidate) => candidate.id === row.id) === index);
 
+  const [requestInvitations, requestEvents] = accessRequestIds.length
+    ? await Promise.all([
+        admin
+          .from("invitations")
+          .select("id,access_request_id,email,status,expires_at,created_at,accepted_at,revoked_at")
+          .in("access_request_id", accessRequestIds),
+        admin
+          .from("access_request_events")
+          .select("id,access_request_id,event_type,from_status,to_status,created_at")
+          .in("access_request_id", accessRequestIds),
+      ])
+    : [{ data: [], error: null }, { data: [], error: null }];
+  if (requestInvitations.error || requestEvents.error) {
+    console.error("[account-export] private access history failed");
+    return NextResponse.json({ ok: false, error: "export_unavailable" }, { status: 500 });
+  }
+
   const exportedAt = new Date().toISOString();
   const payload = {
     export_version: "1.0",
     exported_at: exportedAt,
     account_email: user.email,
-    data: { ...resultMap, link_clicks: linkClicks },
+    data: {
+      ...resultMap,
+      access_request_invitations: requestInvitations.data ?? [],
+      access_request_events: requestEvents.data ?? [],
+      link_clicks: linkClicks,
+    },
   };
   const date = exportedAt.slice(0, 10);
 
