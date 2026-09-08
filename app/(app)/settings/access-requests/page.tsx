@@ -6,6 +6,9 @@ import { supabaseServer } from "@/src/lib/supabase";
 
 import { AccessRequestActions } from "./AccessRequestActions";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type InvitationRow = {
   id: string;
   status: "issued" | "accepted" | "revoked";

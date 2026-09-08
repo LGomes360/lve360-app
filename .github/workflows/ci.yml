@@ -55,7 +55,7 @@ jobs:
         run: npm run qa:personas
 
       - name: Run private membership release gate
-        run: npm run qa:pr167
+        run: npm run qa:pr168
 
       - name: Run production build
         run: npm run build

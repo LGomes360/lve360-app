@@ -108,6 +108,7 @@
     "qa:pr165": "node --experimental-strip-types src/_tests_/pr165InvitationRequests.assert.ts && node src/_tests_/pr165Architecture.assert.mjs && npm run qa:pr164",
     "qa:pr166": "node --experimental-strip-types src/_tests_/pr166InvitationTokens.assert.ts && node src/_tests_/pr166Architecture.assert.mjs && npm run qa:pr165",
     "qa:pr167": "node src/_tests_/pr167ReleaseGate.assert.mjs && npm run qa:pr166 && npm run qa:personas && npm run qa:legal && npm run qa:settings",
+    "qa:pr168": "node src/_tests_/pr168FounderAuthContinuity.assert.mjs && npm run qa:pr167",
     "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
