@@ -6,6 +6,9 @@ import { supabaseServer } from "@/src/lib/supabase";
 
 import { AccessRequestActions } from "./AccessRequestActions";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type InvitationRow = {
   id: string;
   status: "issued" | "accepted" | "revoked";
@@ -30,7 +33,7 @@ type RequestRow = {
 };
 
 export default async function AccessRequestsPage() {
-  const supabase = await supabaseServer();
+  const supabase = supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   if (!isFounderUser(user.id)) redirect("/dashboard");

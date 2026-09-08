@@ -1,24 +1,19 @@
 // lib/supabase.ts
 // Server-side Supabase client (SSR pages, Server Components, Route Handlers).
-// Reads/writes the auth cookies via Next’s headers API.
+// Uses the same auth-cookie format as the rest of the current application.
 import { cookies } from 'next/headers';
-import { createServerClient } from '@supabase/ssr';
+import {
+  createRouteHandlerClient,
+  createServerComponentClient,
+} from '@supabase/auth-helpers-nextjs';
 
 // Re-export the lazy admin getter and compatibility client for existing callers.
 export { getSupabaseAdmin, supabaseAdmin } from './supabaseAdmin';
 
-export async function supabaseServer() {
-  const cookieStore = await cookies();
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) { return cookieStore.get(name)?.value; },
-        // We intentionally NO-OP set/remove to avoid mutations in RSC.
-        set() {},
-        remove() {},
-      },
-    }
-  );
+export function supabaseServer() {
+  return createServerComponentClient({ cookies });
+}
+
+export function supabaseRoute() {
+  return createRouteHandlerClient({ cookies });
 }
