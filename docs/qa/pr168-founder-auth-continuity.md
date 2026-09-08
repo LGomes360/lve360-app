@@ -28,6 +28,10 @@ In Preview, sign in as the configured founder and confirm:
 4. A non-founder remains unable to load the page or its APIs.
 5. Invitation issuance remains disabled and no invitation email is sent.
 
+## Preview configuration
+
+Set `LVE360_FOUNDER_USER_ID` to the verified founder user UUID for the PR168 Preview branch. Keep this branch-scoped during rehearsal. A missing value intentionally denies founder access and redirects an authenticated member to the normal dashboard.
+
 ## Production migration
 
 After merge, apply `20260908025516_pr168_founder_auth_continuity.sql` to Production Supabase. Re-run the performance advisor and confirm the actor foreign-key notice is cleared. The authentication repair deploys with the application and does not require a database change.
