@@ -42,7 +42,12 @@ assert.match(checkout, /billingCheckoutEnabled/);
 assert.match(checkout, /status: 404/);
 
 assert.match(login, /shouldCreateUser: publicSignupEnabled/);
-assert.match(login, /!inviteOnly/);
+assert.doesNotMatch(login, /!inviteOnly/, "Google sign-in must remain available in private mode");
+assert.match(login, /queryParams: \{ prompt: "select_account" \}/, "Google must offer explicit account selection");
+assert.match(login, /onClick=\{handleGoogleLogin\}/);
+const appLayout = read("app/(app)/layout.tsx");
+assert.match(appLayout, /loadPrivateAccess\(user.id\)/, "OAuth sign-in must not bypass private access");
+assert.match(appLayout, /!access\?\.privateAccess/);
 assert.match(login, /Request an invitation/);
 assert.match(results, /inviteOnly \? "\/request-invitation" : "\/upgrade"/);
 assert.match(results, /Request private access/);
