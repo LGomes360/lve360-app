@@ -70,7 +70,7 @@ function LoginInner() {
         provider: "google",
         options: {
           redirectTo: callbackUrl,
-          // If you ever add state / scopes, put them here
+          queryParams: { prompt: "select_account" },
         },
       });
       if (error) setMessage("❌ " + error.message);
@@ -115,7 +115,6 @@ function LoginInner() {
         </p>
 
         {/* Google button */}
-        {!inviteOnly ? (
           <>
             <button
               type="button"
@@ -135,7 +134,6 @@ function LoginInner() {
               </div>
             </div>
           </>
-        ) : null}
 
         {/* Email magic link form */}
         <form onSubmit={handleLogin} className="space-y-4">
