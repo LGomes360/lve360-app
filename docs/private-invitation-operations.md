@@ -24,7 +24,20 @@ PR166 completes the invitation path but leaves it fail-closed. Merging code and 
 
 1. Open the invitation URL.
 2. Use Google on the invitation page with the invited account, or request the secure sign-in email.
-3. For email, open the newest link in the same browser and complete authentication. Forwarding does not change the invited identity. PKCE requires the initiating browser; do not start another sign-in before completing the email flow. Failed exchanges return to the invitation with recovery instructions.
+3. For email, open the newest link in any browser and complete authentication. Forwarding does not change the invited identity. The versioned Supabase Magic Link template sends its token hash directly to LVE360's server callback, so no browser-local verifier is required. Failed exchanges return to the invitation with recovery instructions.
+
+## Cross-browser email authentication
+
+After PR172 is deployed, replace the Supabase **Magic Link** email body with
+`supabase/templates/magic-link.html`. The template deliberately uses
+`{{ .RedirectTo }}` and `{{ .TokenHash }}` rather than `{{ .ConfirmationURL }}`.
+Every application redirect already contains a `next` query parameter, so the
+template appends the one-time token hash and `type=email`. The callback verifies
+that hash server-side and retains the invitation token when present.
+
+Do not apply the template before the PR172 application deployment is live.
+Rollback by restoring the prior `{{ .ConfirmationURL }}` template; the callback
+continues to support PKCE `code` exchanges for Google and older email links.
 4. The callback consumes the invitation and grants private access only if the verified email matches.
 
 ## Founder GO checklist

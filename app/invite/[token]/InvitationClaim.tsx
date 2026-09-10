@@ -44,7 +44,7 @@ export function InvitationClaim({ email, token }: { email: string; token: string
       });
       if (error) throw error;
       setState("sent");
-      setMessage("Check the invited inbox for a secure sign-in link. The invitation is used only after that link confirms the same email address.");
+      setMessage("Check the invited inbox for a secure sign-in link. You can open the newest link in any browser. The invitation is used only after that link confirms the same email address.");
     } catch {
       setState("error");
       setMessage("The secure login email could not be sent. Please try again.");
@@ -54,7 +54,7 @@ export function InvitationClaim({ email, token }: { email: string; token: string
   return (
     <div className="mt-8">
       <button type="button" onClick={google} disabled={state === "sending"} className="mb-4 w-full rounded-xl border border-slate-300 px-5 py-3 font-semibold disabled:opacity-60">Continue with Google using the invited email</button>
-      <p className="mb-4 text-sm text-slate-600">For email sign-in, open the newest link in this same browser. If your email opens another browser, copy the link back here or use Google above.</p>
+      <p className="mb-4 text-sm text-slate-600">For email sign-in, open the newest link in any browser. Each link works once and expires shortly.</p>
       <button className="w-full rounded-xl bg-slate-950 px-5 py-3 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60" disabled={state === "sending" || state === "sent"} onClick={claim} type="button">
         {state === "sending" ? "Sending secure link…" : state === "sent" ? "Secure link sent" : "Continue with the invited email"}
       </button>

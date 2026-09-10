@@ -16,6 +16,7 @@ function loginError(origin: string, message: string) {
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
+  const tokenHash = url.searchParams.get("token_hash");
   const next = url.searchParams.get("next") || "/today";
   const invite = url.searchParams.get("invite");
   const errDesc = url.searchParams.get("error_description");
@@ -28,9 +29,11 @@ export async function GET(req: Request) {
   };
 
   if (errDesc) return signInError(errDesc);
-  if (!code) return signInError("Please start sign-in again.");
+  if (!code && !tokenHash) return signInError("Please start sign-in again.");
 
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  const { error } = tokenHash
+    ? await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "email" })
+    : await supabase.auth.exchangeCodeForSession(code!);
   if (error) return signInError(error.message);
 
   const { data: { user } } = await supabase.auth.getUser();
