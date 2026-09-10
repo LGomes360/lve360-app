@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, Suspense } from "react";
+import { useEffect, useState, useMemo, Suspense } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
@@ -19,6 +19,11 @@ function LoginInner() {
 
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const error = searchParams?.get("error");
+    if (error) setMessage(`❌ ${error}`);
+  }, [searchParams]);
 
   // Determine where to send users after /auth/callback
   const nextPath = useMemo(() => {
@@ -55,7 +60,7 @@ function LoginInner() {
       });
 
       if (error) setMessage("❌ " + error.message);
-      else setMessage("✅ Check your email for a secure login link!");
+      else setMessage("✅ Check your email for a secure login link. You can open the newest link in any browser.");
     } catch (err: any) {
       setMessage("❌ " + (err?.message ?? "Unexpected error"));
     }
