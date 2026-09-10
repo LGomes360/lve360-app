@@ -23,8 +23,8 @@ PR166 completes the invitation path but leaves it fail-closed. Merging code and 
 ## Recipient workflow
 
 1. Open the invitation URL.
-2. Request the secure sign-in email.
-3. Open that email in the same browser and complete authentication.
+2. Use Google on the invitation page with the invited account, or request the secure sign-in email.
+3. For email, open the newest link in the same browser and complete authentication. Forwarding does not change the invited identity. PKCE requires the initiating browser; do not start another sign-in before completing the email flow. Failed exchanges return to the invitation with recovery instructions.
 4. The callback consumes the invitation and grants private access only if the verified email matches.
 
 ## Founder GO checklist

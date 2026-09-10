@@ -25,8 +25,9 @@ function Unavailable({ message }: { message: string }) {
   );
 }
 
-export default async function InvitePage({ params }: { params: Promise<{ token: string }> }) {
+export default async function InvitePage({ params, searchParams }: { params: Promise<{ token: string }>; searchParams: Promise<{ retry?: string }> }) {
   const { token } = await params;
+  const { retry } = await searchParams;
   if (!getProductMode().invitationAcceptanceEnabled) {
     return <Unavailable message="Private invitations have not been opened by the founder." />;
   }
@@ -52,6 +53,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
       <section className="mx-auto max-w-xl rounded-3xl border border-emerald-200 bg-white p-8 shadow-sm sm:p-10">
         <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">Private invitation</p>
         <h1 className="mt-3 text-3xl font-bold">Welcome to LVE360.</h1>
+        {retry ? <p role="alert" className="mt-4 text-amber-800">That sign-in could not be completed. Your invitation is still available. Try Google below or request a fresh email link and open it in this browser.</p> : null}
         <p className="mt-4 leading-7 text-slate-600">This single-use invitation is for <strong>{maskInvitationEmail(invitation.email)}</strong> and expires {new Date(invitation.expires_at).toLocaleString()}.</p>
         <p className="mt-3 text-sm leading-6 text-slate-500">We’ll email a secure sign-in link to the invited address. Access is granted only after that address is verified.</p>
         <InvitationClaim email={invitation.email} token={token} />
