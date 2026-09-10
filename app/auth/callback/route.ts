@@ -20,18 +20,24 @@ export async function GET(req: Request) {
   const invite = url.searchParams.get("invite");
   const errDesc = url.searchParams.get("error_description");
   const supabase = createRouteHandlerClient({ cookies });
+  const signInError = (message: string) => {
+    if (invite && isInvitationToken(invite)) {
+      return NextResponse.redirect(new URL(`/invite/${invite}?retry=1`, url.origin));
+    }
+    return loginError(url.origin, message);
+  };
 
-  if (errDesc) return loginError(url.origin, errDesc);
-  if (!code) return NextResponse.redirect(new URL("/login", url.origin));
+  if (errDesc) return signInError(errDesc);
+  if (!code) return signInError("Please start sign-in again.");
 
   const { error } = await supabase.auth.exchangeCodeForSession(code);
-  if (error) return loginError(url.origin, error.message);
+  if (error) return signInError(error.message);
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return loginError(url.origin, "Secure sign-in could not be verified.");
 
   if (invite !== null) {
-    if (!getProductMode().invitationsOperationallyUnlocked || !isInvitationToken(invite) || !user.email) {
+    if (!getProductMode().invitationAcceptanceEnabled || !isInvitationToken(invite) || !user.email) {
       await supabase.auth.signOut();
       return loginError(url.origin, "This invitation is invalid or no longer available.");
     }

@@ -60,6 +60,21 @@ const unlockedInviteMode = resolveProductMode({
   LVE360_FOUNDER_USER_ID: "11111111-1111-4111-8111-111111111111",
 });
 assert.equal(unlockedInviteMode.invitationsOperationallyUnlocked, true);
+assert.equal(unlockedInviteMode.invitationAcceptanceEnabled, true);
+assert.equal(legacyMode.invitationAcceptanceEnabled, false);
+assert.equal(lockedInviteMode.invitationAcceptanceEnabled, false);
+
+for (const issuance of ["false", "0", undefined]) {
+  const paused = resolveProductMode({
+    LVE360_ACCESS_MODE: "invite_only",
+    LVE360_FOUNDER_USER_ID: "11111111-1111-4111-8111-111111111111",
+    LVE360_INVITATION_ISSUANCE_ENABLED: issuance,
+  });
+  assert.equal(paused.invitationsOperationallyUnlocked, false);
+  assert.equal(paused.invitationAcceptanceEnabled, true);
+  assert.equal(paused.publicSignupEnabled, false);
+  assert.equal(paused.billingCheckoutEnabled, false);
+}
 
 assert.throws(
   () => resolveProductMode({ LVE360_INVITATION_ISSUANCE_ENABLED: "sometimes" }),

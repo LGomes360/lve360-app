@@ -23,8 +23,8 @@ PR166 completes the invitation path but leaves it fail-closed. Merging code and 
 ## Recipient workflow
 
 1. Open the invitation URL.
-2. Request the secure sign-in email.
-3. Open that email in the same browser and complete authentication.
+2. Use Google on the invitation page with the invited account, or request the secure sign-in email.
+3. For email, open the newest link in the same browser and complete authentication. Forwarding does not change the invited identity. PKCE requires the initiating browser; do not start another sign-in before completing the email flow. Failed exchanges return to the invitation with recovery instructions.
 4. The callback consumes the invitation and grants private access only if the verified email matches.
 
 ## Founder GO checklist
@@ -41,3 +41,14 @@ At GO, set production to:
 - `LVE360_FOUNDER_USER_ID=<founder auth UUID>`
 
 Rollback the public shell by restoring `public_paid` and disabling issuance. Outstanding links then fail closed. Re-lock issuance before any database rollback; do not drop the invitation table while active links exist.
+# Issuance pause versus acceptance
+
+Setting `LVE360_INVITATION_ISSUANCE_ENABLED=false` prevents new or replacement
+invitations. Existing invitations remain usable in private mode while the founder
+identity is configured. Expiration, revocation, verified-email matching, and
+single-use database enforcement still apply. Revoke an individual outstanding
+link to cancel it; pausing issuance is not revocation.
+
+Regression: issue a test link, pause issuance and redeploy, then verify the invited
+email can accept it. Confirm wrong-email, expired, revoked, and replayed links
+remain rejected. No database migration is required for this change.

@@ -16,6 +16,21 @@ export function InvitationClaim({ email, token }: { email: string; token: string
     return url.toString();
   }, [token]);
 
+  async function google() {
+    setState("sending");
+    setMessage("");
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: callbackUrl, queryParams: { prompt: "select_account", login_hint: email } },
+      });
+      if (error) throw error;
+    } catch {
+      setState("error");
+      setMessage("Google sign-in could not start. Please try again.");
+    }
+  }
+
   async function claim() {
     setState("sending");
     setMessage("");
@@ -38,6 +53,8 @@ export function InvitationClaim({ email, token }: { email: string; token: string
 
   return (
     <div className="mt-8">
+      <button type="button" onClick={google} disabled={state === "sending"} className="mb-4 w-full rounded-xl border border-slate-300 px-5 py-3 font-semibold disabled:opacity-60">Continue with Google using the invited email</button>
+      <p className="mb-4 text-sm text-slate-600">For email sign-in, open the newest link in this same browser. If your email opens another browser, copy the link back here or use Google above.</p>
       <button className="w-full rounded-xl bg-slate-950 px-5 py-3 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60" disabled={state === "sending" || state === "sent"} onClick={claim} type="button">
         {state === "sending" ? "Sending secure link…" : state === "sent" ? "Secure link sent" : "Continue with the invited email"}
       </button>
