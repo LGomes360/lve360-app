@@ -18,6 +18,7 @@ import {
 import type { AccountSettings } from "@/lib/accountSettings";
 import ReminderBehaviorCard from "@/components/settings/ReminderBehaviorCard";
 import { useProductMode } from "@/components/ProductModeProvider";
+import { getMembershipPresentation } from "@/lib/accountMembership";
 
 type AccountResponse = {
   ok: boolean;
@@ -169,11 +170,7 @@ export default function SettingsPage() {
   }
 
   const paid = account.tier === "premium" || account.tier === "trial";
-  const planName = account.tier === "premium" ? "LVE360 Member" : account.tier === "trial" ? "LVE360 Trial" : "Free";
-  const billingLabel =
-    account.billing_interval === "annual" ? "Annual billing" :
-    account.billing_interval === "monthly" ? "Monthly billing" :
-    "No paid billing plan";
+  const membership = getMembershipPresentation({ tier: account.tier, billingMode: account.billing_mode });
 
   return (
     <div className="mx-auto max-w-4xl space-y-7 pb-12">
@@ -280,18 +277,24 @@ export default function SettingsPage() {
         </div>
       </Section>
 
-      <Section icon={CreditCard} title="Membership" description="See your plan and manage billing securely through Stripe.">
+      <Section
+        icon={CreditCard}
+        title="Membership"
+        description={membership.complimentary
+          ? "Your private invitation includes membership access without a recurring charge."
+          : "See your plan and manage billing securely through Stripe."}
+      >
         <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="font-bold text-[#041B2D]">{planName}</p>
-            <p className="mt-1 text-sm text-slate-600">{billingLabel}</p>
+            <p className="font-bold text-[#041B2D]">{membership.planName}</p>
+            <p className="mt-1 text-sm text-slate-600">{membership.billingLabel}</p>
             {account.subscription_end_date && (
               <p className="mt-1 text-sm text-slate-600">
                 Current access through {new Date(account.subscription_end_date).toLocaleDateString()}
               </p>
             )}
           </div>
-          {paid ? (
+          {membership.stripeBilled ? (
             <button
               onClick={() => void openBillingPortal()}
               disabled={portalLoading}
@@ -300,6 +303,11 @@ export default function SettingsPage() {
               {portalLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
               Manage billing
             </button>
+          ) : membership.complimentary ? (
+            <div className="inline-flex items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 font-semibold text-emerald-800">
+              <Check className="mr-2 h-4 w-4" />
+              No payment required
+            </div>
           ) : (
             <Link href={inviteOnly ? "/request-invitation" : "/upgrade"} className="inline-flex items-center justify-center rounded-xl bg-[#6D36C9] px-4 py-2.5 font-semibold text-white hover:bg-[#5b2caf]">
               {inviteOnly ? "Request access" : "View membership"}
@@ -357,7 +365,9 @@ export default function SettingsPage() {
           <div className="flex-1">
             <h2 className="text-lg font-bold text-[#041B2D]">Delete account</h2>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              This permanently deletes your LVE360 account and connected data. Any active subscription is canceled immediately.
+              {membership.stripeBilled
+                ? "This permanently deletes your LVE360 account and connected data. Your active subscription is canceled immediately."
+                : "This permanently deletes your LVE360 account and connected data."}
             </p>
             {!deleteOpen ? (
               <button onClick={() => setDeleteOpen(true)} className="mt-4 font-semibold text-rose-700 hover:text-rose-800">

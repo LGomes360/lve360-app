@@ -10,6 +10,7 @@ import {
 } from "@/lib/accountSettings";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 import { isQuietHour } from "@/lib/reminderSchedule";
+import { resolveAccountAccess } from "@/lib/accessModel";
 
 export async function GET() {
   const supabase = createRouteHandlerClient({ cookies });
@@ -21,7 +22,7 @@ export async function GET() {
   const [{ data: profile, error: profileError }, { data: preferences, error: preferencesError }] = await Promise.all([
     supabase
     .from("users")
-    .select("email, tier, billing_interval, subscription_end_date")
+    .select("email, tier, access_status, billing_mode, billing_interval, stripe_customer_id, subscription_end_date")
     .eq("id", user.id)
       .maybeSingle(),
     supabase
@@ -36,11 +37,14 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: "account_unavailable" }, { status: 500 });
   }
 
+  const access = resolveAccountAccess(profile);
+
   return NextResponse.json({
     ok: true,
     account: {
       email: profile?.email ?? user.email,
-      tier: profile?.tier ?? "free",
+      tier: access.tier,
+      billing_mode: access.billingMode,
       billing_interval: profile?.billing_interval ?? null,
       subscription_end_date: profile?.subscription_end_date ?? null,
       preferred_name: preferences?.preferred_name ?? "",
