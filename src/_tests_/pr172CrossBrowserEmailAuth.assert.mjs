@@ -19,6 +19,7 @@ assert.match(template, /\{\{ \.TokenHash \}\}/);
 assert.match(template, /type=email/);
 assert.doesNotMatch(template, /ConfirmationURL/);
 assert.match(login, /searchParams\.set\("next", nextPath\)/);
+assert.match(login, /searchParams\?\.get\("error"\)/);
 assert.match(invitationClaim, /url\.searchParams\.set\("next", "\/today"\)/);
 assert.match(invitationClaim, /url\.searchParams\.set\("invite", token\)/);
 assert.match(login, /any browser/);
