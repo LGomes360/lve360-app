@@ -8,6 +8,7 @@ export type ProductMode = Readonly<{
   invitationIssuanceEnabled: boolean;
   founderUserId: string | null;
   invitationsOperationallyUnlocked: boolean;
+  invitationAcceptanceEnabled: boolean;
 }>;
 
 type ProductModeEnvironment = Record<string, string | undefined>;
@@ -60,6 +61,8 @@ export function resolveProductMode(env: ProductModeEnvironment): ProductMode {
       !inviteOnly && readBoolean(env, "LVE360_BILLING_CHECKOUT_ENABLED", true),
     invitationIssuanceEnabled,
     founderUserId,
+    // Pausing new issuance must not invalidate already-issued invitations.
+    invitationAcceptanceEnabled: inviteOnly && founderUserId !== null,
     invitationsOperationallyUnlocked:
       inviteOnly && invitationIssuanceEnabled && founderUserId !== null,
   });

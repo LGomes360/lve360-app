@@ -27,7 +27,7 @@ function Unavailable({ message }: { message: string }) {
 
 export default async function InvitePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  if (!getProductMode().invitationsOperationallyUnlocked) {
+  if (!getProductMode().invitationAcceptanceEnabled) {
     return <Unavailable message="Private invitations have not been opened by the founder." />;
   }
   if (!isInvitationToken(token)) return <Unavailable message="The link is invalid or incomplete." />;

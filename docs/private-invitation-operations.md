@@ -41,3 +41,14 @@ At GO, set production to:
 - `LVE360_FOUNDER_USER_ID=<founder auth UUID>`
 
 Rollback the public shell by restoring `public_paid` and disabling issuance. Outstanding links then fail closed. Re-lock issuance before any database rollback; do not drop the invitation table while active links exist.
+# Issuance pause versus acceptance
+
+Setting `LVE360_INVITATION_ISSUANCE_ENABLED=false` prevents new or replacement
+invitations. Existing invitations remain usable in private mode while the founder
+identity is configured. Expiration, revocation, verified-email matching, and
+single-use database enforcement still apply. Revoke an individual outstanding
+link to cancel it; pausing issuance is not revocation.
+
+Regression: issue a test link, pause issuance and redeploy, then verify the invited
+email can accept it. Confirm wrong-email, expired, revoked, and replayed links
+remain rejected. No database migration is required for this change.

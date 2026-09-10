@@ -31,7 +31,7 @@ export async function GET(req: Request) {
   if (!user) return loginError(url.origin, "Secure sign-in could not be verified.");
 
   if (invite !== null) {
-    if (!getProductMode().invitationsOperationallyUnlocked || !isInvitationToken(invite) || !user.email) {
+    if (!getProductMode().invitationAcceptanceEnabled || !isInvitationToken(invite) || !user.email) {
       await supabase.auth.signOut();
       return loginError(url.origin, "This invitation is invalid or no longer available.");
     }
