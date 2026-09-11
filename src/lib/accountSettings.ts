@@ -1,9 +1,12 @@
+import type { BillingMode } from "./accessModel";
+
 export type WeightUnit = "lb" | "kg";
 export type ReminderPreference = "none" | "email";
 
 export type AccountSettings = {
   email: string;
   tier: string;
+  billing_mode: BillingMode;
   billing_interval: string | null;
   subscription_end_date: string | null;
   preferred_name: string;

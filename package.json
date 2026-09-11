@@ -111,6 +111,7 @@
     "qa:auth-destination": "node --experimental-strip-types src/_tests_/authDestination.assert.ts",
     "qa:pr168": "npm run qa:auth-destination && node src/_tests_/pr168FounderAuthContinuity.assert.mjs && npm run qa:pr167",
     "qa:pr172": "node src/_tests_/pr172CrossBrowserEmailAuth.assert.mjs && npm run qa:pr168",
+    "qa:pr173": "node --experimental-strip-types src/_tests_/pr173ComplimentaryMembership.assert.ts && node src/_tests_/pr173Architecture.assert.mjs && npm run qa:pr172",
     "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
