@@ -16,6 +16,7 @@ export async function GET(req: Request) {
   const userId = entitlement.user.id;
 
   const requestedDate = new URL(req.url).searchParams.get("date");
+  const contextView = new URL(req.url).searchParams.get("context");
   if (requestedDate != null) {
     const localDate = parseLocalDate(requestedDate);
     if (!localDate) {
@@ -31,6 +32,21 @@ export async function GET(req: Request) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ ok: true, log: data ?? null });
+  }
+
+  if (contextView === "recent") {
+    const { data, error } = await supabaseAdmin
+      .from("logs")
+      .select("log_date,notes")
+      .eq("user_id", userId)
+      .not("notes", "is", null)
+      .order("log_date", { ascending: false })
+      .limit(12);
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({
+      ok: true,
+      contexts: (data ?? []).filter((row) => typeof row.notes === "string" && row.notes.trim()),
+    });
   }
 
   const { data, error } = await supabaseAdmin
@@ -125,4 +141,27 @@ export async function POST(req: Request) {
   });
 
   return NextResponse.json({ ok: true });
+}
+
+export async function PATCH(req: Request) {
+  const entitlement = await requirePaidApi();
+  if (!entitlement.ok) return entitlement.response;
+  const body = await req.json().catch(() => null);
+  const logDate = parseLocalDate(body?.log_date);
+  if (!logDate || !["update_context", "remove_context"].includes(body?.action)) {
+    return NextResponse.json({ ok: false, error: "invalid_context_change" }, { status: 400 });
+  }
+  const notes = body.action === "remove_context" ? null : normalizeMemberReportedContext(body?.notes, 1000);
+  if (body.action === "update_context" && !notes) {
+    return NextResponse.json({ ok: false, error: "context_required" }, { status: 400 });
+  }
+  const { data, error } = await supabaseAdmin.from("logs")
+    .update({ notes, updated_at: new Date().toISOString() })
+    .eq("user_id", entitlement.user.id)
+    .eq("log_date", logDate)
+    .select("log_date,notes")
+    .maybeSingle();
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  if (!data) return NextResponse.json({ ok: false, error: "context_not_found" }, { status: 404 });
+  return NextResponse.json({ ok: true, context: data });
 }

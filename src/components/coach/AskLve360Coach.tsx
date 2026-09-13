@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, BookOpen, CalendarPlus, Check, ExternalLink, Loader2, MessageCircle, Send, ShieldCheck, Sparkles, ThumbsDown, ThumbsUp, UserRound, X } from "lucide-react";
+import { ArrowRight, BookOpen, CalendarPlus, Check, ExternalLink, EyeOff, Loader2, MessageCircle, RotateCcw, Send, ShieldCheck, Sparkles, ThumbsDown, ThumbsUp, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -15,6 +15,7 @@ import {
 import { identityLabel } from "@/lib/activation";
 import type { CoachActionProposal } from "@/lib/coachActions";
 import { coachGroundingHeadline, coachGroundingTitle, evidenceReviewLabel, groupCoachSources } from "@/lib/coachGrounding";
+import { isExcludableCoachContextId, type ExcludableCoachContextId } from "@/lib/coachPersonalization";
 
 type Usage = {
   turns: number;
@@ -52,6 +53,8 @@ export default function AskLve360Coach() {
   const [error, setError] = useState<string | null>(null);
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
+  const [excludedContextIds, setExcludedContextIds] = useState<ExcludableCoachContextId[]>([]);
+  const [contextBusyId, setContextBusyId] = useState<string | null>(null);
   const launchButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -90,6 +93,7 @@ export default function AskLve360Coach() {
         if (!response.ok || !payload.ok) throw new Error(payload.error ?? "coach_unavailable");
         setTurns(payload.turns ?? []);
         setUsage(payload.usage ?? null);
+        setExcludedContextIds((payload.excluded_source_ids ?? []).filter(isExcludableCoachContextId));
         setLoaded(true);
       })
       .catch((reason) => {
@@ -115,6 +119,7 @@ export default function AskLve360Coach() {
       if (!response.ok || !payload.ok) throw new Error(payload.error ?? "coach_unavailable");
       setTurns((current) => [payload.turn as CoachTurn, ...current].slice(0, 8));
       setUsage(payload.usage ?? null);
+      setExcludedContextIds((payload.excluded_source_ids ?? []).filter(isExcludableCoachContextId));
       setQuestion("");
       window.requestAnimationFrame(() => transcriptRef.current?.scrollTo({ top: 0, behavior: "smooth" }));
     } catch {
@@ -156,6 +161,25 @@ export default function AskLve360Coach() {
       setError(action === "confirm" ? "That practice was not saved. Please try again." : "That suggestion was not removed. Please try again.");
     } finally {
       setActionBusyId(null);
+    }
+  }
+
+  async function updateContextPreference(sourceId: ExcludableCoachContextId, excluded: boolean) {
+    setContextBusyId(sourceId);
+    setError(null);
+    try {
+      const response = await fetch("/api/coach/context-preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_id: sourceId, excluded }),
+      });
+      const payload = await response.json().catch(() => null) as { ok?: boolean; excluded_source_ids?: unknown[] } | null;
+      if (!response.ok || !payload?.ok) throw new Error("context_preferences_unavailable");
+      setExcludedContextIds((payload.excluded_source_ids ?? []).filter(isExcludableCoachContextId));
+    } catch {
+      setError("That personalization preference did not save. Please try again.");
+    } finally {
+      setContextBusyId(null);
     }
   }
 
@@ -251,7 +275,16 @@ export default function AskLve360Coach() {
                           onCancel={() => void updateAction(turn.action_proposal!.id, "cancel")}
                         />
                       ) : null}
-                      {turn.source_refs?.length ? <CoachGroundingCard sources={turn.source_refs} onInternalNavigate={closeCoach} /> : null}
+                      {turn.source_refs?.length ? (
+                        <CoachGroundingCard
+                          sources={turn.source_refs}
+                          receipt={turn.personalization ?? null}
+                          excludedContextIds={excludedContextIds}
+                          contextBusyId={contextBusyId}
+                          onToggleContext={(sourceId, excluded) => void updateContextPreference(sourceId, excluded)}
+                          onInternalNavigate={closeCoach}
+                        />
+                      ) : null}
                       <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3 text-xs text-[#486170]">
                         <span>Was this useful?</span>
                         <button type="button" onClick={() => leaveFeedback(turn.id, "useful")} aria-label="Mark answer useful" aria-pressed={turn.feedback === "useful"} className={`rounded-md p-1.5 ${turn.feedback === "useful" ? "bg-[#DDF7F1] text-[#06695F]" : "hover:bg-slate-100"}`}><ThumbsUp className="h-4 w-4" aria-hidden="true" /></button>
@@ -310,9 +343,17 @@ export default function AskLve360Coach() {
 
 function CoachGroundingCard({
   sources,
+  receipt,
+  excludedContextIds,
+  contextBusyId,
+  onToggleContext,
   onInternalNavigate,
 }: {
   sources: CoachTurn["source_refs"];
+  receipt: CoachTurn["personalization"];
+  excludedContextIds: ExcludableCoachContextId[];
+  contextBusyId: string | null;
+  onToggleContext: (sourceId: ExcludableCoachContextId, excluded: boolean) => void;
   onInternalNavigate: () => void;
 }) {
   const groups = groupCoachSources(sources);
@@ -326,8 +367,26 @@ function CoachGroundingCard({
         </div>
       </div>
 
+      {receipt ? (
+        <div className="mt-4 grid gap-3 border-t border-[#D8EEE9] pt-4 md:grid-cols-3">
+          <div className="rounded-xl bg-white p-3">
+            <p className="text-[11px] font-black uppercase tracking-[0.12em] text-[#087F72]">Why this fits now</p>
+            <p className="mt-1.5 text-xs leading-5 text-[#486170]">{receipt.whyNow}</p>
+          </div>
+          <div className="rounded-xl bg-white p-3">
+            <p className="text-[11px] font-black uppercase tracking-[0.12em] text-[#087F72]">What to notice</p>
+            <p className="mt-1.5 text-xs leading-5 text-[#486170]">{receipt.expectedSignal}</p>
+          </div>
+          <div className="rounded-xl bg-white p-3">
+            <p className="text-[11px] font-black uppercase tracking-[0.12em] text-[#087F72]">When to review</p>
+            <p className="mt-1.5 text-xs leading-5 text-[#486170]">{receipt.reviewTiming}</p>
+          </div>
+          <p className="text-xs font-semibold text-[#486170] md:col-span-3">This answer did not change your Plan or saved health records.</p>
+        </div>
+      ) : null}
+
       {groups.records.length ? (
-        <GroundingGroup title="Your saved LVE360 records" icon={<UserRound className="h-4 w-4" aria-hidden="true" />} sources={groups.records} onInternalNavigate={onInternalNavigate} />
+        <GroundingGroup title="Your saved LVE360 records" icon={<UserRound className="h-4 w-4" aria-hidden="true" />} sources={groups.records} excludedContextIds={excludedContextIds} contextBusyId={contextBusyId} onToggleContext={onToggleContext} onInternalNavigate={onInternalNavigate} />
       ) : null}
       {groups.evidence.length ? (
         <GroundingGroup title="Maintained evidence" icon={<BookOpen className="h-4 w-4" aria-hidden="true" />} sources={groups.evidence} onInternalNavigate={onInternalNavigate} evidence />
@@ -343,6 +402,9 @@ function GroundingGroup({
   title,
   icon,
   sources,
+  excludedContextIds = [],
+  contextBusyId = null,
+  onToggleContext,
   onInternalNavigate,
   evidence = false,
   safety = false,
@@ -350,6 +412,9 @@ function GroundingGroup({
   title: string;
   icon: React.ReactNode;
   sources: CoachTurn["source_refs"];
+  excludedContextIds?: ExcludableCoachContextId[];
+  contextBusyId?: string | null;
+  onToggleContext?: (sourceId: ExcludableCoachContextId, excluded: boolean) => void;
   onInternalNavigate: () => void;
   evidence?: boolean;
   safety?: boolean;
@@ -361,6 +426,8 @@ function GroundingGroup({
         {sources.map((source) => {
           const external = /^https?:\/\//i.test(source.href);
           const reviewLabel = evidenceReviewLabel(source);
+          const contextId = isExcludableCoachContextId(source.id) ? source.id : null;
+          const excluded = Boolean(contextId && excludedContextIds.includes(contextId));
           return (
             <li key={source.id} className={`rounded-xl border p-3 text-xs leading-5 ${safety ? "border-amber-200 bg-amber-50 text-amber-950" : "border-white bg-white text-[#486170]"}`}>
               <Link
@@ -381,6 +448,17 @@ function GroundingGroup({
                 </div>
               ) : null}
               <p className="mt-1.5">{source.summary}</p>
+              {contextId && onToggleContext ? (
+                <button
+                  type="button"
+                  onClick={() => onToggleContext(contextId, !excluded)}
+                  disabled={contextBusyId === contextId}
+                  className="mt-2 inline-flex items-center gap-1 font-bold text-[#486170] underline decoration-slate-300 underline-offset-4 hover:text-[#041B2D] disabled:opacity-50"
+                >
+                  {excluded ? <RotateCcw className="h-3 w-3" aria-hidden="true" /> : <EyeOff className="h-3 w-3" aria-hidden="true" />}
+                  {contextBusyId === contextId ? "Saving..." : excluded ? "Use in future personalization" : "Do not use in future personalization"}
+                </button>
+              ) : null}
             </li>
           );
         })}

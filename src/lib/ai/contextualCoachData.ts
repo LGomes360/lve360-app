@@ -27,6 +27,8 @@ import { getMemberIntelligenceContext } from "@/lib/memberContextData";
 import { applySafetyChecks, type AppliedSafetyResult } from "@/lib/safetyCheck";
 import type { SafetyContext } from "@/lib/safetyEngine";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { getExcludedCoachContextIds } from "@/lib/coachContextPreferencesData";
+import type { ExcludableCoachContextId } from "@/lib/coachPersonalization";
 
 export type CoachContext = {
   page: CoachPage;
@@ -99,6 +101,33 @@ function supplementItems(context: MemberIntelligenceContext) {
   return [...context.regimen.supplements.value, ...context.regimen.endocrineActiveSupplements.value];
 }
 
+function withoutOptionalPersonalizationContext(
+  context: MemberIntelligenceContext,
+  excluded: ExcludableCoachContextId[],
+): MemberIntelligenceContext {
+  const hidden = new Set(excluded);
+  return {
+    ...context,
+    goals: hidden.has("goals") ? {
+      saved: { ...context.goals.saved, status: "missing", value: [], missingReason: "Excluded from personalization by the member." },
+      blueprint: { ...context.goals.blueprint, status: "missing", value: [], missingReason: "Excluded from personalization by the member." },
+      alignment: { status: "missing", sharedLabels: [], explanation: "Excluded from personalization by the member." },
+    } : context.goals,
+    activePractice: hidden.has("weekly_practice")
+      ? { ...context.activePractice, status: "missing", value: null, missingReason: "Excluded from personalization by the member." }
+      : context.activePractice,
+    recentPracticeHistory: hidden.has("weekly_practice")
+      ? { ...context.recentPracticeHistory, status: "missing", value: [], missingReason: "Excluded from personalization by the member." }
+      : context.recentPracticeHistory,
+    recentCheckIns: hidden.has("recent_check_ins")
+      ? { ...context.recentCheckIns, status: "missing", value: [], missingReason: "Excluded from personalization by the member." }
+      : context.recentCheckIns,
+    preferences: hidden.has("preferences")
+      ? { ...context.preferences, status: "missing", value: null, missingReason: "Excluded from personalization by the member." }
+      : context.preferences,
+  };
+}
+
 function searchableText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -140,10 +169,13 @@ export async function buildCoachContext(
   routing: CoachRoutingDecision,
 ): Promise<CoachContext> {
   const requested = new Set(INTENT_SOURCE_IDS[routing.intent]);
+  const excludedSourceIds = await getExcludedCoachContextIds(userId);
+  const activeExclusions = excludedSourceIds.filter((sourceId) => requested.has(sourceId));
+  activeExclusions.forEach((sourceId) => requested.delete(sourceId));
   const needsEvidence = requested.has("evidence");
   const needsRecentCoaching = requested.has("recent_coaching");
   const admin = getSupabaseAdmin();
-  const [memberContext, recentTurnsResult] = await Promise.all([
+  const [rawMemberContext, recentTurnsResult] = await Promise.all([
     getMemberIntelligenceContext(userId),
     needsRecentCoaching
       ? admin.from("ai_coaching_turns")
@@ -152,6 +184,7 @@ export async function buildCoachContext(
       : Promise.resolve({ data: [], error: null }),
   ]);
   if (recentTurnsResult.error) throw recentTurnsResult.error;
+  const memberContext = withoutOptionalPersonalizationContext(rawMemberContext, activeExclusions);
 
   const allRegimen = regimenItems(memberContext);
   const sources: CoachSource[] = [];
@@ -294,7 +327,7 @@ export async function buildCoachContext(
       label: "Recent check-ins",
       kind: "member_record",
       summary: `${checkIns.length} recent check-ins${checkIns.some((item) => item.memberReportedContext) ? ", including member-reported context" : ""}.`,
-      href: "/journey",
+      href: checkIns.some((item) => item.memberReportedContext) ? "/settings#personalization-context" : "/journey",
     });
     facts.recent_check_ins = checkIns.map((item) => ({
       date: item.date,
@@ -313,7 +346,7 @@ export async function buildCoachContext(
       label: "Goals",
       kind: "member_record",
       summary: `${saved.length} saved goals and ${blueprintGoals.length} Blueprint goals.`,
-      href: "/settings",
+      href: "/dashboard/my-quiz",
     });
     facts.goals = {
       saved: saved.map((goal) => ({ label: goal.label, kind: goal.kind, target_value: goal.targetValue })),
@@ -330,7 +363,7 @@ export async function buildCoachContext(
       summary: memberContext.healthProfile.status === "present"
         ? "Saved age/life-stage, conditions, allergies, procedures, and preferences used only when relevant."
         : "No intake health profile is currently available.",
-      href: "/settings",
+      href: "/dashboard/my-quiz",
     });
     facts.health_profile = memberContext.healthProfile.value;
   }
