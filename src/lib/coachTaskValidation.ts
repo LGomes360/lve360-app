@@ -16,6 +16,11 @@ export type CoachTaskValidatorId =
   | "REGIMEN_COVERAGE"
   | "REQUESTED_FIELDS"
   | "TYPE_EXCLUSIONS"
+  | "PLAN_CURRENT_STATE"
+  | "PLAN_CHANGE_HISTORY"
+  | "PROVENANCE"
+  | "UNCERTAINTY"
+  | "READ_ONLY_BOUNDARY"
   | "SAFETY_FINDINGS"
   | "SAFETY_REASONING"
   | "CONSTRAINT_ADHERENCE"
@@ -65,6 +70,7 @@ type CoachTaskValidationInput = {
   answerText: string;
   memberContext: MemberIntelligenceContext;
   structuredAnswer?: StructuredCoachAnswer | null;
+  usedSourceIds?: string[];
   evidenceOptionNames?: string[];
   safetyChecked?: boolean;
   allCandidatesBlocked?: boolean;
@@ -75,7 +81,6 @@ const REGIMEN_LOOKUP_INTENTS = new Set<CoachIntent>([
   "MEDICATION_LOOKUP",
   "HORMONE_LOOKUP",
   "SUPPLEMENT_LOOKUP",
-  "CURRENT_PLAN_LOOKUP",
 ]);
 
 const STOP_WORDS = new Set([
@@ -368,6 +373,47 @@ function progressValidators(input: CoachTaskValidationInput) {
   ];
 }
 
+function planValidators(input: CoachTaskValidationInput) {
+  const asksForChanges = /\b(?:what changed|recent changes?|change history|changed recently)\b/i.test(input.question);
+  const practice = input.memberContext.activePractice.value;
+  const regimenCounts = [
+    [input.memberContext.regimen.medications.value.length, "medications"],
+    [input.memberContext.regimen.hormones.value.length, "hormones"],
+    [input.memberContext.regimen.supplements.value.length + input.memberContext.regimen.endocrineActiveSupplements.value.length, "supplements"],
+  ] as const;
+  const currentChecks = asksForChanges ? [] : [
+    practice?.actionLabel
+      ? containsValue(input.answerText, practice.actionLabel)
+      : /\b(?:no active (?:weekly )?focus|active practice: none)\b/i.test(input.answerText),
+    ...regimenCounts.map(([count, label]) => new RegExp(`\\b${count}\\s+${label}\\b`, "i").test(input.answerText)),
+    input.memberContext.blueprint.value?.safety?.label
+      ? containsValue(input.answerText, input.memberContext.blueprint.value.safety.label)
+      : /\b(?:no current blueprint safety status|safety status[^.]*not available)\b/i.test(input.answerText),
+  ];
+  const missingCurrent = currentChecks.flatMap((passed, index) => passed ? [] : [`current_plan_field:${index}`]);
+
+  const changes = input.memberContext.recentPlanChanges.value.slice(0, 5);
+  const coveredChanges = changes.filter((change) => containsValue(input.answerText, change.summary));
+  const noChangeState = changes.length > 0
+    || /\bno confirmed changes (?:have been )?recorded\b/i.test(input.answerText);
+  const changeCoverage = changes.length
+    ? ratio(coveredChanges.length, changes.length)
+    : Number(noChangeState);
+  const usedSourceIds = input.usedSourceIds ?? input.structuredAnswer?.sourceIds ?? [];
+  const provenance = usedSourceIds.includes("current_plan") && usedSourceIds.includes("plan_change_history");
+  const uncertainty = /\b(?:currently saved|records currently saved|unrecorded changes|not included|no current .* available)\b/i.test(input.answerText);
+  const readOnly = /\b(?:read-only|nothing was changed|nothing was added, removed, or changed|have not changed)\b/i.test(input.answerText);
+
+  return [
+    result("PLAN_CURRENT_STATE", ratio(currentChecks.length - missingCurrent.length, currentChecks.length), missingCurrent),
+    result("PLAN_CHANGE_HISTORY", changeCoverage, changes.filter((change) => !coveredChanges.includes(change)).map((change) => `plan_change:${change.id}`)),
+    result("PROVENANCE", Number(provenance), provenance ? [] : ["current_plan_and_change_history_sources_required"]),
+    result("UNCERTAINTY", Number(uncertainty), uncertainty ? [] : ["saved_record_limit_missing"]),
+    result("READ_ONLY_BOUNDARY", Number(readOnly), readOnly ? [] : ["read_only_boundary_missing"]),
+    ...generalValidators(input),
+  ];
+}
+
 function nextWeekPracticeRequest(input: CoachTaskValidationInput) {
   return /\bnext[- ]week\b/i.test(input.question) && /\b(?:habit|practice|focus|action)\b/i.test(input.question);
 }
@@ -421,7 +467,7 @@ function memberContextValidator(input: CoachTaskValidationInput) {
   if (!values.length) return result("MEMBER_CONTEXT_USE", 1);
   const sourceIds = input.structuredAnswer?.sourceIds ?? [];
   const groundedSource = sourceIds.some((id) => [
-    "current_routine", "health_profile", "goals", "recent_check_ins", "current_blueprint", "weekly_practice",
+    "current_plan", "plan_change_history", "current_routine", "health_profile", "goals", "recent_check_ins", "current_blueprint", "weekly_practice",
   ].includes(id));
   const exactValue = values.some((value) => containsValue(input.answerText, value));
   const memberLanguage = /\b(?:your|you|recorded|current|recent|already)\b/i.test(input.answerText);
@@ -477,6 +523,7 @@ export function validateCoachTaskSuccess(input: CoachTaskValidationInput): Coach
   validators.push(result("STRUCTURE", Number(structurePass), structurePass ? [] : ["readable_bounded_answer_required"]));
 
   if (REGIMEN_LOOKUP_INTENTS.has(input.route.intent)) validators.push(...regimenValidators(input));
+  else if (input.route.intent === "CURRENT_PLAN_LOOKUP") validators.push(...planValidators(input));
   else if (input.route.intent === "SAFETY_REVIEW") validators.push(...safetyValidators(input));
   else if (input.route.intent === "BEHAVIORAL_COACHING") validators.push(activePracticeValidator(input), timeHorizonValidator(input));
   else if (input.route.intent === "PRIORITIZATION") validators.push(priorityValidator(input));
@@ -503,6 +550,7 @@ export function validateCoachTaskSuccess(input: CoachTaskValidationInput): Coach
     "REGIMEN_COVERAGE", "REQUESTED_FIELDS", "TYPE_EXCLUSIONS", "SAFETY_FINDINGS",
     "SAFETY_REASONING", "PRIORITY_ALIGNMENT", "MISSING_CONTEXT_ACCURACY", "PROGRESS_METRICS",
     "CAUSAL_BOUNDARY", "MEMBER_CONTEXT_USE", "MEMBER_REPORTED_CONTEXT_USE", "EVIDENCE_COVERAGE",
+    "PLAN_CURRENT_STATE", "PLAN_CHANGE_HISTORY", "PROVENANCE", "UNCERTAINTY", "READ_ONLY_BOUNDARY",
   ].includes(item.validator));
   const factualCoverage = factualValidators.length
     ? factualValidators.reduce((sum, item) => sum + item.completeness, 0) / factualValidators.length

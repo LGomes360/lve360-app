@@ -67,7 +67,7 @@ const INTENT_SOURCE_IDS: Record<CoachIntent, string[]> = {
   MEDICATION_LOOKUP: ["current_routine"],
   HORMONE_LOOKUP: ["current_routine"],
   SUPPLEMENT_LOOKUP: ["current_routine"],
-  CURRENT_PLAN_LOOKUP: ["current_routine"],
+  CURRENT_PLAN_LOOKUP: ["current_plan", "plan_change_history"],
   SAFETY_REVIEW: ["safety_review", "current_routine", "health_profile"],
   BEHAVIORAL_COACHING: ["weekly_practice", "recent_check_ins", "goals", "preferences", "recent_coaching"],
   PRIORITIZATION: ["weekly_practice", "recent_check_ins", "goals", "current_blueprint"],
@@ -75,7 +75,7 @@ const INTENT_SOURCE_IDS: Record<CoachIntent, string[]> = {
   EVIDENCE_COMPARISON: ["evidence", "current_routine", "health_profile", "goals", "recent_coaching"],
   OUT_OF_SCOPE: [],
   OPTION_COMPARISON: ["evidence", "current_routine", "health_profile", "goals", "recent_check_ins", "recent_coaching"],
-  PLAN_EXPLANATION: ["current_blueprint", "current_routine", "goals", "recent_coaching"],
+  PLAN_EXPLANATION: ["current_plan", "plan_change_history", "current_blueprint", "current_routine", "goals", "recent_coaching"],
   TIMING_OR_DOSING: ["evidence", "current_routine", "health_profile", "recent_coaching"],
   PROGRESS_COACHING: ["weekly_practice", "recent_check_ins", "goals", "current_blueprint", "recent_coaching"],
   REQUEST_TO_CHANGE_RECORD: ["current_routine", "evidence", "health_profile"],
@@ -156,6 +156,65 @@ export async function buildCoachContext(
   const allRegimen = regimenItems(memberContext);
   const sources: CoachSource[] = [];
   const facts: Record<string, unknown> = {};
+
+  if (requested.has("current_plan")) {
+    const practice = memberContext.activePractice.value;
+    const blueprint = memberContext.blueprint.value;
+    const savedGoals = memberContext.goals.saved.value;
+    const focus = practice?.actionLabel ?? blueprint?.priorities[0]?.label ?? null;
+    sources.push({
+      id: "current_plan",
+      label: "Current Plan",
+      kind: "member_record",
+      summary: focus
+        ? `Current focus: ${compact(focus, 100)}. ${allRegimen.length} active Routine records.`
+        : `No active weekly focus is recorded. ${allRegimen.length} active Routine records.`,
+      href: "/plan",
+    });
+    facts.current_plan = {
+      focus,
+      active_practice: practice ? {
+        action: practice.actionLabel,
+        identity: practice.identityDirection,
+        cue: practice.cue,
+        frequency_per_week: practice.frequencyPerWeek,
+        minimum_version: practice.minimumVersion,
+        completions: practice.completionCount,
+      } : null,
+      goals: savedGoals.map((goal) => ({ label: goal.label, kind: goal.kind, target_value: goal.targetValue })),
+      routine_counts: {
+        medications: memberContext.regimen.medications.value.length,
+        hormones: memberContext.regimen.hormones.value.length,
+        supplements: memberContext.regimen.supplements.value.length,
+        endocrine_active_supplements: memberContext.regimen.endocrineActiveSupplements.value.length,
+      },
+      blueprint_status: memberContext.blueprint.status,
+      safety: blueprint?.safety ?? null,
+    };
+  }
+
+  if (requested.has("plan_change_history")) {
+    const changes = memberContext.recentPlanChanges.value;
+    sources.push({
+      id: "plan_change_history",
+      label: "Confirmed Plan changes",
+      kind: "member_record",
+      summary: changes.length
+        ? `${changes.length} recent confirmed changes; latest recorded ${changes[0]?.createdAt.slice(0, 10)}.`
+        : "No confirmed changes have been recorded since change tracking began.",
+      href: "/plan#plan-changes-heading",
+    });
+    facts.plan_change_history = changes.map((change) => ({
+      id: change.id,
+      domain: change.domain,
+      entity_type: change.entityType,
+      entity_id: change.entityId,
+      change_type: change.changeType,
+      source: change.source,
+      summary: change.summary,
+      created_at: change.createdAt,
+    }));
+  }
 
   if (requested.has("current_blueprint")) {
     const blueprint = memberContext.blueprint.value;
@@ -516,30 +575,6 @@ function deterministicRecordMutation(question: string, context: CoachContext) {
   };
 }
 
-function deterministicPlanLookup(question: string, context: CoachContext) {
-  if (context.intent !== "CURRENT_PLAN_LOOKUP") return null;
-  const routine = Array.isArray(context.facts.routine) ? context.facts.routine as Array<Record<string, unknown>> : [];
-  const namedEvidence = context.evidenceOptions[0]?.name;
-  if (namedEvidence) {
-    const identity = healthItemIdentityKey(namedEvidence);
-    const match = routine.find((item) => healthItemIdentityKey(String(item.name ?? "")) === identity);
-    return {
-      answer: match
-        ? `Yes. ${String(match.name)} is already in your current Routine${match.dose ? ` at ${String(match.dose)}` : ""}${match.timing ? `, recorded for ${String(match.timing)}` : ""}. I would not add a duplicate. The useful next step is to review whether the recorded form, dose, and timing fit the goal you have in mind.`
-        : `${namedEvidence} is not listed in your current Routine. This is a record lookup only; nothing has been added or changed.`,
-      sourceIds: ["current_routine"],
-      responseSource: "deterministic" as const,
-    };
-  }
-  const nightOnly = /\b(?:night|evening|bed|bedtime)\b/i.test(question);
-  const supplements = routine.filter((item) => ["supplement", "endocrine_active_supplement"].includes(String(item.kind ?? "")))
-    .filter((item) => !nightOnly || /\b(?:night|evening|bed|pm|dinner)\b/i.test(String(item.timing ?? "")));
-  const answer = supplements.length
-    ? `${nightOnly ? "Your current nighttime supplements are" : "Your current supplements are"}:\n${supplements.map((item) => `• ${String(item.name)}${item.dose ? ` — ${String(item.dose)}` : ""}${item.timing ? ` (${String(item.timing)})` : ""}`).join("\n")}`
-    : `I did not find any ${nightOnly ? "supplements with nighttime timing" : "current supplements"} in your saved Routine. No general recommendations were added because you asked for a record lookup.`;
-  return { answer, sourceIds: ["current_routine"], responseSource: "deterministic" as const };
-}
-
 function deterministicTodayStep(question: string, context: CoachContext) {
   if (context.page !== "today" || context.intent !== "PROGRESS_COACHING" || !/\b(?:smallest|next step|today|right now)\b/i.test(question)) return null;
   const practice = context.facts.weekly_practice as { action?: unknown; minimum_version?: unknown } | undefined;
@@ -733,6 +768,7 @@ function validateRenderedTask(
   answerText: string,
   structuredAnswer: StructuredCoachAnswer | null,
   safetyChecked: boolean,
+  usedSourceIds?: string[],
 ) {
   return validateCoachTaskSuccess({
     route: routing,
@@ -740,6 +776,7 @@ function validateRenderedTask(
     answerText,
     memberContext: context.memberContext,
     structuredAnswer,
+    usedSourceIds,
     evidenceOptionNames: context.evidenceOptions.map((option) => option.name),
     safetyChecked,
     allCandidatesBlocked: Boolean(
@@ -914,11 +951,10 @@ export async function generateCoachAnswer(userId: string, question: string, cont
   const deterministic = deterministicNamedSafetyAnswer(question, context)
     ?? deterministicCoachTask(routing, context.memberContext, question)
     ?? deterministicRecordMutation(question, context)
-    ?? deterministicPlanLookup(question, context)
     ?? deterministicTodayStep(question, context)
     ?? deterministicJourneyPattern(question, context);
   if (deterministic) {
-    const taskReport = validateRenderedTask(routing, question, context, deterministic.answer, null, true);
+    const taskReport = validateRenderedTask(routing, question, context, deterministic.answer, null, true, deterministic.sourceIds);
     if (!taskReport.passed) {
       const fallback = narrowSafeFallback(question, context);
       return {
