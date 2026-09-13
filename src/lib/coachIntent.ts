@@ -22,6 +22,14 @@ const KIND_LABELS: Record<CoachRegimenKind, string> = {
   endocrine_active_supplement: "Endocrine-active supplements",
 };
 
+function sentenceFragment(value: string) {
+  return value.trim().replace(/[.!?]+$/, "");
+}
+
+function countLabel(count: number, singular: string) {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`;
+}
+
 function itemsForKind(context: MemberIntelligenceContext, kind: CoachRegimenKind): MemberRegimenItemContext[] {
   if (kind === "medication") return context.regimen.medications.value;
   if (kind === "hormone") return context.regimen.hormones.value;
@@ -33,10 +41,52 @@ function kindsForRoute(route: CoachRoutingDecision): CoachRegimenKind[] {
   if (route.requestedRegimenKinds.length) return route.requestedRegimenKinds;
   if (route.intent === "MEDICATION_LOOKUP") return ["medication"];
   if (route.intent === "HORMONE_LOOKUP") return ["hormone"];
-  if (route.intent === "SUPPLEMENT_LOOKUP" || route.intent === "CURRENT_PLAN_LOOKUP") {
+  if (route.intent === "SUPPLEMENT_LOOKUP") {
     return ["supplement", "endocrine_active_supplement"];
   }
   return ["medication", "hormone", "supplement", "endocrine_active_supplement"];
+}
+
+function currentPlanLookup(context: MemberIntelligenceContext, question: string): DeterministicCoachTaskResult {
+  const practice = context.activePractice.value;
+  const goals = context.goals.saved.value.map((goal) => goal.label);
+  const blueprint = context.blueprint.value;
+  const focus = practice?.actionLabel ?? blueprint?.priorities[0]?.label ?? null;
+  const counts = {
+    medications: context.regimen.medications.value.length,
+    hormones: context.regimen.hormones.value.length,
+    supplements: context.regimen.supplements.value.length + context.regimen.endocrineActiveSupplements.value.length,
+  };
+  const changes = context.recentPlanChanges.value.slice(0, 5);
+  const asksForChanges = /\b(?:what changed|recent changes?|change history|changed recently)\b/i.test(question);
+  const changeLines = changes.length
+    ? changes.map((change, index) => `${index + 1}. ${change.createdAt.slice(0, 10)}: ${change.summary} (${change.source})`)
+    : ["No confirmed changes have been recorded since change tracking began."];
+
+  if (asksForChanges) {
+    return {
+      answer: `Here are the most recent confirmed changes in your saved Plan:\n\n${changeLines.join("\n")}\n\nThis is a read-only history of currently saved confirmed changes; unrecorded changes are not included. Generated coaching and suggestions do not appear here unless you reviewed and confirmed a change. Nothing was changed by this answer.\n\nNext step: Open Plan to review the current state alongside this history.`,
+      sourceIds: ["plan_change_history", "current_plan"],
+      responseSource: "deterministic",
+    };
+  }
+
+  const focusText = focus
+    ? `Current focus: ${sentenceFragment(focus)}.`
+    : "Current focus: no active weekly focus is recorded.";
+  const practiceText = practice?.actionLabel
+    ? `Active practice: ${sentenceFragment(practice.actionLabel)}${practice.cue ? `, cued ${sentenceFragment(practice.cue)}` : ""}${practice.frequencyPerWeek ? `, ${practice.frequencyPerWeek} times per week` : ""}${practice.minimumVersion ? `. Hard-day version: ${sentenceFragment(practice.minimumVersion)}` : ""}.`
+    : "Active practice: none recorded.";
+  const goalText = goals.length ? `Saved goals: ${goals.slice(0, 3).join(", ")}.` : "Saved goals: none recorded.";
+  const safetyText = blueprint?.safety?.label
+    ? `Safety status: ${blueprint.safety.label}.`
+    : "Safety status: no current Blueprint safety status is available.";
+
+  return {
+    answer: `Here is the current Plan saved in LVE360:\n\n${focusText}\n${practiceText}\n${goalText}\nRoutine: ${countLabel(counts.medications, "medication")}, ${countLabel(counts.hormones, "hormone")}, and ${countLabel(counts.supplements, "supplement")}.\n${safetyText}\n\nRecent confirmed changes:\n${changeLines.join("\n")}\n\nThis summary reflects the records currently saved in LVE360; unrecorded changes are not included. Nothing was changed by this answer.\n\nNext step: Open Plan to review details or use its controlled actions if something is out of date.`,
+    sourceIds: ["current_plan", "plan_change_history"],
+    responseSource: "deterministic",
+  };
 }
 
 function field(value: string | null | undefined, label: string): string {
@@ -161,7 +211,8 @@ export function deterministicCoachTask(
   context: MemberIntelligenceContext,
   question: string,
 ): DeterministicCoachTaskResult | null {
-  if (["CURRENT_REGIMEN_LOOKUP", "MEDICATION_LOOKUP", "HORMONE_LOOKUP", "SUPPLEMENT_LOOKUP", "CURRENT_PLAN_LOOKUP"].includes(route.intent)) {
+  if (route.intent === "CURRENT_PLAN_LOOKUP") return currentPlanLookup(context, question);
+  if (["CURRENT_REGIMEN_LOOKUP", "MEDICATION_LOOKUP", "HORMONE_LOOKUP", "SUPPLEMENT_LOOKUP"].includes(route.intent)) {
     return regimenLookup(route, context);
   }
   if (route.intent === "SAFETY_REVIEW") return safetyReview(context);

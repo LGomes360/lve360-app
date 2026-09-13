@@ -9,6 +9,7 @@ import {
   type MemberContextCompletionInput,
   type MemberContextDurablePracticeInput,
   type MemberContextExperimentInput,
+  type MemberContextPlanChangeInput,
   type MemberContextReviewInput,
   type MemberGoalContext,
   type MemberHealthProfileContext,
@@ -166,6 +167,7 @@ export async function getMemberIntelligenceContext(userId: string): Promise<Memb
     practiceResult,
     experimentResult,
     checkInResult,
+    planChangeResult,
   ] = await Promise.all([
     admin.from("users").select("id,tier,created_at,updated_at").eq("id", userId).maybeSingle(),
     admin.from("user_preferences")
@@ -186,8 +188,11 @@ export async function getMemberIntelligenceContext(userId: string): Promise<Memb
       .eq("user_id", userId).order("week_start", { ascending: false }).limit(12),
     admin.from("logs").select("id,log_date,weight,sleep,energy,notes,updated_at")
       .eq("user_id", userId).order("log_date", { ascending: false }).limit(30),
+    admin.from("plan_change_events")
+      .select("id,domain,entity_type,entity_id,change_type,source,change_summary,created_at")
+      .eq("user_id", userId).order("created_at", { ascending: false }).limit(12),
   ]);
-  for (const result of [memberResult, preferenceResult, submissionResult, goalsResult, practiceResult, experimentResult, checkInResult]) {
+  for (const result of [memberResult, preferenceResult, submissionResult, goalsResult, practiceResult, experimentResult, checkInResult, planChangeResult]) {
     if (result.error) throw result.error;
   }
 
@@ -254,6 +259,7 @@ export async function getMemberIntelligenceContext(userId: string): Promise<Memb
     completions,
     practiceBlueprintContexts,
     checkIns: (checkInResult.data ?? []) as MemberContextCheckInInput[],
+    planChanges: (planChangeResult.data ?? []) as MemberContextPlanChangeInput[],
     safetyFindings: safety.findings,
     safetyEvaluationComplete: safety.complete,
   });

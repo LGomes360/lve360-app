@@ -188,7 +188,8 @@ export function classifyCoachRequest(question: string): CoachRoutingDecision {
     return route("POTENTIAL_MEDICAL_RED_FLAG");
   }
   if (/\b(?:add|save|record|remove|delete)\b[\s\S]{0,80}\b(?:my|the)\s+(?:stack|routine|record|reminder|medication|hormone|supplement)\b/.test(value)
-    || /\b(?:add|remove|delete)\b[\s\S]{0,60}\b(?:to|from)\s+(?:my\s+)?(?:stack|routine|records?)\b/.test(value)) {
+    || /\b(?:add|remove|delete)\b[\s\S]{0,60}\b(?:to|from)\s+(?:my\s+)?(?:stack|routine|records?)\b/.test(value)
+    || /\b(?:change|adjust|increase|decrease|start|stop|add|remove)\b[\s\S]{0,60}\b(?:my\s+)?(?:medication|prescription|hormone|supplement)(?:s|\s+dose|\s+timing|\s+schedule)?\b/.test(value)) {
     return route("REQUEST_TO_CHANGE_RECORD");
   }
   if (/\b(?:capital of|president of|prime minister of|weather|stock price|sports score|who won|recipe for|write (?:me )?a poem)\b/.test(value)) {
@@ -211,6 +212,10 @@ export function classifyCoachRequest(question: string): CoachRoutingDecision {
   if (/\b(?:slept poorly|poor sleep|bad night|rough night|low energy|hard day|off track|missed my|make (?:it|this) easier|adjust tomorrow|adjust today)\b/.test(value)
     || /\b(?:how (?:can|should) i|help me)\b[\s\S]{0,70}\b(?:sleep|eat|exercise|move|walk|meditat|recover|habit|practice|routine tomorrow)\b/.test(value)) {
     return route("BEHAVIORAL_COACHING", []);
+  }
+  if (/\b(?:what(?:'s| is)?|show|summari[sz]e|review)\b[\s\S]{0,60}\b(?:my\s+)?(?:current\s+)?plan\b/.test(value)
+    || /\b(?:what changed|recent changes?|change history|changed recently)\b[\s\S]{0,60}\b(?:plan|routine|practice|regimen)\b/.test(value)) {
+    return route("CURRENT_PLAN_LOOKUP", []);
   }
   if (explicitRegimenLookup
     || /\bis\s+[a-z0-9 -]+\s+(?:already\s+)?in my (?:stack|routine|records?)\b/.test(value)
@@ -477,7 +482,7 @@ export function isCoachAnswerSafe(answer: string) {
 export function coachSuggestedPrompts(page: CoachPage): string[] {
   const common = "What is the smallest useful step I can take today?";
   const prompts: Record<CoachPage, string[]> = {
-    today: [common, "How can I make today's weekly practice easier to complete?"],
+    today: ["What is my current Plan?", common],
     routine: ["What am I currently taking at night?", "Does anything in my routine deserve a closer safety review?"],
     blueprint: ["What are the most important themes in my current Blueprint?", "Which Blueprint option best fits my current routine?"],
     journey: ["What pattern can I cautiously learn from my recent progress?", "What small win should I build on next?"],

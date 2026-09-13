@@ -4,7 +4,7 @@ import { normalizeMemberReportedContext } from "./memberReportedContext.ts";
 import { buildWeeklyPracticeMetrics } from "./practiceQuantity.ts";
 import { unknownSafetyEvidence, type SafetyEvidenceProvenance, type SafetyFinding } from "./safetyEngine.ts";
 
-export const MEMBER_CONTEXT_VERSION = "member-intelligence-context-v3";
+export const MEMBER_CONTEXT_VERSION = "member-intelligence-context-v4";
 
 export type MemberContextStatus = "present" | "missing" | "stale";
 
@@ -19,6 +19,7 @@ export type MemberContextSource =
   | "weekly_experiments"
   | "daily_practice_completions"
   | "weekly_experiment_reviews"
+  | "plan_change_events"
   | "logs"
   | "interactions"
   | "rules"
@@ -157,6 +158,18 @@ export type MemberCheckInContext = {
   provenance: MemberContextProvenance;
 };
 
+export type MemberPlanChangeContext = {
+  id: string;
+  domain: "regimen" | "practice";
+  entityType: string;
+  entityId: string;
+  changeType: string;
+  source: string;
+  summary: string;
+  createdAt: string;
+  provenance: MemberContextProvenance;
+};
+
 export type MemberSafetyItemContext = {
   code: string;
   item: string;
@@ -188,6 +201,7 @@ export type MemberIntelligenceContext = {
   regimen: MemberRegimenContext;
   activePractice: MemberContextSection<MemberPracticeContext | null>;
   recentPracticeHistory: MemberContextSection<MemberPracticeContext[]>;
+  recentPlanChanges: MemberContextSection<MemberPlanChangeContext[]>;
   recentCheckIns: MemberContextSection<MemberCheckInContext[]>;
   preferences: MemberContextSection<MemberPreferencesContext | null>;
   unresolvedSafetyItems: MemberContextSection<MemberSafetyItemContext[]>;
@@ -255,6 +269,17 @@ export type MemberContextCheckInInput = {
   updated_at: string | null;
 };
 
+export type MemberContextPlanChangeInput = {
+  id: string;
+  domain: "regimen" | "practice";
+  entity_type: string;
+  entity_id: string;
+  change_type: string;
+  source: string;
+  change_summary: string;
+  created_at: string;
+};
+
 export type MemberIntelligenceContextInput = {
   generatedAt: string;
   member: (MemberIdentityContext & { updatedAt: string | null }) | null;
@@ -270,6 +295,7 @@ export type MemberIntelligenceContextInput = {
   completions: MemberContextCompletionInput[];
   practiceBlueprintContexts: Record<string, ExperimentBlueprintContext>;
   checkIns: MemberContextCheckInInput[];
+  planChanges?: MemberContextPlanChangeInput[];
   safetyFindings: SafetyFinding[];
   safetyEvaluationComplete: boolean;
 };
@@ -533,6 +559,24 @@ export function buildMemberIntelligenceContext(input: MemberIntelligenceContextI
     checkIns.map((item) => item.provenance),
     checkIns.length ? null : "No recent weight, sleep, or energy check-ins were found.",
   );
+  const planChanges = (input.planChanges ?? []).map((item): MemberPlanChangeContext => ({
+    id: item.id,
+    domain: item.domain,
+    entityType: item.entity_type,
+    entityId: item.entity_id,
+    changeType: item.change_type,
+    source: item.source,
+    summary: item.change_summary,
+    createdAt: item.created_at,
+    provenance: { source: "plan_change_events", recordId: item.id, updatedAt: item.created_at },
+  }));
+  const recentPlanChanges = section(
+    planChanges,
+    planChanges.length ? "present" : "missing",
+    latestTimestamp(planChanges.map((item) => item.createdAt)),
+    planChanges.map((item) => item.provenance),
+    planChanges.length ? null : "No confirmed Plan changes have been recorded since change tracking began.",
+  );
   const safetyItems = input.safetyFindings.map((finding): MemberSafetyItemContext => ({
     code: finding.code,
     item: finding.item,
@@ -573,6 +617,7 @@ export function buildMemberIntelligenceContext(input: MemberIntelligenceContextI
     endocrineActiveSupplements: regimen.endocrineActiveSupplements,
     activePractice,
     recentPracticeHistory,
+    recentPlanChanges,
     recentCheckIns,
     preferences,
     unresolvedSafetyItems,
@@ -592,6 +637,7 @@ export function buildMemberIntelligenceContext(input: MemberIntelligenceContextI
     regimen,
     activePractice,
     recentPracticeHistory,
+    recentPlanChanges,
     recentCheckIns,
     preferences,
     unresolvedSafetyItems,
