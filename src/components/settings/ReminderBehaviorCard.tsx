@@ -11,11 +11,21 @@ type BehaviorResponse = {
   current_hour?: number | null;
   feedback_count?: number;
   suggestion?: ReminderBehaviorSuggestion | null;
+  schedule?: {
+    weekdays: number[];
+    paused_until: string | null;
+    skipped_date: string | null;
+    local_date: string;
+    effective_on: string;
+    review_on: string;
+  } | null;
 };
+
+type BusyAction = "accept_suggestion" | "decline_suggestion" | "set_weekdays" | "skip_today" | "pause_until_tomorrow" | "resume";
 
 export default function ReminderBehaviorCard() {
   const [data, setData] = useState<BehaviorResponse | null>(null);
-  const [busy, setBusy] = useState<"accept_suggestion" | "decline_suggestion" | null>(null);
+  const [busy, setBusy] = useState<BusyAction | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -52,6 +62,32 @@ export default function ReminderBehaviorCard() {
           : current.current_hour,
       } : current);
       setMessage(action === "accept_suggestion" ? "Your reminder plan was updated." : "Suggestion dismissed. Your current plan is unchanged.");
+    } catch {
+      setMessage("We could not update that reminder choice. Please try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function updateSchedule(action: Exclude<BusyAction, "accept_suggestion" | "decline_suggestion">, weekdays?: number[]) {
+    setBusy(action);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/reminders/behavior", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, weekdays }),
+      });
+      const json = await response.json().catch(() => null) as BehaviorResponse | null;
+      if (!response.ok || !json?.ok || !json.schedule) throw new Error("schedule_unavailable");
+      setData((current) => current ? { ...current, schedule: json.schedule } : current);
+      setMessage(action === "set_weekdays"
+        ? "Your reminder days are saved."
+        : action === "skip_today"
+          ? "Today's reminder is skipped."
+          : action === "pause_until_tomorrow"
+            ? "Reminders are paused until tomorrow."
+            : "Your reminders are active again.");
     } catch {
       setMessage("We could not update that reminder choice. Please try again.");
     } finally {
@@ -97,13 +133,48 @@ export default function ReminderBehaviorCard() {
           {data.enabled && typeof data.current_hour === "number" && !suggestion ? (
             <p className="mt-3 flex items-center gap-2 text-xs font-semibold text-slate-500"><Clock3 className="h-3.5 w-3.5" /> Current delivery time: {formatHour(data.current_hour)}</p>
           ) : null}
+          {data.enabled && data.schedule ? (
+            <div className="mt-5 border-t border-[#BCE3DA] pt-5">
+              <p className="text-sm font-bold text-[#041B2D]">Your reminder schedule</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">Active {formatDate(data.schedule.effective_on)} through the weekly review on {formatDate(data.schedule.review_on)}.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" disabled={Boolean(busy)} aria-pressed={data.schedule.weekdays.length === 0} onClick={() => void updateSchedule("set_weekdays", [])} className={`min-h-10 rounded-lg border px-3 py-2 text-xs font-bold ${data.schedule.weekdays.length === 0 ? "border-[#087F72] bg-white text-[#06695F]" : "border-slate-300 bg-white text-slate-600"}`}>Any eligible day</button>
+                {DAY_LABELS.map((label, day) => {
+                  const selected = data.schedule!.weekdays.includes(day);
+                  const next = selected ? data.schedule!.weekdays.filter((candidate) => candidate !== day) : [...data.schedule!.weekdays, day].sort();
+                  return <button key={`${label}:${day}`} type="button" disabled={Boolean(busy)} aria-label={`Send reminders on ${FULL_DAY_LABELS[day]}`} aria-pressed={selected} onClick={() => void updateSchedule("set_weekdays", next)} className={`min-h-10 min-w-10 rounded-lg border px-2 py-2 text-xs font-bold ${selected ? "border-[#087F72] bg-white text-[#06695F]" : "border-slate-300 bg-white text-slate-600"}`}>{label}</button>;
+                })}
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {data.schedule.paused_until || data.schedule.skipped_date === data.schedule.local_date ? (
+                  <button type="button" disabled={Boolean(busy)} onClick={() => void updateSchedule("resume")} className="min-h-10 rounded-lg bg-[#087F72] px-3 py-2 text-xs font-bold text-white disabled:opacity-60">Resume reminders</button>
+                ) : (
+                  <>
+                    <button type="button" disabled={Boolean(busy)} onClick={() => void updateSchedule("skip_today")} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-60">Skip today</button>
+                    <button type="button" disabled={Boolean(busy)} onClick={() => void updateSchedule("pause_until_tomorrow")} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-60">Pause until tomorrow</button>
+                  </>
+                )}
+              </div>
+              {data.schedule.paused_until ? <p className="mt-3 text-xs font-semibold text-amber-800">Paused until {formatDate(data.schedule.paused_until)}.</p> : null}
+              {data.schedule.skipped_date === data.schedule.local_date ? <p className="mt-3 text-xs font-semibold text-amber-800">Today&apos;s reminder is skipped.</p> : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
 
+const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
+const FULL_DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
 function formatHour(hour: number) {
   return new Intl.DateTimeFormat("en-US", { hour: "numeric", timeZone: "UTC" })
     .format(new Date(Date.UTC(2026, 0, 1, hour)));
+}
+
+function formatDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+    .format(new Date(Date.UTC(year, month - 1, day)));
 }

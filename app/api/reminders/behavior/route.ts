@@ -10,7 +10,7 @@ import {
   type ReminderFeedbackType,
 } from "@/lib/reminderBehavior";
 import { reminderPlanIssue } from "@/lib/reminderCoherence";
-import { effectiveReminderHour, isQuietHour, localClock } from "@/lib/reminderSchedule";
+import { addDays, effectiveReminderHour, isQuietHour, localClock, normalizeReminderWeekdays } from "@/lib/reminderSchedule";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +22,10 @@ type ExperimentRow = {
   reminder_preference: "none" | "email";
   reminder_timing: "account_default" | "prepare_before" | "at_cue" | "next_day";
   reminder_hour: number | null;
+  reminder_weekdays: number[];
+  reminder_paused_until: string | null;
+  reminder_skipped_date: string | null;
+  week_start: string;
 };
 
 type PreferenceRow = {
@@ -48,7 +52,7 @@ async function loadBehavior(userId: string) {
   const [experimentResult, preferenceResult] = await Promise.all([
     admin
       .from("weekly_experiments")
-      .select("id, cue, reminder_preference, reminder_timing, reminder_hour")
+      .select("id, cue, reminder_preference, reminder_timing, reminder_hour, reminder_weekdays, reminder_paused_until, reminder_skipped_date, week_start")
       .eq("user_id", userId)
       .eq("status", "active")
       .order("updated_at", { ascending: false })
@@ -181,6 +185,9 @@ export async function GET() {
         : null,
       feedback_count: behavior.feedbackCount,
       suggestion: behavior.suggestion,
+      schedule: behavior.experiment && behavior.preference
+        ? reminderScheduleResponse(behavior.experiment, behavior.preference)
+        : null,
     });
   } catch (error) {
     console.error("[reminder-behavior] load failed", error);
@@ -221,6 +228,58 @@ export async function POST(req: NextRequest) {
       if (error) throw error;
       const behavior = await loadBehavior(user.id);
       return NextResponse.json({ ok: true, suggestion: behavior.suggestion });
+    }
+
+    if (["set_weekdays", "skip_today", "pause_until_tomorrow", "resume"].includes(action)) {
+      const behavior = await loadBehavior(user.id);
+      if (!behavior.experiment || !behavior.preference) {
+        return NextResponse.json({ ok: false, error: "active_practice_required" }, { status: 409 });
+      }
+      const previousState = controlState(behavior.experiment);
+      const localDate = localClock(new Date(), behavior.preference.timezone).date;
+      let changes: Record<string, unknown>;
+      let auditAction: "weekdays_updated" | "skip_today" | "pause_until_tomorrow" | "resumed";
+
+      if (action === "set_weekdays") {
+        const weekdays = normalizeReminderWeekdays(body?.weekdays);
+        if (!weekdays) return NextResponse.json({ ok: false, error: "invalid_reminder_days" }, { status: 400 });
+        changes = { reminder_weekdays: weekdays };
+        auditAction = "weekdays_updated";
+      } else if (action === "skip_today") {
+        changes = { reminder_skipped_date: localDate };
+        auditAction = "skip_today";
+      } else if (action === "pause_until_tomorrow") {
+        changes = { reminder_paused_until: addDays(localDate, 1), reminder_skipped_date: null };
+        auditAction = "pause_until_tomorrow";
+      } else {
+        changes = { reminder_paused_until: null, reminder_skipped_date: null };
+        auditAction = "resumed";
+      }
+
+      const updatedAt = new Date().toISOString();
+      const { data: updated, error: updateError } = await admin
+        .from("weekly_experiments")
+        .update({ ...changes, updated_at: updatedAt })
+        .eq("id", behavior.experiment.id)
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .select("id, cue, reminder_preference, reminder_timing, reminder_hour, reminder_weekdays, reminder_paused_until, reminder_skipped_date, week_start")
+        .single();
+      if (updateError) throw updateError;
+
+      const nextExperiment = updated as ExperimentRow;
+      const { error: auditError } = await admin.from("reminder_control_events").insert({
+        user_id: user.id,
+        experiment_id: behavior.experiment.id,
+        action: auditAction,
+        previous_state: previousState,
+        new_state: controlState(nextExperiment),
+      });
+      if (auditError) throw auditError;
+      return NextResponse.json({
+        ok: true,
+        schedule: reminderScheduleResponse(nextExperiment, behavior.preference),
+      });
     }
 
     if (action !== "accept_suggestion" && action !== "decline_suggestion") {
@@ -275,4 +334,22 @@ export async function POST(req: NextRequest) {
     console.error("[reminder-behavior] save failed", error);
     return NextResponse.json({ ok: false, error: "behavior_unavailable" }, { status: 500 });
   }
+}
+
+function controlState(experiment: ExperimentRow) {
+  return {
+    weekdays: normalizeReminderWeekdays(experiment.reminder_weekdays) ?? [],
+    paused_until: experiment.reminder_paused_until,
+    skipped_date: experiment.reminder_skipped_date,
+  };
+}
+
+function reminderScheduleResponse(experiment: ExperimentRow, preference: PreferenceRow) {
+  const localDate = localClock(new Date(), preference.timezone).date;
+  return {
+    ...controlState(experiment),
+    local_date: localDate,
+    effective_on: experiment.week_start,
+    review_on: addDays(experiment.week_start, 6),
+  };
 }

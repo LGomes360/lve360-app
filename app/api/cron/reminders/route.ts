@@ -28,6 +28,9 @@ type ExperimentRow = {
   cue: string;
   reminder_timing: ReminderTiming | null;
   reminder_hour: number | null;
+  reminder_weekdays: number[] | null;
+  reminder_paused_until: string | null;
+  reminder_skipped_date: string | null;
 };
 
 export async function GET(req: NextRequest) {
@@ -39,7 +42,7 @@ export async function GET(req: NextRequest) {
   const admin = getSupabaseAdmin();
   const { data: experiments, error } = await admin
     .from("weekly_experiments")
-    .select("id, user_id, week_start, action_label, minimum_version, frequency_per_week, cue, reminder_timing, reminder_hour")
+    .select("id, user_id, week_start, action_label, minimum_version, frequency_per_week, cue, reminder_timing, reminder_hour, reminder_weekdays, reminder_paused_until, reminder_skipped_date")
     .eq("status", "active")
     .eq("reminder_preference", "email")
     .limit(500);
@@ -154,6 +157,9 @@ export async function GET(req: NextRequest) {
         reviewCompleted: review?.status === "completed",
         targetCount: experiment.frequency_per_week ?? 1,
         timing,
+        reminderWeekdays: experiment.reminder_weekdays ?? [],
+        pausedUntil: experiment.reminder_paused_until,
+        skippedLocalDate: experiment.reminder_skipped_date,
       });
       if (!evaluation.decision) {
         countSkip(evaluation.reason);
