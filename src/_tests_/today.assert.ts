@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { completionCount, isCompletionKind, parseLocalDate, returnedAfterGap, weeklyMomentum, weekBounds } from "../lib/today.ts";
+import { completionCount, isCompletionKind, parseCalendarDate, parseLocalDate, returnedAfterGap, weeklyMomentum, weekBounds } from "../lib/today.ts";
 
 const now = new Date("2026-07-21T23:30:00.000Z");
 
@@ -10,6 +10,9 @@ assert.equal(parseLocalDate("2026-07-22", now), "2026-07-22");
 assert.equal(parseLocalDate("2026-07-19", now), null);
 assert.equal(parseLocalDate("07/21/2026", now), null);
 assert.equal(parseLocalDate("2026-02-30", now), null);
+assert.equal(parseCalendarDate("2026-07-01"), "2026-07-01");
+assert.equal(parseCalendarDate("2026-02-30"), null);
+assert.equal(parseCalendarDate("07/01/2026"), null);
 
 assert.equal(isCompletionKind("full"), true);
 assert.equal(isCompletionKind("minimum"), true);
