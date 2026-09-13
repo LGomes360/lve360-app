@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveChecks, suites } from "../../scripts/release-gate.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
@@ -16,7 +17,8 @@ assert.match(packageJson.scripts["qa:personas"], /personaRegression\.assert\.ts/
 assert.match(packageJson.scripts["qa:personas"], /pr137Architecture\.assert\.mjs/);
 assert.equal(packageJson.scripts["qa:pr137"], "npm run qa:personas");
 assert.match(workflow, /node-version: '22'/);
-assert.match(workflow, /name: Run 24-persona regression harness[\s\S]*npm run qa:personas/);
+assert.match(workflow, /name: Run current technical release gate[\s\S]*npm run qa:release/);
+assert.ok(resolveChecks(packageJson.scripts, suites).some(args => args.at(-1) === 'src/_tests_/personaRegression.assert.ts'));
 assert.match(fixtures, /PERSONA_REGRESSION_PERSONAS/);
 assert.match(fixtures, /PERSONA_REGRESSION_WEEKS/);
 assert.match(harness, /runPersonaRegressionHarness/);

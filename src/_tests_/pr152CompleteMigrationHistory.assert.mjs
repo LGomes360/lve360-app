@@ -56,7 +56,7 @@ const expectedCanonicalHistory = [
   "20260901004820_pr159_practice_adaptation.sql",
 ];
 
-assert.deepEqual(migrations, expectedCanonicalHistory, "Local migration history must exactly match the canonical repository history.");
+assert.deepEqual(migrations.slice(0, expectedCanonicalHistory.length), expectedCanonicalHistory, "The historical migration prefix must remain intact; newer migrations may be appended.");
 assert.ok(!migrations.some((name) => name.includes("intake_page_analytics")), "The obsolete, unapplied intake migration must not return.");
 
 const versions = migrations.map((name) => name.split("_")[0]);
