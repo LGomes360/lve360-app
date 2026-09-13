@@ -15,7 +15,7 @@ import { isHour, isIanaTimeZone } from "@/lib/accountSettings";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 import { reminderPlanIssue } from "@/lib/reminderCoherence";
-import { isQuietHour, isReminderTiming } from "@/lib/reminderSchedule";
+import { isQuietHour, isReminderTiming, normalizeReminderWeekdays } from "@/lib/reminderSchedule";
 import { isUsableMinimumVersionText, normalizePracticeQuantityFields } from "@/lib/practiceQuantity";
 import {
   connectionType,
@@ -42,6 +42,7 @@ type ActivationBody = {
   reminder_preference?: unknown;
   reminder_timing?: unknown;
   reminder_hour?: unknown;
+  reminder_weekdays?: unknown;
   timezone?: unknown;
   cue_hour?: unknown;
   goal_key?: unknown;
@@ -275,6 +276,10 @@ export async function PUT(req: NextRequest) {
       if (!isReminderTiming(body.reminder_timing)) {
         return NextResponse.json({ ok: false, error: "choose_reminder_timing" }, { status: 400 });
       }
+      const reminderWeekdays = normalizeReminderWeekdays(body.reminder_weekdays ?? []);
+      if (!reminderWeekdays) {
+        return NextResponse.json({ ok: false, error: "choose_reminder_days" }, { status: 400 });
+      }
       const usesPracticeHour = body.reminder_preference === "email" && body.reminder_timing !== "account_default";
       if (
         body.reminder_preference === "email"
@@ -307,6 +312,9 @@ export async function PUT(req: NextRequest) {
       changes.reminder_preference = body.reminder_preference;
       changes.reminder_timing = body.reminder_timing;
       changes.reminder_hour = usesPracticeHour ? body.reminder_hour : null;
+      changes.reminder_weekdays = reminderWeekdays;
+      changes.reminder_paused_until = null;
+      changes.reminder_skipped_date = null;
     }
 
     if (step === 6) {

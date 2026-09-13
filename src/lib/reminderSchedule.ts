@@ -10,6 +10,9 @@ export type ReminderKind = "practice" | "recovery" | "next_day_checkin" | "weekl
 export type ReminderSkipReason =
   | "wrong_hour"
   | "quiet_hours"
+  | "outside_schedule"
+  | "snoozed"
+  | "skipped_by_member"
   | "before_week"
   | "before_first_checkin"
   | "review_complete"
@@ -35,7 +38,21 @@ type ReminderDecisionInput = {
   reviewCompleted: boolean;
   targetCount: number;
   timing: ReminderTiming;
+  reminderWeekdays?: number[];
+  pausedUntil?: string | null;
+  skippedLocalDate?: string | null;
 };
+
+export const REMINDER_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
+
+export function normalizeReminderWeekdays(value: unknown): number[] | null {
+  if (!Array.isArray(value)) return null;
+  if (!value.every((day) => typeof day === "number" && Number.isInteger(day))) return null;
+  const weekdays = [...new Set(value as number[])].sort();
+  return weekdays.every((day) => REMINDER_WEEKDAYS.includes(day as (typeof REMINDER_WEEKDAYS)[number]))
+    ? weekdays
+    : null;
+}
 
 export function isReminderTiming(value: unknown): value is ReminderTiming {
   return typeof value === "string" && REMINDER_TIMINGS.includes(value as ReminderTiming);
@@ -74,6 +91,12 @@ export function evaluateReminder(input: ReminderDecisionInput):
   | { decision: ReminderDecision; reason: null }
   | { decision: null; reason: ReminderSkipReason; localDate: string } {
   const clock = localClock(input.now, input.timezone);
+  if (input.pausedUntil && clock.date < input.pausedUntil) {
+    return { decision: null, reason: "snoozed", localDate: clock.date };
+  }
+  if (input.skippedLocalDate === clock.date) {
+    return { decision: null, reason: "skipped_by_member", localDate: clock.date };
+  }
   if (clock.hour !== input.cueHour) return { decision: null, reason: "wrong_hour", localDate: clock.date };
   if (isQuietHour(clock.hour, input.quietStartHour, input.quietEndHour)) {
     return { decision: null, reason: "quiet_hours", localDate: clock.date };
@@ -85,6 +108,12 @@ export function evaluateReminder(input: ReminderDecisionInput):
     return input.reviewCompleted
       ? { decision: null, reason: "review_complete", localDate: clock.date }
       : { decision: { kind: "weekly_review", localDate: clock.date, targetDate: weekEnd }, reason: null };
+  }
+
+  const reminderWeekdays = normalizeReminderWeekdays(input.reminderWeekdays ?? []) ?? [];
+  const localWeekday = new Date(`${clock.date}T12:00:00.000Z`).getUTCDay();
+  if (reminderWeekdays.length && !reminderWeekdays.includes(localWeekday)) {
+    return { decision: null, reason: "outside_schedule", localDate: clock.date };
   }
 
   const uniqueCompletions = new Set(input.completedDates);
@@ -150,5 +179,5 @@ export function skippedReminderIdempotencyKey(
 }
 
 export function shouldLedgerSkip(reason: ReminderSkipReason): boolean {
-  return ["quiet_hours", "review_complete", "completed_today", "completed_target", "target_met", "daily_limit"].includes(reason);
+  return ["quiet_hours", "snoozed", "skipped_by_member", "review_complete", "completed_today", "completed_target", "target_met", "daily_limit"].includes(reason);
 }

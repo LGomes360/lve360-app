@@ -34,6 +34,7 @@ type FormState = {
   reminder_preference: ReminderPreference;
   reminder_timing: ReminderTiming;
   reminder_hour: number;
+  reminder_weekdays: number[];
   timezone: string;
   goal_key: string | null;
 };
@@ -58,6 +59,7 @@ const EMPTY_FORM: FormState = {
   reminder_preference: "none",
   reminder_timing: "at_cue",
   reminder_hour: 18,
+  reminder_weekdays: [],
   timezone: "UTC",
   goal_key: null,
 };
@@ -165,6 +167,7 @@ export default function OnboardingHandoffClient() {
           preference={form.reminder_preference}
           timing={form.reminder_timing}
           reminderHour={form.reminder_hour}
+          reminderWeekdays={form.reminder_weekdays}
           timezone={form.timezone}
           accountCueHour={reminderContext.cue_hour}
           quietStartHour={reminderContext.quiet_start_hour}
@@ -252,6 +255,7 @@ function ReminderStep({
   preference,
   timing,
   reminderHour,
+  reminderWeekdays,
   timezone,
   accountCueHour,
   quietStartHour,
@@ -262,11 +266,12 @@ function ReminderStep({
   preference: ReminderPreference;
   timing: ReminderTiming;
   reminderHour: number;
+  reminderWeekdays: number[];
   timezone: string;
   accountCueHour: number;
   quietStartHour: number;
   quietEndHour: number;
-  onChange: (changes: Partial<Pick<FormState, "reminder_preference" | "reminder_timing" | "reminder_hour">>) => void;
+  onChange: (changes: Partial<Pick<FormState, "reminder_preference" | "reminder_timing" | "reminder_hour" | "reminder_weekdays">>) => void;
 }) {
   const options: Array<{
     preference: ReminderPreference;
@@ -321,6 +326,19 @@ function ReminderStep({
         </label>
       )}
       {preference === "email" && timing === "account_default" ? <p className={`mt-5 rounded-xl p-4 text-sm ${accountIssue ? "border border-amber-200 bg-amber-50 text-amber-900" : "bg-slate-50 text-slate-600"}`}>{accountIssue ? `${accountIssue.message} Choose a tailored reminder above.` : `This practice uses your account default at ${formatHour(accountCueHour)}. Choose another option above to tailor it.`}</p> : null}
+      {preference === "email" ? (
+        <fieldset className="mt-6 rounded-2xl border border-slate-200 p-4">
+          <legend className="px-1 text-sm font-bold text-[#041B2D]">Reminder days</legend>
+          <p className="text-sm leading-6 text-slate-600">Choose specific days, or leave the plan flexible so LVE360 can support any unfinished day without sending more than once per day.</p>
+          <button type="button" onClick={() => onChange({ reminder_weekdays: [] })} aria-pressed={reminderWeekdays.length === 0} className={`mt-3 min-h-11 rounded-xl border px-3 py-2 text-sm font-bold ${reminderWeekdays.length === 0 ? "border-[#087F72] bg-[#EAFBF8] text-[#06695F]" : "border-slate-300 text-slate-700"}`}>Any eligible day</button>
+          <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-7">
+            {REMINDER_DAY_LABELS.map((label, day) => {
+              const selected = reminderWeekdays.includes(day);
+              return <button key={label} type="button" aria-pressed={selected} onClick={() => onChange({ reminder_weekdays: selected ? reminderWeekdays.filter((candidate) => candidate !== day) : [...reminderWeekdays, day].sort() })} className={`min-h-11 rounded-xl border px-2 py-2 text-sm font-bold ${selected ? "border-[#087F72] bg-[#EAFBF8] text-[#06695F]" : "border-slate-300 text-slate-700 hover:bg-slate-50"}`}>{label}</button>;
+            })}
+          </div>
+        </fieldset>
+      ) : null}
     </section>
   );
 }
@@ -337,7 +355,7 @@ function ConfirmationStep({ form, reminderContext, active, goalOptions, fromBlue
     : "Needs review before it can count";
   const effectiveHour = form.reminder_timing === "account_default" ? reminderContext.cue_hour : form.reminder_hour;
   const issue = form.reminder_preference === "email" ? reminderPlanIssue({ cue: form.cue, timing: form.reminder_timing === "account_default" ? "at_cue" : form.reminder_timing, hour: effectiveHour }) : null;
-  return <section><CheckCircle2 className="h-10 w-10 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">{active ? "Your week is active" : "Your first week is ready"}</h1><p className="mt-3 leading-7 text-slate-600">Use this plan while it fits your life. You can change it when your schedule or priorities change.</p>{issue ? <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900" role="status"><strong>Your reminder needs review.</strong> {issue.message}</div> : null}<div className="mt-6 space-y-4 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5"><Summary label="This week's direction" value={identityLabel(form.identity_direction)} /><Summary label="This week I will" value={form.action_label} /><Summary label="Target each time" value={target} /><Summary label="Why it matters" value={connection} /><Summary label="My cue" value={formatPracticeCue(form.cue)} /><Summary label="Times per week" value={`${form.frequency_per_week} planned ${form.frequency_per_week === 1 ? "completion" : "completions"}`} /><Summary label="On a hard day" value={minimum} /><Summary label="Reminder plan" value={issue ? "Choose a time that fits your cue" : reminderSummary(form, reminderContext)} /></div>{active ? <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={onEditPlan} className="min-h-11 rounded-xl bg-[#087F72] px-4 py-2 font-bold text-white hover:bg-[#06695F]">Edit weekly plan</button><button type="button" onClick={onEditReminders} className="min-h-11 rounded-xl border border-[#9DCFC3] px-4 py-2 font-bold text-[#087F72] hover:bg-[#EAFBF8]">Change reminder plan</button></div> : null}</section>;
+  return <section><CheckCircle2 className="h-10 w-10 text-[#08A88A]" /><h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#041B2D]">{active ? "Your week is active" : "Your first week is ready"}</h1><p className="mt-3 leading-7 text-slate-600">Use this plan while it fits your life. You can change it when your schedule or priorities change.</p>{issue ? <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900" role="status"><strong>Your reminder needs review.</strong> {issue.message}</div> : null}<div className="mt-6 space-y-4 rounded-2xl border border-[#9DCFC3] bg-[#EAFBF8] p-5"><Summary label="This week's direction" value={identityLabel(form.identity_direction)} /><Summary label="This week I will" value={form.action_label} /><Summary label="Target each time" value={target} /><Summary label="Why it matters" value={connection} /><Summary label="My cue" value={formatPracticeCue(form.cue)} /><Summary label="Times per week" value={`${form.frequency_per_week} planned ${form.frequency_per_week === 1 ? "completion" : "completions"}`} /><Summary label="On a hard day" value={minimum} /><Summary label="Reminder plan" value={issue ? "Choose a time that fits your cue" : reminderSummary(form, reminderContext)} /><Summary label="Reminder days" value={reminderDaysSummary(form.reminder_weekdays)} /></div>{active ? <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={onEditPlan} className="min-h-11 rounded-xl bg-[#087F72] px-4 py-2 font-bold text-white hover:bg-[#06695F]">Edit weekly plan</button><button type="button" onClick={onEditReminders} className="min-h-11 rounded-xl border border-[#9DCFC3] px-4 py-2 font-bold text-[#087F72] hover:bg-[#EAFBF8]">Change reminder plan</button></div> : null}</section>;
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
@@ -358,6 +376,7 @@ function formFromExperiment(experiment: WeeklyExperiment): FormState {
     reminder_preference: experiment.reminder_preference ?? "none",
     reminder_timing: experiment.reminder_timing ?? "account_default",
     reminder_hour: experiment.reminder_hour ?? 18,
+    reminder_weekdays: experiment.reminder_weekdays ?? [],
     timezone: "UTC",
     goal_key: experiment.goal_key ?? null,
   };
@@ -373,6 +392,7 @@ function payloadForStep(step: number, form: FormState) {
     reminder_preference: form.reminder_preference,
     reminder_timing: form.reminder_timing,
     reminder_hour: form.reminder_hour,
+    reminder_weekdays: form.reminder_weekdays,
     timezone: form.timezone,
   };
   return { step: 6 };
@@ -388,6 +408,7 @@ function errorMessage(code: string | undefined) {
   if (code === "add_valid_minimum_quantity") return "Enter a positive minimum amount and unit, or leave the structured minimum blank.";
   if (code === "choose_reminder_timing") return "Choose when reminder support would be useful for this practice.";
   if (code === "choose_reminder_time") return "Choose a valid local reminder time.";
+  if (code === "choose_reminder_days") return "Choose valid reminder days or keep the schedule flexible.";
   if (code === "reminder_in_quiet_hours") return "Choose a reminder time outside the quiet hours saved in Settings.";
   if (code === "reminder_conflicts_with_cue") return "That reminder time does not fit your saved cue. Choose another time or reminder style.";
   if (code === "complete_required_steps") return "One of the earlier steps is incomplete. Go back and review your plan.";
@@ -442,6 +463,12 @@ function reminderSummary(form: FormState, reminderContext: ReminderContext): str
   if (form.reminder_timing === "prepare_before") return `Prepare beforehand around ${time}`;
   if (form.reminder_timing === "next_day") return `Check in the next morning around ${time}`;
   return `Remind me at the cue around ${time}`;
+}
+
+const REMINDER_DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function reminderDaysSummary(weekdays: number[]): string {
+  return weekdays.length ? weekdays.map((day) => REMINDER_DAY_LABELS[day]).join(", ") : "Any eligible day";
 }
 
 function formatHour(hour: number): string {

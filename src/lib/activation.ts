@@ -41,6 +41,9 @@ export type WeeklyExperiment = {
   reminder_preference: ReminderPreference;
   reminder_timing: ReminderTiming;
   reminder_hour: number | null;
+  reminder_weekdays?: number[] | null;
+  reminder_paused_until?: string | null;
+  reminder_skipped_date?: string | null;
   onboarding_step: number;
   status: ExperimentStatus;
   week_start: string;
