@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { recordProductEventSafely } from "@/lib/productAnalytics";
 import { requirePaidApi } from "@/lib/serverEntitlements";
-import { parseLocalDate } from "@/lib/today";
+import { parseCalendarDate, parseLocalDate } from "@/lib/today";
 import { normalizeMemberReportedContext } from "@/lib/memberReportedContext";
 
 export async function GET(req: Request) {
@@ -147,7 +147,9 @@ export async function PATCH(req: Request) {
   const entitlement = await requirePaidApi();
   if (!entitlement.ok) return entitlement.response;
   const body = await req.json().catch(() => null);
-  const logDate = parseLocalDate(body?.log_date);
+  // Corrections intentionally target historical records. The tighter
+  // parseLocalDate window remains in place for creating or reading today's log.
+  const logDate = parseCalendarDate(body?.log_date);
   if (!logDate || !["update_context", "remove_context"].includes(body?.action)) {
     return NextResponse.json({ ok: false, error: "invalid_context_change" }, { status: 400 });
   }

@@ -17,14 +17,21 @@ export type WeeklyMomentum = {
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86_400_000;
 
-export function parseLocalDate(value: unknown, now = new Date()): string | null {
+export function parseCalendarDate(value: unknown): string | null {
   if (typeof value !== "string" || !LOCAL_DATE_PATTERN.test(value)) return null;
   const parsed = new Date(`${value}T12:00:00.000Z`);
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) return null;
+  return value;
+}
+
+export function parseLocalDate(value: unknown, now = new Date()): string | null {
+  const calendarDate = parseCalendarDate(value);
+  if (!calendarDate) return null;
+  const parsed = new Date(`${calendarDate}T12:00:00.000Z`);
 
   const serverDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   const requestedDay = Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate());
-  return Math.abs(requestedDay - serverDay) <= DAY_MS ? value : null;
+  return Math.abs(requestedDay - serverDay) <= DAY_MS ? calendarDate : null;
 }
 
 export function isCompletionKind(value: unknown): value is CompletionKind {
