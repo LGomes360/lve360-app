@@ -1,6 +1,7 @@
 import type { CoachActionProposal, ProposedWeeklyPractice } from "./coachActions";
 import { CONTEXTUAL_COACH_PROMPT_VERSION } from "./ai/promptVersions.ts";
 import { requestsMemberReportedContext } from "./memberReportedContext.ts";
+import type { CoachPersonalizationReceipt } from "./coachPersonalization";
 
 export const COACH_PROMPT_VERSION = CONTEXTUAL_COACH_PROMPT_VERSION;
 
@@ -105,6 +106,7 @@ export type CoachSource = {
   reviewed_at?: string | null;
   review_status?: "current" | "review_due" | "invalid";
   confidence?: "high" | "moderate" | "low" | "unknown";
+  personalization_receipt?: CoachPersonalizationReceipt;
 };
 
 export type CoachTurn = {
@@ -118,6 +120,7 @@ export type CoachTurn = {
   feedback: CoachFeedback | null;
   created_at: string;
   action_proposal?: CoachActionProposal | null;
+  personalization?: CoachPersonalizationReceipt | null;
 };
 
 const PAGE_MAP: Array<[RegExp, CoachPage]> = [

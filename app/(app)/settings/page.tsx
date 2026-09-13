@@ -32,6 +32,11 @@ type AccountSaveResponse = {
   practice_reminders_reset?: number;
 };
 
+type SavedPersonalizationContext = {
+  log_date: string;
+  notes: string;
+};
+
 const supportEmail = "support@lve360.com";
 
 export default function SettingsPage() {
@@ -45,10 +50,65 @@ export default function SettingsPage() {
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+  const [savedContexts, setSavedContexts] = useState<SavedPersonalizationContext[]>([]);
+  const [contextDrafts, setContextDrafts] = useState<Record<string, string>>({});
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextBusyDate, setContextBusyDate] = useState<string | null>(null);
 
   useEffect(() => {
     void loadAccount();
   }, []);
+
+  useEffect(() => {
+    if (account?.tier !== "premium" && account?.tier !== "trial") return;
+    void loadSavedContexts();
+  }, [account?.tier]);
+
+  async function loadSavedContexts() {
+    setContextLoading(true);
+    try {
+      const response = await fetch("/api/logs?context=recent", { cache: "no-store" });
+      const body = await response.json() as { ok?: boolean; contexts?: SavedPersonalizationContext[] };
+      if (!response.ok || !body.ok) throw new Error("context_unavailable");
+      const contexts = body.contexts ?? [];
+      setSavedContexts(contexts);
+      setContextDrafts(Object.fromEntries(contexts.map((entry) => [entry.log_date, entry.notes])));
+    } catch {
+      setNotice({ tone: "error", message: "We could not load your saved personalization context." });
+    } finally {
+      setContextLoading(false);
+    }
+  }
+
+  async function changeSavedContext(logDate: string, action: "update_context" | "remove_context") {
+    setContextBusyDate(logDate);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/logs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, log_date: logDate, notes: contextDrafts[logDate] }),
+      });
+      const body = await response.json() as { ok?: boolean; context?: SavedPersonalizationContext };
+      if (!response.ok || !body.ok) throw new Error("context_change_failed");
+      if (action === "remove_context") {
+        setSavedContexts((current) => current.filter((entry) => entry.log_date !== logDate));
+        setContextDrafts((current) => {
+          const next = { ...current };
+          delete next[logDate];
+          return next;
+        });
+        setNotice({ tone: "success", message: "That reflection was removed. Your sleep, energy, and weight record is unchanged." });
+      } else if (body.context) {
+        setSavedContexts((current) => current.map((entry) => entry.log_date === logDate ? body.context! : entry));
+        setNotice({ tone: "success", message: "Your saved context was corrected." });
+      }
+    } catch {
+      setNotice({ tone: "error", message: "We could not change that saved context. Please try again." });
+    } finally {
+      setContextBusyDate(null);
+    }
+  }
 
   async function loadAccount() {
     setLoading(true);
@@ -342,6 +402,54 @@ export default function SettingsPage() {
             <ChevronRight className="ml-1 h-4 w-4" />
           </Link>
         </div>
+
+        {paid ? (
+          <div id="personalization-context" className="mt-6 border-t border-slate-200 pt-6">
+            <h3 className="font-bold text-[#041B2D]">Context LVE360 can remember</h3>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+              These are reflections you chose to save with recent check-ins. Correct or remove them here. Removing a reflection does not remove its sleep, energy, or weight record.
+            </p>
+            {contextLoading ? (
+              <p className="mt-4 inline-flex items-center text-sm text-slate-600"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading saved context</p>
+            ) : savedContexts.length ? (
+              <div className="mt-4 space-y-3">
+                {savedContexts.map((entry) => (
+                  <div key={entry.log_date} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <label className="text-xs font-bold uppercase tracking-[0.1em] text-slate-500">
+                      Check-in from {new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(`${entry.log_date}T00:00:00Z`))}
+                      <textarea
+                        value={contextDrafts[entry.log_date] ?? ""}
+                        onChange={(event) => setContextDrafts((current) => ({ ...current, [entry.log_date]: event.target.value.slice(0, 1000) }))}
+                        rows={2}
+                        className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal normal-case tracking-normal text-[#041B2D]"
+                      />
+                    </label>
+                    <div className="mt-3 flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={() => void changeSavedContext(entry.log_date, "update_context")}
+                        disabled={contextBusyDate === entry.log_date || !(contextDrafts[entry.log_date] ?? "").trim()}
+                        className="inline-flex items-center rounded-lg bg-[#047F6D] px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+                      >
+                        <Save className="mr-1.5 h-3.5 w-3.5" />Save correction
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void changeSavedContext(entry.log_date, "remove_context")}
+                        disabled={contextBusyDate === entry.log_date}
+                        className="inline-flex items-center rounded-lg px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                      >
+                        <Trash2 className="mr-1.5 h-3.5 w-3.5" />Remove reflection
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">No saved check-in reflections are currently available for personalization.</p>
+            )}
+          </div>
+        ) : null}
       </Section>
 
       <Section icon={CircleHelp} title="Help and corrections" description="Health context changes. Your information should be easy to correct.">

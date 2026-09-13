@@ -19,6 +19,12 @@ import { coachBudget } from "@/lib/contextualCoachBudget";
 import { coachLimitAnswer, coachPeriod, coachUsageSummary } from "@/lib/coachAllowance";
 import { coachActionFromRow, type ProposedWeeklyPractice } from "@/lib/coachActions";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  attachCoachPersonalizationReceipt,
+  buildCoachPersonalizationReceipt,
+  coachPersonalizationFromSources,
+} from "@/lib/coachPersonalization";
+import { getExcludedCoachContextIds } from "@/lib/coachContextPreferencesData";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -80,7 +86,8 @@ async function saveTurn(userId: string, values: Record<string, unknown>) {
     .select("id,page_context,question,answer,response_source,generation_status,source_refs,feedback,created_at")
     .single();
   if (error) throw error;
-  return { ...(data as CoachTurn), action_proposal: null };
+  const turn = data as CoachTurn;
+  return { ...turn, action_proposal: null, personalization: coachPersonalizationFromSources(turn.source_refs ?? []) };
 }
 
 const ACTION_PROPOSAL_COLUMNS = "id,source_turn_id,status,identity_direction,action_label,cue,frequency_per_week,minimum_version,rationale,confirmed_at,cancelled_at,applied_at,applied_experiment_id,created_at";
@@ -93,7 +100,11 @@ async function attachActionProposals(userId: string, turns: CoachTurn[]): Promis
     .in("source_turn_id", turns.map((turn) => turn.id));
   if (error) throw error;
   const proposals = new Map((data ?? []).map((row) => [String(row.source_turn_id), coachActionFromRow(row)]));
-  return turns.map((turn) => ({ ...turn, action_proposal: proposals.get(turn.id) ?? null }));
+  return turns.map((turn) => ({
+    ...turn,
+    action_proposal: proposals.get(turn.id) ?? null,
+    personalization: coachPersonalizationFromSources(turn.source_refs ?? []),
+  }));
 }
 
 async function saveActionProposal(userId: string, turnId: string, proposal: ProposedWeeklyPractice | null) {
@@ -130,7 +141,12 @@ export async function GET() {
     ]);
     if (error) throw error;
     const turns = await attachActionProposals(auth.user.id, (data ?? []) as CoachTurn[]);
-    return NextResponse.json({ ok: true, turns, usage: currentUsage });
+    return NextResponse.json({
+      ok: true,
+      turns,
+      usage: currentUsage,
+      excluded_source_ids: await getExcludedCoachContextIds(auth.user.id),
+    });
   } catch (error) {
     console.error("[coach] load failed", error);
     return NextResponse.json({ ok: false, error: "coach_unavailable" }, { status: 500 });
@@ -230,6 +246,12 @@ export async function POST(req: NextRequest) {
         responseSource = generated.responseSource;
         diagnostics = generated.diagnostics;
         generationStatus = diagnostics.taskPassed ? "succeeded" : "failed";
+        sourceRefs = attachCoachPersonalizationReceipt(sourceRefs, buildCoachPersonalizationReceipt({
+          intent: diagnostics.intent,
+          answer,
+          sources: sourceRefs,
+          actionProposal: generated.proposedAction ?? null,
+        }));
       }
     } catch (error) {
       console.warn("[coach] generation unavailable; returning grounded fallback", error);
@@ -266,7 +288,17 @@ export async function POST(req: NextRequest) {
       .select("id,page_context,question,answer,response_source,generation_status,source_refs,feedback,created_at").single();
     if (updateError) throw updateError;
     const actionProposal = await saveActionProposal(auth.user.id, turn.id, generatedActionProposal(generationStatus, generatedResult));
-    return NextResponse.json({ ok: true, turn: { ...(turn as CoachTurn), action_proposal: actionProposal }, usage: await usage(auth.user.id) });
+    const savedTurn = turn as CoachTurn;
+    return NextResponse.json({
+      ok: true,
+      turn: {
+        ...savedTurn,
+        action_proposal: actionProposal,
+        personalization: coachPersonalizationFromSources(savedTurn.source_refs ?? []),
+      },
+      usage: await usage(auth.user.id),
+      excluded_source_ids: await getExcludedCoachContextIds(auth.user.id),
+    });
   } catch (error) {
     console.error("[coach] answer failed", error);
     return NextResponse.json({ ok: false, error: "coach_unavailable" }, { status: 500 });
