@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 
+import type { CurrentRegimenItem } from "../lib/currentRegimenModel.ts";
 import { deterministicCoachTask } from "../lib/coachIntent.ts";
 import { validateCoachTaskSuccess } from "../lib/coachTaskValidation.ts";
 import { classifyCoachRequest, coachSuggestedPrompts } from "../lib/contextualCoach.ts";
@@ -7,7 +8,34 @@ import { buildMemberIntelligenceContext, type MemberIntelligenceContext } from "
 
 const NOW = "2026-09-13T12:00:00.000Z";
 
-function memberContext(withChanges = true): MemberIntelligenceContext {
+function hormoneItem(): CurrentRegimenItem {
+  return {
+    id: "hormone-1",
+    user_id: "member-1",
+    source_submission_id: "submission-1",
+    source_stack_item_id: null,
+    item_kind: "hormone",
+    name: "Testosterone gel",
+    normalized_name: "testosterone gel",
+    purpose: null,
+    dose: "1%",
+    timing: "morning",
+    brand: null,
+    reorder_url: null,
+    image_url: null,
+    product_source: null,
+    product_sku: null,
+    instruction_source: "member",
+    instruction_authority: null,
+    schedule: null,
+    active: true,
+    created_at: NOW,
+    updated_at: NOW,
+  };
+}
+
+function memberContext(withChanges = true, options: { action?: string; regimen?: CurrentRegimenItem[] } = {}): MemberIntelligenceContext {
+  const action = options.action ?? "Walk for 10 minutes after lunch";
   return buildMemberIntelligenceContext({
     generatedAt: NOW,
     member: { id: "member-1", tier: "premium", joinedAt: "2026-01-01T00:00:00.000Z", updatedAt: NOW },
@@ -22,7 +50,7 @@ function memberContext(withChanges = true): MemberIntelligenceContext {
     }],
     goalsUpdatedAt: NOW,
     blueprint: null,
-    regimen: [],
+    regimen: options.regimen ?? [],
     practices: [{ id: "practice-1", status: "active", updated_at: NOW }],
     experiments: [{
       id: "experiment-1",
@@ -34,7 +62,7 @@ function memberContext(withChanges = true): MemberIntelligenceContext {
       goal_key: "energy",
       goal_label_snapshot: "Improve daily energy",
       identity_direction: "movement",
-      action_label: "Walk for 10 minutes after lunch",
+      action_label: action,
       cue: "After lunch",
       frequency_per_week: 5,
       target_quantity: 10,
@@ -103,6 +131,15 @@ assert.match(history, /Generated coaching and suggestions do not appear here unl
 
 const emptyHistory = verify("What changed in my plan recently?", memberContext(false));
 assert.match(emptyHistory, /No confirmed changes have been recorded since change tracking began/i);
+
+const polishedSummary = verify("What is my current plan?", memberContext(false, {
+  action: "Wall sit for 1 minute.",
+  regimen: [hormoneItem()],
+}));
+assert.match(polishedSummary, /Current focus: Wall sit for 1 minute\./);
+assert.doesNotMatch(polishedSummary, /minute\.\./);
+assert.match(polishedSummary, /1 hormone,/);
+assert.doesNotMatch(polishedSummary, /1 hormones/);
 
 const mutationRequest = classifyCoachRequest("Show my current plan, then change my medication dose.");
 assert.equal(mutationRequest.intent, "REQUEST_TO_CHANGE_RECORD", "A mutation request must not enter the read-only Plan lookup path.");

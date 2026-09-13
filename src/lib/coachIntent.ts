@@ -22,6 +22,14 @@ const KIND_LABELS: Record<CoachRegimenKind, string> = {
   endocrine_active_supplement: "Endocrine-active supplements",
 };
 
+function sentenceFragment(value: string) {
+  return value.trim().replace(/[.!?]+$/, "");
+}
+
+function countLabel(count: number, singular: string) {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`;
+}
+
 function itemsForKind(context: MemberIntelligenceContext, kind: CoachRegimenKind): MemberRegimenItemContext[] {
   if (kind === "medication") return context.regimen.medications.value;
   if (kind === "hormone") return context.regimen.hormones.value;
@@ -64,10 +72,10 @@ function currentPlanLookup(context: MemberIntelligenceContext, question: string)
   }
 
   const focusText = focus
-    ? `Current focus: ${focus}.`
+    ? `Current focus: ${sentenceFragment(focus)}.`
     : "Current focus: no active weekly focus is recorded.";
   const practiceText = practice?.actionLabel
-    ? `Active practice: ${practice.actionLabel}${practice.cue ? `, cued ${practice.cue}` : ""}${practice.frequencyPerWeek ? `, ${practice.frequencyPerWeek} times per week` : ""}${practice.minimumVersion ? `. Hard-day version: ${practice.minimumVersion}` : ""}.`
+    ? `Active practice: ${sentenceFragment(practice.actionLabel)}${practice.cue ? `, cued ${sentenceFragment(practice.cue)}` : ""}${practice.frequencyPerWeek ? `, ${practice.frequencyPerWeek} times per week` : ""}${practice.minimumVersion ? `. Hard-day version: ${sentenceFragment(practice.minimumVersion)}` : ""}.`
     : "Active practice: none recorded.";
   const goalText = goals.length ? `Saved goals: ${goals.slice(0, 3).join(", ")}.` : "Saved goals: none recorded.";
   const safetyText = blueprint?.safety?.label
@@ -75,7 +83,7 @@ function currentPlanLookup(context: MemberIntelligenceContext, question: string)
     : "Safety status: no current Blueprint safety status is available.";
 
   return {
-    answer: `Here is the current Plan saved in LVE360:\n\n${focusText}\n${practiceText}\n${goalText}\nRoutine: ${counts.medications} medications, ${counts.hormones} hormones, and ${counts.supplements} supplements.\n${safetyText}\n\nRecent confirmed changes:\n${changeLines.join("\n")}\n\nThis summary reflects the records currently saved in LVE360; unrecorded changes are not included. Nothing was changed by this answer.\n\nNext step: Open Plan to review details or use its controlled actions if something is out of date.`,
+    answer: `Here is the current Plan saved in LVE360:\n\n${focusText}\n${practiceText}\n${goalText}\nRoutine: ${countLabel(counts.medications, "medication")}, ${countLabel(counts.hormones, "hormone")}, and ${countLabel(counts.supplements, "supplement")}.\n${safetyText}\n\nRecent confirmed changes:\n${changeLines.join("\n")}\n\nThis summary reflects the records currently saved in LVE360; unrecorded changes are not included. Nothing was changed by this answer.\n\nNext step: Open Plan to review details or use its controlled actions if something is out of date.`,
     sourceIds: ["current_plan", "plan_change_history"],
     responseSource: "deterministic",
   };

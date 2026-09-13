@@ -377,15 +377,15 @@ function planValidators(input: CoachTaskValidationInput) {
   const asksForChanges = /\b(?:what changed|recent changes?|change history|changed recently)\b/i.test(input.question);
   const practice = input.memberContext.activePractice.value;
   const regimenCounts = [
-    [input.memberContext.regimen.medications.value.length, "medications"],
-    [input.memberContext.regimen.hormones.value.length, "hormones"],
-    [input.memberContext.regimen.supplements.value.length + input.memberContext.regimen.endocrineActiveSupplements.value.length, "supplements"],
+    [input.memberContext.regimen.medications.value.length, "medication"],
+    [input.memberContext.regimen.hormones.value.length, "hormone"],
+    [input.memberContext.regimen.supplements.value.length + input.memberContext.regimen.endocrineActiveSupplements.value.length, "supplement"],
   ] as const;
   const currentChecks = asksForChanges ? [] : [
     practice?.actionLabel
       ? containsValue(input.answerText, practice.actionLabel)
       : /\b(?:no active (?:weekly )?focus|active practice: none)\b/i.test(input.answerText),
-    ...regimenCounts.map(([count, label]) => new RegExp(`\\b${count}\\s+${label}\\b`, "i").test(input.answerText)),
+    ...regimenCounts.map(([count, label]) => new RegExp(`\\b${count}\\s+${label}${count === 1 ? "" : "s"}\\b`, "i").test(input.answerText)),
     input.memberContext.blueprint.value?.safety?.label
       ? containsValue(input.answerText, input.memberContext.blueprint.value.safety.label)
       : /\b(?:no current blueprint safety status|safety status[^.]*not available)\b/i.test(input.answerText),

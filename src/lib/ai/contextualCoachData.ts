@@ -167,7 +167,7 @@ export async function buildCoachContext(
       label: "Current Plan",
       kind: "member_record",
       summary: focus
-        ? `Current focus: ${compact(focus, 100)}. ${allRegimen.length} active Routine records.`
+        ? `Current focus: ${compact(focus, 100)?.replace(/[.!?]+$/, "")}. ${allRegimen.length} active Routine records.`
         : `No active weekly focus is recorded. ${allRegimen.length} active Routine records.`,
       href: "/plan",
     });
