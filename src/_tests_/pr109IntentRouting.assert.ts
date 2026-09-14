@@ -178,6 +178,24 @@ assert.equal(hyphenatedNextWeekRoute.constraints.preserveHormonePlan, true);
 assert.equal(hyphenatedNextWeekRoute.constraints.preserveSupplementPlan, true);
 
 const behaviorPrompt = "I slept poorly last night. How should I adjust tomorrow without changing my medications or supplements?";
+for (const prompt of [
+  behaviorPrompt,
+  "I slept poorly. Help me adjust tomorrow. Do not change my medications.",
+  "I slept poorly. Help me adjust tomorrow, don't change my supplements.",
+  "I slept poorly. Help me adjust tomorrow; don’t change my hormones.",
+]) {
+  assert.equal(classifyCoachRequest(prompt).intent, "BEHAVIORAL_COACHING", prompt);
+}
+for (const prompt of [
+  "Change my medication timing.",
+  "Add glycine to my stack without changing my medications.",
+  "Do not change my medications, but add glycine to my stack.",
+  "Help me sleep without changing my medications and add glycine to my stack.",
+  "I slept poorly. Remove my supplement.",
+]) {
+  assert.equal(classifyCoachRequest(prompt).intent, "REQUEST_TO_CHANGE_RECORD", prompt);
+}
+assert.equal(classifyCoachRequest("I have chest pain. Do not change my medication.").intent, "POTENTIAL_MEDICAL_RED_FLAG");
 const behaviorRoute = classifyCoachRequest(behaviorPrompt);
 assert.equal(behaviorRoute.intent, "BEHAVIORAL_COACHING");
 assert.equal(behaviorRoute.constraints.preserveMedicationPlan, true);

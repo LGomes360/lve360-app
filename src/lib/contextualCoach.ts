@@ -148,7 +148,7 @@ export function isCoachFeedback(value: unknown): value is CoachFeedback {
 }
 
 function explicitCoachConstraints(question: string): CoachConstraints {
-  const value = question.toLowerCase();
+  const value = question.toLowerCase().replace(/’/g, "'");
   const withoutChange = /\b(?:without|do not|don't|not)\b[\s\S]{0,50}\b(?:chang|adjust|start|stop|add|remove|switch)/.test(value)
     || /\bkeep\b[\s\S]{0,120}\b(?:unchanged|the same)/.test(value);
   const allRegimen = withoutChange && /\b(?:routine|regimen|stack|anything i take)\b/.test(value);
@@ -190,9 +190,15 @@ export function classifyCoachRequest(question: string): CoachRoutingDecision {
   if (/\b(suicid|kill myself|overdose|chest pain|can(?:not|'t) breathe|stroke|severe allergic|anaphyl|fainted|unconscious|medical emergency|vomiting blood|face (?:is )?swelling|tongue (?:is )?swelling|black stools?|severe confusion)\b/.test(value)) {
     return route("POTENTIAL_MEDICAL_RED_FLAG");
   }
-  if (/\b(?:add|save|record|remove|delete)\b[\s\S]{0,80}\b(?:my|the)\s+(?:stack|routine|record|reminder|medication|hormone|supplement)\b/.test(value)
+  // Mutation matching must not bridge into a separate preservation clause.
+  // Keep affirmative clauses so a mixed request still enters confirmation.
+  const mutationClauses = value.replace(/’/g, "'")
+    .split(/[.!?;,]|\b(?:but|however)\b|\band\s+(?=(?:add|save|record|remove|delete|change|adjust|increase|decrease|start|stop)\b)|(?=\b(?:without|do not|don't|never)\b)/)
+    .map((clause) => clause.trim())
+    .filter((clause) => !/^(?:without|do not|don't|never)\b/.test(clause));
+  if (mutationClauses.some((value) => /\b(?:add|save|record|remove|delete)\b[\s\S]{0,80}\b(?:my|the)\s+(?:stack|routine|record|reminder|medication|hormone|supplement)\b/.test(value)
     || /\b(?:add|remove|delete)\b[\s\S]{0,60}\b(?:to|from)\s+(?:my\s+)?(?:stack|routine|records?)\b/.test(value)
-    || /\b(?:change|adjust|increase|decrease|start|stop|add|remove)\b[\s\S]{0,60}\b(?:my\s+)?(?:medication|prescription|hormone|supplement)(?:s|\s+dose|\s+timing|\s+schedule)?\b/.test(value)) {
+    || /\b(?:change|adjust|increase|decrease|start|stop|add|remove)\b[\s\S]{0,60}\b(?:my\s+)?(?:medication|prescription|hormone|supplement)(?:s|\s+dose|\s+timing|\s+schedule)?\b/.test(value))) {
     return route("REQUEST_TO_CHANGE_RECORD");
   }
   if (/\b(?:capital of|president of|prime minister of|weather|stock price|sports score|who won|recipe for|write (?:me )?a poem)\b/.test(value)) {

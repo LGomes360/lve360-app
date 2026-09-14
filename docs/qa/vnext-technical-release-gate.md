@@ -42,6 +42,12 @@ pattern crosses the "without changing" clause. No evidence of an actual persiste
 mutation was found in this local run. Preserve these assertions; this is a release
 blocker for focused routing correction and authenticated regression testing.
 
+Follow-up: clause-scoped mutation matching now keeps preservation language out of
+the mutation detector, while affirmative requests in mixed prompts still enter
+confirmation. All 61 checks pass, including unchanged PR109/PR110 expectations,
+new negation/mixed-request/emergency cases, and the 24-persona harness. Typecheck
+passes. Authenticated Preview verification remains pending.
+
 The migration-history test now preserves its historical prefix while allowing
 later migrations. This does not assert that remote migration versions match.
 
@@ -50,6 +56,6 @@ public signup, public pricing, public checkout, a Stripe live cutover, or a clai
 of validated retention. Luke remains the founder decision owner. Link any P0/P1
 finding to a bounded follow-up PR before declaring the gate complete.
 
-This PR changes test tooling and CI only, with no migration or product behavior
-change. Revert its CI/script changes to roll back the tooling; no data rollback
-is needed.
+This PR changes test tooling, CI and coach request classification. It does not
+change record-write authorization or require a migration. Revert the PR to
+restore the previous runner and routing; no data rollback is needed.
