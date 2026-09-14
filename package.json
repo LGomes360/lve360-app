@@ -117,6 +117,8 @@
     "qa:pr176": "node --experimental-strip-types src/_tests_/today.assert.ts && node src/_tests_/pr176SavedContextCorrection.assert.mjs && npm run qa:pr175",
     "qa:pr177": "node --experimental-strip-types src/_tests_/pr177ReminderSchedule.assert.ts && node src/_tests_/pr177Architecture.assert.mjs && npm run qa:pr176",
     "qa:pr178": "node src/_tests_/pr178ProductAnalyticsContract.assert.mjs && npm run qa:pr177",
+    "qa:release": "node src/_tests_/pr179ReleaseRunner.assert.mjs && node scripts/release-gate.mjs",
+    "qa:pr179": "npm run qa:release",
     "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",

@@ -51,11 +51,16 @@ jobs:
             exit 1
           fi
 
-      - name: Run 24-persona regression harness
-        run: npm run qa:personas
+      - name: Run current technical release gate
+        run: npm run qa:release
 
-      - name: Run private membership release gate
-        run: npm run qa:pr168
+      - name: Preserve automated release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: technical-release-gate
+          path: artifacts/release-gate.json
+          if-no-files-found: warn
 
       - name: Run production build
         run: npm run build
