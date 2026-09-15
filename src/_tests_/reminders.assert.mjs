@@ -8,6 +8,7 @@ const settings = fs.readFileSync("app/(app)/settings/page.tsx", "utf8");
 const onboarding = fs.readFileSync("app/onboarding/OnboardingHandoffClient.tsx", "utf8");
 const migration = fs.readFileSync("supabase/migrations/20260726224010_reminder_recovery_loop.sql", "utf8");
 const workflow = fs.readFileSync(".github/workflows/reminders.yml", "utf8");
+const workflowRunner = fs.readFileSync("scripts/run-reminder-dispatch.mjs", "utf8");
 
 assert.match(cron, /authorization.*Bearer/si, "Cron route must require CRON_SECRET authorization");
 assert.match(cron, /reminderIdempotencyKey/, "Cron route must deduplicate reminder sends");
@@ -28,7 +29,8 @@ assert.match(migration, /enable row level security/i, "Reminder ledger must enab
 assert.match(migration, /idempotency_key text not null unique/i, "Reminder ledger must prevent duplicates");
 assert.match(workflow, /cron: "5 \* \* \* \*"/, "Reminder workflow must run hourly");
 assert.match(workflow, /secrets\.CRON_SECRET/, "Reminder workflow must authenticate with a repository secret");
-assert.match(workflow, /https:\/\/app\.lve360\.com\/api\/cron\/reminders/, "Reminder workflow must call the canonical production host directly");
-assert.match(workflow, /jq -e[\s\S]*\.ok == true/, "Reminder workflow must reject redirects and invalid dispatcher responses");
+assert.match(workflowRunner, /https:\/\/app\.lve360\.com\/api\/cron\/reminders/, "Reminder workflow must call the canonical production host directly");
+assert.match(workflow, /node scripts\/run-reminder-dispatch\.mjs/, "Reminder workflow must use the strict dispatcher runner");
+assert.doesNotMatch(workflow, /curl[\s\S]*--retry/, "Retry bodies must never be concatenated by curl command substitution");
 
 console.log("reminder assertions passed");

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-export const suites = ['qa:pr178', 'qa:pr162', 'qa:pr161', 'qa:personas', 'qa:legal', 'qa:settings'];
+export const suites = ['qa:pr180', 'qa:pr178', 'qa:pr162', 'qa:pr161', 'qa:personas', 'qa:legal', 'qa:settings'];
 
 // Resolve only our small, explicit script grammar. Never execute arbitrary shell text.
 export function resolveChecks(scripts, roots) {

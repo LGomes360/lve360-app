@@ -12,11 +12,32 @@ import {
 } from "@/lib/reminders";
 import { isReminderTiming, type ReminderKind, type ReminderTiming } from "@/lib/reminderSchedule";
 import { reminderPlanIssue } from "@/lib/reminderCoherence";
+import {
+  buildReminderDispatchOutcome,
+  canRetryQueuedReminderDelivery,
+  reminderOperationErrorCode,
+  withReminderOperationRetry,
+} from "@/lib/reminderReliability";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 const MAX_EMAIL_REMINDERS_PER_LOCAL_DAY = 1;
+
+async function retryDatabaseOperation<T extends { data: unknown; error: unknown | null }>(
+  operationName: string,
+  operation: () => PromiseLike<T>,
+): Promise<T> {
+  return withReminderOperationRetry(operation, {
+    onRetry: ({ attempt, error }) => {
+      console.warn("[reminders] database operation retry", {
+        operation: operationName,
+        attempt,
+        code: reminderOperationErrorCode(error),
+      });
+    },
+  });
+}
 
 type ExperimentRow = {
   id: string;
@@ -40,15 +61,26 @@ export async function GET(req: NextRequest) {
   }
 
   const admin = getSupabaseAdmin();
-  const { data: experiments, error } = await admin
-    .from("weekly_experiments")
-    .select("id, user_id, week_start, action_label, minimum_version, frequency_per_week, cue, reminder_timing, reminder_hour, reminder_weekdays, reminder_paused_until, reminder_skipped_date")
-    .eq("status", "active")
-    .eq("reminder_preference", "email")
-    .limit(500);
+  let experimentResult;
+  try {
+    experimentResult = await retryDatabaseOperation("experiment_load", () => admin
+      .from("weekly_experiments")
+      .select("id, user_id, week_start, action_label, minimum_version, frequency_per_week, cue, reminder_timing, reminder_hour, reminder_weekdays, reminder_paused_until, reminder_skipped_date")
+      .eq("status", "active")
+      .eq("reminder_preference", "email")
+      .limit(500));
+  } catch (loadError) {
+    console.error("[reminders] experiment load failed", {
+      code: reminderOperationErrorCode(loadError),
+    });
+    return NextResponse.json({ ok: false, error: "load_failed" }, { status: 503 });
+  }
+  const { data: experiments, error } = experimentResult;
   if (error) {
-    console.error("[reminders] experiment load failed", error.message);
-    return NextResponse.json({ ok: false, error: "load_failed" }, { status: 500 });
+    console.error("[reminders] experiment load failed", {
+      code: reminderOperationErrorCode(error),
+    });
+    return NextResponse.json({ ok: false, error: "load_failed" }, { status: 503 });
   }
 
   const now = new Date();
@@ -72,12 +104,16 @@ export async function GET(req: NextRequest) {
         { data: preferences, error: preferenceError },
         { data: profiles, error: profileError },
       ] = await Promise.all([
-        admin
+        retryDatabaseOperation("preference_lookup", () => admin
           .from("user_preferences")
           .select("reminder_preference, timezone, cue_hour, quiet_start_hour, quiet_end_hour")
           .eq("user_id", experiment.user_id)
-          .limit(1),
-        admin.from("users").select("email, tier").eq("id", experiment.user_id).limit(1),
+          .limit(1)),
+        retryDatabaseOperation("profile_lookup", () => admin
+          .from("users")
+          .select("email, tier")
+          .eq("id", experiment.user_id)
+          .limit(1)),
       ]);
       if (preferenceError || profileError) {
         countFailure(preferenceError ? "preference_lookup_failed" : "profile_lookup_failed");
@@ -114,19 +150,19 @@ export async function GET(req: NextRequest) {
         { data: completions, error: completionsError },
         { data: review, error: reviewError },
       ] = await Promise.all([
-        admin
+        retryDatabaseOperation("completion_lookup", () => admin
           .from("daily_practice_completions")
           .select("completion_date")
           .eq("user_id", experiment.user_id)
           .eq("experiment_id", experiment.id)
           .gte("completion_date", experiment.week_start)
-          .lte("completion_date", weekEnd),
-        admin
+          .lte("completion_date", weekEnd)),
+        retryDatabaseOperation("review_lookup", () => admin
           .from("weekly_experiment_reviews")
           .select("status")
           .eq("experiment_id", experiment.id)
           .eq("status", "completed")
-          .maybeSingle(),
+          .maybeSingle()),
       ]);
       if (completionsError || reviewError) {
         throw completionsError ?? reviewError;
@@ -187,6 +223,7 @@ export async function GET(req: NextRequest) {
             attempted_at: new Date().toISOString(),
           });
           if (skipError && skipError.code !== "23505") {
+            countFailure("skip_ledger_failed");
             console.error("[reminders] skip ledger failed", {
               experimentId: experiment.id,
               code: skipError.code,
@@ -196,13 +233,20 @@ export async function GET(req: NextRequest) {
         continue;
       }
       const decision = evaluation.decision;
+      const key = reminderIdempotencyKey(
+        decision.kind,
+        experiment.id,
+        decision.localDate,
+        decision.targetDate,
+      );
 
-      const { count: remindersToday, error: dailyLimitError } = await admin
+      const { count: remindersToday, error: dailyLimitError } = await retryDatabaseOperation("daily_limit_lookup", () => admin
         .from("reminder_deliveries")
         .select("id", { count: "exact", head: true })
         .eq("user_id", experiment.user_id)
         .eq("local_date", decision.localDate)
-        .in("status", ["queued", "accepted", "delivered"]);
+        .in("status", ["queued", "accepted", "delivered"])
+        .neq("idempotency_key", key));
       if (dailyLimitError) throw dailyLimitError;
       if ((remindersToday ?? 0) >= MAX_EMAIL_REMINDERS_PER_LOCAL_DAY) {
         countSkip("daily_limit");
@@ -223,13 +267,7 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const key = reminderIdempotencyKey(
-        decision.kind,
-        experiment.id,
-        decision.localDate,
-        decision.targetDate,
-      );
-      const { data: delivery, error: claimError } = await admin
+      const { data: claimedDelivery, error: claimError } = await admin
         .from("reminder_deliveries")
         .insert({
           user_id: experiment.user_id,
@@ -242,46 +280,85 @@ export async function GET(req: NextRequest) {
         })
         .select("id")
         .single();
+      let delivery = claimedDelivery;
       if (claimError?.code === "23505") {
-        countSkip("already_delivered");
-        continue;
+        const { data: existingDelivery, error: existingDeliveryError } = await retryDatabaseOperation(
+          "existing_delivery_lookup",
+          () => admin
+            .from("reminder_deliveries")
+            .select("id, status, provider_id, created_at")
+            .eq("idempotency_key", key)
+            .maybeSingle(),
+        );
+        if (existingDeliveryError) throw existingDeliveryError;
+        if (existingDelivery && canRetryQueuedReminderDelivery(existingDelivery, now)) {
+          delivery = { id: existingDelivery.id };
+        } else if (existingDelivery?.status === "queued" && !existingDelivery.provider_id) {
+          countFailure("delivery_state_unresolved");
+          console.error("[reminders] delivery state unresolved", {
+            experimentId: experiment.id,
+          });
+          continue;
+        } else if (existingDelivery?.status === "failed" || existingDelivery?.status === "bounced") {
+          countFailure(`previous_delivery_${existingDelivery.status}`);
+          continue;
+        } else {
+          countSkip("already_delivered");
+          continue;
+        }
       }
-      if (claimError || !delivery) throw claimError ?? new Error("delivery_claim_failed");
+      if ((claimError && claimError.code !== "23505") || !delivery) {
+        throw claimError ?? new Error("delivery_claim_failed");
+      }
 
       if (decision.kind === "weekly_review") {
-        const { data: resolvedReview, error: resolvedReviewError } = await admin
+        const { data: resolvedReview, error: resolvedReviewError } = await retryDatabaseOperation(
+          "resolved_review_lookup",
+          () => admin
           .from("weekly_experiment_reviews")
           .select("id")
           .eq("experiment_id", experiment.id)
           .eq("status", "completed")
-          .maybeSingle();
+          .maybeSingle(),
+        );
         if (resolvedReviewError) throw resolvedReviewError;
         if (resolvedReview) {
-          await admin.from("reminder_deliveries").update({
-            status: "skipped",
-            skip_reason: "resolved_before_send",
-            attempted_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }).eq("id", delivery.id);
+          const { error: resolvedLedgerError } = await retryDatabaseOperation(
+            "resolved_review_ledger_update",
+            () => admin.from("reminder_deliveries").update({
+              status: "skipped",
+              skip_reason: "resolved_before_send",
+              attempted_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }).eq("id", delivery.id),
+          );
+          if (resolvedLedgerError) throw resolvedLedgerError;
           countSkip("resolved_before_send");
           continue;
         }
       } else {
-        const { data: resolvedCompletion, error: resolvedError } = await admin
+        const { data: resolvedCompletion, error: resolvedError } = await retryDatabaseOperation(
+          "resolved_completion_lookup",
+          () => admin
           .from("daily_practice_completions")
           .select("id")
           .eq("user_id", experiment.user_id)
           .eq("experiment_id", experiment.id)
           .eq("completion_date", decision.targetDate)
-          .maybeSingle();
+          .maybeSingle(),
+        );
         if (resolvedError) throw resolvedError;
         if (resolvedCompletion) {
-          await admin.from("reminder_deliveries").update({
-            status: "skipped",
-            skip_reason: "resolved_before_send",
-            attempted_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }).eq("id", delivery.id);
+          const { error: resolvedLedgerError } = await retryDatabaseOperation(
+            "resolved_completion_ledger_update",
+            () => admin.from("reminder_deliveries").update({
+              status: "skipped",
+              skip_reason: "resolved_before_send",
+              attempted_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }).eq("id", delivery.id),
+          );
+          if (resolvedLedgerError) throw resolvedLedgerError;
           countSkip("resolved_before_send");
           continue;
         }
@@ -303,13 +380,44 @@ export async function GET(req: NextRequest) {
         minimumVersion: experiment.minimum_version || "Take the smallest useful step",
         deepLink: deepLink.toString(),
         idempotencyKey: key,
+        deliveryId: delivery.id,
       });
-      await admin.from("reminder_deliveries").update({
-        status: result.status,
-        provider_id: result.status === "accepted" ? result.providerId : null,
-        attempted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }).eq("id", delivery.id);
+      let finalizationError: unknown = null;
+      try {
+        const finalization = await retryDatabaseOperation(
+          "delivery_finalization",
+          () => admin.from("reminder_deliveries").update({
+            status: result.status === "failed" && result.reason === "send_failed"
+              ? "queued"
+              : result.status,
+            provider_id: result.status === "accepted" ? result.providerId : null,
+            skip_reason: result.status === "failed" && result.reason === "send_failed"
+              ? "provider_state_uncertain"
+              : null,
+            attempted_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+            .eq("id", delivery.id)
+            .is("provider_event_at", null),
+        );
+        finalizationError = finalization.error;
+      } catch (error) {
+        finalizationError = error;
+      }
+      if (finalizationError) {
+        if (result.status === "accepted") sent += 1;
+        countFailure(
+          result.status === "accepted"
+            ? "ledger_persist_failed_after_acceptance"
+            : "ledger_persist_failed_after_rejection",
+        );
+        console.error("[reminders] delivery finalization failed", {
+          experimentId: experiment.id,
+          acceptedByProvider: result.status === "accepted",
+          code: reminderOperationErrorCode(finalizationError),
+        });
+        continue;
+      }
 
       await recordProductEventSafely({
         event_name: result.status === "accepted" ? "reminder_sent" : "reminder_failed",
@@ -322,9 +430,22 @@ export async function GET(req: NextRequest) {
       else countFailure(`email_${result.reason}`);
     } catch (dispatchError) {
       countFailure("dispatch_error");
-      console.error("[reminders] dispatch failed", { experimentId: experiment.id, dispatchError });
+      console.error("[reminders] dispatch failed", {
+        experimentId: experiment.id,
+        code: reminderOperationErrorCode(dispatchError),
+      });
     }
   }
 
-  return NextResponse.json({ ok: true, sent, skipped, failed, skipReasons, failureReasons });
+  const outcome = buildReminderDispatchOutcome({
+    sent,
+    skipped,
+    failed,
+    skipReasons,
+    failureReasons,
+  });
+  return NextResponse.json(
+    outcome.payload,
+    { status: outcome.status },
+  );
 }
