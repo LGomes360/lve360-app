@@ -62,6 +62,7 @@ export async function sendReminderEmail(input: {
   minimumVersion: string;
   deepLink: string;
   idempotencyKey: string;
+  deliveryId: string;
 }): Promise<{ status: "accepted"; providerId: string } | { status: "failed"; reason: string }> {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return { status: "failed", reason: "resend_not_configured" };
@@ -77,6 +78,7 @@ export async function sendReminderEmail(input: {
       replyTo: process.env.REPORT_EMAIL_REPLY_TO?.trim() || "support@lve360.com",
       to: input.to,
       subject: copy.subject,
+      tags: [{ name: "lve360_delivery_id", value: input.deliveryId }],
       html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:32px;color:#17324d">
         <p style="font-weight:700;color:#087f72">LVE360</p>
         <h1 style="font-size:24px">${copy.heading}</h1>
