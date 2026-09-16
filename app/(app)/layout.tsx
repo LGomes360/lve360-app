@@ -13,14 +13,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!user) redirect("/login");
 
   const mode = getProductMode();
-  if (mode.accessMode === "invite_only" && !isFounderUser(user.id)) {
+  const founder = isFounderUser(user.id);
+  if (mode.accessMode === "invite_only" && !founder) {
     const access = await loadPrivateAccess(user.id);
     if (!access?.privateAccess) redirect("/request-invitation?reason=access_required");
   }
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#EAFBF8] via-white to-[#F8F5FB] text-gray-900 print:block print:min-h-0 print:bg-white">
-      <div className="print:hidden"><DashboardHeader tier={tier} /></div>
+      <div className="print:hidden"><DashboardHeader tier={tier} founder={founder} /></div>
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 print:max-w-none print:p-0 sm:px-6 lg:px-8">
         {children}
       </main>

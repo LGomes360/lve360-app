@@ -19,9 +19,10 @@ import { useProductMode } from "@/components/ProductModeProvider";
 
 type Props = {
   tier?: "free" | "trial" | "premium";
+  founder?: boolean;
 };
 
-export default function DashboardHeader({ tier = "free" }: Props) {
+export default function DashboardHeader({ tier = "free", founder = false }: Props) {
   const { accessMode } = useProductMode();
   const inviteOnly = accessMode === "invite_only";
   const pathname = usePathname() ?? "";
@@ -93,6 +94,7 @@ export default function DashboardHeader({ tier = "free" }: Props) {
 
         <div className="flex items-center gap-2">
         <nav className="hidden items-center gap-1 text-sm font-semibold text-[#041B2D] md:flex" aria-label="Member navigation">
+          {founder ? <NavLink href="/founder" pathname={pathname}>Founder</NavLink> : null}
           {navigationItems.map((item) => (
             <NavLink key={item.href} href={item.href} pathname={pathname}>
               {item.label}
@@ -175,6 +177,7 @@ export default function DashboardHeader({ tier = "free" }: Props) {
             className="border-t border-slate-200 bg-white md:hidden"
           >
             <nav className="mx-auto flex max-w-6xl flex-col gap-1 p-4 text-base font-semibold text-[#041B2D]" aria-label="Mobile member navigation">
+              {founder ? <NavLink href="/founder" pathname={pathname} onClick={() => setMenuOpen(false)} mobile>Founder</NavLink> : null}
               {navigationItems.map((item) => (
                 <NavLink
                   key={item.href}
