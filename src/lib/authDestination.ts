@@ -1,8 +1,9 @@
 const ORIGIN = "https://app.lve360.com";
-export const FOUNDER_HOME = "/settings/access-requests";
+export const FOUNDER_HOME = "/founder";
 const ALLOWED = new Set([
   "/today", "/journey", "/blueprints", "/settings", "/dashboard",
   "/results", "/account", "/upgrade", "/premium", "/onboarding",
+  FOUNDER_HOME,
 ]);
 
 // Routing only. Callers must derive founder status from the verified user ID;
