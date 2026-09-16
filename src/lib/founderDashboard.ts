@@ -107,10 +107,7 @@ export async function loadFounderDashboard(): Promise<FounderDashboardData> {
       .select("task,status,fallback_used,latency_ms,estimated_cost_usd")
       .gte("created_at", thirtyDaysAgo)
       .limit(ROW_LIMIT),
-    admin
-      .schema("analytics")
-      .from("paid_beta_learning_scorecard")
-      .select("metric_key,metric_label,numerator,denominator,rate"),
+    admin.rpc("founder_paid_beta_learning_scorecard"),
   ]);
 
   const issues: string[] = [];

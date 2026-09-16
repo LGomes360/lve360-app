@@ -19,7 +19,7 @@ assert.match(page, /href="\/settings\/access-requests"/);
 
 assert.match(loader, /import "server-only"/);
 assert.match(loader, /getSupabaseAdmin/);
-assert.match(loader, /paid_beta_learning_scorecard/);
+assert.match(loader, /founder_paid_beta_learning_scorecard/);
 assert.match(loader, /reminder_deliveries/);
 assert.match(loader, /ai_generation_ledger/);
 assert.match(loader, /product_events/);
