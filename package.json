@@ -122,6 +122,7 @@
     "qa:pr180": "node --experimental-strip-types src/_tests_/pr180ReminderReliability.assert.ts && node src/_tests_/pr180DispatchRunner.assert.mjs && node --experimental-strip-types src/_tests_/pr180WebhookReliability.assert.ts && node src/_tests_/pr180Architecture.assert.mjs && npm run qa:reminders",
     "qa:pr181": "node src/_tests_/pr181FounderDashboard.assert.mjs && npm run qa:auth-destination",
     "qa:pr182": "node src/_tests_/pr182FounderScorecardAccess.assert.mjs && npm run qa:pr181",
+    "qa:pr183": "node --experimental-strip-types src/_tests_/pr183ConnectedHealth.assert.ts && node src/_tests_/pr183Architecture.assert.mjs && npm run qa:pr182",
     "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",

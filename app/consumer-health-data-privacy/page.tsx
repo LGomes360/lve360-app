@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: "How LVE360 handles consumer health data used for the free Blueprint and private workspace.",
 };
 
-const updated = "September 7, 2026";
+const updated = "September 16, 2026";
 
 export default function ConsumerHealthDataPrivacyPage() {
   return (
@@ -30,7 +30,7 @@ export default function ConsumerHealthDataPrivacyPage() {
 
       <section>
         <h2>3. Where it comes from</h2>
-        <p>Consumer health data generally comes directly from you, from your use of LVE360, or from services you choose to connect or use during the LVE360 experience. We may derive organizational summaries or educational suggestions from the information you provide.</p>
+        <p>Consumer health data generally comes directly from you, from your use of LVE360, or from services you choose to connect or use during the LVE360 experience. If you connect Apple Health, LVE360 may receive only the daily categories you authorize, such as steps, sleep duration, resting heart rate, weight, active energy, or exercise time. LVE360 does not request workout routes or clinical records for this feature. We may derive organizational summaries or educational suggestions from the information you provide.</p>
       </section>
 
       <section>

@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "How LVE360 collects, uses, stores, exports, and deletes account and wellness information.",
 };
 
-const updated = "July 29, 2026";
+const updated = "September 16, 2026";
 
 export default function PrivacyPage() {
   return (
@@ -26,6 +26,7 @@ export default function PrivacyPage() {
             <li>Account information, including your name and email address.</li>
             <li>Intake answers about your goals, routines, supplements, medications, and relevant health context.</li>
             <li>Your generated Blueprint, supplement stack, weekly practices, goals, check-ins, and review history.</li>
+            <li>Daily health summaries you explicitly authorize through a connected service, such as Apple Health steps, sleep duration, resting heart rate, weight, active energy, or exercise time.</li>
             <li>Membership and transaction references. Stripe processes your payment card details.</li>
             <li>Messages and support information you choose to send to us.</li>
             <li>Basic device, browser, referral, security, and product-use information used for delivery and improvement.</li>

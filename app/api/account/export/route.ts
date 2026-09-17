@@ -12,6 +12,7 @@ type ExportQuery = {
   column: string;
   value: string;
   select?: string;
+  optional?: boolean;
 };
 
 export async function GET() {
@@ -47,6 +48,8 @@ export async function GET() {
     { label: "plan_change_events", table: "plan_change_events", column: "user_id", value: user.id },
     { label: "regimen_dose_events", table: "regimen_dose_events", column: "user_id", value: user.id },
     { label: "product_events", table: "product_events", column: "user_id", value: user.id },
+    { label: "health_data_connections", table: "health_data_connections", column: "user_id", value: user.id, optional: true },
+    { label: "connected_health_daily_metrics", table: "connected_health_daily_metrics", column: "user_id", value: user.id, optional: true },
     {
       label: "access_requests",
       table: "access_requests",
@@ -57,8 +60,11 @@ export async function GET() {
   ];
 
   const results = await Promise.all(
-    queries.map(async ({ label, table, column, value, select }) => {
+    queries.map(async ({ label, table, column, value, select, optional }) => {
       const { data, error } = await admin.from(table).select(select ?? "*").eq(column, value);
+      if (error && optional && (error.code === "42P01" || error.code === "PGRST205")) {
+        return [label, []] as const;
+      }
       if (error) throw new Error(`${label}: ${error.message}`);
       return [label, data ?? []] as const;
     })
