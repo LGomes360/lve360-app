@@ -9,6 +9,7 @@ import { getCurrentBlueprintContext, getExperimentBlueprintContexts } from "@/li
 import { parseLocalDate } from "@/lib/today";
 import { getPremiumActivationProgress } from "@/lib/premiumActivation";
 import { practiceGoalOptions, resolvePracticeConnection, type PracticeGoalRow } from "@/lib/practiceConnection";
+import { loadConnectedHealthSummary } from "@/lib/connectedHealthData";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -48,7 +49,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ c
   }
 
   const blueprintPromise = getCurrentBlueprintContext(user.id);
-  const [{ data: goals }, { data: experiment }, blueprint, activationProgress] = await Promise.all([
+  const [{ data: goals }, { data: experiment }, { data: preferences }, blueprint, activationProgress, connectedHealth] = await Promise.all([
     supabase.from("goals").select("*").eq("user_id", user.id).maybeSingle(),
     supabase
       .from("weekly_experiments")
@@ -58,8 +59,10 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ c
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase.from("user_preferences").select("weight_unit").eq("user_id", user.id).maybeSingle(),
     blueprintPromise,
     getPremiumActivationProgress(user),
+    loadConnectedHealthSummary(supabase, user.id),
   ]);
   const activeExperiment = (experiment as WeeklyExperiment | null) ?? null;
   const experimentBlueprints = activeExperiment
@@ -84,6 +87,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ c
         checkinDate={checkinDate}
         reminderDeliveryId={unratedReminderDeliveryId}
         activationProgress={activationProgress}
+        connectedHealth={connectedHealth}
+        healthWeightUnit={preferences?.weight_unit === "kg" ? "kg" : "lb"}
       />
 
       {(activationProgress.practice.status === "active" || activationProgress.firstActionComplete)

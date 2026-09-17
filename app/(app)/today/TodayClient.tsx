@@ -12,6 +12,8 @@ import AiTodayBrief from "@/components/dashboard/AiTodayBrief";
 import ReminderArrivalFeedback from "@/components/dashboard/ReminderArrivalFeedback";
 import type { PracticeConnectionContext } from "@/lib/practiceConnection";
 import DailyIntentionCard from "@/components/dashboard/DailyIntentionCard";
+import ConnectedHealthCard from "@/components/dashboard/ConnectedHealthCard";
+import type { ConnectedHealthSummary } from "@/lib/connectedHealth";
 
 export default function TodayClient({
   experiment,
@@ -21,6 +23,8 @@ export default function TodayClient({
   checkinDate,
   reminderDeliveryId,
   activationProgress,
+  connectedHealth,
+  healthWeightUnit,
 }: {
   experiment: WeeklyExperiment | null;
   blueprint: CurrentBlueprintContext | null;
@@ -29,6 +33,8 @@ export default function TodayClient({
   checkinDate: string | null;
   reminderDeliveryId: string | null;
   activationProgress: PremiumActivationProgress;
+  connectedHealth: ConnectedHealthSummary | null;
+  healthWeightUnit: "lb" | "kg";
 }) {
   const [firstActionComplete, setFirstActionComplete] = useState(activationProgress.firstActionComplete);
   const [briefVersion, setBriefVersion] = useState(0);
@@ -85,6 +91,8 @@ export default function TodayClient({
             </header>
 
             <DailyIntentionCard date={checkinDate} compact />
+
+            <ConnectedHealthCard summary={connectedHealth} weightUnit={healthWeightUnit} />
 
             <section id="daily-log" aria-label="Quick check-in">
               <DailyLog
