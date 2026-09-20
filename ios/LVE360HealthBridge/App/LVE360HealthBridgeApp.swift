@@ -26,6 +26,7 @@ struct HealthBridgeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var accountID: String?
     @State private var accountEmail: String?
+    @State private var emailInput = ""
     @State private var selected = Set(HealthSignal.allCases)
     @State private var lastSync: Date?
     @State private var isBusy = false
@@ -44,6 +45,14 @@ struct HealthBridgeView: View {
                     } else {
                         Button("Sign in with Google") { Task { await signIn() } }
                             .buttonStyle(.borderedProminent)
+                        TextField("Your LVE360 account email", text: $emailInput)
+                            .textContentType(.emailAddress)
+                            .keyboardType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .textFieldStyle(.roundedBorder)
+                        Button("Email me a sign-in link") { Task { await sendSignInLink() } }
+                            .disabled(emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                     if let message {
                         Text(message).font(.footnote).foregroundStyle(.secondary)
@@ -150,10 +159,28 @@ struct HealthBridgeView: View {
     private func signIn() async {
         do {
             let redirect = URL(string: "lve360-health://auth/callback")!
-            let url = try await BridgeAPI.client.auth.getOAuthSignInURL(provider: .google, redirectTo: redirect)
-            UIApplication.shared.open(url)
+            let url = try BridgeAPI.client.auth.getOAuthSignInURL(provider: .google, redirectTo: redirect)
+            await UIApplication.shared.open(url)
         } catch {
             message = error.localizedDescription
+        }
+    }
+
+    private func sendSignInLink() async {
+        let email = emailInput.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard email.contains("@") else {
+            message = "Enter your LVE360 account email."
+            return
+        }
+        do {
+            try await BridgeAPI.client.auth.signInWithOTP(
+                email: email,
+                redirectTo: URL(string: "lve360-health://auth/callback"),
+                shouldCreateUser: false
+            )
+            message = "Check your email on this iPhone for the sign-in link. This does not create a new account."
+        } catch {
+            message = "We could not send a sign-in link. Try Google or check your account email."
         }
     }
 
