@@ -1,0 +1,54 @@
+name: LVE360HealthBridge
+options:
+  bundleIdPrefix: com.lve360
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    LVE_SUPABASE_URL: https://splafvdwllglorcegxam.supabase.co
+    LVE_SUPABASE_ANON_KEY: CONFIGURE_FOR_DEVICE_BUILD
+    LVE_APP_URL: https://app.lve360.com
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift.git
+    exactVersion: 2.55.2
+targets:
+  LVE360HealthBridge:
+    type: application
+    platform: iOS
+    sources:
+      - App
+    dependencies:
+      - package: Supabase
+        product: Supabase
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lve360.healthbridge
+        TARGETED_DEVICE_FAMILY: "1"
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: LVE360 Health
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [lve360-health]
+        NSHealthShareUsageDescription: LVE360 reads only the daily Health summaries you choose to share so you can see your wellness patterns.
+        LVE_SUPABASE_URL: $(LVE_SUPABASE_URL)
+        LVE_SUPABASE_ANON_KEY: $(LVE_SUPABASE_ANON_KEY)
+        LVE_APP_URL: $(LVE_APP_URL)
+        UILaunchScreen: {}
+    entitlements:
+      path: App/LVE360HealthBridge.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.background-delivery: true
+  LVE360HealthBridgeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests
+    dependencies:
+      - target: LVE360HealthBridge
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lve360.healthbridge.tests

@@ -41,12 +41,27 @@ export async function POST(request: NextRequest) {
     updated_at: syncedAt,
   }));
 
-  const { error: metricError } = await admin
-    .from("connected_health_daily_metrics")
-    .upsert(rows, { onConflict: "user_id,provider,local_date" });
-  if (metricError) {
-    console.error("[apple-health-sync] metric upsert failed", metricError.message);
-    return NextResponse.json({ ok: false, error: "health_sync_unavailable" }, { status: 500 });
+  if (rows.length > 0) {
+    const { error: metricError } = await admin
+      .from("connected_health_daily_metrics")
+      .upsert(rows, { onConflict: "user_id,provider,local_date" });
+    if (metricError) {
+      console.error("[apple-health-sync] metric upsert failed", metricError.message);
+      return NextResponse.json({ ok: false, error: "health_sync_unavailable" }, { status: 500 });
+    }
+  }
+
+  if (payload.removed_local_dates.length > 0) {
+    const { error: removalError } = await admin
+      .from("connected_health_daily_metrics")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("provider", "apple_health")
+      .in("local_date", payload.removed_local_dates);
+    if (removalError) {
+      console.error("[apple-health-sync] stale metric removal failed", removalError.message);
+      return NextResponse.json({ ok: false, error: "health_sync_unavailable" }, { status: 500 });
+    }
   }
 
   const { error: connectionError } = await admin
@@ -69,6 +84,7 @@ export async function POST(request: NextRequest) {
     ok: true,
     provider: "apple_health",
     imported_days: rows.length,
+    removed_days: payload.removed_local_dates.length,
     last_sync_completed_at: syncedAt,
   });
 }
