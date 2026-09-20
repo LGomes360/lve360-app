@@ -24,6 +24,7 @@ export type ConnectedHealthDailyMetric = {
 export type AppleHealthSyncPayload = {
   requested_data_types: AppleHealthDataType[];
   days: ConnectedHealthDailyMetric[];
+  removed_local_dates: string[];
 };
 
 export type ConnectedHealthSummary = {
@@ -46,11 +47,12 @@ export function validateAppleHealthSyncPayload(
   if (!value || typeof value !== "object") return null;
   const input = value as Record<string, unknown>;
   if (!Array.isArray(input.requested_data_types) || !Array.isArray(input.days)) return null;
-  if (input.days.length < 1 || input.days.length > MAX_DAYS_PER_SYNC) return null;
+  if (input.days.length > MAX_DAYS_PER_SYNC) return null;
+  if (input.removed_local_dates != null && !Array.isArray(input.removed_local_dates)) return null;
 
   const requested = [...new Set(input.requested_data_types)]
     .filter((item): item is AppleHealthDataType => typeof item === "string" && DATA_TYPES.has(item));
-  if (requested.length !== input.requested_data_types.length) return null;
+  if (requested.length === 0 || requested.length !== input.requested_data_types.length) return null;
 
   const dates = new Set<string>();
   const days: ConnectedHealthDailyMetric[] = [];
@@ -62,7 +64,25 @@ export function validateAppleHealthSyncPayload(
     days.push(parsed);
   }
 
-  return { requested_data_types: requested, days };
+  const removed = input.removed_local_dates ?? [];
+  if (removed.length > MAX_DAYS_PER_SYNC) return null;
+  const removedDates = new Set<string>();
+  for (const candidate of removed) {
+    if (typeof candidate !== "string" || !isAllowedLocalDate(candidate, now)) return null;
+    if (dates.has(candidate) || removedDates.has(candidate)) return null;
+    removedDates.add(candidate);
+  }
+
+  return { requested_data_types: requested, days, removed_local_dates: [...removedDates] };
+}
+
+function isAllowedLocalDate(value: string, now: Date): boolean {
+  if (!DATE_PATTERN.test(value)) return false;
+  const parsed = new Date(`${value}T12:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) return false;
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const day = Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate());
+  return day >= today - 90 * DAY_MS && day <= today + DAY_MS;
 }
 
 function dayUsesOnlyRequestedTypes(
@@ -80,12 +100,7 @@ function dayUsesOnlyRequestedTypes(
 function parseDay(value: unknown, now: Date): ConnectedHealthDailyMetric | null {
   if (!value || typeof value !== "object") return null;
   const input = value as Record<string, unknown>;
-  if (typeof input.local_date !== "string" || !DATE_PATTERN.test(input.local_date)) return null;
-  const localDate = new Date(`${input.local_date}T12:00:00.000Z`);
-  if (Number.isNaN(localDate.getTime()) || localDate.toISOString().slice(0, 10) !== input.local_date) return null;
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const day = Date.UTC(localDate.getUTCFullYear(), localDate.getUTCMonth(), localDate.getUTCDate());
-  if (day < today - 90 * DAY_MS || day > today + DAY_MS) return null;
+  if (typeof input.local_date !== "string" || !isAllowedLocalDate(input.local_date, now)) return null;
   if (typeof input.time_zone !== "string" || !isTimeZone(input.time_zone)) return null;
 
   const steps = nullableNumber(input.steps, 0, 500000, true);
