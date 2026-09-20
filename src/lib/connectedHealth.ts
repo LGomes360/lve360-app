@@ -52,7 +52,7 @@ export function validateAppleHealthSyncPayload(
 
   const requested = [...new Set(input.requested_data_types)]
     .filter((item): item is AppleHealthDataType => typeof item === "string" && DATA_TYPES.has(item));
-  if (requested.length !== input.requested_data_types.length) return null;
+  if (requested.length === 0 || requested.length !== input.requested_data_types.length) return null;
 
   const dates = new Set<string>();
   const days: ConnectedHealthDailyMetric[] = [];

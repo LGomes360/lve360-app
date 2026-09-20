@@ -102,7 +102,7 @@ struct HealthBridgeView: View {
                 .font(.footnote).foregroundStyle(.secondary)
 
             Button("Connect and sync the last 30 days") {
-                Task { await perform(success: "Your selected Health summaries are connected.") {
+                Task { await perform(success: "Health access requested and sync completed. If no data appears, check your iPhone Health permissions.") {
                     try await HealthSyncCoordinator.shared.connect(selected, accountID: accountID)
                 } }
             }
@@ -151,7 +151,7 @@ struct HealthBridgeView: View {
         do {
             let redirect = URL(string: "lve360-health://auth/callback")!
             let url = try await BridgeAPI.client.auth.getOAuthSignInURL(provider: .google, redirectTo: redirect)
-            await UIApplication.shared.open(url)
+            UIApplication.shared.open(url)
         } catch {
             message = error.localizedDescription
         }

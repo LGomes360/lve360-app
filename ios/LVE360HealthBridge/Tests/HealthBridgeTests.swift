@@ -2,6 +2,12 @@ import XCTest
 @testable import LVE360HealthBridge
 
 final class HealthBridgeTests: XCTestCase {
+    func testApprovedHealthCategoriesStayBounded() {
+        XCTAssertEqual(HealthSignal.allCases.map(\.rawValue).sorted(), [
+            "active_energy", "exercise_time", "resting_heart_rate", "sleep", "steps", "weight"
+        ])
+    }
+
     func testPayloadUsesServerContractAndOnlyDailyValues() throws {
         let payload = HealthSyncPayload(
             requestedDataTypes: ["steps", "sleep"],
@@ -26,5 +32,14 @@ final class HealthBridgeTests: XCTestCase {
         let days = HealthCalendar.recentDays(30)
         XCTAssertEqual(days.count, 30)
         XCTAssertEqual(HealthCalendar.dayString(days.last!.start), HealthCalendar.dayString(Date()))
+    }
+
+    func testSleepStagesDoNotDoubleCountOverlappingIntervals() {
+        let start = Date(timeIntervalSince1970: 0)
+        let intervals = [
+            DateInterval(start: start, duration: 120 * 60),
+            DateInterval(start: start.addingTimeInterval(30 * 60), duration: 60 * 60),
+        ]
+        XCTAssertEqual(SleepMath.mergedMinutes(intervals), 120)
     }
 }

@@ -54,10 +54,9 @@ final class HealthKitReader {
                 let samples = try await sleepSamples(range: wholeRange)
                 let grouped = Dictionary(grouping: samples) { HealthCalendar.dayString($0.endDate, in: timeZone) }
                 for (day, values) in grouped where totals[day] != nil {
-                    let minutes = values.reduce(0.0) { sum, sample in
-                        sum + sample.endDate.timeIntervalSince(sample.startDate) / 60
-                    }
-                    totals[day]?.sleepMinutes = min(1440, Int(minutes.rounded()))
+                    totals[day]?.sleepMinutes = SleepMath.mergedMinutes(values.map {
+                        DateInterval(start: $0.startDate, end: $0.endDate)
+                    })
                 }
             }
         }

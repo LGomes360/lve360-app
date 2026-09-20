@@ -10,6 +10,7 @@ const base = {
 assert.deepEqual(validateAppleHealthSyncPayload(base, now)?.removed_local_dates, []);
 assert.deepEqual(validateAppleHealthSyncPayload({ ...base, days: [], removed_local_dates: ["2026-09-18"] }, now)?.removed_local_dates, ["2026-09-18"]);
 assert.ok(validateAppleHealthSyncPayload({ ...base, days: [] }, now), "an empty Health store can establish a connection");
+assert.equal(validateAppleHealthSyncPayload({ ...base, requested_data_types: [], days: [] }, now), null, "a connection must choose at least one category");
 assert.equal(validateAppleHealthSyncPayload({ ...base, removed_local_dates: ["2026-09-19"] }, now), null, "one date cannot be updated and removed");
 assert.equal(validateAppleHealthSyncPayload({ ...base, days: [], removed_local_dates: ["2026-09-18", "2026-09-18"] }, now), null, "duplicate removals are rejected");
 assert.equal(validateAppleHealthSyncPayload({ ...base, days: [], removed_local_dates: ["2025-09-18"] }, now), null, "removals must stay inside the bounded window");
