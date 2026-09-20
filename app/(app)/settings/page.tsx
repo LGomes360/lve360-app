@@ -401,6 +401,12 @@ export default function SettingsPage() {
             Read the Privacy Policy
             <ChevronRight className="ml-1 h-4 w-4" />
           </Link>
+          {paid ? (
+            <Link href="/settings/connected-health" className="inline-flex items-center justify-center rounded-xl px-4 py-2.5 font-semibold text-[#047F6D] hover:bg-teal-50">
+              iPhone Health Shortcut pilot
+              <ChevronRight className="ml-1 h-4 w-4" />
+            </Link>
+          ) : null}
         </div>
 
         {paid ? (
