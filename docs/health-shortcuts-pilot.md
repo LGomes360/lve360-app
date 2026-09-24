@@ -15,10 +15,15 @@ PR185 is a narrow, iPhone-only alternative to the draft native PR184. It does no
 
 1. Review and apply `20260920005625_health_shortcuts_pilot.sql` to the relevant Supabase project. It is additive except for widening the two provider checks.
 2. Deploy the web changes. Keep PR184 draft and separate; it has not been tested on a physical iPhone.
-3. On an iPhone, create a key and configure a Shortcut using the instructions in Settings. Do not enable an automation yet.
-4. Run a manual sync with actual step data, verify `ok: true`, refresh Today, and compare the stored number with the Health app's daily total.
-5. If an iPhone and Apple Watch both contribute steps, investigate source overlap before treating the imported value as reliable. The Shortcut action has not been validated against HealthKit's de-duplicated statistics on a physical device.
-6. Rotate the key and verify the old key is rejected. Disconnect and verify the key is rejected, Shortcut rows are removed, and any native-provider rows remain untouched.
+3. On an iPhone, build and validate the founder Shortcut once. Add an import question for the private authorization value, then publish it as an iCloud Shortcut link. Do not place a real member key in the shared Shortcut.
+4. Set the validated `https://www.icloud.com/shortcuts/...` link as `APPLE_HEALTH_SHORTCUT_SHARE_URL` in Preview. The member UI must remain paused when this value is absent or invalid.
+5. From the member page, create and copy a fresh key, install the shared Shortcut, paste the key when Apple asks, and run a manual sync with actual step data. Verify `ok: true`, refresh Today, and compare the stored number with the Health app's daily total.
+6. If an iPhone and Apple Watch both contribute steps, investigate source overlap before treating the imported value as reliable. The Shortcut action has not been validated against HealthKit's de-duplicated statistics on a physical device.
+7. Rotate the key and verify the old key is rejected. Disconnect and verify the key is rejected, Shortcut rows are removed, and any native-provider rows remain untouched.
+
+## Usability gate
+
+The manual construction instructions failed founder testing and were removed from the member UI. Do not restore instructions that ask members to configure HTTP methods, JSON fields, headers, or Health-sample transformations. The acceptable member flow is: copy a private value, add a finished Shortcut, paste the value when Apple asks, approve Steps, and run once.
 
 ## Rollback
 
