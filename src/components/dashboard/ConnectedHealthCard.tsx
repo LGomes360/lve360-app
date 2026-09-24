@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Activity, Apple, BedDouble, Flame, Footprints, HeartPulse, Scale } from "lucide-react";
 
 import type { ConnectedHealthSummary } from "@/lib/connectedHealth";
@@ -28,9 +29,13 @@ export default function ConnectedHealthCard({
           <div className="rounded-2xl bg-slate-950 p-2.5 text-white"><Apple className="h-5 w-5" aria-hidden="true" /></div>
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Connected health</p>
-            <h2 id="connected-health-title" className="mt-1 text-xl font-black text-[#041B2D]">Apple Health signals</h2>
+            <h2 id="connected-health-title" className="mt-1 text-xl font-black text-[#041B2D]">
+              {summary.provider === "apple_health_shortcuts" ? "Apple Health via iPhone Shortcut" : "Apple Health signals"}
+            </h2>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              Daily summaries you chose to share. These inform wellness context and do not replace medical measurements.
+              {summary.provider === "apple_health_shortcuts"
+                ? "Daily steps sent by your iPhone Shortcut. Compare the first total with Apple Health before relying on it."
+                : "Daily summaries you chose to share. These inform wellness context and do not replace medical measurements."}
             </p>
           </div>
         </div>
@@ -50,6 +55,11 @@ export default function ConnectedHealthCard({
       <p className="mt-4 text-xs leading-5 text-slate-500">
         Last synced {formatTimestamp(summary.lastSyncCompletedAt)}. LVE360 stores daily totals, not raw HealthKit samples, routes, or clinical records.
       </p>
+      {summary.provider === "apple_health_shortcuts" ? (
+        <Link href="/settings/connected-health" className="mt-3 inline-block text-sm font-semibold text-[#047F6D] hover:underline">
+          Manage iPhone Shortcut
+        </Link>
+      ) : null}
     </section>
   );
 }
