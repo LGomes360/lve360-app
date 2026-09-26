@@ -175,8 +175,9 @@ def structures(sel,post,penalty):
             out["short_ironfly"]={"pnl":pnl,"capital":maxrisk,"norm":pnl/maxrisk,"entry_premium":credit}
     return out
 
-def collect(events,start,end,penalty,label):
-    rows=[]; ev=events[(events.event_date>=start)&(events.event_date<=end)].copy()
+def collect_both(events,start,end,label):
+    rows_base=[]; rows_stress=[]
+    ev=events[(events.event_date>=start)&(events.event_date<=end)].copy()
     for i,r in enumerate(ev.itertuples(index=False),1):
         t,d=r.ticker,pd.Timestamp(r.event_date)
         try:
@@ -187,19 +188,20 @@ def collect(events,start,end,penalty,label):
             if not sel:continue
             pq=post_quotes(t,post,sel)
             if not pq:continue
-            for strategy,v in structures(sel,pq,penalty).items():
-                rows.append({
-                  "ticker":t,"event_date":str(d.date()),"pre_date":str(pre.date()),"post_date":str(post.date()),
-                  "strategy":strategy,"pnl":float(v["pnl"]),
-                  "capital":None if not np.isfinite(v["capital"]) else float(v["capital"]),
-                  "norm":float(v["norm"]),"entry_premium":float(v["entry_premium"]),
-                  "strike":float(sel["strike"]),"expiration":str(sel["expiration"].date()),
-                  "event_to_expiry":int((sel["expiration"]-d).days)
-                })
+            for penalty,target in [(BASE_PENALTY,rows_base),(STRESS_PENALTY,rows_stress)]:
+                for strategy,v in structures(sel,pq,penalty).items():
+                    target.append({
+                      "ticker":t,"event_date":str(d.date()),"pre_date":str(pre.date()),"post_date":str(post.date()),
+                      "strategy":strategy,"pnl":float(v["pnl"]),
+                      "capital":None if not np.isfinite(v["capital"]) else float(v["capital"]),
+                      "norm":float(v["norm"]),"entry_premium":float(v["entry_premium"]),
+                      "strike":float(sel["strike"]),"expiration":str(sel["expiration"].date()),
+                      "event_to_expiry":int((sel["expiration"]-d).days)
+                    })
         except Exception as e:
             print("EVENT_ERR",t,d.date(),repr(e),flush=True)
-        if i%12==0:print("PROGRESS",label,i,"/",len(ev),"rows",len(rows),flush=True)
-    return pd.DataFrame(rows)
+        if i%12==0:print("PROGRESS",label,i,"/",len(ev),"base_rows",len(rows_base),flush=True)
+    return pd.DataFrame(rows_base),pd.DataFrame(rows_stress)
 
 def summarize(df,strategy):
     d=df[df.strategy.eq(strategy)].copy()
@@ -231,8 +233,7 @@ def main():
     print("EARNINGS_COLUMNS_OK EVENTS",len(events),flush=True)
     print("VALIDATION_EVENT_COUNTS",events[events.event_date<=VAL_END].groupby("ticker").size().to_dict(),flush=True)
 
-    base=collect(events,VAL_START,VAL_END,BASE_PENALTY,"validation_base")
-    stress=collect(events,VAL_START,VAL_END,STRESS_PENALTY,"validation_stress")
+    base,stress=collect_both(events,VAL_START,VAL_END,"validation")
     base.to_csv(OUT/"validation_trades.csv",index=False); stress.to_csv(OUT/"validation_stress_trades.csv",index=False)
 
     reports=[]; eligible=[]
@@ -264,8 +265,7 @@ def main():
 
     if eligible:
         print("HOLDOUT_GATE_OPEN",eligible,flush=True)
-        hb=collect(events,HOLD_START,HOLD_END,BASE_PENALTY,"holdout_base")
-        hs=collect(events,HOLD_START,HOLD_END,STRESS_PENALTY,"holdout_stress")
+        hb,hs=collect_both(events,HOLD_START,HOLD_END,"holdout")
         hb=hb[hb.strategy.isin(eligible)]; hs=hs[hs.strategy.isin(eligible)]
         hb.to_csv(OUT/"holdout_trades.csv",index=False); hs.to_csv(OUT/"holdout_stress_trades.csv",index=False)
         hrep=[]
