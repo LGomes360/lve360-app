@@ -1,0 +1,24 @@
+name: Probe historical earnings data
+
+on:
+  push:
+    branches:
+      - research/qie-v06-relative-value-20260926
+    paths:
+      - research/earnings_probe.py
+      - .github/workflows/earnings-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --disable-pip-version-check yfinance requests pandas
+      - run: python research/earnings_probe.py
