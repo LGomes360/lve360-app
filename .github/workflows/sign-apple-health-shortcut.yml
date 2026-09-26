@@ -1,0 +1,32 @@
+name: Sign Apple Health Shortcut
+
+on:
+  push:
+    branches:
+      - agent/pr185-apple-health-shortcuts
+    paths:
+      - shortcut-signing/send-steps-to-lve360.shortcut
+      - .github/workflows/sign-apple-health-shortcut.yml
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sign Shortcut for anyone
+        run: |
+          mkdir -p signed-shortcut
+          shortcuts sign \
+            --mode anyone \
+            --input shortcut-signing/send-steps-to-lve360.shortcut \
+            --output signed-shortcut/send-steps-to-lve360.shortcut
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-apple-health-shortcut
+          path: signed-shortcut/send-steps-to-lve360.shortcut
+          if-no-files-found: error
+          retention-days: 1
