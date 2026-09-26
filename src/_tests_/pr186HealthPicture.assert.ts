@@ -25,19 +25,28 @@ const picture = buildHealthPicture({
   connectedHealth: connected,
   checkIn: { sleep: 4, energy: 5, weight: null },
   weightUnit: "lb",
+  labSummary: {
+    summary: "CBC and metabolic markers were summarized using the reporting laboratory’s ranges.",
+    memberApproved: true,
+    resultWindow: "September 2026",
+  },
 });
 
-assert.equal(picture.domains.length, 4);
+assert.equal(picture.domains.length, 5);
 assert.equal(picture.domains[0].source, "combined", "sleep should distinguish measured and reported context");
 assert.match(picture.domains[0].summary, /You described sleep as good/i);
 assert.match(picture.domains[1].summary, /5,420 steps/);
 assert.match(picture.domains[2].summary, /Food quality and eating context are never inferred from weight/);
 assert.equal(picture.domains[3].source, "member_reported", "overall feeling must come from the member check-in");
 assert.match(picture.domains[3].summary, /Emotional wellbeing remains self-described/);
+assert.equal(picture.domains[4].source, "lab_summary", "lab balance must require a member-approved lab summary");
+assert.match(picture.domains[4].summary, /context, not a diagnosis/i);
 
 const connectedOnly = buildHealthPicture({ connectedHealth: connected, checkIn: null, weightUnit: "kg" });
 assert.equal(connectedOnly.domains[3].source, "limited", "activity and sleep must not infer emotional wellbeing");
 assert.match(connectedOnly.domains[3].summary, /your own words or check-in/i);
+assert.equal(connectedOnly.domains[4].source, "limited", "Apple Health data alone must not create a lab interpretation");
+assert.match(connectedOnly.domains[4].summary, /reference ranges/i);
 
 const kilograms = buildHealthPicture({
   connectedHealth: null,

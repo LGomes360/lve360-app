@@ -1,24 +1,32 @@
 import Link from "next/link";
-import { ArrowRight, BedDouble, Dumbbell, HeartHandshake, Utensils } from "lucide-react";
+import { ArrowRight, BedDouble, Dumbbell, FlaskConical, HeartHandshake, Utensils } from "lucide-react";
 
 import type { ConnectedHealthSummary } from "@/lib/connectedHealth";
-import { buildHealthPicture, type HealthPictureCheckIn, type HealthPictureSource } from "@/lib/healthPicture";
+import {
+  buildHealthPicture,
+  type HealthPictureCheckIn,
+  type HealthPictureLabSummary,
+  type HealthPictureSource,
+} from "@/lib/healthPicture";
 
 export default function ConnectedHealthCard({
   summary,
   checkIn,
   weightUnit,
+  labSummary = null,
 }: {
   summary: ConnectedHealthSummary | null;
   checkIn: HealthPictureCheckIn | null;
   weightUnit: "lb" | "kg";
+  labSummary?: HealthPictureLabSummary | null;
 }) {
-  const picture = buildHealthPicture({ connectedHealth: summary, checkIn, weightUnit });
+  const picture = buildHealthPicture({ connectedHealth: summary, checkIn, weightUnit, labSummary });
   const icons = {
     sleep: BedDouble,
     movement: Dumbbell,
     nutrition_weight: Utensils,
     overall_feeling: HeartHandshake,
+    lab_balance: FlaskConical,
   } as const;
 
   return (
@@ -39,7 +47,7 @@ export default function ConnectedHealthCard({
         {picture.domains.map((domain) => {
           const Icon = icons[domain.key];
           return (
-            <div key={domain.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div key={domain.key} className={`rounded-2xl border border-slate-200 bg-slate-50 p-4 ${domain.key === "lab_balance" ? "sm:col-span-2" : ""}`}>
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <Icon className="h-4 w-4 text-[#087F72]" aria-hidden="true" />
@@ -69,6 +77,7 @@ function sourceStyle(source: HealthPictureSource): string {
   if (source === "combined") return "bg-[#DDF6EF] text-[#06695F]";
   if (source === "member_reported") return "bg-[#EDE9FE] text-[#5B21B6]";
   if (source === "connected_data") return "bg-sky-100 text-sky-800";
+  if (source === "lab_summary") return "bg-amber-100 text-amber-900";
   return "bg-slate-200 text-slate-600";
 }
 

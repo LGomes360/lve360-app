@@ -11,12 +11,14 @@ const contract = readFileSync("docs/chatgpt-health-handoff.md", "utf8");
 assert.ok(today.indexOf("<DailyLog") < today.indexOf("<ConnectedHealthCard"), "Today must listen before presenting the health picture");
 assert.match(today, /decisionReady \? \(/, "the health picture must wait for a check-in or explicit skip");
 assert.doesNotMatch(card, /if \(.*\) return null;/, "the health picture must remain visible when context is missing");
-for (const label of ["Sleep", "Exercise", "Diet & weight", "Overall feeling"]) {
+for (const label of ["Sleep", "Exercise", "Diet & weight", "Overall feeling", "Lab balance"]) {
   assert.match(healthPicture, new RegExp(label.replace("&", "&amp;|&")), `Today must include ${label}`);
   assert.match(settingsCard, new RegExp(label.replace("&", "&amp;|&")), `Settings must explain ${label}`);
 }
 assert.match(healthPicture, /check-in stays the source of truth/i);
 assert.match(healthPicture, /never overrides how you say you feel/i);
+assert.match(healthPicture, /source laboratory’s reference ranges/i);
+assert.match(healthPicture, /context, not a diagnosis/i);
 assert.match(settings, /<HealthContextCard/);
 assert.match(settingsCard, /direct handoff is not connected yet/i, "the UI must not imply an unavailable integration is live");
 assert.match(contract, /authenticated MCP/i);

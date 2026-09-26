@@ -6,10 +6,16 @@ export type HealthPictureCheckIn = {
   weight: number | null;
 };
 
-export type HealthPictureSource = "combined" | "member_reported" | "connected_data" | "limited";
+export type HealthPictureLabSummary = {
+  summary: string;
+  memberApproved: boolean;
+  resultWindow: string | null;
+};
+
+export type HealthPictureSource = "combined" | "member_reported" | "connected_data" | "lab_summary" | "limited";
 
 export type HealthPictureDomain = {
-  key: "sleep" | "movement" | "nutrition_weight" | "overall_feeling";
+  key: "sleep" | "movement" | "nutrition_weight" | "overall_feeling" | "lab_balance";
   label: string;
   source: HealthPictureSource;
   sourceLabel: string;
@@ -25,10 +31,12 @@ export function buildHealthPicture({
   connectedHealth,
   checkIn,
   weightUnit,
+  labSummary = null,
 }: {
   connectedHealth: ConnectedHealthSummary | null;
   checkIn: HealthPictureCheckIn | null;
   weightUnit: "lb" | "kg";
+  labSummary?: HealthPictureLabSummary | null;
 }): HealthPicture {
   const latest = connectedHealth?.status === "connected" ? connectedHealth.latest : null;
   const sleepDuration = latest?.sleep_minutes == null ? null : formatMinutes(latest.sleep_minutes);
@@ -45,6 +53,7 @@ export function buildHealthPicture({
       ? `${formatEnteredWeight(weight, weightUnit)} recorded in today’s check-in.`
       : `${formatConnectedWeight(weight, weightUnit)} shared from connected data.`;
   const feeling = checkIn?.energy == null ? null : energyLabel(checkIn.energy);
+  const approvedLabSummary = labSummary?.memberApproved ? labSummary.summary.trim() : "";
 
   return {
     domains: [
@@ -87,6 +96,15 @@ export function buildHealthPicture({
         summary: feeling
           ? `You reported ${feeling.toLowerCase()} energy. Emotional wellbeing remains self-described, never inferred from activity or sleep.`
           : "LVE360 needs your own words or check-in before using emotional or mental-health context.",
+      },
+      {
+        key: "lab_balance",
+        label: "Lab balance",
+        source: approvedLabSummary ? "lab_summary" : "limited",
+        sourceLabel: approvedLabSummary ? "Approved lab summary" : "Needs verified results",
+        summary: approvedLabSummary
+          ? `${labSummary?.resultWindow ? `${labSummary.resultWindow}: ` : ""}${approvedLabSummary} This is context, not a diagnosis; review individual results with your healthcare provider.`
+          : "No member-approved lab summary has been shared. Lab trends require collection dates, units, and the source laboratory’s reference ranges.",
       },
     ],
     guidance: checkIn
