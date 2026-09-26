@@ -37,6 +37,7 @@ const optional = [
   "LVE360_BILLING_CHECKOUT_ENABLED",
   "LVE360_INVITATION_ISSUANCE_ENABLED",
   "LVE360_FOUNDER_USER_ID",
+  "APPLE_HEALTH_SHORTCUT_SHARE_URL",
 ] as const;
 
 function isProductionRuntime() {

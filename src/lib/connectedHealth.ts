@@ -8,6 +8,19 @@ export const APPLE_HEALTH_DATA_TYPES = [
 ] as const;
 
 export type AppleHealthDataType = (typeof APPLE_HEALTH_DATA_TYPES)[number];
+export type ConnectedHealthProvider = "apple_health" | "apple_health_shortcuts";
+
+export function chooseConnectedHealthProvider(
+  rows: Array<{ provider: ConnectedHealthProvider; status: string; hasMetrics: boolean }>,
+): ConnectedHealthProvider | null {
+  return rows.find((row) => row.provider === "apple_health" && row.status === "connected" && row.hasMetrics)?.provider
+    ?? rows.find((row) => row.provider === "apple_health_shortcuts" && row.status === "connected" && row.hasMetrics)?.provider
+    ?? rows.find((row) => row.provider === "apple_health" && row.status === "connected")?.provider
+    ?? rows.find((row) => row.provider === "apple_health_shortcuts" && row.status === "connected")?.provider
+    ?? rows.find((row) => row.provider === "apple_health")?.provider
+    ?? rows[0]?.provider
+    ?? null;
+}
 
 export type ConnectedHealthDailyMetric = {
   local_date: string;
@@ -27,7 +40,7 @@ export type AppleHealthSyncPayload = {
 };
 
 export type ConnectedHealthSummary = {
-  provider: "apple_health";
+  provider: ConnectedHealthProvider;
   status: "connected" | "paused" | "disconnected" | "error";
   requestedDataTypes: AppleHealthDataType[];
   lastSyncCompletedAt: string | null;

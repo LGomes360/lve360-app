@@ -4,13 +4,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   APPLE_HEALTH_DATA_TYPES,
+  chooseConnectedHealthProvider,
   type AppleHealthDataType,
+  type ConnectedHealthProvider,
   type ConnectedHealthDailyMetric,
   type ConnectedHealthSummary,
 } from "@/lib/connectedHealth";
 
 type ConnectionRow = {
-  provider: "apple_health";
+  provider: ConnectedHealthProvider;
   status: "connected" | "paused" | "disconnected" | "error";
   requested_data_types: string[] | null;
   last_sync_completed_at: string | null;
@@ -22,13 +24,12 @@ export async function loadConnectedHealthSummary(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<ConnectedHealthSummary | null> {
-  const [{ data: connection, error: connectionError }, { data: metrics, error: metricsError }] = await Promise.all([
+  const [connectionsResult, nativeMetricsResult, shortcutMetricsResult] = await Promise.all([
     supabase
       .from("health_data_connections")
       .select("provider,status,requested_data_types,last_sync_completed_at")
       .eq("user_id", userId)
-      .eq("provider", "apple_health")
-      .maybeSingle(),
+      .in("provider", ["apple_health", "apple_health_shortcuts"]),
     supabase
       .from("connected_health_daily_metrics")
       .select("local_date,time_zone,steps,sleep_minutes,resting_heart_rate,weight_kg,active_energy_kcal,exercise_minutes,source_updated_at")
@@ -36,19 +37,36 @@ export async function loadConnectedHealthSummary(
       .eq("provider", "apple_health")
       .order("local_date", { ascending: false })
       .limit(1),
+    supabase
+      .from("connected_health_daily_metrics")
+      .select("local_date,time_zone,steps,sleep_minutes,resting_heart_rate,weight_kg,active_energy_kcal,exercise_minutes,source_updated_at")
+      .eq("user_id", userId)
+      .eq("provider", "apple_health_shortcuts")
+      .order("local_date", { ascending: false })
+      .limit(1),
   ]);
 
-  if (connectionError || metricsError) {
-    if (isMissingHealthSchemaError(connectionError) || isMissingHealthSchemaError(metricsError)) return null;
-    console.error("[connected-health] load failed", connectionError?.message ?? metricsError?.message);
+  const error = connectionsResult.error ?? nativeMetricsResult.error ?? shortcutMetricsResult.error;
+  if (error) {
+    if (isMissingHealthSchemaError(error)) return null;
+    console.error("[connected-health] load failed", error.message);
     return null;
   }
+  const connections = (connectionsResult.data ?? []) as ConnectionRow[];
+  const chosenProvider = chooseConnectedHealthProvider(connections.map((row) => ({
+    ...row,
+    hasMetrics: row.provider === "apple_health"
+      ? Boolean(nativeMetricsResult.data?.length)
+      : Boolean(shortcutMetricsResult.data?.length),
+  })));
+  const connection = connections.find((row) => row.provider === chosenProvider);
   if (!connection) return null;
 
-  const row = connection as ConnectionRow;
+  const row = connection;
+  const metrics = row.provider === "apple_health" ? nativeMetricsResult.data : shortcutMetricsResult.data;
   const latestMetrics = ((metrics ?? []) as ConnectedHealthDailyMetric[]).map(normalizeMetric);
   return {
-    provider: "apple_health",
+    provider: row.provider,
     status: row.status,
     requestedDataTypes: (row.requested_data_types ?? [])
       .filter((item): item is AppleHealthDataType => KNOWN_TYPES.has(item)),
