@@ -1,0 +1,32 @@
+name: Probe public Kaggle options downloads
+
+on:
+  push:
+    branches:
+      - research/qie-v06-relative-value-20260926
+    paths:
+      - .github/workflows/probe-kaggle-options-download.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe AAPL
+        run: |
+          set -x
+          curl -L --fail --retry 2 -o /tmp/aapl.zip -w '\nHTTP=%{http_code} TYPE=%{content_type} SIZE=%{size_download}\n' \
+            https://www.kaggle.com/api/v1/datasets/download/kylegraupe/aapl-options-data-2016-2020 || true
+          file /tmp/aapl.zip 2>/dev/null || true
+          ls -lh /tmp/aapl.zip 2>/dev/null || true
+          unzip -l /tmp/aapl.zip 2>/dev/null | head -30 || true
+      - name: Probe TSLA
+        run: |
+          curl -L --fail --retry 2 -o /tmp/tsla.zip -w '\nHTTP=%{http_code} TYPE=%{content_type} SIZE=%{size_download}\n' \
+            https://www.kaggle.com/api/v1/datasets/download/kylegraupe/tsla-daily-eod-options-quotes-2019-2022 || true
+          file /tmp/tsla.zip 2>/dev/null || true
+          ls -lh /tmp/tsla.zip 2>/dev/null || true
+          unzip -l /tmp/tsla.zip 2>/dev/null | head -30 || true
