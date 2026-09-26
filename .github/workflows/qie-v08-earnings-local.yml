@@ -1,0 +1,43 @@
+name: QIE v0.8 earnings-event local Dolt
+
+on:
+  push:
+    branches:
+      - research/qie-v06-relative-value-20260926
+    paths:
+      - research/qie_v08_earnings_event_vol_local.py
+      - .github/workflows/qie-v08-earnings-local.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --disable-pip-version-check numpy pandas requests
+      - name: Install Dolt
+        run: sudo bash -c 'curl -L https://github.com/dolthub/dolt/releases/latest/download/install.sh | bash'
+      - name: Clone options database locally
+        run: |
+          dolt clone --depth 1 post-no-preference/options /tmp/optionsdb
+          du -sh /tmp/optionsdb
+      - name: Fetch frozen historical earnings calendar
+        run: git clone --depth 1 https://github.com/vivek-v-rao/Earnings-Dates.git /tmp/earnings
+      - name: Run event-volatility validation locally
+        env:
+          DOLT_DB_DIR: /tmp/optionsdb
+          EARNINGS_CSV: /tmp/earnings/earnings_dates_all.csv
+          QIE_OUT_DIR: qie_v08_local_results
+        run: python research/qie_v08_earnings_event_vol_local.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qie-v08-local-results
+          path: qie_v08_local_results/
+          if-no-files-found: warn
