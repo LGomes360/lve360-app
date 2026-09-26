@@ -1,68 +1,76 @@
-import { Activity, Apple, BedDouble, Flame, Footprints, HeartPulse, Scale } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, BedDouble, Dumbbell, HeartHandshake, Utensils } from "lucide-react";
 
 import type { ConnectedHealthSummary } from "@/lib/connectedHealth";
+import { buildHealthPicture, type HealthPictureCheckIn, type HealthPictureSource } from "@/lib/healthPicture";
 
 export default function ConnectedHealthCard({
   summary,
+  checkIn,
   weightUnit,
 }: {
   summary: ConnectedHealthSummary | null;
+  checkIn: HealthPictureCheckIn | null;
   weightUnit: "lb" | "kg";
 }) {
-  if (!summary || summary.status === "disconnected" || !summary.latest) return null;
-  const latest = summary.latest;
-  const metrics = [
-    latest.steps == null ? null : { icon: Footprints, label: "Steps", value: latest.steps.toLocaleString() },
-    latest.sleep_minutes == null ? null : { icon: BedDouble, label: "Sleep", value: formatMinutes(latest.sleep_minutes) },
-    latest.resting_heart_rate == null ? null : { icon: HeartPulse, label: "Resting heart rate", value: `${Math.round(latest.resting_heart_rate)} bpm` },
-    latest.weight_kg == null ? null : { icon: Scale, label: "Weight", value: formatWeight(latest.weight_kg, weightUnit) },
-    latest.active_energy_kcal == null ? null : { icon: Flame, label: "Active energy", value: `${Math.round(latest.active_energy_kcal).toLocaleString()} kcal` },
-    latest.exercise_minutes == null ? null : { icon: Activity, label: "Exercise", value: `${latest.exercise_minutes} min` },
-  ].filter((metric): metric is NonNullable<typeof metric> => metric != null);
-  if (metrics.length === 0) return null;
+  if ((!summary || summary.status === "disconnected" || !summary.latest) && !checkIn) return null;
+  const picture = buildHealthPicture({ connectedHealth: summary, checkIn, weightUnit });
+  const icons = {
+    sleep: BedDouble,
+    movement: Dumbbell,
+    nutrition_weight: Utensils,
+    overall_feeling: HeartHandshake,
+  } as const;
 
   return (
-    <section aria-labelledby="connected-health-title" className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    <section aria-labelledby="health-picture-title" className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="rounded-2xl bg-slate-950 p-2.5 text-white"><Apple className="h-5 w-5" aria-hidden="true" /></div>
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Connected health</p>
-            <h2 id="connected-health-title" className="mt-1 text-xl font-black text-[#041B2D]">Apple Health signals</h2>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
-              Daily summaries you chose to share. These inform wellness context and do not replace medical measurements.
-            </p>
-          </div>
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087F72]">Health context</p>
+          <h2 id="health-picture-title" className="mt-1 text-xl font-black text-[#041B2D]">Your health picture for today</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">{picture.guidance}</p>
         </div>
-        <p className="rounded-full bg-[#EAFBF8] px-3 py-1.5 text-xs font-bold text-[#06695F]">
-          {formatDate(latest.local_date)}
+        {summary?.latest ? (
+          <p className="rounded-full bg-[#EAFBF8] px-3 py-1.5 text-xs font-bold text-[#06695F]">
+            Connected data: {formatDate(summary.latest.local_date)}
+          </p>
+        ) : null}
+      </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        {picture.domains.map((domain) => {
+          const Icon = icons[domain.key];
+          return (
+            <div key={domain.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Icon className="h-4 w-4 text-[#087F72]" aria-hidden="true" />
+                  <p className="font-bold text-[#041B2D]">{domain.label}</p>
+                </div>
+                <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${sourceStyle(domain.source)}`}>{domain.sourceLabel}</span>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-slate-600">{domain.summary}</p>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 text-xs leading-5 text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+        <p>
+          {summary?.lastSyncCompletedAt ? `Connected data last received ${formatTimestamp(summary.lastSyncCompletedAt)}. ` : ""}
+          LVE360 stores bounded summaries, not raw records or workout routes.
         </p>
+        <Link href="/settings#health-context" className="inline-flex shrink-0 items-center font-bold text-[#087F72] hover:underline">
+          How health context works <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden="true" />
+        </Link>
       </div>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {metrics.map(({ icon: Icon, label, value }) => (
-          <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <Icon className="h-4 w-4 text-[#087F72]" aria-hidden="true" />
-            <p className="mt-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
-            <p className="mt-1 text-lg font-black text-[#041B2D]">{value}</p>
-          </div>
-        ))}
-      </div>
-      <p className="mt-4 text-xs leading-5 text-slate-500">
-        Last synced {formatTimestamp(summary.lastSyncCompletedAt)}. LVE360 stores daily totals, not raw HealthKit samples, routes, or clinical records.
-      </p>
     </section>
   );
 }
 
-function formatMinutes(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
-  return remainder === 0 ? `${hours} hr` : `${hours} hr ${remainder} min`;
-}
-
-function formatWeight(kilograms: number, unit: "lb" | "kg"): string {
-  if (unit === "kg") return `${kilograms.toFixed(1)} kg`;
-  return `${(kilograms * 2.2046226218).toFixed(1)} lb`;
+function sourceStyle(source: HealthPictureSource): string {
+  if (source === "combined") return "bg-[#DDF6EF] text-[#06695F]";
+  if (source === "member_reported") return "bg-[#EDE9FE] text-[#5B21B6]";
+  if (source === "connected_data") return "bg-sky-100 text-sky-800";
+  return "bg-slate-200 text-slate-600";
 }
 
 function formatDate(value: string): string {
