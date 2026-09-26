@@ -14,6 +14,7 @@ import type { PracticeConnectionContext } from "@/lib/practiceConnection";
 import DailyIntentionCard from "@/components/dashboard/DailyIntentionCard";
 import ConnectedHealthCard from "@/components/dashboard/ConnectedHealthCard";
 import type { ConnectedHealthSummary } from "@/lib/connectedHealth";
+import type { ApprovedHealthContextHandoff } from "@/lib/healthContextHandoff";
 
 export default function TodayClient({
   experiment,
@@ -24,6 +25,7 @@ export default function TodayClient({
   reminderDeliveryId,
   activationProgress,
   connectedHealth,
+  healthContextHandoff,
   healthWeightUnit,
 }: {
   experiment: WeeklyExperiment | null;
@@ -34,6 +36,7 @@ export default function TodayClient({
   reminderDeliveryId: string | null;
   activationProgress: PremiumActivationProgress;
   connectedHealth: ConnectedHealthSummary | null;
+  healthContextHandoff: ApprovedHealthContextHandoff | null;
   healthWeightUnit: "lb" | "kg";
 }) {
   const [firstActionComplete, setFirstActionComplete] = useState(activationProgress.firstActionComplete);
@@ -106,6 +109,7 @@ export default function TodayClient({
                 summary={connectedHealth}
                 checkIn={checkInSummary}
                 weightUnit={healthWeightUnit}
+                handoff={healthContextHandoff}
               />
             ) : null}
 

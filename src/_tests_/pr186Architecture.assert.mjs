@@ -20,7 +20,7 @@ assert.match(healthPicture, /never overrides how you say you feel/i);
 assert.match(healthPicture, /source laboratory’s reference ranges/i);
 assert.match(healthPicture, /context, not a diagnosis/i);
 assert.match(settings, /<HealthContextCard/);
-assert.match(settingsCard, /direct handoff is not connected yet/i, "the UI must not imply an unavailable integration is live");
+assert.match(settingsCard, /No approved handoff is saved yet/i, "the UI must distinguish an empty account from a completed handoff");
 assert.match(contract, /authenticated MCP/i);
 assert.match(contract, /member_approved/);
 assert.match(contract, /must reject raw records/i);

@@ -11,6 +11,11 @@ for (const founder of [true, false]) {
   assert.equal(authDestination("/upgrade?plan=invalid", founder), "/upgrade");
 }
 assert.equal(authDestination("/dashboard", true), FOUNDER_HOME);
+assert.equal(
+  authDestination("/oauth/consent?authorization_id=founder-request-123", true),
+  "/oauth/consent?authorization_id=founder-request-123",
+);
+assert.equal(authDestination("/oauth/consent", true), FOUNDER_HOME);
 assert.equal(authDestination("/dashboard", false), "/dashboard");
 // Subscription tier deliberately is not an input: an unpaid Founder can reach
 // review without turning ordinary unpaid members into premium members.

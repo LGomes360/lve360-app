@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight, BedDouble, Dumbbell, FlaskConical, HeartHandshake, Utensils } from "lucide-react";
 
 import type { ConnectedHealthSummary } from "@/lib/connectedHealth";
+import type { ApprovedHealthContextHandoff } from "@/lib/healthContextHandoff";
 import {
   buildHealthPicture,
   type HealthPictureCheckIn,
@@ -14,13 +15,15 @@ export default function ConnectedHealthCard({
   checkIn,
   weightUnit,
   labSummary = null,
+  handoff = null,
 }: {
   summary: ConnectedHealthSummary | null;
   checkIn: HealthPictureCheckIn | null;
   weightUnit: "lb" | "kg";
   labSummary?: HealthPictureLabSummary | null;
+  handoff?: ApprovedHealthContextHandoff | null;
 }) {
-  const picture = buildHealthPicture({ connectedHealth: summary, checkIn, weightUnit, labSummary });
+  const picture = buildHealthPicture({ connectedHealth: summary, checkIn, weightUnit, labSummary, handoff });
   const icons = {
     sleep: BedDouble,
     movement: Dumbbell,
@@ -60,6 +63,13 @@ export default function ConnectedHealthCard({
           );
         })}
       </div>
+      {handoff?.proposedFocus ? (
+        <div className="mt-4 rounded-2xl border border-[#BCE3DA] bg-[#F4FAF8] p-4">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087F72]">Approved focus to consider</p>
+          <p className="mt-2 text-sm font-semibold leading-6 text-[#041B2D]">{handoff.proposedFocus}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">This adds context; your check-in and saved Plan still determine what LVE360 puts first today.</p>
+        </div>
+      ) : null}
       <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 text-xs leading-5 text-slate-500 sm:flex-row sm:items-center sm:justify-between">
         <p>
           {summary?.lastSyncCompletedAt ? `Connected data last received ${formatTimestamp(summary.lastSyncCompletedAt)}. ` : ""}
@@ -77,6 +87,7 @@ function sourceStyle(source: HealthPictureSource): string {
   if (source === "combined") return "bg-[#DDF6EF] text-[#06695F]";
   if (source === "member_reported") return "bg-[#EDE9FE] text-[#5B21B6]";
   if (source === "connected_data") return "bg-sky-100 text-sky-800";
+  if (source === "approved_handoff") return "bg-teal-100 text-teal-800";
   if (source === "lab_summary") return "bg-amber-100 text-amber-900";
   return "bg-slate-200 text-slate-600";
 }

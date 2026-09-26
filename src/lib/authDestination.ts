@@ -3,6 +3,7 @@ export const FOUNDER_HOME = "/founder";
 const ALLOWED = new Set([
   "/today", "/journey", "/blueprints", "/settings", "/dashboard",
   "/results", "/account", "/upgrade", "/premium", "/onboarding",
+  "/oauth/consent",
   FOUNDER_HOME,
 ]);
 
@@ -17,6 +18,12 @@ export function authDestination(raw: string, founder: boolean): string {
   if (target.pathname === FOUNDER_HOME) return home;
   if (!ALLOWED.has(target.pathname)) return home;
   if (founder && ["/today", "/dashboard"].includes(target.pathname)) return home;
+  if (target.pathname === "/oauth/consent") {
+    const authorizationId = target.searchParams.get("authorization_id")?.trim();
+    return authorizationId && authorizationId.length <= 500
+      ? `/oauth/consent?authorization_id=${encodeURIComponent(authorizationId)}`
+      : home;
+  }
   if (target.pathname !== "/upgrade") return target.pathname;
   const plan = target.searchParams.get("plan");
   return plan === "monthly" || plan === "annual" ? `/upgrade?plan=${plan}` : "/upgrade";

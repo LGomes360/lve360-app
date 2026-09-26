@@ -42,7 +42,7 @@ Journey will show weekly patterns only after the direct handoff is validated. It
 
 ## Bounded handoff contract
 
-The future authenticated MCP write tool should accept one member-approved snapshot:
+The authenticated MCP write tool accepts one member-approved snapshot:
 
 ```json
 {
@@ -52,11 +52,12 @@ The future authenticated MCP write tool should accept one member-approved snapsh
     "sleep": { "summary": "...", "data_completeness": "..." },
     "exercise": { "summary": "...", "data_completeness": "..." },
     "diet_weight": { "summary": "...", "data_completeness": "..." },
-    "overall_feeling": { "summary": "...", "data_completeness": "..." },
+    "overall_feeling": { "summary": "...", "data_completeness": "...", "member_described": true },
     "lab_balance": {
       "summary": "...",
       "data_completeness": "...",
       "result_window": { "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" },
+      "measurement_context": "Units and source-laboratory reference ranges retained in the summary.",
       "interpretation_basis": "source_lab_reference_ranges"
     }
   },
@@ -67,13 +68,34 @@ The future authenticated MCP write tool should accept one member-approved snapsh
 
 The tool must reject raw records, raw HealthKit samples, diagnoses, medication changes, inferred mental-health states, lab summaries without dates, units, and source-lab reference ranges, and any handoff that is not explicitly member-approved.
 
+## Private founder-pilot implementation
+
+PR187 adds an authenticated Supabase Edge Function at:
+
+`https://splafvdwllglorcegxam.supabase.co/functions/v1/health-context-mcp`
+
+It uses Supabase OAuth 2.1 with PKCE and user-scoped RLS. The consent page is hosted at `/oauth/consent`, and both the consent UI and MCP function independently require the configured `LVE360_FOUNDER_USER_ID`. The write tool uses a strict schema, requires `member_approved: true`, rejects unrecognized fields, and returns only saved-record metadata so health summaries are not repeated in tool logs.
+
+LVE360 Settings shows the latest approved handoff and provides member-controlled deletion. Today can combine the approved summary with current connected data and the member's own check-in, while keeping the check-in as the source of truth.
+
+Production enablement requires all of the following:
+
+1. Apply the PR187 migration.
+2. Use an asymmetric Supabase Auth signing key (ES256 or RS256).
+3. Enable the Supabase OAuth 2.1 server and dynamic client registration, with `/oauth/consent` as the authorization path.
+4. Set `LVE360_FOUNDER_USER_ID` as a Supabase Edge Function secret.
+5. Deploy `health-context-mcp` with gateway JWT verification disabled; the function performs OAuth discovery and token verification itself.
+6. Connect the MCP endpoint from ChatGPT, approve the founder consent screen, and exercise status, write, display, and delete.
+
+The code path is complete, but live ChatGPT Health validation remains a release gate. The product must not imply that ChatGPT Health can invoke the tool until this exact production flow succeeds.
+
 ## Delivery sequence
 
-1. This PR: UI contract and Today/Settings surfaces using the existing bounded connected-health and member check-in data.
-2. Next PR: authenticated LVE360 MCP tools and account linking, with a private founder-only rollout.
-3. Validation: confirm ChatGPT Health can use the Health context and invoke the LVE360 tool in one member-approved flow.
-4. Later PR: Journey trends and correction/deletion controls after the handoff is proven.
+1. PR186: UI contract and Today/Settings surfaces using bounded connected-health and member check-in data.
+2. PR187: authenticated LVE360 MCP tools, OAuth consent, bounded persistence, Today display, and deletion for a private founder-only rollout.
+3. Validation: confirm ChatGPT Health can use Health context and invoke the LVE360 tool in one member-approved flow.
+4. Later PR: Journey trends after the handoff is proven over multiple weeks.
 
 ## Rollback
 
-The UI can be removed without deleting existing Apple Health foundation tables or daily check-ins. No new persistence or external connection is introduced in this phase.
+Disable or remove the `health-context-mcp` Edge Function to stop new handoffs without affecting Apple Health foundation tables or daily check-ins. Existing summaries remain member-owned and removable from Settings; the PR187 table can be dropped only after those records are intentionally handled.
