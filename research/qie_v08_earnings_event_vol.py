@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 API="https://www.dolthub.com/api/v1alpha1/post-no-preference/options/master"
 EARNINGS_CSV=Path(os.environ.get("EARNINGS_CSV","/tmp/earnings/earnings_dates_all.csv"))
@@ -30,7 +31,7 @@ def sql(q,max_tries=4):
     last=None
     for k in range(max_tries):
         try:
-            r=sess.get(API,params={"q":q},timeout=90)
+            r=requests.get(API,params={"q":q},timeout=90,headers={"User-Agent":"QIE-research/0.8"})
             r.raise_for_status()
             j=r.json()
             if j.get("query_execution_status")!="Success":
@@ -175,32 +176,43 @@ def structures(sel,post,penalty):
             out["short_ironfly"]={"pnl":pnl,"capital":maxrisk,"norm":pnl/maxrisk,"entry_premium":credit}
     return out
 
+def process_event(t,d):
+    rows_base=[]; rows_stress=[]
+    sd=event_snapshot_dates(t,d)
+    if not sd:return rows_base,rows_stress
+    pre,post=sd
+    sel=choose_structure(pre_chain(t,d,pre),d)
+    if not sel:return rows_base,rows_stress
+    pq=post_quotes(t,post,sel)
+    if not pq:return rows_base,rows_stress
+    for penalty,target in [(BASE_PENALTY,rows_base),(STRESS_PENALTY,rows_stress)]:
+        for strategy,v in structures(sel,pq,penalty).items():
+            target.append({
+              "ticker":t,"event_date":str(d.date()),"pre_date":str(pre.date()),"post_date":str(post.date()),
+              "strategy":strategy,"pnl":float(v["pnl"]),
+              "capital":None if not np.isfinite(v["capital"]) else float(v["capital"]),
+              "norm":float(v["norm"]),"entry_premium":float(v["entry_premium"]),
+              "strike":float(sel["strike"]),"expiration":str(sel["expiration"].date()),
+              "event_to_expiry":int((sel["expiration"]-d).days)
+            })
+    return rows_base,rows_stress
+
 def collect_both(events,start,end,label):
     rows_base=[]; rows_stress=[]
     ev=events[(events.event_date>=start)&(events.event_date<=end)].copy()
-    for i,r in enumerate(ev.itertuples(index=False),1):
-        t,d=r.ticker,pd.Timestamp(r.event_date)
-        try:
-            sd=event_snapshot_dates(t,d)
-            if not sd:continue
-            pre,post=sd
-            sel=choose_structure(pre_chain(t,d,pre),d)
-            if not sel:continue
-            pq=post_quotes(t,post,sel)
-            if not pq:continue
-            for penalty,target in [(BASE_PENALTY,rows_base),(STRESS_PENALTY,rows_stress)]:
-                for strategy,v in structures(sel,pq,penalty).items():
-                    target.append({
-                      "ticker":t,"event_date":str(d.date()),"pre_date":str(pre.date()),"post_date":str(post.date()),
-                      "strategy":strategy,"pnl":float(v["pnl"]),
-                      "capital":None if not np.isfinite(v["capital"]) else float(v["capital"]),
-                      "norm":float(v["norm"]),"entry_premium":float(v["entry_premium"]),
-                      "strike":float(sel["strike"]),"expiration":str(sel["expiration"].date()),
-                      "event_to_expiry":int((sel["expiration"]-d).days)
-                    })
-        except Exception as e:
-            print("EVENT_ERR",t,d.date(),repr(e),flush=True)
-        if i%12==0:print("PROGRESS",label,i,"/",len(ev),"base_rows",len(rows_base),flush=True)
+    jobs=[(r.ticker,pd.Timestamp(r.event_date)) for r in ev.itertuples(index=False)]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futs={pool.submit(process_event,t,d):(t,d) for t,d in jobs}
+        done=0
+        for fut in as_completed(futs):
+            t,d=futs[fut]
+            try:
+                b,s=fut.result()
+                rows_base.extend(b); rows_stress.extend(s)
+            except Exception as e:
+                print("EVENT_ERR",t,d.date(),repr(e),flush=True)
+            done+=1
+            if done%12==0:print("PROGRESS",label,done,"/",len(jobs),"base_rows",len(rows_base),flush=True)
     return pd.DataFrame(rows_base),pd.DataFrame(rows_stress)
 
 def summarize(df,strategy):
