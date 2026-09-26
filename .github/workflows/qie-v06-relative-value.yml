@@ -1,0 +1,43 @@
+name: QIE v0.6 relative-value validation
+
+on:
+  push:
+    branches:
+      - research/qie-v06-relative-value-20260926
+    paths:
+      - research/qie_v06_relative_value.py
+      - .github/workflows/qie-v06-relative-value.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --disable-pip-version-check numpy pandas pyarrow
+      - name: Fetch 2011-2022 SPY QQQ IWM option chains
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/anahatsingh-ui/options-dataset-hist.git /tmp/options-dataset
+          git -C /tmp/options-dataset sparse-checkout set --no-cone \
+            spy/underlying_prices.parquet qqq/underlying_prices.parquet iwm/underlying_prices.parquet \
+            spy/options_2011.parquet spy/options_2012.parquet spy/options_2013.parquet spy/options_2014.parquet spy/options_2015.parquet spy/options_2016.parquet spy/options_2017.parquet spy/options_2018.parquet spy/options_2019.parquet spy/options_2020.parquet spy/options_2021.parquet spy/options_2022.parquet \
+            qqq/options_2011.parquet qqq/options_2012.parquet qqq/options_2013.parquet qqq/options_2014.parquet qqq/options_2015.parquet qqq/options_2016.parquet qqq/options_2017.parquet qqq/options_2018.parquet qqq/options_2019.parquet qqq/options_2020.parquet qqq/options_2021.parquet qqq/options_2022.parquet \
+            iwm/options_2011.parquet iwm/options_2012.parquet iwm/options_2013.parquet iwm/options_2014.parquet iwm/options_2015.parquet iwm/options_2016.parquet iwm/options_2017.parquet iwm/options_2018.parquet iwm/options_2019.parquet iwm/options_2020.parquet iwm/options_2021.parquet iwm/options_2022.parquet
+          du -sh /tmp/options-dataset
+      - name: Run frozen validation
+        env:
+          QIE_DATA_ROOT: /tmp/options-dataset
+          QIE_OUT_DIR: qie_v06_results
+        run: python research/qie_v06_relative_value.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qie-v06-results
+          path: qie_v06_results/
+          if-no-files-found: warn
