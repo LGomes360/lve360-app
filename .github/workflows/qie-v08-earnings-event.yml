@@ -1,0 +1,38 @@
+name: QIE v0.8 earnings-event volatility
+
+on:
+  push:
+    branches:
+      - research/qie-v06-relative-value-20260926
+    paths:
+      - research/qie_v08_earnings_event_vol.py
+      - .github/workflows/qie-v08-earnings-event.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --disable-pip-version-check numpy pandas requests
+      - name: Fetch frozen historical earnings calendar
+        run: |
+          git clone --depth 1 https://github.com/vivek-v-rao/Earnings-Dates.git /tmp/earnings
+          ls -lh /tmp/earnings/earnings_dates_all.csv
+      - name: Run event-volatility validation
+        env:
+          EARNINGS_CSV: /tmp/earnings/earnings_dates_all.csv
+          QIE_OUT_DIR: qie_v08_results
+        run: python research/qie_v08_earnings_event_vol.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qie-v08-results
+          path: qie_v08_results/
+          if-no-files-found: warn
