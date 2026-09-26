@@ -10,6 +10,7 @@ const contract = readFileSync("docs/chatgpt-health-handoff.md", "utf8");
 
 assert.ok(today.indexOf("<DailyLog") < today.indexOf("<ConnectedHealthCard"), "Today must listen before presenting the health picture");
 assert.match(today, /decisionReady \? \(/, "the health picture must wait for a check-in or explicit skip");
+assert.doesNotMatch(card, /if \(.*\) return null;/, "the health picture must remain visible when context is missing");
 for (const label of ["Sleep", "Exercise", "Diet & weight", "Overall feeling"]) {
   assert.match(healthPicture, new RegExp(label.replace("&", "&amp;|&")), `Today must include ${label}`);
   assert.match(settingsCard, new RegExp(label.replace("&", "&amp;|&")), `Settings must explain ${label}`);

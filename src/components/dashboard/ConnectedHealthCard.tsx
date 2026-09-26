@@ -13,7 +13,6 @@ export default function ConnectedHealthCard({
   checkIn: HealthPictureCheckIn | null;
   weightUnit: "lb" | "kg";
 }) {
-  if ((!summary || summary.status === "disconnected" || !summary.latest) && !checkIn) return null;
   const picture = buildHealthPicture({ connectedHealth: summary, checkIn, weightUnit });
   const icons = {
     sleep: BedDouble,
