@@ -1,0 +1,24 @@
+name: Inspect historical earnings IV package
+
+on:
+  push:
+    branches:
+      - research/qie-v06-relative-value-20260926
+    paths:
+      - research/inspect_historical_earnings_iv.py
+      - .github/workflows/inspect-historical-earnings-iv.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --disable-pip-version-check HistoricalEarningsData pandas
+      - run: python research/inspect_historical_earnings_iv.py
