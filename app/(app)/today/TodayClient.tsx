@@ -92,8 +92,6 @@ export default function TodayClient({
 
             <DailyIntentionCard date={checkinDate} compact />
 
-            <ConnectedHealthCard summary={connectedHealth} weightUnit={healthWeightUnit} />
-
             <section id="daily-log" aria-label="Quick check-in">
               <DailyLog
                 date={checkinDate}
@@ -102,6 +100,14 @@ export default function TodayClient({
                 onSkip={handleCheckInSkipped}
               />
             </section>
+
+            {decisionReady ? (
+              <ConnectedHealthCard
+                summary={connectedHealth}
+                checkIn={checkInSummary}
+                weightUnit={healthWeightUnit}
+              />
+            ) : null}
 
             <TodayExperience
               initialExperiment={experiment}

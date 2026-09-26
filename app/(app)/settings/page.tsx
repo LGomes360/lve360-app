@@ -17,6 +17,7 @@ import {
 
 import type { AccountSettings } from "@/lib/accountSettings";
 import ReminderBehaviorCard from "@/components/settings/ReminderBehaviorCard";
+import HealthContextCard from "@/components/settings/HealthContextCard";
 import { useProductMode } from "@/components/ProductModeProvider";
 import { getMembershipPresentation } from "@/lib/accountMembership";
 
@@ -336,6 +337,8 @@ export default function SettingsPage() {
           </button>
         </div>
       </Section>
+
+      {paid ? <HealthContextCard /> : null}
 
       <Section
         icon={CreditCard}
