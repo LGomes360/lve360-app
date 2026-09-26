@@ -15,14 +15,33 @@ OUT_DIR=Path(os.environ.get("QIE_OUT_DIR","qie_v07_results")); OUT_DIR.mkdir(par
 
 def add_har_features(u: pd.DataFrame):
     z=u.copy()
-    px=(z["adjusted_close"] if "adjusted_close" in z.columns else z["close"]).astype(float)
+
+    # Data-quality fix only: prefer adjusted_close when it actually has a usable
+    # calibration history; otherwise use close. This does not change the HAR
+    # specification, signal, thresholds, or validation gate.
+    close_px=pd.to_numeric(z["close"],errors="coerce")
+    px=close_px
+    price_source="close"
+    if "adjusted_close" in z.columns:
+        adj=pd.to_numeric(z["adjusted_close"],errors="coerce")
+        cal_adj=adj.loc[CAL_START:CAL_END]
+        cal_close=close_px.loc[CAL_START:CAL_END]
+        required=max(500,int(.80*cal_close.notna().sum()))
+        if cal_adj.notna().sum()>=required and (cal_adj.dropna()>0).all():
+            px=adj
+            price_source="adjusted_close"
+
     r=np.log(px/px.shift(1))
+    r=r.replace([np.inf,-np.inf],np.nan)
     for n in (5,20,60):
         z[f"rv{n}"]=r.rolling(n).std(ddof=1)*math.sqrt(252)
     fwd_var=r.pow(2).shift(-1)[::-1].rolling(20).mean()[::-1]*252
     z["fwd_rv20"]=np.sqrt(fwd_var.clip(lower=1e-12))
     cal=z.loc[CAL_START:CAL_END,["rv5","rv20","rv60","fwd_rv20"]].replace([np.inf,-np.inf],np.nan).dropna()
     cal=cal[(cal>0).all(axis=1)]
+    if len(cal)<500:
+        raise RuntimeError(f"HAR calibration has only {len(cal)} usable rows using {price_source}")
+
     X=np.column_stack([np.ones(len(cal)),np.log(cal.rv5),np.log(cal.rv20),np.log(cal.rv60)])
     y=np.log(cal.fwd_rv20.to_numpy())
     beta,*_=np.linalg.lstsq(X,y,rcond=None)
@@ -32,7 +51,8 @@ def add_har_features(u: pd.DataFrame):
     vals[np.where(good)[0]]=np.exp(Xall@beta)
     z["har_rv20"]=np.clip(vals,.03,1.50)
     pred=np.exp(X@beta)
-    meta={"n":int(len(cal)),"beta":beta.tolist(),"rmse":float(np.sqrt(np.mean((pred-cal.fwd_rv20.to_numpy())**2))),
+    meta={"n":int(len(cal)),"price_source":price_source,"beta":beta.tolist(),
+          "rmse":float(np.sqrt(np.mean((pred-cal.fwd_rv20.to_numpy())**2))),
           "corr":float(np.corrcoef(pred,cal.fwd_rv20.to_numpy())[0,1])}
     return z,meta
 
