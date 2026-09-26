@@ -33,3 +33,23 @@ for t in ["AAPL","NVDA","TSLA","MSFT","AMZN","NFLX","AMD","ADBE","CRM","ORCL","J
         print("TICKER",t,"N",len(z))
         if len(z):
             print(z.tail(20).to_string(index=False))
+
+print("=== NUMERIC IV COVERAGE ===")
+ivn=pd.to_numeric(data["implied_volatility"],errors="coerce")
+dt=pd.to_datetime(data["earnings_date"],errors="coerce")
+good=data[ivn.notna()].copy()
+good["_iv"]=ivn[ivn.notna()].values
+good["_dt"]=pd.to_datetime(good["earnings_date"],errors="coerce")
+print("IV_DATE_RANGE",str(good["_dt"].min()),str(good["_dt"].max()),"N",len(good))
+print("IV_YEAR_COUNTS",good["_dt"].dt.year.value_counts().sort_index().to_dict())
+for t in ["AAPL","NVDA","TSLA","MSFT","AMZN","NFLX","AMD","ADBE","CRM","ORCL","JPM","GOOGL"]:
+    z=good[good.symbol.astype(str).str.upper().eq(t)].sort_values("_dt")
+    print("IV_TICKER",t,"N",len(z),"RANGE",str(z["_dt"].min()) if len(z) else None,str(z["_dt"].max()) if len(z) else None)
+    if len(z): print(z.tail(12)[["symbol","earnings_date","implied_volatility"]].to_string(index=False))
+try:
+    import HistoricalEarningsData.earnings_data as ed
+    print("EARNINGS_DATA_SOURCE_BEGIN")
+    print(inspect.getsource(ed)[:30000])
+    print("EARNINGS_DATA_SOURCE_END")
+    print("PACKAGE_DIR_FILES",os.listdir(os.path.dirname(ed.__file__)))
+except Exception as e: print("ED_SOURCE_ERR",repr(e))
