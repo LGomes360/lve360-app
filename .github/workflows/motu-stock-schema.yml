@@ -1,0 +1,21 @@
+name: MOTU stock schema probe
+on:
+  push:
+    branches: [research/motu-v01-underwriter-20260926]
+    paths: [.github/workflows/motu-stock-schema.yml]
+permissions: {contents: read}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install requests
+      - run: |
+          python - <<'PY'
+          import requests,json
+          api='https://www.dolthub.com/api/v1alpha1/post-no-preference/stocks/master'
+          for q in ['SHOW TABLES','DESCRIBE ohlcv']:
+              r=requests.get(api,params={'q':q},timeout=30);print(q,r.status_code);print(json.dumps(r.json(),indent=2)[:30000])
+          PY
