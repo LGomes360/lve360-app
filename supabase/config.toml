@@ -1,2 +1,7 @@
 [functions.health-context-mcp]
 verify_jwt = false
+
+[auth.oauth_server]
+enabled = true
+authorization_url_path = "/oauth/consent"
+allow_dynamic_registration = true
