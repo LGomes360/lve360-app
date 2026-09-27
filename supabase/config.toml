@@ -1,0 +1,2 @@
+[functions.health-context-mcp]
+verify_jwt = false
