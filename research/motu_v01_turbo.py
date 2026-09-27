@@ -86,6 +86,8 @@ def entry_chain(date,syms):
     return z
 
 def choose_put(ch,sym):
+    if ch is None or ch.empty or "act_symbol" not in ch.columns:
+        return None
     x=ch[ch.act_symbol.eq(sym)]
     calls=x[x.call_put.astype(str).str.lower().str.startswith("c")&x.delta.between(.35,.65)].copy()
     if calls.empty:return None
