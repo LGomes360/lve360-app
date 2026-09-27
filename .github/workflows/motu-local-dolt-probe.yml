@@ -1,0 +1,22 @@
+name: MOTU local Dolt probe
+on:
+  push:
+    branches: [research/motu-v01-underwriter-20260926]
+    paths: [.github/workflows/motu-local-dolt-probe.yml]
+permissions: {contents: read}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Install Dolt
+        run: |
+          sudo bash -c 'curl -L https://github.com/dolthub/dolt/releases/latest/download/install.sh | bash'
+          dolt version
+      - name: Clone options database shallow
+        run: |
+          time dolt clone --depth 1 --single-branch post-no-preference/options /tmp/options
+          du -sh /tmp/options
+          cd /tmp/options
+          dolt sql -q "SELECT COUNT(*) AS n FROM volatility_history WHERE date BETWEEN '2021-01-01' AND '2022-12-31';" -r csv
+          dolt sql -q "SELECT COUNT(*) AS n FROM option_chain WHERE date='2022-01-03' AND act_symbol='AAPL';" -r csv
