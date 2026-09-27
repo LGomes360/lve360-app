@@ -1,0 +1,41 @@
+name: MOTU v0.1 local validation
+on:
+  push:
+    branches: [research/motu-v01-underwriter-20260926]
+    paths:
+      - research/motu_v01_local.py
+      - .github/workflows/motu-v01-local.yml
+permissions: {contents: read}
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install --disable-pip-version-check numpy pandas
+      - name: Install Dolt
+        run: |
+          sudo bash -c 'curl -L https://github.com/dolthub/dolt/releases/latest/download/install.sh | bash'
+          dolt version
+      - name: Clone data
+        run: |
+          dolt clone --depth 1 --single-branch post-no-preference/options /tmp/options
+          dolt clone --depth 1 --single-branch post-no-preference/stocks /tmp/stocks
+          if dolt clone --depth 1 --single-branch post-no-preference/earnings /tmp/earnings; then
+            echo "earnings clone available"
+          else
+            echo "earnings clone unavailable; earnings-aware selector will degrade to no event veto"
+          fi
+          du -sh /tmp/options /tmp/stocks /tmp/earnings 2>/dev/null || true
+      - name: Run full local MOTU validation
+        env:
+          MOTU_OUT_DIR: motu_v01_local_results
+        run: python research/motu_v01_local.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: motu-v01-local-results
+          path: motu_v01_local_results/
+          if-no-files-found: warn
