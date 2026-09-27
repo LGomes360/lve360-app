@@ -36,6 +36,23 @@ def load_stocks():
         g["ret20"]=g.close/g.close.shift(20)-1;g["dd20"]=g.close/g.close.rolling(20).max()-1;parts.append(g)
     return pd.concat(parts,ignore_index=True)
 
+def load_splits():
+    try:
+        d=dq(STK,f"""SELECT * FROM split
+                     WHERE date BETWEEN '2021-01-01' AND '2022-12-31'
+                     AND act_symbol IN ({SYMS}) ORDER BY act_symbol,date""")
+    except Exception as e:
+        print("SPLIT_WARN",repr(e),flush=True)
+        return pd.DataFrame(columns=["act_symbol","date"])
+    if d.empty:return d
+    if "date" in d.columns:d["date"]=pd.to_datetime(d["date"])
+    return d
+
+def crosses_split(splits,sym,entry,expiration):
+    if splits.empty or "act_symbol" not in splits.columns or "date" not in splits.columns:return False
+    x=splits[(splits.act_symbol==sym)&(splits.date>entry)&(splits.date<=expiration)]
+    return not x.empty
+
 def load_earnings():
     if not ERN.exists():return pd.DataFrame(columns=["act_symbol","date"])
     try:
@@ -134,8 +151,9 @@ def summarize(name,arr):
       gross_premium=float(d.premium.sum()),net_pnl=float(d.pnl.sum()),positive_years=int(sum(v>0 for v in annual.values())),annual_pnl=annual)
 
 def main():
-    print("LOAD_LOCAL_TABLES",flush=True);vol=load_vol();stocks=load_stocks();earn=load_earnings()
-    print("ROWS",len(vol),len(stocks),len(earn),flush=True)
+    print("LOAD_LOCAL_TABLES",flush=True);vol=load_vol();stocks=load_stocks();earn=load_earnings();splits=load_splits()
+    print("ROWS",len(vol),len(stocks),len(earn),len(splits),flush=True)
+    if not splits.empty: print("SPLITS",splits.to_dict("records"),flush=True)
     cand=candidates(vol,stocks,earn);cand.to_csv(OUT/"candidate_panel.csv",index=False)
     sel=select(cand);sel.to_csv(OUT/"weekly_selections.csv",index=False);print("SELECTIONS",len(sel),flush=True)
     chains={}
@@ -148,7 +166,11 @@ def main():
         for _,r in sel[sel.variant==variant].sort_values("date").iterrows():
             p=choose_put(chains.get(pd.Timestamp(r.date)),str(r.symbol),float(r.close))
             if p is None:continue
-            close=expiry_close(stocks,str(r.symbol),pd.Timestamp(p.expiration))
+            exp=pd.Timestamp(p.expiration)
+            if crosses_split(splits,str(r.symbol),pd.Timestamp(r.date),exp):
+                print("SKIP_SPLIT",str(r.symbol),str(pd.Timestamp(r.date).date()),str(exp.date()),flush=True)
+                continue
+            close=expiry_close(stocks,str(r.symbol),exp)
             if close is None:continue
             intrinsic=max(0,float(p.strike)-close)*100
             for stressed in [False,True]:
