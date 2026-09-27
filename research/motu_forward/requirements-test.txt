@@ -1,0 +1,3 @@
+# Runtime ingestion is Python standard library only. Pandas runs the unchanged
+# historical choose_put function in the parity test without importing its jobs.
+pandas==3.0.1
