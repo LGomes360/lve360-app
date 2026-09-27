@@ -25,8 +25,7 @@ assert.match(login, /connectorLogin/);
 assert.match(login, /Your ChatGPT and LVE360 email addresses may be different/);
 assert.match(login, /queryParams: \{ prompt: "select_account" \}/);
 
-assert.match(mcp, /supabase\.auth\.getUser\(\)/);
-assert.match(mcp, /user\.id\.toLowerCase\(\) !== founderUserId/);
+assert.match(mcp, /userClaims\.id\.toLowerCase\(\) !== founderUserId/);
 assert.doesNotMatch(mcp, /predoctor69|ChatGPT.*email/i);
 assert.match(migration, /user_id uuid not null default auth\.uid\(\)/);
 assert.match(migration, /\(select auth\.uid\(\)\) = user_id/);

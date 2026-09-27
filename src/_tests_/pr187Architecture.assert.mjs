@@ -20,7 +20,7 @@ assert.match(migration, /never raw HealthKit/i);
 
 assert.match(config, /\[functions\.health-context-mcp\][\s\S]*verify_jwt = false/);
 assert.match(mcp, /withOAuthProtectedResource/);
-assert.match(mcp, /withSupabase\(\{ auth: "user" \}\)/);
+assert.match(mcp, /withSupabase\(\{[\s\S]*auth: "user"/);
 assert.match(mcp, /LVE360_FOUNDER_USER_ID/);
 assert.match(mcp, /z\.strictObject/);
 assert.match(mcp, /member_approved: z\.literal\(true\)/);
