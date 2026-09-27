@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LockKeyhole, ShieldCheck } from "lucide-react";
+import { LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { isFounderUser } from "@/lib/productMode";
@@ -24,8 +24,15 @@ export default async function OAuthConsentPage({
     const next = `/oauth/consent?authorization_id=${encodeURIComponent(authorizationId)}`;
     redirect(`/login?next=${encodeURIComponent(next)}`);
   }
+  const signedInEmail = user.email?.trim().toLowerCase() || "This signed-in LVE360 account";
   if (!isFounderUser(user.id)) {
-    return <ConsentError message="This private health-context pilot is currently limited to the LVE360 founder account." />;
+    return (
+      <ConsentError
+        message="This private health-context pilot is currently limited to the LVE360 founder account."
+        authorizationId={authorizationId}
+        signedInEmail={signedInEmail}
+      />
+    );
   }
 
   const { data: authorization, error } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
@@ -49,6 +56,8 @@ export default async function OAuthConsentPage({
             </p>
           </div>
         </div>
+
+        <AccountIdentity email={signedInEmail} authorizationId={authorizationId} />
 
         <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5" aria-labelledby="connection-can-do">
           <h2 id="connection-can-do" className="font-bold text-[#041B2D]">What this connection can do</h2>
@@ -91,12 +100,54 @@ export default async function OAuthConsentPage({
   );
 }
 
-function ConsentError({ message }: { message: string }) {
+function AccountIdentity({
+  email,
+  authorizationId,
+}: {
+  email: string;
+  authorizationId: string;
+}) {
+  return (
+    <section className="mt-6 rounded-2xl border border-[#9EDFD5] bg-[#F2FCFA] p-5" aria-labelledby="connecting-account">
+      <div className="flex items-start gap-3">
+        <UserRound className="mt-0.5 h-5 w-5 shrink-0 text-[#047F6D]" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <h2 id="connecting-account" className="text-sm font-bold text-[#041B2D]">Connecting this LVE360 account</h2>
+          <p className="mt-1 break-all text-sm font-semibold text-[#047F6D]">{email}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-600">
+            Your ChatGPT and LVE360 email addresses do not need to match. Health context is saved only to the LVE360 account shown here.
+          </p>
+          <form action="/api/oauth/switch-account" method="POST" className="mt-3">
+            <input type="hidden" name="authorization_id" value={authorizationId} />
+            <button type="submit" className="min-h-10 rounded-lg border border-[#9EDFD5] bg-white px-3 py-2 text-sm font-bold text-[#047F6D] hover:bg-[#EAFBF8]">
+              Use a different LVE360 account
+            </button>
+          </form>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ConsentError({
+  message,
+  authorizationId,
+  signedInEmail,
+}: {
+  message: string;
+  authorizationId?: string;
+  signedInEmail?: string;
+}) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="max-w-lg rounded-2xl border border-slate-200 bg-white p-7 text-center shadow-lg">
         <h1 className="text-xl font-black text-[#041B2D]">Connection unavailable</h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">{message}</p>
+        {authorizationId && signedInEmail ? (
+          <div className="text-left">
+            <AccountIdentity email={signedInEmail} authorizationId={authorizationId} />
+          </div>
+        ) : null}
         <Link href="/settings#health-context" className="mt-5 inline-flex min-h-11 items-center rounded-xl bg-[#047F6D] px-4 py-2.5 font-bold text-white">Return to Settings</Link>
       </div>
     </main>

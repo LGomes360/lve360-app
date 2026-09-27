@@ -125,6 +125,7 @@
     "qa:pr183": "node --experimental-strip-types src/_tests_/pr183ConnectedHealth.assert.ts && node src/_tests_/pr183Architecture.assert.mjs && npm run qa:pr182",
     "qa:pr186": "node --experimental-strip-types src/_tests_/pr186HealthPicture.assert.ts && node src/_tests_/pr186Architecture.assert.mjs && npm run qa:pr183",
     "qa:pr187": "node --experimental-strip-types src/_tests_/pr187HealthHandoff.assert.ts && node src/_tests_/pr187Architecture.assert.mjs && npm run qa:pr186 && npm run qa:auth-destination",
+    "qa:pr189": "node src/_tests_/pr189OAuthAccountChoice.assert.mjs && npm run qa:pr187",
     "admin:coach-top-up": "node scripts/top-up-coach-allowance.mjs",
     "qa:blueprint-safety": "node --experimental-strip-types src/_tests_/blueprintSafetyStatus.assert.ts",
     "qa:safety-engine": "node --experimental-strip-types src/_tests_/safetyEngine.assert.ts",
