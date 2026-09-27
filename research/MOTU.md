@@ -75,3 +75,40 @@ If v0.1 fails:
 - No naked leverage solely to manufacture return.
 - Report assignments, tail loss, drawdown, collateral commitment, and stock P&L alongside premium.
 - The engine must be better at refusing trades than finding them.
+
+
+## Research log
+
+### v0.1 — cross-sectional standalone puts
+Validation: 2021–2022. Holdout 2023–2025 remained sealed.
+
+All five predeclared selectors failed when each short put was treated as an independent trade. High win rates were overwhelmed by a small number of large stock declines. This was useful diagnostically but did not represent the colleague-described inventory cycle.
+
+### v0.2 — true wheel state machine
+Validation: 2021–2022. Research NAV: $2.0M in five equal underwriting slots.
+
+Mechanics:
+- sell 7–21 DTE puts targeting -0.20 delta;
+- accept assignment into shares;
+- after assignment sell covered calls targeting +0.20 delta;
+- one symbol per slot; no duplicate-symbol pyramiding;
+- compare pure delta calls with calls not struck below effective economic basis;
+- explicitly account for 2021–2022 NVDA, AMZN, and TSLA stock splits;
+- stress fills by reducing option credit $0.05 and doubling commissions.
+
+Result: every configuration failed. The best base configuration was VRP + basis-protected calls, with approximately -7.6% CAGR and a roughly -38% weekly marked drawdown. VRP + IV-rank + delta calls collected about $694K of gross option premium on $2M of model capital over the two-year validation, but still compounded at roughly -9.6%. This confirms that gross premium cash flow can look extraordinary while economic P&L is poor.
+
+The core failure was underwriting collapsing individual equities. Large realized cycle losses appeared in PYPL, NFLX, DIS, TSLA, ORCL, AMD, and others. Option premium did not compensate for owning structurally declining shares.
+
+### v0.3 — Trouble Gate
+Predeclared before running:
+- **event45** — no new puts if earnings occur within the following 45 calendar days.
+- **stocktrend_event45** — event45 plus stock must be above its 200-day moving average.
+- **adaptive_trouble** — stocktrend_event45 plus reduce new-underwriting capacity from five slots to two while SPY is at/below its 200-day moving average.
+- **hard_market_gate** — stocktrend_event45 plus no new puts while SPY is at/below its 200-day moving average.
+
+Existing assigned stock is never force-liquidated by a gate. Covered-call management continues. The gate controls only new downside underwriting.
+
+SPY/SMA200 is a deliberately simple market-regime proxy for this diagnostic. It is not the full Trouble Gauge; credit/Treasury transmission should only be added in a later version if this simpler gating mechanism produces a robust improvement.
+
+The 2023–2025 holdout remains sealed.
