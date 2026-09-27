@@ -1,0 +1,21 @@
+name: MOTU v0.1 data probe
+on:
+  push:
+    branches: [research/motu-v01-underwriter-20260926]
+    paths: [.github/workflows/motu-v01-probe.yml]
+permissions: {contents: read}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe equity-option files
+        run: |
+          set -e
+          base="https://static.philippdubach.com/data/options"
+          for t in aapl amd amzn avgo meta msft nvda pltr tsla uber jpm xom; do
+            code=$(curl -L -s -o /dev/null -w "%{http_code}" "$base/$t/options.parquet")
+            bytes=$(curl -L -sI "$base/$t/options.parquet" | tr -d '\r' | awk 'tolower($1)=="content-length:"{print $2}' | tail -1)
+            ucode=$(curl -L -s -o /dev/null -w "%{http_code}" "$base/$t/underlying.parquet")
+            echo "$t options_http=$code bytes=$bytes underlying_http=$ucode"
+          done
