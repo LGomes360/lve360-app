@@ -1,0 +1,36 @@
+name: MOTU v0.6 small capital
+on:
+  push:
+    branches: [research/motu-v01-underwriter-20260926]
+    paths:
+      - research/motu_v06_small_capital.py
+      - .github/workflows/motu-v06-small-capital.yml
+permissions: {contents: read}
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install --disable-pip-version-check numpy pandas
+      - name: Install Dolt
+        run: |
+          sudo bash -c 'curl -L https://github.com/dolthub/dolt/releases/latest/download/install.sh | bash'
+          dolt version
+      - name: Clone data
+        run: |
+          dolt clone --depth 1 --single-branch post-no-preference/options /tmp/options
+          dolt clone --depth 1 --single-branch post-no-preference/stocks /tmp/stocks
+          dolt clone --depth 1 --single-branch post-no-preference/earnings /tmp/earnings
+      - name: Run small-capital comparison
+        env:
+          MOTU_OUT_DIR: motu_v06_small_results
+        run: python research/motu_v06_small_capital.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: motu-v06-small-results
+          path: motu_v06_small_results/
+          if-no-files-found: warn
