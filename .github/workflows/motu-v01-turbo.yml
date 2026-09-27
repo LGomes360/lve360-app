@@ -1,0 +1,27 @@
+name: MOTU v0.1 turbo validation
+on:
+  push:
+    branches: [research/motu-v01-underwriter-20260926]
+    paths:
+      - research/motu_v01_turbo.py
+      - .github/workflows/motu-v01-turbo.yml
+permissions: {contents: read}
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install --disable-pip-version-check numpy pandas requests
+      - name: Run batched MOTU core validation
+        env:
+          MOTU_OUT_DIR: motu_v01_turbo_results
+        run: python research/motu_v01_turbo.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: motu-v01-turbo-results
+          path: motu_v01_turbo_results/
+          if-no-files-found: warn
