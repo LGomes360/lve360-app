@@ -1,0 +1,36 @@
+name: MOTU v0.2 true wheel
+on:
+  push:
+    branches: [research/motu-v01-underwriter-20260926]
+    paths:
+      - research/motu_v02_wheel.py
+      - .github/workflows/motu-v02-wheel.yml
+permissions: {contents: read}
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install --disable-pip-version-check numpy pandas
+      - name: Install Dolt
+        run: |
+          sudo bash -c 'curl -L https://github.com/dolthub/dolt/releases/latest/download/install.sh | bash'
+          dolt version
+      - name: Clone local market databases
+        run: |
+          dolt clone --depth 1 --single-branch post-no-preference/options /tmp/options
+          dolt clone --depth 1 --single-branch post-no-preference/stocks /tmp/stocks
+          du -sh /tmp/options /tmp/stocks
+      - name: Run MOTU v0.2
+        env:
+          MOTU_OUT_DIR: motu_v02_results
+        run: python research/motu_v02_wheel.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: motu-v02-results
+          path: motu_v02_results/
+          if-no-files-found: warn
