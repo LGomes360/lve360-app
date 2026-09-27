@@ -1,0 +1,29 @@
+name: Dan Desk v1 model
+on:
+  push:
+    branches: [research/dan-desk-v1-20260926]
+    paths: [research/dan_desk_v1.py, .github/workflows/dan-desk-v1.yml]
+permissions: {contents: read}
+jobs:
+  model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install --disable-pip-version-check numpy pandas pyarrow
+      - name: Fetch SPY QQQ IWM chains 2011-2022
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/anahatsingh-ui/options-dataset-hist.git /tmp/options-dataset
+          git -C /tmp/options-dataset sparse-checkout set --no-cone \
+            spy/underlying_prices.parquet qqq/underlying_prices.parquet iwm/underlying_prices.parquet \
+            spy/options_2011.parquet spy/options_2012.parquet spy/options_2013.parquet spy/options_2014.parquet spy/options_2015.parquet spy/options_2016.parquet spy/options_2017.parquet spy/options_2018.parquet spy/options_2019.parquet spy/options_2020.parquet spy/options_2021.parquet spy/options_2022.parquet \
+            qqq/options_2011.parquet qqq/options_2012.parquet qqq/options_2013.parquet qqq/options_2014.parquet qqq/options_2015.parquet qqq/options_2016.parquet qqq/options_2017.parquet qqq/options_2018.parquet qqq/options_2019.parquet qqq/options_2020.parquet qqq/options_2021.parquet qqq/options_2022.parquet \
+            iwm/options_2011.parquet iwm/options_2012.parquet iwm/options_2013.parquet iwm/options_2014.parquet iwm/options_2015.parquet iwm/options_2016.parquet iwm/options_2017.parquet iwm/options_2018.parquet iwm/options_2019.parquet iwm/options_2020.parquet iwm/options_2021.parquet iwm/options_2022.parquet
+      - name: Run model
+        env: {QIE_DATA_ROOT: /tmp/options-dataset, QIE_OUT_DIR: dan_desk_v1_results}
+        run: python research/dan_desk_v1.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: {name: dan-desk-v1-results, path: dan_desk_v1_results/, if-no-files-found: warn}
