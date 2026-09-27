@@ -32,6 +32,7 @@ function LoginInner() {
     if (n && n.startsWith("/")) return n;
     return "/today";
   }, [searchParams]);
+  const connectorLogin = nextPath.startsWith("/oauth/consent?authorization_id=");
 
   const callbackUrl = useMemo(() => {
     // Auth must return to the host that initiated it. This keeps Vercel Preview
@@ -118,6 +119,11 @@ function LoginInner() {
             ? "Welcome back. LVE360 is currently a private membership."
             : "Your personalized path to Longevity, Vitality, and Energy."}
         </p>
+        {connectorLogin ? (
+          <div className="mb-6 rounded-xl border border-[#9EDFD5] bg-[#F2FCFA] p-4 text-left text-sm leading-6 text-slate-700">
+            Sign in to the LVE360 account whose health context you want to connect. Your ChatGPT and LVE360 email addresses may be different.
+          </div>
+        ) : null}
 
         {/* Google button */}
           <>
