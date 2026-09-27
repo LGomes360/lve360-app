@@ -1,0 +1,30 @@
+name: MOTU v0.1 DoltHub probe
+on:
+  push:
+    branches: [research/motu-v01-underwriter-20260926]
+    paths: [.github/workflows/motu-v01-dolthub-probe.yml]
+permissions: {contents: read}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install --disable-pip-version-check requests pandas
+      - name: Probe DoltHub options schema and sample
+        run: |
+          python - <<'PY'
+          import json, requests
+          API="https://www.dolthub.com/api/v1alpha1/post-no-preference/options/master"
+          def q(sql):
+              r=requests.get(API,params={"q":sql},timeout=60)
+              print("URL",r.url)
+              print("HTTP",r.status_code)
+              r.raise_for_status()
+              j=r.json()
+              print(json.dumps(j,indent=2)[:30000])
+          q("DESCRIBE volatility_history")
+          q("SELECT * FROM volatility_history WHERE act_symbol IN ('AAPL','MSFT','NVDA','TSLA','AMD','AMZN','META','JPM','XOM','UBER') ORDER BY date DESC LIMIT 20")
+          q("DESCRIBE option_chain")
+          PY
