@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowUpRight, BedDouble, Brain, Dumbbell, FlaskConical, Loader2, ShieldCheck, Trash2, Utensils } from "lucide-react";
+import { ArrowUpRight, BedDouble, Brain, Check, Copy, Dumbbell, FlaskConical, Loader2, ShieldCheck, Trash2, Utensils } from "lucide-react";
 
 import type { ApprovedHealthContextHandoff } from "@/lib/healthContextHandoff";
+import { HEALTH_CONTEXT_STARTER_REQUEST } from "@/lib/healthContextSetup";
 
 const domains = [
   { icon: BedDouble, title: "Sleep", detail: "Duration, consistency, and how restorative it felt." },
@@ -18,6 +19,7 @@ export default function HealthContextCard() {
   const [handoff, setHandoff] = useState<ApprovedHealthContextHandoff | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -53,6 +55,17 @@ export default function HealthContextCard() {
     }
   }
 
+  async function copyStarterRequest() {
+    setMessage(null);
+    try {
+      await navigator.clipboard.writeText(HEALTH_CONTEXT_STARTER_REQUEST);
+      setPromptCopied(true);
+      window.setTimeout(() => setPromptCopied(false), 3000);
+    } catch {
+      setMessage("Copy was not available. Select the request below and copy it manually.");
+    }
+  }
+
   return (
     <section id="health-context" aria-labelledby="health-context-title" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
       <div className="flex items-start gap-3">
@@ -66,6 +79,39 @@ export default function HealthContextCard() {
         </div>
       </div>
 
+      <div className="mt-5 rounded-2xl border border-[#BCE3DA] bg-[#F4FAF8] p-4 sm:p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#047F6D]">Ready for the first approved handoff</p>
+            <h3 className="mt-1 text-base font-bold text-[#041B2D]">Start in ChatGPT with one safe request</h3>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+              Your ChatGPT and LVE360 email addresses may be different. ChatGPT will ask which LVE360 account to authorize, and nothing is saved until you approve the exact summary.
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+            <button type="button" onClick={copyStarterRequest} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#8CCFC0] bg-white px-4 py-2.5 text-sm font-bold text-[#04695D] hover:bg-[#EAFBF8]">
+              {promptCopied ? <Check className="mr-2 h-4 w-4" aria-hidden="true" /> : <Copy className="mr-2 h-4 w-4" aria-hidden="true" />}
+              {promptCopied ? "Copied" : "Copy starter request"}
+            </button>
+            <a href="https://chatgpt.com" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#047F6D] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#036c5d]">
+              Open ChatGPT <ArrowUpRight className="ml-2 h-4 w-4" aria-hidden="true" />
+            </a>
+          </div>
+        </div>
+        <label htmlFor="health-context-starter-request" className="mt-4 block text-xs font-bold text-[#041B2D]">Starter request</label>
+        <textarea
+          id="health-context-starter-request"
+          readOnly
+          value={HEALTH_CONTEXT_STARTER_REQUEST}
+          onFocus={(event) => event.currentTarget.select()}
+          className="mt-2 min-h-44 w-full resize-y rounded-xl border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-700 shadow-inner focus:border-[#047F6D] focus:outline-none focus:ring-2 focus:ring-[#BCE3DA]"
+          aria-describedby="health-context-starter-help"
+        />
+        <p id="health-context-starter-help" className="mt-2 text-xs leading-5 text-slate-500">
+          Paste this into a ChatGPT conversation where the LVE360 Health Context connection is available. Review the summary there before using the approval phrase.
+        </p>
+      </div>
+
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         {domains.map(({ icon: Icon, title, detail }) => (
           <div key={title} className={`rounded-xl border border-slate-200 bg-slate-50 p-4 ${title === "Lab balance" ? "sm:col-span-2" : ""}`}>
@@ -75,11 +121,10 @@ export default function HealthContextCard() {
         ))}
       </div>
 
-      <ol className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-        <li className="rounded-xl bg-[#F4FAF8] p-4"><strong className="text-[#041B2D]">1. Understand</strong><span className="mt-1 block leading-6 text-slate-600">Ask ChatGPT Health to review the five areas over a clear time window.</span></li>
-        <li className="rounded-xl bg-[#F4FAF8] p-4"><strong className="text-[#041B2D]">2. Review</strong><span className="mt-1 block leading-6 text-slate-600">See the exact summary before anything leaves ChatGPT.</span></li>
-        <li className="rounded-xl bg-[#F4FAF8] p-4"><strong className="text-[#041B2D]">3. Approve</strong><span className="mt-1 block leading-6 text-slate-600">Choose whether to send that summary to your LVE360 account.</span></li>
-        <li className="rounded-xl bg-[#F4FAF8] p-4"><strong className="text-[#041B2D]">4. Follow through</strong><span className="mt-1 block leading-6 text-slate-600">LVE360 keeps the approved context visible while you act on one priority.</span></li>
+      <ol className="mt-5 grid gap-3 text-sm sm:grid-cols-3">
+        <li className="rounded-xl bg-[#F4FAF8] p-4"><strong className="text-[#041B2D]">1. Prepare</strong><span className="mt-1 block leading-6 text-slate-600">Paste the starter request into ChatGPT and let it prepare the five-area summary.</span></li>
+        <li className="rounded-xl bg-[#F4FAF8] p-4"><strong className="text-[#041B2D]">2. Review</strong><span className="mt-1 block leading-6 text-slate-600">Check the exact summary, source window, missing context, and proposed focus.</span></li>
+        <li className="rounded-xl bg-[#F4FAF8] p-4"><strong className="text-[#041B2D]">3. Approve</strong><span className="mt-1 block leading-6 text-slate-600">Use the approval phrase only when the summary is accurate and ready to save.</span></li>
       </ol>
 
       <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -97,15 +142,12 @@ export default function HealthContextCard() {
             </button>
           </div>
         ) : (
-          <p className="text-sm leading-6 text-slate-600">No approved handoff is saved yet. When the founder connection is enabled in ChatGPT, nothing will be stored until you approve the exact five-area summary.</p>
+          <p className="text-sm leading-6 text-slate-600">No approved handoff is saved yet. The private founder connection is available, but nothing will be stored until you approve the exact five-area summary in ChatGPT.</p>
         )}
         {message ? <p className="mt-2 text-sm font-medium text-slate-700" role="status">{message}</p> : null}
       </div>
 
       <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-        <a href="https://chatgpt.com" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#047F6D] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#036c5d]">
-          Open ChatGPT <ArrowUpRight className="ml-2 h-4 w-4" aria-hidden="true" />
-        </a>
         <Link href="/consumer-health-data-privacy" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-[#041B2D] hover:bg-slate-50">Review LVE360 health-data controls</Link>
       </div>
     </section>

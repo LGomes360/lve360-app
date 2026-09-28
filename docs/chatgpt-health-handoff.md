@@ -78,7 +78,7 @@ It uses Supabase OAuth 2.1 with PKCE and user-scoped RLS. The consent page is ho
 
 LVE360 Settings shows the latest approved handoff and provides member-controlled deletion. Today can combine the approved summary with current connected data and the member's own check-in, while keeping the check-in as the source of truth.
 
-Production enablement requires all of the following:
+Production enablement required all of the following:
 
 1. Apply the PR187 migration.
 2. Use an asymmetric Supabase Auth signing key (ES256 or RS256).
@@ -87,14 +87,22 @@ Production enablement requires all of the following:
 5. Deploy `health-context-mcp` with gateway JWT verification disabled; the function performs OAuth discovery and token verification itself.
 6. Connect the MCP endpoint from ChatGPT, approve the founder consent screen, and exercise status, write, display, and delete.
 
-The code path is complete, but live ChatGPT Health validation remains a release gate. The product must not imply that ChatGPT Health can invoke the tool until this exact production flow succeeds.
+### Production validation status — September 28, 2026
+
+- The production OAuth hook and founder-only MCP function are active.
+- ChatGPT completed OAuth consent and discovered both `get_lve360_health_handoff_status` and `save_lve360_health_context`.
+- The read-only status tool returned successfully in production.
+- No health-context write has been approved or performed; `health_context_handoffs` remained empty at validation time.
+
+Live ChatGPT Health validation remains a release gate for one explicitly approved save, followed by LVE360 Today display and member-controlled deletion. Tool discovery alone is not evidence that the write/display/delete loop has passed.
 
 ## Delivery sequence
 
 1. PR186: UI contract and Today/Settings surfaces using bounded connected-health and member check-in data.
 2. PR187: authenticated LVE360 MCP tools, OAuth consent, bounded persistence, Today display, and deletion for a private founder-only rollout.
-3. Validation: confirm ChatGPT Health can use Health context and invoke the LVE360 tool in one member-approved flow.
-4. Later PR: Journey trends after the handoff is proven over multiple weeks.
+3. PR188–PR190: production OAuth configuration, explicit account choice, and ChatGPT tool discovery — complete.
+4. PR191: make the first handoff understandable in Settings and validate one explicit member-approved save/display/delete flow.
+5. Later PR: Journey trends after the handoff is proven over multiple weeks.
 
 ## Rollback
 
