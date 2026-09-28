@@ -59,74 +59,85 @@ const handoffInput = handoffBase.superRefine((value, context) => {
 
 type Handoff = z.infer<typeof handoffInput>;
 
-Deno.serve(
-  pipeline(
-    [withOAuthProtectedResource(), withSupabase({ auth: "user" })],
-    async (request, { supabase }) => {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      const founderUserId = Deno.env.get("LVE360_FOUNDER_USER_ID")?.trim().toLowerCase();
-      if (userError || !user || !founderUserId || user.id.toLowerCase() !== founderUserId) {
-        return new Response(JSON.stringify({ error: "founder_pilot_only" }), {
-          status: 403,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      const handler = createMcpHandler(() => {
-        const server = new McpServer({ name: "lve360-health-context", version: "0.1.0" });
-
-        server.registerTool(
-          "get_lve360_health_handoff_status",
-          {
-            title: "Check LVE360 health handoff status",
-            description: "Confirm that the signed-in founder account is connected and report only the date of the latest approved handoff.",
-            inputSchema: z.strictObject({}),
-            annotations: { readOnlyHint: true, openWorldHint: false },
-          },
-          async () => {
-            const { data, error } = await supabase
-              .from("health_context_handoffs")
-              .select("id,snapshot_date,created_at")
-              .order("created_at", { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            if (error) throw new Error("LVE360 could not read the handoff status.");
-            return {
-              content: [{
-                type: "text",
-                text: JSON.stringify({
-                  connected: true,
-                  latest_handoff: data
-                    ? { id: data.id, snapshot_date: data.snapshot_date, created_at: data.created_at }
-                    : null,
-                }),
-              }],
-            };
-          },
-        );
-
-        server.registerTool(
-          "save_lve360_health_context",
-          {
-            title: "Save an approved health-context summary to LVE360",
-            description: [
-              "Save one bounded five-area summary only after the member reviews the exact content and explicitly approves the handoff.",
-              "Never send raw Apple Health samples, medical records, workout routes, diagnoses, medication changes, or inferred mental-health states.",
-              "Lab balance must retain collection dates, units, and the source laboratory reference ranges, and must remain contextual rather than diagnostic.",
-            ].join(" "),
-            inputSchema: handoffBase,
-            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-          },
-          async (input) => saveHandoff(supabase, handoffInput.parse(input)),
-        );
-
-        return server;
+const app = pipeline(
+  [
+    withOAuthProtectedResource(),
+    withSupabase({
+      auth: "user",
+      env: {
+        publishableKeys: {
+          default: Deno.env.get("SUPABASE_PUBLISHABLE_KEY")?.trim()
+            || Deno.env.get("SUPABASE_ANON_KEY")?.trim()
+            || "",
+        },
+      },
+    }),
+  ],
+  async (request, { supabase, userClaims }) => {
+    const founderUserId = Deno.env.get("LVE360_FOUNDER_USER_ID")?.trim().toLowerCase();
+    if (!userClaims || !founderUserId || userClaims.id.toLowerCase() !== founderUserId) {
+      return new Response(JSON.stringify({ error: "founder_pilot_only" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
       });
+    }
 
-      return handler.fetch(request);
-    },
-  ),
+    const handler = createMcpHandler(() => {
+      const server = new McpServer({ name: "lve360-health-context", version: "0.1.0" });
+
+      server.registerTool(
+        "get_lve360_health_handoff_status",
+        {
+          title: "Check LVE360 health handoff status",
+          description: "Confirm that the signed-in founder account is connected and report only the date of the latest approved handoff.",
+          inputSchema: z.strictObject({}),
+          annotations: { readOnlyHint: true, openWorldHint: false },
+        },
+        async () => {
+          const { data, error } = await supabase
+            .from("health_context_handoffs")
+            .select("id,snapshot_date,created_at")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (error) throw new Error("LVE360 could not read the handoff status.");
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                connected: true,
+                latest_handoff: data
+                  ? { id: data.id, snapshot_date: data.snapshot_date, created_at: data.created_at }
+                  : null,
+              }),
+            }],
+          };
+        },
+      );
+
+      server.registerTool(
+        "save_lve360_health_context",
+        {
+          title: "Save an approved health-context summary to LVE360",
+          description: [
+            "Save one bounded five-area summary only after the member reviews the exact content and explicitly approves the handoff.",
+            "Never send raw Apple Health samples, medical records, workout routes, diagnoses, medication changes, or inferred mental-health states.",
+            "Lab balance must retain collection dates, units, and the source laboratory reference ranges, and must remain contextual rather than diagnostic.",
+          ].join(" "),
+          inputSchema: handoffBase,
+          annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        },
+        async (input) => saveHandoff(supabase, handoffInput.parse(input)),
+      );
+
+      return server;
+    });
+
+    return handler.fetch(request);
+  },
 );
+
+Deno.serve(app);
 
 async function saveHandoff(supabase: SupabaseClient, input: Handoff) {
   const payload = {
