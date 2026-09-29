@@ -96,14 +96,38 @@ Production enablement required all of the following:
 
 Live ChatGPT Health validation remains a release gate for one explicitly approved save, followed by LVE360 Today display and member-controlled deletion. Tool discovery alone is not evidence that the write/display/delete loop has passed.
 
+### PR192 release-gate hardening
+
+PR192 makes the end-to-end production check safe to repeat without broadening the stored health data:
+
+- The validated approved payload receives a SHA-256 fingerprint. Retrying the exact same handoff returns the original record metadata instead of creating a duplicate.
+- Tool status returns source, source-window, snapshot-date, and saved-date metadata without returning health-summary text.
+- Today identifies the context as a five-area ChatGPT Health summary and shows its source window and snapshot date.
+- Settings identifies the source and source window, verifies the deleted row returned by the database, then reloads state to confirm that record is absent.
+- Founder-only OAuth and user-scoped RLS remain independent account boundaries. An expired or revoked authorization must be rejected before a tool can read or write.
+
+The code gate covers exact retries, partial-category rejection through the strict five-area schema, member-approval enforcement, invalid date windows, founder-account isolation, and deletion verification. Passing code checks does **not** claim that a production health summary was saved.
+
+The live gate still requires a separately authorized summary and this evidence sequence:
+
+1. Review the exact five-area summary and approve that specific content.
+2. Save it once, then retry the identical call and verify the same record ID is returned with `duplicate: true`.
+3. Verify Today and Settings show ChatGPT Health, five areas, the source window, and the snapshot date.
+4. Delete the summary in Settings and verify it is absent after the page reloads.
+5. Verify an expired authorization, a revoked authorization, and a different LVE360 account cannot read or write the founder summary.
+6. Verify a payload missing any one of the five areas is rejected.
+
 ## Delivery sequence
 
 1. PR186: UI contract and Today/Settings surfaces using bounded connected-health and member check-in data.
 2. PR187: authenticated LVE360 MCP tools, OAuth consent, bounded persistence, Today display, and deletion for a private founder-only rollout.
 3. PR188–PR190: production OAuth configuration, explicit account choice, and ChatGPT tool discovery — complete.
-4. PR191: make the first handoff understandable in Settings and validate one explicit member-approved save/display/delete flow.
-5. Later PR: Journey trends after the handoff is proven over multiple weeks.
+4. PR191: make the first handoff understandable in Settings and preserve the explicit approval boundary.
+5. PR192: harden idempotency, source/date visibility, and deletion verification, then run one separately approved production save/display/delete gate.
+6. Later PR: Journey trends after the handoff is proven over multiple weeks.
 
 ## Rollback
 
 Disable or remove the `health-context-mcp` Edge Function to stop new handoffs without affecting Apple Health foundation tables or daily check-ins. Existing summaries remain member-owned and removable from Settings; the PR187 table can be dropped only after those records are intentionally handled.
+
+To roll back only PR192 idempotency, remove the MCP fingerprint lookup first, then drop `health_context_handoffs_user_fingerprint_idx`, the fingerprint format constraint, and `submission_fingerprint`. Existing approved summaries remain unchanged.
