@@ -40,11 +40,18 @@ export default function ConnectedHealthCard({
           <h2 id="health-picture-title" className="mt-1 text-xl font-black text-[#041B2D]">Your health picture for today</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">{picture.guidance}</p>
         </div>
-        {summary?.latest ? (
-          <p className="rounded-full bg-[#EAFBF8] px-3 py-1.5 text-xs font-bold text-[#06695F]">
-            Connected data: {formatDate(summary.latest.local_date)}
-          </p>
-        ) : null}
+        <div className="flex flex-wrap justify-end gap-2">
+          {summary?.latest ? (
+            <p className="rounded-full bg-[#EAFBF8] px-3 py-1.5 text-xs font-bold text-[#06695F]">
+              Connected data: {formatDate(summary.latest.local_date)}
+            </p>
+          ) : null}
+          {handoff ? (
+            <p className="rounded-full bg-teal-100 px-3 py-1.5 text-xs font-bold text-teal-800">
+              ChatGPT Health · 5 areas · {formatDate(handoff.sourceWindow.start)}–{formatDate(handoff.sourceWindow.end)} · snapshot {formatDate(handoff.snapshotDate)}
+            </p>
+          ) : null}
+        </div>
       </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         {picture.domains.map((domain) => {

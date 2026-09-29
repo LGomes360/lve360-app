@@ -26,14 +26,17 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ ok: false, error: "invalid_handoff" }, { status: 400 });
   }
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("health_context_handoffs")
     .delete()
     .eq("id", body.id)
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .select("id")
+    .maybeSingle();
   if (error) {
     console.error("[health-context-handoff] delete failed", error.message);
     return NextResponse.json({ ok: false, error: "delete_failed" }, { status: 500 });
   }
-  return NextResponse.json({ ok: true });
+  if (!data) return NextResponse.json({ ok: false, error: "handoff_not_found" }, { status: 404 });
+  return NextResponse.json({ ok: true, deleted_id: data.id });
 }

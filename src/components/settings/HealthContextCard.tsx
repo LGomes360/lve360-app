@@ -15,6 +15,15 @@ const domains = [
   { icon: FlaskConical, title: "Lab balance", detail: "Member-approved trends from verified lab reports, retaining collection dates, units, and the source laboratory’s reference ranges. Not a diagnosis." },
 ] as const;
 
+type HandoffResponse = { ok?: boolean; handoff?: ApprovedHealthContextHandoff | null };
+
+async function fetchLatestHandoff(): Promise<ApprovedHealthContextHandoff | null> {
+  const response = await fetch("/api/health-context-handoff", { cache: "no-store" });
+  const body = await response.json() as HandoffResponse;
+  if (!response.ok || !body.ok) throw new Error("handoff_unavailable");
+  return body.handoff ?? null;
+}
+
 export default function HealthContextCard() {
   const [handoff, setHandoff] = useState<ApprovedHealthContextHandoff | null>(null);
   const [loading, setLoading] = useState(true);
@@ -24,12 +33,8 @@ export default function HealthContextCard() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/health-context-handoff", { cache: "no-store" })
-      .then(async (response) => {
-        const body = await response.json() as { ok?: boolean; handoff?: ApprovedHealthContextHandoff | null };
-        if (!response.ok || !body.ok) throw new Error("handoff_unavailable");
-        if (active) setHandoff(body.handoff ?? null);
-      })
+    fetchLatestHandoff()
+      .then((latest) => { if (active) setHandoff(latest); })
       .catch(() => { if (active) setMessage("Handoff status is temporarily unavailable."); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -45,9 +50,14 @@ export default function HealthContextCard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: handoff.id }),
       });
-      if (!response.ok) throw new Error("delete_failed");
-      setHandoff(null);
-      setMessage("The approved handoff was removed from LVE360.");
+      const body = await response.json() as { ok?: boolean; deleted_id?: string };
+      if (!response.ok || !body.ok || body.deleted_id !== handoff.id) throw new Error("delete_failed");
+      const latest = await fetchLatestHandoff();
+      if (latest?.id === handoff.id) throw new Error("delete_not_verified");
+      setHandoff(latest);
+      setMessage(latest
+        ? "The approved handoff was removed. Your next most recent summary is now shown."
+        : "The approved handoff was removed and is no longer stored in LVE360.");
     } catch {
       setMessage("LVE360 could not remove the handoff. Please try again.");
     } finally {
@@ -134,7 +144,9 @@ export default function HealthContextCard() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-bold text-[#041B2D]">Latest approved handoff: {formatDate(handoff.snapshotDate)}</p>
-              <p className="mt-1 text-xs leading-5 text-slate-500">Source window {formatDate(handoff.sourceWindow.start)}–{formatDate(handoff.sourceWindow.end)}. The Today page can now use this bounded context.</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                ChatGPT Health · five-area source window {formatDate(handoff.sourceWindow.start)}–{formatDate(handoff.sourceWindow.end)} · saved {formatTimestamp(handoff.createdAt)}. The Today page can now use this bounded context.
+              </p>
             </div>
             <button type="button" onClick={removeHandoff} disabled={deleting} className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-rose-200 bg-white px-4 py-2.5 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-60">
               {deleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />}
@@ -157,4 +169,10 @@ export default function HealthContextCard() {
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
     .format(new Date(`${value}T12:00:00.000Z`));
+}
+
+function formatTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "recently";
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(date);
 }
