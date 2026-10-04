@@ -8,6 +8,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "qa:env": "node scripts/check-env.mjs",
+    "qa:imported-health": "node --experimental-strip-types src/_tests_/importedHealthContext.assert.ts && node src/_tests_/importedHealthArchitecture.assert.mjs",
     "qa:build": "npm run typecheck && npm run build",
     "qa:canonical-host": "node src/_tests_/canonicalHost.assert.mjs",
     "qa:settings": "node src/_tests_/settingsPrivacy.assert.mjs",

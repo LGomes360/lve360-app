@@ -467,7 +467,7 @@ function memberContextValidator(input: CoachTaskValidationInput) {
   if (!values.length) return result("MEMBER_CONTEXT_USE", 1);
   const sourceIds = input.structuredAnswer?.sourceIds ?? [];
   const groundedSource = sourceIds.some((id) => [
-    "current_plan", "plan_change_history", "current_routine", "health_profile", "goals", "recent_check_ins", "current_blueprint", "weekly_practice",
+    "current_plan", "plan_change_history", "current_routine", "health_profile", "imported_health_records", "goals", "recent_check_ins", "current_blueprint", "weekly_practice",
   ].includes(id));
   const exactValue = values.some((value) => containsValue(input.answerText, value));
   const memberLanguage = /\b(?:your|you|recorded|current|recent|already)\b/i.test(input.answerText);

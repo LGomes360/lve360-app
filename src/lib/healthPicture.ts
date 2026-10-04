@@ -1,5 +1,6 @@
 import type { ConnectedHealthSummary } from "@/lib/connectedHealth";
 import type { ApprovedHealthContextHandoff } from "@/lib/healthContextHandoff";
+import { importedLabDescription, importedSleepDescription, type ImportedHealthSummary } from "./importedHealthContext.ts";
 
 export type HealthPictureCheckIn = {
   sleep: number | null;
@@ -13,7 +14,7 @@ export type HealthPictureLabSummary = {
   resultWindow: string | null;
 };
 
-export type HealthPictureSource = "combined" | "member_reported" | "connected_data" | "approved_handoff" | "lab_summary" | "limited";
+export type HealthPictureSource = "combined" | "member_reported" | "connected_data" | "approved_handoff" | "lab_summary" | "imported_records" | "limited";
 
 export type HealthPictureDomain = {
   key: "sleep" | "movement" | "nutrition_weight" | "overall_feeling" | "lab_balance";
@@ -34,12 +35,14 @@ export function buildHealthPicture({
   weightUnit,
   labSummary = null,
   handoff = null,
+  importedRecords = null,
 }: {
   connectedHealth: ConnectedHealthSummary | null;
   checkIn: HealthPictureCheckIn | null;
   weightUnit: "lb" | "kg";
   labSummary?: HealthPictureLabSummary | null;
   handoff?: ApprovedHealthContextHandoff | null;
+  importedRecords?: ImportedHealthSummary | null;
 }): HealthPicture {
   const latest = connectedHealth?.status === "connected" ? connectedHealth.latest : null;
   const sleepDuration = latest?.sleep_minutes == null ? null : formatMinutes(latest.sleep_minutes);
@@ -59,6 +62,8 @@ export function buildHealthPicture({
   const approvedLabSummary = handoff?.areas.lab_balance.summary.trim()
     || (labSummary?.memberApproved ? labSummary.summary.trim() : "");
   const handoffDateLabel = handoff ? formatWindow(handoff.sourceWindow.start, handoff.sourceWindow.end) : null;
+  const importedSleep = importedRecords ? importedSleepDescription(importedRecords) : null;
+  const importedLabs = importedRecords ? importedLabDescription(importedRecords) : null;
 
   const sleepToday = sleepRating && sleepDuration
     ? `You described sleep as ${sleepRating.toLowerCase()}; connected data shows ${sleepDuration}.`
@@ -82,9 +87,9 @@ export function buildHealthPicture({
       {
         key: "sleep",
         label: "Sleep",
-        source: handoffSource(sourceFor(sleepRating != null, sleepDuration != null), sleepToday != null, handoff != null),
-        sourceLabel: handoffSourceLabel(sourceLabel(sleepRating != null, sleepDuration != null), sleepToday != null, handoff != null),
-        summary: withApprovedContext(sleepToday ?? "No sleep context has been shared for today.", handoff?.areas.sleep.summary, handoffDateLabel),
+        source: importedSleep ? (sleepToday || handoff ? "combined" : "imported_records") : handoffSource(sourceFor(sleepRating != null, sleepDuration != null), sleepToday != null, handoff != null),
+        sourceLabel: importedSleep ? (sleepToday ? "Today + historical records" : handoff ? "Approved + historical records" : "Historical imported records") : handoffSourceLabel(sourceLabel(sleepRating != null, sleepDuration != null), sleepToday != null, handoff != null),
+        summary: `${withApprovedContext(sleepToday ?? "No sleep context has been shared for today.", handoff?.areas.sleep.summary, handoffDateLabel)}${importedSleep ? ` Historical imported context: ${importedSleep}` : ""}`,
       },
       {
         key: "movement",
@@ -110,14 +115,16 @@ export function buildHealthPicture({
       {
         key: "lab_balance",
         label: "Lab balance",
-        source: approvedLabSummary ? "lab_summary" : "limited",
-        sourceLabel: approvedLabSummary ? "Approved lab summary" : "Needs verified results",
+        source: approvedLabSummary ? (importedLabs ? "combined" : "lab_summary") : importedLabs ? "imported_records" : "limited",
+        sourceLabel: approvedLabSummary ? (importedLabs ? "Approved + archive" : "Approved lab summary") : importedLabs ? "Historical imported records" : "Needs verified results",
         summary: approvedLabSummary
           ? `${handoff ? `${formatWindow(handoff.areas.lab_balance.resultWindow.start, handoff.areas.lab_balance.resultWindow.end)}: ` : labSummary?.resultWindow ? `${labSummary.resultWindow}: ` : ""}${approvedLabSummary}${handoff ? ` Measurement context: ${handoff.areas.lab_balance.measurementContext}` : ""} This is context, not a diagnosis; review individual results with your healthcare provider.`
-          : "No member-approved lab summary has been shared. Lab trends require collection dates, units, and the source laboratory’s reference ranges.",
+          : importedLabs ?? "No member-approved lab summary has been shared. Lab trends require collection dates, units, and the source laboratory’s reference ranges.",
       },
     ],
-    guidance: checkIn
+    guidance: importedRecords
+      ? "Historical imported records add context, not today's state. Your current check-in stays the source of truth; missing information is never inferred from old reports."
+      : checkIn
       ? `Your check-in stays the source of truth. Connected information${handoff ? " and your approved ChatGPT Health summary" : ""} can add context, but it never overrides how you say you feel.`
       : handoff
         ? "Your approved ChatGPT Health summary adds context. LVE360 still waits for your perspective before treating it as today’s state."

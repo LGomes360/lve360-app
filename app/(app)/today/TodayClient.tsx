@@ -15,6 +15,7 @@ import DailyIntentionCard from "@/components/dashboard/DailyIntentionCard";
 import ConnectedHealthCard from "@/components/dashboard/ConnectedHealthCard";
 import type { ConnectedHealthSummary } from "@/lib/connectedHealth";
 import type { ApprovedHealthContextHandoff } from "@/lib/healthContextHandoff";
+import type { ImportedHealthSummary } from "@/lib/importedHealthContext";
 
 export default function TodayClient({
   experiment,
@@ -26,6 +27,7 @@ export default function TodayClient({
   activationProgress,
   connectedHealth,
   healthContextHandoff,
+  importedHealth,
   healthWeightUnit,
 }: {
   experiment: WeeklyExperiment | null;
@@ -37,6 +39,7 @@ export default function TodayClient({
   activationProgress: PremiumActivationProgress;
   connectedHealth: ConnectedHealthSummary | null;
   healthContextHandoff: ApprovedHealthContextHandoff | null;
+  importedHealth: ImportedHealthSummary | null;
   healthWeightUnit: "lb" | "kg";
 }) {
   const [firstActionComplete, setFirstActionComplete] = useState(activationProgress.firstActionComplete);
@@ -110,6 +113,7 @@ export default function TodayClient({
                 checkIn={checkInSummary}
                 weightUnit={healthWeightUnit}
                 handoff={healthContextHandoff}
+                importedRecords={importedHealth}
               />
             ) : null}
 
@@ -133,6 +137,9 @@ export default function TodayClient({
           </>
         ) : null}
 
+        {importedHealth && experiment?.status !== "active" && !firstActionComplete ? (
+          <ConnectedHealthCard summary={connectedHealth} checkIn={null} weightUnit={healthWeightUnit} handoff={healthContextHandoff} importedRecords={importedHealth} />
+        ) : null}
       </div>
     </div>
   );
