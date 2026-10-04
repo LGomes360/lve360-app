@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireTier } from "@/app/_auth/requireTier";
 import { buildBlueprintDelta } from "@/lib/blueprintDelta";
 import { parseBlueprintReport } from "@/lib/blueprintReport";
+import { blueprintSafetyCandidates } from "@/lib/blueprintSafetyReview";
 import {
   blueprintMarkdownFromStack,
   deriveBlueprintSafetyStatus,
@@ -13,7 +14,10 @@ import {
 import { ensureCurrentRegimen, getCurrentRegimen } from "@/lib/currentRegimen";
 import { regimenToLedger } from "@/lib/currentRegimenModel";
 import { canonicalRegimenTiming } from "@/lib/regimenSchedule";
-import { extractBlueprintGoalNames } from "@/lib/recommendationDecision";
+import { extractBlueprintGoalNames, reconcileBlueprintRecommendationBody } from "@/lib/recommendationDecision";
+import { buildBlueprintWellnessOverview, blueprintOverviewLocalDate } from "@/lib/blueprintWellnessOverview";
+import { loadConnectedHealthSummary } from "@/lib/connectedHealthData";
+import { loadLatestHealthContextHandoff } from "@/lib/healthContextHandoffData";
 import { getStackRecommendationDecisions } from "@/lib/recommendationDecisionData";
 import { getMemberIntelligenceContext } from "@/lib/memberContextData";
 import { applySafetyChecks } from "@/lib/safetyCheck";
@@ -64,10 +68,14 @@ export default async function BlueprintPage({ params }: PageProps) {
   const storedMarkdown = blueprintMarkdownFromStack(stack);
   await ensureCurrentRegimen(user.id, submission.id, submission);
   const regimen = await getCurrentRegimen(user.id);
+  const [memberContext, connectedHealth, handoff] = await Promise.all([
+    getMemberIntelligenceContext(user.id),
+    loadConnectedHealthSummary(admin, user.id),
+    loadLatestHealthContextHandoff(admin, user.id),
+  ]);
   const latestId = history?.[0]?.id ?? stack.id;
   let markdown = storedMarkdown;
   if (latestId === stack.id) {
-    const memberContext = await getMemberIntelligenceContext(user.id);
     const profile = memberContext.healthProfile.value;
     const liveSafety = await applySafetyChecks(
       {
@@ -77,7 +85,7 @@ export default async function BlueprintPage({ params }: PageProps) {
         procedures: profile?.procedures ?? [],
         pregnant: profile?.pregnant ?? null,
       },
-      [
+      blueprintSafetyCandidates(storedMarkdown, [
         ...memberContext.regimen.supplements.value,
         ...memberContext.regimen.endocrineActiveSupplements.value,
       ].map((item) => ({
@@ -85,11 +93,21 @@ export default async function BlueprintPage({ params }: PageProps) {
         dose: item.dose,
         is_current: true,
         instruction_authority: item.instruction_authority,
-      })),
+      }))),
     );
     markdown = applySafetyEvaluationToMarkdown(storedMarkdown, liveSafety);
   }
   const report = parseBlueprintReport(markdown);
+  const latestCheckIn = [...memberContext.recentCheckIns.value].sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
+  const asOfDate = blueprintOverviewLocalDate(new Date(), memberContext.preferences.value?.timezone);
+  const wellnessOverview = buildBlueprintWellnessOverview({
+    asOfDate,
+    goals: memberContext.goals.saved.value.length ? memberContext.goals.saved.value.map((goal) => goal.label) : extractBlueprintGoalNames(report.sections.Goals),
+    importedRecords: memberContext.importedHealthRecords?.value,
+    checkIn: latestCheckIn,
+    connectedHealth,
+    handoff,
+  });
   const recommendations = await getStackRecommendationDecisions(
     user.id,
     stack.id,
@@ -141,7 +159,12 @@ export default async function BlueprintPage({ params }: PageProps) {
       }}
       sections={Object.entries(report.sections)
         .filter(([, body]) => Boolean(body.trim()))
-        .map(([name, body]) => ({ name, body }))}
+        .map(([name, body]) => {
+          const displayed = name === "Your Blueprint Recommendations"
+            ? reconcileBlueprintRecommendationBody(body, regimen.filter((item) => item.active)) : body;
+          return { name, body: displayed, originalBody: displayed !== body ? body : null };
+        })}
+      wellnessOverview={wellnessOverview}
       recommendations={recommendations}
       initialSupplements={supplements}
       hasMemberOverride={hasOverride}

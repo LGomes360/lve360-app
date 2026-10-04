@@ -211,7 +211,11 @@ export default function RoutineClient({
   }
 
   async function adoptProposal(item: RoutineItem) {
-    if (isClinicianReviewProposal(item) || (item.recommendation_overlaps?.length ?? 0) > 0) {
+    if ((item.recommendation_overlaps?.length ?? 0) > 0) {
+      setToast({ message: "Review the overlapping sources already recorded in Routine. Nothing was added." });
+      return;
+    }
+    if (isClinicianReviewProposal(item)) {
       const confirmed = window.confirm(
         "This idea needs an overlap or clinician review. Only add it if you have already decided it belongs in your routine."
       );
@@ -225,7 +229,11 @@ export default function RoutineClient({
         body: JSON.stringify({ item_id: item.id }),
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok || !body?.ok || !body?.item?.id) throw new Error("adoption_failed");
+      if (!response.ok || !body?.ok || !body?.item?.id) {
+        throw new Error(body?.error === "recommendation_already_recorded" || body?.error === "recommendation_overlap_review_required"
+          ? "Your current routine already contains this ingredient or a possible overlapping source. Review the recorded items; nothing was added."
+          : "We could not add that idea. Your current routine is unchanged.");
+      }
       await refreshRoutine();
       const adoptedId = body.item.id as string;
       setToast({
@@ -241,8 +249,8 @@ export default function RoutineClient({
           setToast({ message: `${item.name} was returned to ideas to consider.` });
         },
       });
-    } catch {
-      setToast({ message: "We could not add that idea. Your current routine is unchanged." });
+    } catch (adoptionError) {
+      setToast({ message: adoptionError instanceof Error ? adoptionError.message : "We could not add that idea. Your current routine is unchanged." });
     } finally {
       setBusyId(null);
     }
@@ -645,7 +653,7 @@ function IdeasSection({
         <span className="rounded-xl bg-white p-2.5 text-amber-700"><ShieldAlert className="h-6 w-6" aria-hidden="true" /></span>
         <div>
           <h2 id="routine-ideas" className="text-xl font-bold text-[#041B2D]">Ideas to consider</h2>
-          <p className="mt-1 text-sm leading-6 text-amber-900">These Blueprint ideas are not current. They only move into your routine after you explicitly add them.</p>
+          <p className="mt-1 text-sm leading-6 text-amber-900">These are report ideas to review, not instructions to add products. A possible ingredient or form overlap stays a review item; no duplicate is added.</p>
         </div>
       </div>
       {items.length ? (
@@ -659,12 +667,14 @@ function IdeasSection({
                 <p className="mt-2 text-sm leading-6 text-slate-700">{item.recommendation_reason || item.purpose || "Review the evidence and safety context in your Blueprint."}</p>
                 {item.recommendation_overlaps?.length ? (
                   <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
-                    <strong>Check what you already take:</strong> Your current routine includes {item.recommendation_overlaps.join(", ")}. Review the ingredient label before adding another source.
+                    <strong>Check what you already take:</strong> Your current routine includes {item.recommendation_overlaps.join(", ")}. Review ingredients and forms with your clinician before considering another source.
                   </p>
                 ) : null}
                 {clinicianReview ? <p className="mt-3 flex items-start rounded-xl bg-amber-100 p-3 text-sm font-semibold text-amber-900"><AlertTriangle className="mr-2 mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> Clinician or healthcare provider review is recommended before adding this.</p> : null}
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  <button
+                  {item.recommendation_overlaps?.length ? (
+                    <a href="#routine-supplement" className="inline-flex min-h-12 items-center justify-center rounded-xl border border-[#9DCFC3] px-4 py-3 font-bold text-[#06695F] hover:bg-[#EAFBF8]">Review recorded supplements</a>
+                  ) : <button
                     type="button"
                     disabled={busyId === item.id}
                     onClick={() => void onAdopt(item)}
@@ -672,7 +682,7 @@ function IdeasSection({
                   >
                     {busyId === item.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />}
                     {clinicianReview ? "Add after review" : "Add to current routine"}
-                  </button>
+                  </button>}
                   <button type="button" disabled={busyId === item.id} onClick={() => void onDecision(item, "clinician_review")} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-amber-300 px-4 py-3 font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-60">
                     <HeartPulse className="mr-2 h-4 w-4" aria-hidden="true" /> Ask my clinician
                   </button>

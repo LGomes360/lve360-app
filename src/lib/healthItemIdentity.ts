@@ -27,7 +27,8 @@ export function healthItemIdentityKey(value: string): string {
   if (/^magnesium chloride$/.test(key)) return "magnesium-chloride";
   if (/^magnesium sulfate$/.test(key) || key === "epsom salt") return "magnesium-sulfate";
   if (key === "magnesium") return "magnesium-unspecified";
-  if (/^(?:omega ?3|fish oil|epa dha)$/.test(key)) return "omega-3";
+  if (/^(?:omega ?3(?: fish oil| epa dha)?|fish oil|epa dha)$/.test(key)) return "omega-3";
+  if (/^(?:psyllium(?: husk)?|soluble fiber psyllium|fiber psyllium husk)$/.test(key)) return "psyllium";
   if (/^(?:vitamin )?b complex$/.test(key) || key === "b vitamins") return "b-complex";
   if (/^(?:coq ?10|ubiquinone|ubiquinol)$/.test(key)) return "coq10";
   if (/^(?:creatine|creatine monohydrate)$/.test(key)) return "creatine-monohydrate";
@@ -50,6 +51,7 @@ export function canonicalHealthItemDisplayName(value: string): string {
     case "magnesium-sulfate": return "Magnesium Sulfate";
     case "magnesium-unspecified": return "Magnesium";
     case "omega-3": return "Omega-3";
+    case "psyllium": return "Soluble fiber (psyllium)";
     case "b-complex": return "B-Complex";
     case "coq10": return "CoQ10";
     case "creatine-monohydrate": return "Creatine Monohydrate";
