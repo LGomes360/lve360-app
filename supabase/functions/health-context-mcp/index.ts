@@ -96,7 +96,7 @@ const app = pipeline(
         async () => {
           const { data, error } = await supabase
             .from("health_context_handoffs")
-            .select("id,snapshot_date,created_at")
+            .select("id,snapshot_date,source_window_start,source_window_end,source,created_at")
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
@@ -107,7 +107,13 @@ const app = pipeline(
               text: JSON.stringify({
                 connected: true,
                 latest_handoff: data
-                  ? { id: data.id, snapshot_date: data.snapshot_date, created_at: data.created_at }
+                  ? {
+                      id: data.id,
+                      snapshot_date: data.snapshot_date,
+                      source_window: { start: data.source_window_start, end: data.source_window_end },
+                      source: data.source,
+                      created_at: data.created_at,
+                    }
                   : null,
               }),
             }],
@@ -125,7 +131,7 @@ const app = pipeline(
             "Lab balance must retain collection dates, units, and the source laboratory reference ranges, and must remain contextual rather than diagnostic.",
           ].join(" "),
           inputSchema: handoffBase,
-          annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+          annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         },
         async (input) => saveHandoff(supabase, handoffInput.parse(input)),
       );
@@ -140,6 +146,7 @@ const app = pipeline(
 Deno.serve(app);
 
 async function saveHandoff(supabase: SupabaseClient, input: Handoff) {
+  const submissionFingerprint = await fingerprintHandoff(input);
   const payload = {
     snapshot_date: input.snapshot_date,
     source_window_start: input.source_window.start,
@@ -161,20 +168,54 @@ async function saveHandoff(supabase: SupabaseClient, input: Handoff) {
     proposed_focus: input.proposed_focus,
     member_approved: input.member_approved,
     source: "chatgpt_health",
+    submission_fingerprint: submissionFingerprint,
   };
+
+  const existing = await findHandoffByFingerprint(supabase, submissionFingerprint);
+  if (existing) return handoffResult(existing, true);
 
   const { data, error } = await supabase
     .from("health_context_handoffs")
     .insert(payload)
     .select("id,snapshot_date,created_at")
     .single();
-  if (error) throw new Error("LVE360 could not save the approved handoff.");
+  if (error?.code === "23505") {
+    const duplicate = await findHandoffByFingerprint(supabase, submissionFingerprint);
+    if (duplicate) return handoffResult(duplicate, true);
+  }
+  if (error || !data) throw new Error("LVE360 could not save the approved handoff.");
 
+  return handoffResult(data, false);
+}
+
+async function fingerprintHandoff(input: Handoff): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(input));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function findHandoffByFingerprint(supabase: SupabaseClient, fingerprint: string) {
+  const { data, error } = await supabase
+    .from("health_context_handoffs")
+    .select("id,snapshot_date,created_at")
+    .eq("submission_fingerprint", fingerprint)
+    .maybeSingle();
+  if (error) throw new Error("LVE360 could not verify the approved handoff.");
+  return data;
+}
+
+function handoffResult(data: { id: string; snapshot_date: string; created_at: string }, duplicate: boolean) {
   // Return metadata only. Health summaries must not be duplicated in transport logs.
   return {
     content: [{
       type: "text" as const,
-      text: JSON.stringify({ saved: true, id: data.id, snapshot_date: data.snapshot_date, created_at: data.created_at }),
+      text: JSON.stringify({
+        saved: true,
+        duplicate,
+        id: data.id,
+        snapshot_date: data.snapshot_date,
+        created_at: data.created_at,
+      }),
     }],
   };
 }
