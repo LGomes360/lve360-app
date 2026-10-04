@@ -34,9 +34,12 @@ import {
   isPreferenceFieldOrValue,
   preferenceValuesFound,
   RECOMMENDABLE_SUPPLEMENT_CANDIDATES,
+  buildEvidenceEligibleSupplementCandidates,
 } from "@/lib/supplementEligibility";
 import { blueprintInputSnapshotHash } from "@/lib/blueprintWorkspace";
 import { ensureCurrentRegimen } from "@/lib/currentRegimen";
+import { IMPORTED_HEALTH_PROMPT_RULES, withoutSubmissionSourcePayloads } from "@/lib/importedHealthContext";
+import { loadImportedHealthSummary } from "@/lib/importedHealthContextData";
 import { extractReportRecommendationProposals } from "@/lib/reportRecommendationProposals";
 import { canonicalHealthItemDisplayName, healthItemIdentityKey, validateGeneratedHealthItemIntegrity } from "@/lib/healthItemIdentity";
 import {
@@ -1005,6 +1008,7 @@ function compactForPassC(sub: any) {
     supplements: take(sub?.supplements ?? [], 12),
     dosing_pref: sub?.dosing_pref ?? sub?.preferences?.dosing_pref ?? null,
     today: TODAY,
+    imported_health_records: sub?.imported_health_records ?? null,
   };
 }
 
@@ -1371,6 +1375,7 @@ function systemPromptA_TableOnly(): string {
 You are **LVE360 Concierge AI**. Follow the user's task **exactly**.
 Output **only** what is asked. No extra prose, no other sections, no code fences.
 When asked for a table, return a **markdown table only**.
+${IMPORTED_HEALTH_PROMPT_RULES}
 `.trim();
 }
 
@@ -1379,6 +1384,7 @@ function systemPromptB_SafetyDosing(): string {
 You are **LVE360 Concierge AI**, a supportive, plain-English wellness coach.
 Task: produce **only** the sections requested by the user prompt.
 Use clear, conservative guidance. No code fences. No extra sections.
+${IMPORTED_HEALTH_PROMPT_RULES}
 `.trim();
 }
 
@@ -1401,6 +1407,7 @@ Section rules:
 • Shopping Links → links + Analysis.
 • Follow-up Plan, Lifestyle Prescriptions, Longevity Levers, This Week Try → each ends with Analysis.
 Do not include an END marker.
+${IMPORTED_HEALTH_PROMPT_RULES}
 `.trim();
 }
 function systemPromptC_Strict(): string {
@@ -1423,6 +1430,7 @@ Rules:
 - Use the given Blueprint/Dosing for consistency (do not rewrite them).
 - Evidence must include ≥8 valid links (PubMed/PMC/DOI or trusted journals).
 - No code fences, preamble, or END marker.
+${IMPORTED_HEALTH_PROMPT_RULES}
 `.trim();
 }
 
@@ -1571,6 +1579,7 @@ function summarizeForLLM(sub: any) {
     hormones_meta: { truncated: hormones.truncated, total: hormones.total, limit: MAX_HORMONES },
     age: age(sub?.dob ?? null),
     today: TODAY,
+    imported_health_records: sub?.imported_health_records ?? null,
   };
 }
 
@@ -1759,12 +1768,14 @@ const inputSnapshotHash = options?.inputSnapshotHash ?? blueprintInputSnapshotHa
 const berberineRequiresReview = /\b(?:metformin|zepbound|tirzepatide|mounjaro|diabet(?:es|ic)?|blood sugar|glucose|a1c)\b/i.test(
   JSON.stringify({ currentStackLedger, conditions: conditionsRaw })
 );
-const recommendableSupplementLedger = Array.from(new Set([
-  ...RECOMMENDABLE_SUPPLEMENT_CANDIDATES,
-  ...currentStackLedger
-    .filter((item) => item.kind === "supplement" && isEligibleSupplementName(item.name))
-    .map((item) => item.name),
-])).map((name) => ({ name }));
+// Keep every reported item in the source ledger and safety evaluation. Only
+// evidence-backed names may enter recommendation selection; an uncited blend
+// must not abort the entire report or borrow one ingredient's citation.
+const recommendableSupplementLedger = buildEvidenceEligibleSupplementCandidates(
+  currentStackLedger,
+  (name) => asArray(attachEvidence({ name }).citations)
+    .some((url) => CURATED_CITE_RE.test(String(url)) || MODEL_CITE_RE.test(String(url))),
+);
 const missingRepeatedTallyItems = findMissingRepeatedTallyItems(sub, currentStackLedger);
 if (missingRepeatedTallyItems.length) {
   console.warn("[gen.intake] repeated Tally fields missing from ledger", missingRepeatedTallyItems);
@@ -1792,7 +1803,10 @@ const endocrineActiveRaw = ledgerItems("endocrine_active_supplement");
 
 // ONE source of truth for the rest of the file:
 const baseClient = {
-  ...sub,
+  ...withoutSubmissionSourcePayloads(sub),
+  imported_health_records: sub.user_id
+    ? await loadImportedHealthSummary(supabaseAdmin, sub.user_id)
+    : null,
   goals: goalsRaw,
   conditions: conditionsRaw,
   medications: medicationsRaw,

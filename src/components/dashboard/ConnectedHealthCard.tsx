@@ -3,6 +3,7 @@ import { ArrowRight, BedDouble, Dumbbell, FlaskConical, HeartHandshake, Utensils
 
 import type { ConnectedHealthSummary } from "@/lib/connectedHealth";
 import type { ApprovedHealthContextHandoff } from "@/lib/healthContextHandoff";
+import type { ImportedHealthSummary } from "@/lib/importedHealthContext";
 import {
   buildHealthPicture,
   type HealthPictureCheckIn,
@@ -16,14 +17,16 @@ export default function ConnectedHealthCard({
   weightUnit,
   labSummary = null,
   handoff = null,
+  importedRecords = null,
 }: {
   summary: ConnectedHealthSummary | null;
   checkIn: HealthPictureCheckIn | null;
   weightUnit: "lb" | "kg";
   labSummary?: HealthPictureLabSummary | null;
   handoff?: ApprovedHealthContextHandoff | null;
+  importedRecords?: ImportedHealthSummary | null;
 }) {
-  const picture = buildHealthPicture({ connectedHealth: summary, checkIn, weightUnit, labSummary, handoff });
+  const picture = buildHealthPicture({ connectedHealth: summary, checkIn, weightUnit, labSummary, handoff, importedRecords });
   const icons = {
     sleep: BedDouble,
     movement: Dumbbell,
@@ -51,8 +54,53 @@ export default function ConnectedHealthCard({
               ChatGPT Health · 5 areas · {formatDate(handoff.sourceWindow.start)}–{formatDate(handoff.sourceWindow.end)} · snapshot {formatDate(handoff.snapshotDate)}
             </p>
           ) : null}
+          {importedRecords ? (
+            <p className="rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-800">
+              Imported records · {importedRecords.lastMeasurementDate ?? "dated source records"} · not live sync
+            </p>
+          ) : null}
         </div>
       </div>
+      {importedRecords ? (
+        <details className="mt-4 rounded-2xl border border-slate-200 p-4 text-sm">
+          <summary className="cursor-pointer font-bold text-[#087F72]">Review imported results and limitations</summary>
+          <p className="mt-3 text-xs leading-5 text-slate-500">Imported {importedRecords.importedAt}. Collection dates below are the measurement dates, not today's values.</p>
+          {importedRecords.labs ? (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <caption className="pb-2 text-left text-slate-600">Latest collection: {importedRecords.labs.lastDate} · showing {importedRecords.labs.latestResults.length} of {importedRecords.labs.latestResultCount} results (source flags first)</caption>
+                <thead><tr>{["Marker", "Result", "Source flag", "Reference interval", "Fasting"].map((label) => <th key={label} scope="col" className="border-b p-2 font-bold">{label}</th>)}</tr></thead>
+                <tbody>{importedRecords.labs.latestResults.map((result, index) => (
+                  <tr key={`${result.marker}-${index}`}>
+                    <td className="border-b p-2">{result.marker}<span className="mt-1 block text-slate-500">{result.sourceFile ?? "Source filename unavailable"}</span></td>
+                    <td className="border-b p-2">{result.value} {result.units}</td>
+                    <td className="border-b p-2">{result.flag ?? "Not supplied"}</td>
+                    <td className="border-b p-2">{result.referenceInterval ?? "Not supplied"}</td>
+                    <td className="border-b p-2">{result.fasting ?? "Unknown"}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          ) : null}
+          {importedRecords.sleep ? (
+            <div className="mt-4 text-xs leading-5 text-slate-600">
+              <h3 className="font-bold text-[#041B2D]">Archived sleep-device reports</h3>
+              {importedRecords.sleep.pap ? <p className="mt-2">PAP report window: {importedRecords.sleep.pap.startDate}–{importedRecords.sleep.pap.endDate}. Source-reported average AHI: {importedRecords.sleep.pap.averageAhi ?? "not supplied"} events/hour. This aggregate does not establish exact-night device use or treatment efficacy.</p> : null}
+              <ul className="mt-2 space-y-2">
+                {importedRecords.sleep.oxygen.map((recording, index) => (
+                  <li key={`${recording.startDate}-${index}`}>
+                    Oxygen recording {recording.startDate}–{recording.endDate}: mean SpO₂ {recording.meanSpo2 == null ? "not supplied" : `${recording.meanSpo2}%`}; minimum {recording.minimumSpo2 == null ? "not supplied" : `${recording.minimumSpo2}%`}; recorded time below 90% {recording.timeBelow90 ?? "not supplied"} (hours:minutes:seconds).
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {importedRecords.donationDates.length ? <p className="mt-3 text-xs leading-5 text-slate-600">Source-recorded donation dates: {importedRecords.donationDates.join(", ")}. A later donation is not evidence of a changed lab result.</p> : null}
+          <ul className="mt-3 list-disc space-y-2 pl-5 text-xs leading-5 text-slate-600">
+            {[...importedRecords.evidenceLimits, ...importedRecords.sourceNotes].map((note, index) => <li key={index}>{note}</li>)}
+          </ul>
+        </details>
+      ) : null}
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         {picture.domains.map((domain) => {
           const Icon = icons[domain.key];
@@ -80,7 +128,9 @@ export default function ConnectedHealthCard({
       <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 text-xs leading-5 text-slate-500 sm:flex-row sm:items-center sm:justify-between">
         <p>
           {summary?.lastSyncCompletedAt ? `Connected data last received ${formatTimestamp(summary.lastSyncCompletedAt)}. ` : ""}
-          LVE360 stores bounded summaries, not raw records or workout routes.
+          {importedRecords
+            ? "Your imported source archive stays private. This view and coaching use bounded, dated summaries, not the full archive."
+            : "Connected health and approved handoffs use bounded summaries, not raw records or workout routes."}
         </p>
         <Link href="/settings#health-context" className="inline-flex shrink-0 items-center font-bold text-[#087F72] hover:underline">
           How health context works <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden="true" />
@@ -96,6 +146,7 @@ function sourceStyle(source: HealthPictureSource): string {
   if (source === "connected_data") return "bg-sky-100 text-sky-800";
   if (source === "approved_handoff") return "bg-teal-100 text-teal-800";
   if (source === "lab_summary") return "bg-amber-100 text-amber-900";
+  if (source === "imported_records") return "bg-indigo-50 text-indigo-800";
   return "bg-slate-200 text-slate-600";
 }
 

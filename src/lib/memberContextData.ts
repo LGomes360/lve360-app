@@ -19,6 +19,7 @@ import {
 import { practiceGoalOptions } from "@/lib/practiceConnection";
 import type { SafetyContext } from "@/lib/safetyEngine";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { loadImportedHealthSummary } from "@/lib/importedHealthContextData";
 
 type MemberRow = {
   id: string;
@@ -168,6 +169,7 @@ export async function getMemberIntelligenceContext(userId: string): Promise<Memb
     experimentResult,
     checkInResult,
     planChangeResult,
+    importedHealthRecords,
   ] = await Promise.all([
     admin.from("users").select("id,tier,created_at,updated_at").eq("id", userId).maybeSingle(),
     admin.from("user_preferences")
@@ -191,6 +193,7 @@ export async function getMemberIntelligenceContext(userId: string): Promise<Memb
     admin.from("plan_change_events")
       .select("id,domain,entity_type,entity_id,change_type,source,change_summary,created_at")
       .eq("user_id", userId).order("created_at", { ascending: false }).limit(12),
+    loadImportedHealthSummary(admin, userId),
   ]);
   for (const result of [memberResult, preferenceResult, submissionResult, goalsResult, practiceResult, experimentResult, checkInResult, planChangeResult]) {
     if (result.error) throw result.error;
@@ -248,6 +251,7 @@ export async function getMemberIntelligenceContext(userId: string): Promise<Memb
       updatedAt: memberRow.updated_at ?? memberRow.created_at,
     } : null,
     healthProfile: profile,
+    importedHealthRecords,
     preferences: preferences(preferenceResult.data as PreferencesRow | null),
     savedGoals: savedGoals(goalsRow),
     goalsUpdatedAt: goalsRow?.updated_at ?? null,

@@ -2,6 +2,7 @@ import type { CoachActionProposal, ProposedWeeklyPractice } from "./coachActions
 import { CONTEXTUAL_COACH_PROMPT_VERSION } from "./ai/promptVersions.ts";
 import { requestsMemberReportedContext } from "./memberReportedContext.ts";
 import type { CoachPersonalizationReceipt } from "./coachPersonalization";
+import { isImportedHealthRecordLookup } from "./importedHealthContext.ts";
 
 export const COACH_PROMPT_VERSION = CONTEXTUAL_COACH_PROMPT_VERSION;
 
@@ -211,6 +212,7 @@ export function classifyCoachRequest(question: string): CoachRoutingDecision {
     || /\b(?:upper[- ]?intake|upper limit|general threshold)\b/.test(value)) {
     return route("SAFETY_REVIEW");
   }
+  if (isImportedHealthRecordLookup(question)) return route("GENERAL_EDUCATION", []);
   if (/\b(?:what|which)\b[\s\S]{0,80}\b(?:missing|incomplete|not (?:saved|recorded)|need(?:ed)? from me)\b/.test(value)
     || /\b(?:missing|incomplete)\b[\s\S]{0,50}\b(?:profile|context|information|data|record)\b/.test(value)) {
     return route("MISSING_CONTEXT", []);

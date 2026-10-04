@@ -10,6 +10,7 @@ import { trackProductEvent } from "@/lib/productAnalyticsClient";
 type HandoffState =
   | { name: "loading" }
   | { name: "no_submission" }
+  | { name: "ready_to_generate"; submissionId: string }
   | { name: "generating"; submissionId: string }
   | { name: "ready"; stackId: string }
   | { name: "error"; message: string; submissionId?: string };
@@ -20,6 +21,8 @@ const GENERATION_WAIT_MS = 240_000;
 function PremiumResultsHandoff() {
   const searchParams = useSearchParams();
   const requestedSubmissionId = searchParams.get("submission_id");
+  const fromSavedProfile = searchParams.get("from_saved_profile") === "1";
+  const generationStartedRef = useRef(false);
   const [state, setState] = useState<HandoffState>({ name: "loading" });
   const [pollAttempt, setPollAttempt] = useState(0);
   const startedAtRef = useRef(Date.now());
@@ -43,9 +46,15 @@ function PremiumResultsHandoff() {
     }
 
     const submissionId = String(json.submission?.id ?? requestedSubmissionId ?? "");
+    // Imported profiles have no intake webhook job. Merely polling must not
+    // claim that generation started, or silently trigger a mutation on visit.
+    if (fromSavedProfile && !generationStartedRef.current) {
+      setState({ name: "ready_to_generate", submissionId });
+      return "done";
+    }
     setState({ name: "generating", submissionId });
     return "pending";
-  }, [requestedSubmissionId]);
+  }, [requestedSubmissionId, fromSavedProfile]);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,6 +100,7 @@ function PremiumResultsHandoff() {
       return;
     }
 
+    generationStartedRef.current = true;
     setState({ name: "generating", submissionId });
     trackProductEvent({ event_name: "blueprint_handoff_retry", source: "results" });
     try {
@@ -130,6 +140,9 @@ function PremiumResultsHandoff() {
         {state.name === "generating" ? <GeneratingState /> : null}
         {state.name === "ready" ? <ReadyState stackId={state.stackId} /> : null}
         {state.name === "no_submission" ? <NoSubmissionState /> : null}
+        {state.name === "ready_to_generate" ? (
+          <SavedProfileState onGenerate={() => void retryGeneration(state.submissionId)} />
+        ) : null}
         {state.name === "error" ? (
           <ErrorState
             message={state.message}
@@ -143,6 +156,10 @@ function PremiumResultsHandoff() {
 
 function LoadingState() {
   return <div className="py-12 text-center" role="status" aria-live="polite"><Loader2 className="mx-auto h-9 w-9 animate-spin text-[#08A88A]" /><h1 className="mt-5 text-3xl font-extrabold text-[#041B2D]">Connecting your intake</h1><p className="mx-auto mt-3 max-w-xl leading-7 text-slate-600">We are locating your latest answers and checking your Blueprint status.</p></div>;
+}
+
+function SavedProfileState({ onGenerate }: { onGenerate: () => void }) {
+  return <div className="py-10 text-center"><FileText className="mx-auto h-11 w-11 text-[#087F72]" /><h1 className="mt-5 text-3xl font-extrabold text-[#041B2D]">Your saved profile is ready</h1><p className="mx-auto mt-3 max-w-xl leading-7 text-slate-600">Create a Blueprint using your saved profile and dated historical records. This does not confirm current doses or change your Routine, weekly practice, or safety acknowledgements.</p><button type="button" onClick={onGenerate} className="mt-7 inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-6 py-3 font-bold text-white hover:bg-[#06695F]">Create my Blueprint <ArrowRight className="ml-2 h-5 w-5" /></button></div>;
 }
 
 function GeneratingState() {

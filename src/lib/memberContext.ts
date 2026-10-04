@@ -1,5 +1,6 @@
 import type { CurrentBlueprintContext, ExperimentBlueprintContext } from "./blueprintContext";
 import type { CurrentRegimenItem } from "./currentRegimenModel";
+import type { ImportedHealthSummary } from "./importedHealthContext.ts";
 import { normalizeMemberReportedContext } from "./memberReportedContext.ts";
 import { buildWeeklyPracticeMetrics } from "./practiceQuantity.ts";
 import { unknownSafetyEvidence, type SafetyEvidenceProvenance, type SafetyFinding } from "./safetyEngine.ts";
@@ -192,6 +193,7 @@ export type MemberIntelligenceContext = {
   version: typeof MEMBER_CONTEXT_VERSION;
   member: MemberContextSection<MemberIdentityContext | null>;
   healthProfile: MemberContextSection<MemberHealthProfileContext | null>;
+  importedHealthRecords?: MemberContextSection<ImportedHealthSummary | null>;
   goals: {
     saved: MemberContextSection<MemberGoalContext[]>;
     blueprint: MemberContextSection<string[]>;
@@ -284,6 +286,7 @@ export type MemberIntelligenceContextInput = {
   generatedAt: string;
   member: (MemberIdentityContext & { updatedAt: string | null }) | null;
   healthProfile: (MemberHealthProfileContext & { submissionId: string; updatedAt: string | null }) | null;
+  importedHealthRecords?: ImportedHealthSummary | null;
   preferences: (MemberPreferencesContext & { updatedAt: string | null }) | null;
   savedGoals: MemberGoalContext[];
   goalsUpdatedAt: string | null;
@@ -605,9 +608,21 @@ export function buildMemberIntelligenceContext(input: MemberIntelligenceContextI
     supplements: regimenSection(input.regimen, "supplement", "No active supplements are currently recorded."),
     endocrineActiveSupplements: regimenSection(input.regimen, "endocrine_active_supplement", "No active endocrine-active supplements are currently recorded."),
   };
+  const archive = input.importedHealthRecords ?? null;
+  const measurementDate = archive?.lastMeasurementDate ?? null;
+  const archiveIsStale = measurementDate != null
+    && Date.parse(input.generatedAt) - Date.parse(`${measurementDate}T00:00:00Z`) > 30 * 86400_000;
+  const importedHealthRecords = section<ImportedHealthSummary | null>(
+    archive,
+    archive ? (archiveIsStale ? "stale" : "present") : "missing",
+    measurementDate,
+    archive ? [{ source: "submissions", recordId: archive.submissionId, updatedAt: measurementDate }] : [],
+    archive ? null : "No member-authorized imported health archive is recorded. This does not imply a live connector is available.",
+  );
   const trackedSections: Record<string, MemberContextSection<unknown>> = {
     member,
     healthProfile,
+    importedHealthRecords,
     savedGoals,
     blueprintGoals: blueprintGoalSection,
     blueprint,
@@ -628,6 +643,7 @@ export function buildMemberIntelligenceContext(input: MemberIntelligenceContextI
     version: MEMBER_CONTEXT_VERSION,
     member,
     healthProfile,
+    importedHealthRecords,
     goals: {
       saved: savedGoals,
       blueprint: blueprintGoalSection,

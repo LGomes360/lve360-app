@@ -8,6 +8,7 @@ import type {
 } from "./memberContext";
 import { missingContextRequirements } from "./coachTaskValidation.ts";
 import { regimenScheduleLabel } from "./regimenSchedule.ts";
+import { isImportedHealthRecordLookup, formatImportedHealthRecordSummary, formatCurrentCheckInAvailability } from "./importedHealthContext.ts";
 
 export type DeterministicCoachTaskResult = {
   answer: string;
@@ -211,6 +212,14 @@ export function deterministicCoachTask(
   context: MemberIntelligenceContext,
   question: string,
 ): DeterministicCoachTaskResult | null {
+  if (route.intent === "GENERAL_EDUCATION" && isImportedHealthRecordLookup(question)) {
+    const archive = context.importedHealthRecords?.value;
+    return {
+      answer: `${formatImportedHealthRecordSummary(archive)}\n\n${formatCurrentCheckInAvailability(context.recentCheckIns.value)}\n\nThis is a read-only record summary. Nothing was added, removed or changed.\n\nNext step: Review the dated source details in Today; an optional check-in can tell LVE360 how you feel today.`,
+      sourceIds: [...(archive ? ["imported_health_records"] : []), "recent_check_ins", "context_status"],
+      responseSource: "deterministic",
+    };
+  }
   if (route.intent === "CURRENT_PLAN_LOOKUP") return currentPlanLookup(context, question);
   if (["CURRENT_REGIMEN_LOOKUP", "MEDICATION_LOOKUP", "HORMONE_LOOKUP", "SUPPLEMENT_LOOKUP"].includes(route.intent)) {
     return regimenLookup(route, context);

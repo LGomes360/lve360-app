@@ -78,8 +78,8 @@ export default function PremiumActivationChecklist({
               Connect this Blueprint
             </button>
           ) : progress.blueprint.status === "missing" ? (
-            <Link href="/quiz" className="inline-flex min-h-11 items-center rounded-xl bg-[#087F72] px-4 py-2 font-bold text-white hover:bg-[#06695F]">
-              Complete my health intake
+            <Link href={progress.blueprint.intakeSubmissionId ? `/results/premium?submission_id=${encodeURIComponent(progress.blueprint.intakeSubmissionId)}&from_saved_profile=1` : "/quiz"} className="inline-flex min-h-11 items-center rounded-xl bg-[#087F72] px-4 py-2 font-bold text-white hover:bg-[#06695F]">
+              {progress.blueprint.intakeSubmissionId ? "Create Blueprint from my saved profile" : "Complete my health intake"}
             </Link>
           ) : progress.blueprint.stackId ? (
             <Link href={`/blueprints/${encodeURIComponent(progress.blueprint.stackId)}`} className="text-sm font-bold text-[#087F72] hover:underline">
@@ -173,5 +173,6 @@ function blueprintDescription(progress: PremiumActivationProgress): string {
   if (progress.blueprint.status === "recoverable") {
     return "We found an existing Blueprint for your verified sign-in email. Connect it deliberately to continue.";
   }
+  if (progress.blueprint.intakeSubmissionId) return "Your health profile is saved. Create a fresh Blueprint from that profile; historical records do not confirm current doses or today's health state.";
   return "Complete the health intake so LVE360 can organize your goals, routine, and safety context.";
 }

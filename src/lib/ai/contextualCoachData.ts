@@ -24,6 +24,7 @@ import { buildGroundedCoachFallback } from "@/lib/coachFallback";
 import { healthItemIdentityKey } from "@/lib/healthItemIdentity";
 import type { MemberIntelligenceContext, MemberRegimenItemContext } from "@/lib/memberContext";
 import { getMemberIntelligenceContext } from "@/lib/memberContextData";
+import { IMPORTED_HEALTH_PROMPT_RULES, isImportedHealthRecordLookup } from "@/lib/importedHealthContext";
 import { applySafetyChecks, type AppliedSafetyResult } from "@/lib/safetyCheck";
 import type { SafetyContext } from "@/lib/safetyEngine";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
@@ -168,7 +169,9 @@ export async function buildCoachContext(
   question: string,
   routing: CoachRoutingDecision,
 ): Promise<CoachContext> {
-  const requested = new Set(INTENT_SOURCE_IDS[routing.intent]);
+  const requested = new Set(routing.intent === "GENERAL_EDUCATION" && isImportedHealthRecordLookup(question)
+    ? ["imported_health_records", "recent_check_ins", "context_status"]
+    : INTENT_SOURCE_IDS[routing.intent]);
   const excludedSourceIds = await getExcludedCoachContextIds(userId);
   const activeExclusions = excludedSourceIds.filter((sourceId) => requested.has(sourceId));
   activeExclusions.forEach((sourceId) => requested.delete(sourceId));
@@ -189,6 +192,16 @@ export async function buildCoachContext(
   const allRegimen = regimenItems(memberContext);
   const sources: CoachSource[] = [];
   const facts: Record<string, unknown> = {};
+  const importedRecords = memberContext.importedHealthRecords?.value;
+  if (importedRecords && routing.intent !== "OUT_OF_SCOPE" && routing.intent !== "POTENTIAL_MEDICAL_RED_FLAG"
+    && (requested.has("imported_health_records") || requested.has("health_profile") || /\b(?:labs?|blood|hematocrit|hemoglobin|psa|pap|cpap|oxygen|sleep|imported|archive)\b/i.test(question))) {
+    sources.push({
+      id: "imported_health_records", label: "Imported health records", kind: "member_record",
+      summary: `Historical source records; measurements through ${importedRecords.lastMeasurementDate ?? "the recorded dates"}. Not live sync or confirmed current health state.`,
+      href: "/today#health-picture-title",
+    });
+    facts.imported_health_records = importedRecords;
+  }
 
   if (requested.has("current_plan")) {
     const practice = memberContext.activePractice.value;
@@ -550,6 +563,7 @@ function prompt(question: string, context: CoachContext, repair: CoachRepairInst
       content: [
         "You are Ask LVE360, an evidence-aware lifestyle coach for longevity, vitality, energy, and happiness.",
         "Saved LVE360 records describe this member; they personalize and constrain your answer but are not the whole knowledge base.",
+        IMPORTED_HEALTH_PROMPT_RULES,
         "Use the supplied curated evidence_options for supplement facts, comparisons, and evidence strength. Never invent a study, citation, interaction, diagnosis, symptom, or user fact.",
         "Answer the actual question in the first sentence. Do not lead with a disclaimer or say the Blueprint lacks the answer unless the user explicitly asks what the Blueprint says.",
         "You may explain, compare, rank, and recommend considering a supplement when the supplied evidence and safety status support it. You may explain dose or timing only when dose_guidance is supplied.",

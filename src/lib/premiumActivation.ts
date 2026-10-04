@@ -9,6 +9,7 @@ export type PremiumActivationProgress = {
     status: "connected" | "recoverable" | "missing";
     stackId: string | null;
     createdAt: string | null;
+    intakeSubmissionId?: string | null;
   };
   practice: {
     status: "active" | "draft" | "missing";
@@ -28,7 +29,7 @@ export async function getPremiumActivationProgress(
   user: Pick<User, "id" | "email" | "email_confirmed_at">
 ): Promise<PremiumActivationProgress> {
   const admin = getSupabaseAdmin();
-  const [connectedResult, experimentResult, completionResult] = await Promise.all([
+  const [connectedResult, experimentResult, completionResult, intakeResult] = await Promise.all([
     admin
       .from("stacks")
       .select("id,user_id,submission_id,created_at,sections")
@@ -50,11 +51,14 @@ export async function getPremiumActivationProgress(
       .eq("user_id", user.id)
       .limit(1)
       .maybeSingle(),
+    admin.from("submissions").select("id").eq("user_id", user.id)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle(),
   ]);
 
   if (connectedResult.error) throw connectedResult.error;
   if (experimentResult.error) throw experimentResult.error;
   if (completionResult.error) throw completionResult.error;
+  if (intakeResult.error) throw intakeResult.error;
 
   const connected = connectedResult.data as StackSummary | null;
   const recoverable = connected ? null : await findRecoverableBlueprint(user);
@@ -65,7 +69,7 @@ export async function getPremiumActivationProgress(
       ? { status: "connected", stackId: connected.id, createdAt: connected.created_at }
       : recoverable
         ? { status: "recoverable", stackId: null, createdAt: recoverable.created_at }
-        : { status: "missing", stackId: null, createdAt: null },
+        : { status: "missing", stackId: null, createdAt: null, intakeSubmissionId: intakeResult.data?.id ?? null },
     practice: {
       status: experimentStatus === "active"
         ? "active"
