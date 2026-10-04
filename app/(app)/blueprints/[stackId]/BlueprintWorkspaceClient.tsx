@@ -34,6 +34,8 @@ import type {
 } from "@/lib/recommendationDecision";
 
 import BlueprintDeltaPanel from "./BlueprintDeltaPanel";
+import BlueprintWellnessOverviewCard from "@/components/BlueprintWellnessOverviewCard";
+import type { BlueprintWellnessOverview } from "@/lib/blueprintWellnessOverview";
 
 type StackSummary = {
   id: string;
@@ -66,7 +68,8 @@ type RecommendationSummary = {
 
 type Props = {
   stack: StackSummary;
-  sections: Array<{ name: string; body: string }>;
+  sections: Array<{ name: string; body: string; originalBody: string | null }>;
+  wellnessOverview: BlueprintWellnessOverview;
   recommendations: RecommendationSummary[];
   initialSupplements: MemberSupplement[];
   hasMemberOverride: boolean;
@@ -80,6 +83,7 @@ type Props = {
 export default function BlueprintWorkspaceClient({
   stack,
   sections,
+  wellnessOverview,
   recommendations,
   initialSupplements,
   hasMemberOverride,
@@ -280,7 +284,11 @@ export default function BlueprintWorkspaceClient({
   }
 
   async function adoptRecommendation(item: RecommendationSummary) {
-    if (item.decision.overlap_snapshot.length || item.decision.status === "clinician_review") {
+    if (item.decision.overlap_snapshot.length) {
+      setError("Review the overlapping items in Routine before considering another source. Nothing was added.");
+      return;
+    }
+    if (item.decision.status === "clinician_review") {
       const confirmed = window.confirm(
         "This recommendation has an overlap or clinician-review note. Only add it after you have checked that it belongs in your routine."
       );
@@ -295,7 +303,12 @@ export default function BlueprintWorkspaceClient({
         body: JSON.stringify({ item_id: item.proposal.id }),
       });
       const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.ok) throw new Error("recommendation_adoption_failed");
+      if (!response.ok || !data?.ok) {
+        const message = data?.error === "recommendation_already_recorded" || data?.error === "recommendation_overlap_review_required"
+          ? "Your current routine already contains this ingredient or a possible overlapping source. Review Routine; nothing was added."
+          : "We could not add that recommendation. Your routine is unchanged.";
+        throw new Error(message);
+      }
       setRecommendationItems((current) => current.map((candidate) =>
         candidate.proposal.id === item.proposal.id
           ? { ...candidate, decision: { ...candidate.decision, status: "adopted" } }
@@ -303,8 +316,8 @@ export default function BlueprintWorkspaceClient({
       ));
       setMessage(`${item.proposal.name} was added to your current routine. Record its schedule in Routine.`);
       router.refresh();
-    } catch {
-      setError("We could not add that recommendation. Your routine is unchanged.");
+    } catch (adoptionError) {
+      setError(adoptionError instanceof Error ? adoptionError.message : "We could not add that recommendation. Your routine is unchanged.");
     } finally {
       setRecommendationBusyId(null);
     }
@@ -373,6 +386,8 @@ export default function BlueprintWorkspaceClient({
         </div>
       </section>
 
+      <BlueprintWellnessOverviewCard overview={wellnessOverview} />
+
       {!isLatest ? (
         <div className="mt-6 rounded-2xl border border-blue-200 bg-blue-50 p-5 text-sm leading-6 text-blue-950">
           You are viewing an earlier version. It remains available for reference, but edits apply to your current health context.
@@ -388,10 +403,10 @@ export default function BlueprintWorkspaceClient({
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
             <div className="flex-1">
               <h2 className="font-bold text-amber-950">
-                {refreshIssue ? "Your saved Blueprint is still available" : "Your Plan has changed since this Blueprint"}
+                {refreshIssue ? "Your saved Blueprint is still available" : "This Blueprint is ready for an update"}
               </h2>
               <p className="mt-1 text-sm leading-6 text-amber-900">
-                {refreshIssue ?? "Your living Plan now differs from this dated report. Create a new Blueprint version when you are ready to review those changes and rerun the safety check."}
+                {refreshIssue ?? "Your saved inputs or the report engine have changed since this dated report. Create a new Blueprint version when you are ready to review the updated context and rerun the safety check. Your original report remains available."}
               </p>
               <button
                 type="button"
@@ -442,7 +457,7 @@ export default function BlueprintWorkspaceClient({
           </a>
           <Link href="/routine" className="rounded-xl border border-slate-200 p-4 transition hover:border-[#9DCFC3] hover:bg-[#F4FAF8]">
             <span className="flex items-center gap-2 font-bold text-[#041B2D]"><CheckCircle2 className="h-5 w-5 text-[#087F72]" aria-hidden="true" />Put it into practice</span>
-            <span className="mt-2 block text-sm leading-6 text-slate-600">Open Routine to schedule and check off supplements, medications, and hormones.</span>
+            <span className="mt-2 block text-sm leading-6 text-slate-600">Review recorded instructions in Routine. Return to Today and Plan for your daily perspective and practice.</span>
           </Link>
         </div>
       </section>
@@ -501,7 +516,7 @@ export default function BlueprintWorkspaceClient({
           <div className="pt-2">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Supporting report</p>
             <h2 className="mt-1 text-2xl font-bold text-[#041B2D]">Why your Blueprint says this</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">These sections preserve the complete report in a readable reference format.</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">These sections preserve the dated report. Any routine reconciliation is labeled, and the original text remains available.</p>
           </div>
 
           {sections.filter((section) => section.name !== "This Week Try").map((section, index) => (
@@ -510,6 +525,7 @@ export default function BlueprintWorkspaceClient({
               sectionNumber={index + 1}
               name={section.name}
               body={section.body}
+              originalBody={section.originalBody}
               stale={stale}
               onEditSupplements={beginEditing}
               onRefresh={refreshBlueprint}
@@ -630,20 +646,24 @@ function RecommendationDecisionPanel({
               </div>
               {item.decision.overlap_snapshot.length ? (
                 <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
-                  <strong>Possible overlap:</strong> Your current routine includes {item.decision.overlap_snapshot.join(", ")}. Check the ingredient labels before adding another source.
+                  <strong>Possible overlap — review existing sources:</strong> Your recorded routine includes {item.decision.overlap_snapshot.join(", ")}. This is not a new addition to make. Check ingredients and forms with your clinician before considering another source.
                 </p>
               ) : null}
-              {[item.proposal.dose, item.proposal.timing_text || item.proposal.timing].some(Boolean) ? (
+              {!item.decision.overlap_snapshot.length && [item.proposal.dose, item.proposal.timing_text || item.proposal.timing].some(Boolean) ? (
                 <p className="mt-3 text-sm text-slate-600">
                   <strong>Report starting guidance:</strong> {[item.proposal.dose, item.proposal.timing_text || item.proposal.timing].filter(Boolean).join(" · ")}
                 </p>
               ) : null}
               {active ? (
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                  <button type="button" disabled={busy} onClick={() => void onAdopt(item)} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 text-sm font-bold text-white hover:bg-[#06695F] disabled:opacity-60">
-                    {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" />}
-                    {item.decision.status === "clinician_review" ? "Add after review" : "Add to Routine"}
-                  </button>
+                  {item.decision.overlap_snapshot.length ? (
+                    <Link href="/routine" className="inline-flex min-h-12 items-center justify-center rounded-xl border border-[#9DCFC3] bg-white px-4 py-3 text-sm font-bold text-[#06695F] hover:bg-[#EAFBF8]">Review overlap in Routine</Link>
+                  ) : (
+                    <button type="button" disabled={busy} onClick={() => void onAdopt(item)} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 text-sm font-bold text-white hover:bg-[#06695F] disabled:opacity-60">
+                      {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" />}
+                      {item.decision.status === "clinician_review" ? "Add after review" : "Add to Routine"}
+                    </button>
+                  )}
                   <button type="button" disabled={busy} onClick={() => onDecision(item.proposal.id, "clinician_review")} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-bold text-amber-900 hover:bg-amber-50 disabled:opacity-60">
                     <HeartPulse className="mr-2 h-4 w-4" aria-hidden="true" /> Ask my clinician
                   </button>
@@ -831,6 +851,7 @@ function ReportSection({
   sectionNumber,
   name,
   body,
+  originalBody,
   stale,
   onEditSupplements,
   onRefresh,
@@ -845,6 +866,7 @@ function ReportSection({
   sectionNumber: number;
   name: string;
   body: string;
+  originalBody: string | null;
   stale: boolean;
   onEditSupplements: () => void;
   onRefresh: () => void;
@@ -873,6 +895,7 @@ function ReportSection({
         <h3 id={`${sectionId}-title`} className={`mt-1 text-xl font-bold ${isSafety ? "text-amber-950" : "text-[#041B2D]"}`}>{reportSectionTitle(name)}</h3>
       </div>
       <div className="p-5 sm:p-6">
+        {name === "Dosing & Notes" ? <p className="mb-4 rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">These are dated report notes, not new instructions to start or change a product. Review the current recorded form, dose and timing in Routine; overlap warnings above take priority.</p> : null}
         {isSafety && stale ? (
           <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
             These cautions are based on an earlier input snapshot. Refresh before relying on them after a change.
@@ -905,7 +928,24 @@ function ReportSection({
             </button>
           </div>
         ) : null}
-        <BlueprintMarkdown name={name} body={body} />
+        {name === "Intro Summary" ? (
+          <details className="rounded-xl border border-slate-200 p-4">
+            <summary className="cursor-pointer text-sm font-bold text-[#06695F]">Read the original dated introduction</summary>
+            <p className="my-3 text-sm leading-6 text-slate-600">This introduction reflects the saved report, not the latest records or how you feel today. Use the five-area overview above for the latest available context.</p>
+            <BlueprintMarkdown name={name} body={body} />
+          </details>
+        ) : (
+          <>
+            {originalBody ? <p className="mb-4 rounded-xl bg-[#EAFBF8] p-4 text-sm leading-6 text-[#06695F]">Read-only routine reconciliation: already-recorded ingredients and possible overlaps are labeled below. The saved report and PDF are unchanged.</p> : null}
+            <BlueprintMarkdown name={name} body={body} />
+            {originalBody ? (
+              <details className="mt-4 rounded-xl border border-slate-200 p-4">
+                <summary className="cursor-pointer text-sm font-bold text-[#06695F]">Read the original saved recommendations</summary>
+                <div className="mt-3"><BlueprintMarkdown name={name} body={originalBody} /></div>
+              </details>
+            ) : null}
+          </>
+        )}
         {isCurrent ? (
           <button type="button" onClick={onEditSupplements} className="mt-5 inline-flex min-h-11 items-center text-sm font-bold text-[#087F72] hover:underline">
             <Pencil className="mr-2 h-4 w-4" aria-hidden="true" />

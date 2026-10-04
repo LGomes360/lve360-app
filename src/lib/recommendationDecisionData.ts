@@ -77,18 +77,21 @@ export async function getStackRecommendationDecisions(
   reportMarkdown: string,
 ): Promise<StackRecommendationDecision[]> {
   const admin = getSupabaseAdmin();
+  const activeItems = currentItems.filter((item) => item.active !== false);
   let { data, error } = await admin
     .from("stacks_items")
     .select(PROPOSAL_COLUMNS)
     .eq("stack_id", stackId)
     .eq("user_id", userId)
-    .eq("is_current", false);
+    .eq("is_current", false)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
   if (error) throw error;
 
   const storedNames = new Set((data ?? []).map((item) => healthItemIdentityKey(item.name)));
   const reportProposals = extractReportRecommendationProposals(
     reportMarkdown,
-    currentItems.map((item) => item.name),
+    activeItems.map((item) => item.name),
   ).filter((item) => !storedNames.has(healthItemIdentityKey(item.name)));
 
   if (reportProposals.length) {
@@ -113,21 +116,28 @@ export async function getStackRecommendationDecisions(
       .select(PROPOSAL_COLUMNS)
       .eq("stack_id", stackId)
       .eq("user_id", userId)
-      .eq("is_current", false);
+      .eq("is_current", false)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true });
     if (refreshed.error) throw refreshed.error;
     data = refreshed.data;
   }
 
-  const currentNames = new Set(currentItems.map((item) => healthItemIdentityKey(item.name)));
+  const currentNames = new Set(activeItems.map((item) => healthItemIdentityKey(item.name)));
+  const seenProposalNames = new Set<string>();
   const proposals = (data ?? [])
     .filter((item) => {
       const name = typeof item.name === "string" ? item.name.trim() : "";
-      return Boolean(
+      const key = healthItemIdentityKey(name);
+      const eligible = Boolean(
         name
         && isEligibleSupplementName(name)
         && !isMedicationOrHormoneName(name)
         && !currentNames.has(healthItemIdentityKey(name))
+        && !seenProposalNames.has(key)
       );
+      if (eligible) seenProposalNames.add(key);
+      return eligible;
     })
     .map((item) => ({
       id: item.id,
@@ -148,7 +158,7 @@ export async function getStackRecommendationDecisions(
 
   if (!proposals.length) return [];
 
-  const seeds = proposals.map((proposal) => buildRecommendationDecisionSeed(proposal, currentItems, goals));
+  const seeds = proposals.map((proposal) => buildRecommendationDecisionSeed(proposal, activeItems, goals));
   const { error: upsertError } = await admin.from("recommendation_decisions").upsert(
     seeds.map((seed) => ({ user_id: userId, ...seed })),
     { onConflict: "user_id,recommendation_key,context_fingerprint" },

@@ -42,6 +42,8 @@ import { IMPORTED_HEALTH_PROMPT_RULES, withoutSubmissionSourcePayloads } from "@
 import { loadImportedHealthSummary } from "@/lib/importedHealthContextData";
 import { extractReportRecommendationProposals } from "@/lib/reportRecommendationProposals";
 import { canonicalHealthItemDisplayName, healthItemIdentityKey, validateGeneratedHealthItemIntegrity } from "@/lib/healthItemIdentity";
+import { classifyBlueprintRecommendation } from "@/lib/recommendationDecision";
+import { buildBlueprintWellnessOverview, blueprintWellnessIntroMarkdown } from "@/lib/blueprintWellnessOverview";
 import {
   BLUEPRINT_MIN_RECOMMENDATIONS,
   BLUEPRINT_TARGET_RECOMMENDATIONS,
@@ -472,22 +474,21 @@ function sanitizeBlueprintTable(
   });
   const classified = deduped.map((item) => {
     const current = currentSupplementsByIdentity.get(healthItemIdentityKey(item.name));
+    const classification = classifyBlueprintRecommendation(item.name, currentLedger);
     return {
       ...item,
       name: current?.name ?? item.name,
-      status: current
-        ? "Current - optimize" as const
-        : "New - consider" as const,
+      status: classification.status,
+      why: current ? "Already recorded in Routine. Review the saved form, dose and timing; do not add a duplicate."
+        : classification.overlaps.length ? `Possible overlap with ${classification.overlaps.join(", ")}. Review existing sources with your clinician before considering another.` : item.why,
     };
   });
   const currentPool = classified.filter((item) => item.status === "Current - optimize").slice(0, 5);
-  const clinicianPool: typeof classified = [];
+  const clinicianPool = classified.filter((item) => item.status === "Clinician review");
   const newPool = classified.filter((item) => item.status === "New - consider");
-  const selected = [...currentPool];
-  const reservedClinician = clinicianPool.length;
-  const requiredNew = Math.max(4, minRows - selected.length - reservedClinician);
+  const selected = [...currentPool, ...clinicianPool];
+  const requiredNew = Math.max(0, minRows - selected.length);
   selected.push(...newPool.slice(0, requiredNew));
-  selected.push(...clinicianPool);
   if (selected.length < minRows) {
     const selectedNames = new Set(selected.map((item) => healthItemIdentityKey(item.name)));
     selected.push(...newPool.filter((item) => !selectedNames.has(healthItemIdentityKey(item.name))).slice(0, minRows - selected.length));
@@ -563,6 +564,13 @@ function consistentDosingBody(
       normalizeSupplementName(item.name).toLowerCase() === normalizeSupplementName(name).toLowerCase());
     const reported = [current?.dose, current?.timing].filter(Boolean).join(", ");
     if (current && reported) return `- **${name}** -- Your reported routine: ${reported}.`;
+    const classification = classifyBlueprintRecommendation(name, ledger);
+    if (classification.status === "Current - optimize") {
+      return `- **${name}** -- Already recorded in Routine; confirm the saved form, dose and timing rather than adding another source. No starting dose is supplied for missing instructions.`;
+    }
+    if (classification.status === "Clinician review") {
+      return `- **${name}** -- Possible overlap with ${classification.overlaps.join(", ")}. Review existing sources with your clinician; no starting dose or new schedule is supplied.`;
+    }
     if (berberineRequiresReview && /^berberine(?:\s+hcl)?$/i.test(name)) {
       return `- **${name}** -- Not included as a starting recommendation because glucose-lowering medication or blood-sugar context was reported.`;
     }
@@ -1253,27 +1261,10 @@ function markdownCell(value: string): string {
   return value.replace(/\|/g, "/").replace(/\s+/g, " ").trim();
 }
 
-function buildPersonalizedIntroSection(
-  client: any,
-  ledger: NormalizedCurrentStackLedgerItem[],
-  blueprintTable: string
-): string {
-  const firstName = cleanName(client?.name ?? client?.full_name ?? "").split(/\s+/)[0];
-  const greeting = firstName ? `Welcome, ${firstName}.` : "Welcome.";
-  const goals = reportedGoals(client);
-  const conditions = reportedConditions(client);
-  const currentSupplements = ledger.filter((item) => item.kind === "supplement").map((item) => item.name);
-  const newRecommendations = blueprintNamesByStatus(blueprintTable, "New - consider");
-  const currentFoundation = currentSupplements.length ? naturalList(currentSupplements, 5) : "no supplements reported in the intake";
-  const firstAdditions = newRecommendations.length ? naturalList(newRecommendations, 3) : "the eligible additions listed in your Blueprint";
-  const contextSentence = conditions.length
-    ? `Your reported ${naturalList(conditions, 3)} are treated as planning and safety context, not as conditions this report is attempting to treat.`
-    : "Your reported routine and preferences are used as practical planning context.";
-  return `## Intro Summary
-
-${greeting} Your Blueprint is organized around ${naturalList(goals)}. Your current supplement foundation includes ${currentFoundation}, so the plan emphasizes useful gaps and timing improvements rather than simply adding more products.
-
-The first additions to evaluate are ${firstAdditions}. ${contextSentence} Introduce no more than one new supplement at a time, follow the starting guidance, and use the Weekly Focus measures to decide whether the change is actually helping.`;
+function buildPersonalizedIntroSection(client: any): string {
+  return blueprintWellnessIntroMarkdown(buildBlueprintWellnessOverview({
+    asOfDate: TODAY, goals: reportedGoals(client), importedRecords: client?.imported_health_records ?? null,
+  }));
 }
 
 function buildNeutralGoalsSection(client: any): string {
@@ -2268,7 +2259,7 @@ md = replaceOrAppendSection(md, buildPracticalFollowUpSection());
     berberineRequiresReview
   );
   md = ensureReportDosingAlignment(md, currentStackLedger, berberineRequiresReview);
-  md = replaceOrAppendSection(md, buildPersonalizedIntroSection(baseClient, currentStackLedger, tableMd));
+  md = replaceOrAppendSection(md, buildPersonalizedIntroSection(baseClient));
   md = replaceOrAppendSection(md, buildNeutralGoalsSection(baseClient));
   md = replaceOrAppendSection(md, buildPersonalizedLifestyleSection(baseClient));
   md = replaceOrAppendSection(md, buildPersonalizedLongevitySection(baseClient));

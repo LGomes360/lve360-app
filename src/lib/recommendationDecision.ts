@@ -1,3 +1,5 @@
+import { healthItemIdentityKey } from "./healthItemIdentity.ts";
+
 export const RECOMMENDATION_DECISION_STATUSES = [
   "review",
   "clinician_review",
@@ -52,7 +54,8 @@ const OVERLAP_FAMILIES: Array<{ recommendation: RegExp; current: RegExp }> = [
   { recommendation: /^vitamin d|cholecalciferol/, current: /vitamin d|cholecalciferol|multivitamin/ },
   { recommendation: /^magnesium/, current: /magnesium/ },
   { recommendation: /omega[- ]?3|fish oil/, current: /omega[- ]?3|fish oil/ },
-  { recommendation: /coq10|coenzyme q10/, current: /coq10|coenzyme q10/ },
+  { recommendation: /coq ?10|coenzyme q10|ubiquinol|ubiquinone/, current: /coq ?10|coenzyme q10|ubiquinol|ubiquinone/ },
+  { recommendation: /psyllium/, current: /psyllium/ },
 ];
 
 const GOAL_MATCHERS: Array<{ signal: RegExp; goal: RegExp }> = [
@@ -111,14 +114,46 @@ export function recommendationOverlapNames(
   currentItems: RecommendationContextItem[],
 ): string[] {
   const recommendation = normalizeRecommendationName(recommendationName);
+  if (!recommendation) return [];
   const family = OVERLAP_FAMILIES.find((candidate) => candidate.recommendation.test(recommendation));
   const overlaps = currentItems.filter((item) => {
     const current = normalizeRecommendationName(item.name);
     if (!current) return false;
-    if (current === recommendation || current.includes(recommendation) || recommendation.includes(current)) return true;
+    if (healthItemIdentityKey(item.name) === healthItemIdentityKey(recommendationName)) return true;
+    // Only whole ingredient phrases overlap. Do not match "Glycine" in "Glycinate".
+    if (` ${current} `.includes(` ${recommendation} `) || ` ${recommendation} `.includes(` ${current} `)) return true;
     return family?.current.test(current) ?? false;
   });
   return [...new Set(overlaps.map((item) => item.name.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right));
+}
+
+export function classifyBlueprintRecommendation(name: string, currentItems: RecommendationContextItem[]): {
+  status: "Current - optimize" | "Clinician review" | "New - consider";
+  recordedName: string | null;
+  overlaps: string[];
+} {
+  const key = healthItemIdentityKey(name);
+  const exact = key ? currentItems.find((item) => healthItemIdentityKey(item.name) === key) : null;
+  const overlaps = recommendationOverlapNames(name, currentItems);
+  return { status: exact ? "Current - optimize" : overlaps.length ? "Clinician review" : "New - consider", recordedName: exact?.name ?? null, overlaps };
+}
+
+/** Read-only display correction; never rewrite a saved report or member decision. */
+export function reconcileBlueprintRecommendationBody(body: string, currentItems: RecommendationContextItem[]): string {
+  return body.split(/\r?\n/).map((line) => {
+    if (!/^\s*\|\s*\d+\s*\|/.test(line)) return line;
+    const cells = line.split("|");
+    if (cells.length < 6 || !/Current - optimize|New - consider|Clinician review/i.test(cells[3])) return line;
+    const classification = classifyBlueprintRecommendation(cells[2].replace(/[*_`]/g, "").trim(), currentItems);
+    if (classification.status === "New - consider") return line; // Never relax a saved review restriction.
+    // Retain any existing clinician restriction and its explanation.
+    cells[3] = ` ${/Clinician review/i.test(cells[3]) ? "Clinician review" : classification.status} `;
+    const note = classification.recordedName
+      ? "Already recorded in Routine. Review the saved form, dose and timing; do not add a duplicate."
+      : `Possible overlap with ${classification.overlaps.join(", ").replace(/\|/g, "/")}. Review existing sources with your clinician before considering another.`;
+    if (!cells[4].includes(note)) cells[4] = ` ${note} ${cells[4].trim()} `;
+    return cells.join("|");
+  }).join("\n");
 }
 
 function alignedGoals(name: string, rationale: string | null, goals: string[]): string[] {

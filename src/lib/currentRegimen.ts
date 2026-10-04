@@ -15,6 +15,7 @@ import type { MedicationInstructionAuthority } from "@/lib/medicationRecord";
 import { regimenScheduleLabel, type RegimenSchedule } from "@/lib/regimenSchedule";
 import { normalizeHttpsUrl, type SupplementProductSource } from "@/lib/supplementProduct";
 import { updateRecommendationDecision } from "@/lib/recommendationDecisionData";
+import { classifyBlueprintRecommendation } from "@/lib/recommendationDecision";
 
 const REGIMEN_COLUMNS = "id,user_id,source_submission_id,source_stack_item_id,item_kind,name,normalized_name,purpose,dose,timing,schedule,brand,reorder_url,image_url,product_source,product_sku,instruction_source,instruction_authority,active,created_at,updated_at";
 
@@ -143,6 +144,11 @@ export async function adoptStackRecommendation(userId: string, stackItemId: stri
     .eq("id", stackItemId).eq("user_id", userId).maybeSingle();
   if (error) throw error;
   if (!item) return null;
+  // Re-check the owner-scoped active routine at adoption time, not only when the
+  // page was rendered. Never overwrite a recorded dose/schedule with a proposal.
+  const classification = classifyBlueprintRecommendation(item.name, await getCurrentRegimen(userId));
+  if (classification.status === "Current - optimize") throw new Error("recommendation_already_recorded");
+  if (classification.status === "Clinician review") throw new Error("recommendation_overlap_review_required");
   let reorderUrl: string | null = null;
   try { reorderUrl = normalizeHttpsUrl(item.link_fullscript ?? item.link_amazon ?? null); } catch { reorderUrl = null; }
   const row = {

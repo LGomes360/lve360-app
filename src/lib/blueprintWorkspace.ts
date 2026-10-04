@@ -16,7 +16,7 @@ export const MAX_MEMBER_SUPPLEMENTS = 30;
 export const MEMBER_SUPPLEMENT_OVERRIDE_KEY = "member_current_supplements";
 // Increment only when a report or safety-engine change requires members to
 // regenerate an otherwise unchanged Blueprint.
-export const BLUEPRINT_ENGINE_VERSION = "2026-08-09.3";
+export const BLUEPRINT_ENGINE_VERSION = "2026-10-04.1";
 
 export type MemberSupplement = {
   id: string;
