@@ -23,6 +23,12 @@ assert.equal((generator.match(/\$\{IMPORTED_HEALTH_PROMPT_RULES\}/g) ?? []).leng
 const coach = read("src/lib/ai/contextualCoachData.ts");
 assert(coach.includes("facts.imported_health_records = importedRecords"));
 assert(coach.includes("IMPORTED_HEALTH_PROMPT_RULES,"));
+assert(coach.includes('routing.intent === "GENERAL_EDUCATION" && isImportedHealthRecordLookup(question)'));
+assert(coach.includes('["imported_health_records", "recent_check_ins", "context_status"]'), "Record lookups must not retrieve supplement recommendation candidates");
+assert(coach.indexOf('["imported_health_records", "recent_check_ins", "context_status"]') < coach.indexOf('activeExclusions.forEach'), "Optional check-in exclusions must also apply to record lookups");
+const routing = read("src/lib/contextualCoach.ts");
+assert(routing.indexOf('if (isImportedHealthRecordLookup(question))') > routing.indexOf('return route("SAFETY_REVIEW")'), "Safety routing must precede read-only archive lookup");
+assert(read("src/lib/coachTaskValidation.ts").includes("dated_imported_records_and_source_caveats_required"));
 const activation = read("src/lib/premiumActivation.ts");
 assert(activation.includes('admin.from("submissions").select("id").eq("user_id", user.id)'));
 assert(activation.includes('status: "missing", stackId: null, createdAt: null, intakeSubmissionId'));

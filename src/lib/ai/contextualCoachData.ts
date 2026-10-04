@@ -24,7 +24,7 @@ import { buildGroundedCoachFallback } from "@/lib/coachFallback";
 import { healthItemIdentityKey } from "@/lib/healthItemIdentity";
 import type { MemberIntelligenceContext, MemberRegimenItemContext } from "@/lib/memberContext";
 import { getMemberIntelligenceContext } from "@/lib/memberContextData";
-import { IMPORTED_HEALTH_PROMPT_RULES } from "@/lib/importedHealthContext";
+import { IMPORTED_HEALTH_PROMPT_RULES, isImportedHealthRecordLookup } from "@/lib/importedHealthContext";
 import { applySafetyChecks, type AppliedSafetyResult } from "@/lib/safetyCheck";
 import type { SafetyContext } from "@/lib/safetyEngine";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
@@ -169,7 +169,9 @@ export async function buildCoachContext(
   question: string,
   routing: CoachRoutingDecision,
 ): Promise<CoachContext> {
-  const requested = new Set(INTENT_SOURCE_IDS[routing.intent]);
+  const requested = new Set(routing.intent === "GENERAL_EDUCATION" && isImportedHealthRecordLookup(question)
+    ? ["imported_health_records", "recent_check_ins", "context_status"]
+    : INTENT_SOURCE_IDS[routing.intent]);
   const excludedSourceIds = await getExcludedCoachContextIds(userId);
   const activeExclusions = excludedSourceIds.filter((sourceId) => requested.has(sourceId));
   activeExclusions.forEach((sourceId) => requested.delete(sourceId));
@@ -192,7 +194,7 @@ export async function buildCoachContext(
   const facts: Record<string, unknown> = {};
   const importedRecords = memberContext.importedHealthRecords?.value;
   if (importedRecords && routing.intent !== "OUT_OF_SCOPE" && routing.intent !== "POTENTIAL_MEDICAL_RED_FLAG"
-    && (requested.has("health_profile") || /\b(?:labs?|blood|hematocrit|hemoglobin|psa|pap|cpap|oxygen|sleep|imported|archive)\b/i.test(question))) {
+    && (requested.has("imported_health_records") || requested.has("health_profile") || /\b(?:labs?|blood|hematocrit|hemoglobin|psa|pap|cpap|oxygen|sleep|imported|archive)\b/i.test(question))) {
     sources.push({
       id: "imported_health_records", label: "Imported health records", kind: "member_record",
       summary: `Historical source records; measurements through ${importedRecords.lastMeasurementDate ?? "the recorded dates"}. Not live sync or confirmed current health state.`,

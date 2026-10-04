@@ -10,6 +10,7 @@ import type {
 import { healthItemIdentityKey } from "./healthItemIdentity.ts";
 import { requestsMemberReportedContext } from "./memberReportedContext.ts";
 import { regimenScheduleLabel } from "./regimenSchedule.ts";
+import { isImportedHealthRecordLookup, formatImportedHealthRecordSummary, formatCurrentCheckInAvailability } from "./importedHealthContext.ts";
 
 export type CoachTaskValidatorId =
   | "STRUCTURE"
@@ -522,7 +523,20 @@ export function validateCoachTaskSuccess(input: CoachTaskValidationInput): Coach
     && !/```/.test(input.answerText);
   validators.push(result("STRUCTURE", Number(structurePass), structurePass ? [] : ["readable_bounded_answer_required"]));
 
-  if (REGIMEN_LOOKUP_INTENTS.has(input.route.intent)) validators.push(...regimenValidators(input));
+  if (input.route.intent === "GENERAL_EDUCATION" && isImportedHealthRecordLookup(input.question)) {
+    const archive = input.memberContext.importedHealthRecords?.value;
+    const provenance = input.answerText.includes(formatImportedHealthRecordSummary(archive))
+      && (archive ? input.usedSourceIds?.includes("imported_health_records") === true : !input.usedSourceIds?.includes("imported_health_records"));
+    const uncertainty = input.answerText.includes(formatCurrentCheckInAvailability(input.memberContext.recentCheckIns.value));
+    const readOnly = input.answerText.includes("Nothing was added, removed or changed.")
+      && !input.structuredAnswer?.options.length && !input.structuredAnswer?.recommendation && !input.structuredAnswer?.proposedAction;
+    validators.push(
+      result("PROVENANCE", Number(provenance), provenance ? [] : ["dated_imported_records_and_source_caveats_required"]),
+      result("UNCERTAINTY", Number(uncertainty), uncertainty ? [] : ["current_check_in_availability_must_be_separate"]),
+      result("READ_ONLY_BOUNDARY", Number(readOnly), readOnly ? [] : ["record_lookup_must_not_offer_regimen_changes"]),
+    );
+  }
+  else if (REGIMEN_LOOKUP_INTENTS.has(input.route.intent)) validators.push(...regimenValidators(input));
   else if (input.route.intent === "CURRENT_PLAN_LOOKUP") validators.push(...planValidators(input));
   else if (input.route.intent === "SAFETY_REVIEW") validators.push(...safetyValidators(input));
   else if (input.route.intent === "BEHAVIORAL_COACHING") validators.push(activePracticeValidator(input), timeHorizonValidator(input));

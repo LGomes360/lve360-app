@@ -185,6 +185,61 @@ export function importedLabDescription(summary: ImportedHealthSummary): string |
   return `${labs.resultCount} archived results across ${labs.reportCount} source reports (${labs.firstDate}–${labs.lastDate}). Latest collection: ${labs.lastDate}.${flags.length ? ` Latest source flags: ${flags.map((result) => `${result.marker}: ${result.flag}`).join("; ")}.` : ""} Review individual results and source caveats with your healthcare provider; this is not a diagnosis.`;
 }
 
+// A request to inspect saved sources is not a request for recommendations, even
+// when it contains "for me". Safety and mutation routing still take precedence.
+export function isImportedHealthRecordLookup(question: string): boolean {
+  if (/\b(?:recommend|suggest|should i|what should|diagnos\w*|dose|dosage|increase|decrease|start|stop|add|remove|delete|change|adjust)\b/i.test(question)) return false;
+  const domain = /\b(?:labs?|laboratory|blood (?:tests?|results?)|sleep|pap|cpap|oxygen|imported health|health archive)\b/i.test(question);
+  const record = /\b(?:records?|results?|reports?|archive|history|historical|dated|data)\b/i.test(question);
+  const lookup = /\b(?:what|which|show|list|summari[sz]e|have|saved|recorded|know)\b/i.test(question);
+  return domain && record && lookup;
+}
+
+export function formatImportedHealthRecordSummary(summary: ImportedHealthSummary | null | undefined): string {
+  if (!summary) return "Historical imported records: No usable lab or sleep archive is available to this answer. I cannot invent source results or claim a live connection.";
+  const lines = [
+    "Historical imported records — not live sync:",
+    `Imported ${summary.importedAt}; source measurements through ${summary.lastMeasurementDate ?? "the recorded dates"}. The import date is not the measurement date.`,
+  ];
+  const labs = summary.labs;
+  if (labs) {
+    lines.push(`Labs: ${labs.resultCount} results across ${labs.reportCount} source reports, ${labs.firstDate}–${labs.lastDate}. Latest collection: ${labs.lastDate}. Showing up to three latest results, with source-flagged entries first:`);
+    for (const item of labs.latestResults.slice(0, 3)) {
+      lines.push(`- ${item.collectedAt}: ${item.marker}: ${item.value}${item.units ? ` ${item.units}` : " (units not recorded)"}; source flag: ${item.flag ?? "not recorded"}; reference interval: ${item.referenceInterval ?? "not recorded"}; fasting: ${item.fasting ?? "not recorded"}.`);
+    }
+  } else lines.push("Labs: No usable lab results in this archive.");
+  const pap = summary.sleep?.pap;
+  lines.push(pap
+    ? `PAP report: ${pap.device}, ${pap.startDate}–${pap.endDate}; average usage: ${pap.averageUsageMinutes == null ? "not recorded" : `${pap.averageUsageMinutes} min`}; device-reported average AHI: ${pap.averageAhi == null ? "not recorded" : `${pap.averageAhi} events/hour`}.`
+    : "PAP: No usable PAP report in this archive.");
+  for (const item of summary.sleep?.oxygen ?? []) {
+    lines.push(`Oxygen recording ${item.startDate}–${item.endDate}: mean SpO2 ${item.meanSpo2 == null ? "not recorded" : `${item.meanSpo2}%`}; minimum ${item.minimumSpo2 == null ? "not recorded" : `${item.minimumSpo2}%`}; time below 90% ${item.timeBelow90 ?? "not recorded"}.`);
+  }
+  if (summary.donationDates.length) lines.push(`Recorded donation dates: ${summary.donationDates.join(", ")}. These dates do not establish improved labs afterward.`);
+  lines.push("Limits: Source flags and reference intervals are not diagnoses; a missing flag does not establish a normal result. PAP usage and oxygen recording time are not sleep duration, sleep quality or treatment efficacy. Flagged results and source caveats are for healthcare-provider review, not changes to medications, hormones or supplements.");
+  // Leave room for the separate current-state and read-only sections. Keep whole
+  // source notes and disclose any truncation rather than silently implying completeness.
+  let result = lines.join("\n");
+  for (const [index, note] of summary.sourceNotes.entries()) {
+    const next = `\nSource note (reported): ${note}`;
+    if (result.length + next.length > 4400) {
+      result += `\n${summary.sourceNotes.length - index} additional source notes are not shown in this bounded summary; review the full source details in Today.`;
+      break;
+    }
+    result += next;
+  }
+  return result;
+}
+
+export function formatCurrentCheckInAvailability(checkIns: ReadonlyArray<{
+  date: string; sleep: number | null; energy: number | null; weight: number | null; memberReportedContext: string | null;
+}>): string {
+  const latest = [...checkIns].sort((a, b) => b.date.localeCompare(a.date))[0];
+  if (!latest) return "Current-state information: No usable recent check-in is available to this answer (not recorded, unavailable or excluded). Your sleep quality, energy, weight and how you feel today are not established by the historical archive. Exercise and diet cannot be inferred from it either.";
+  const present = [latest.sleep != null ? "sleep quality" : null, latest.energy != null ? "energy" : null, latest.weight != null ? "weight" : null, latest.memberReportedContext ? "your own reflection" : null].filter(Boolean);
+  return `Current-state information (separate from the archive): Your latest available check-in is dated ${latest.date}; it contains ${present.length ? present.join(", ") : "no usable sleep, energy, weight or reflection fields"}. Those are self-reports for that date, not an automatic reading of how you feel right now. Current feelings, exercise and diet cannot be inferred from the lab or device archive.`;
+}
+
 // All Blueprint passes receive this projection, never the source archive or raw intake payloads.
 export function withoutSubmissionSourcePayloads(submission: Record<string, unknown>) {
   const { raw_payload: _archive, payload_json: _payload, answers: _answers, engine_input_json: _engine, ...profile } = submission;

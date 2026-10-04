@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { summarizeImportedHealthArchive, withoutSubmissionSourcePayloads, IMPORTED_HEALTH_PROMPT_RULES } from "../lib/importedHealthContext.ts";
+import { summarizeImportedHealthArchive, withoutSubmissionSourcePayloads, IMPORTED_HEALTH_PROMPT_RULES, isImportedHealthRecordLookup, formatImportedHealthRecordSummary } from "../lib/importedHealthContext.ts";
 import { buildHealthPicture } from "../lib/healthPicture.ts";
 import { buildMemberIntelligenceContext } from "../lib/memberContext.ts";
 import { buildEvidenceEligibleSupplementCandidates } from "../lib/supplementEligibility.ts";
+import { classifyCoachRequest } from "../lib/contextualCoach.ts";
+import { deterministicCoachTask } from "../lib/coachIntent.ts";
+import { validateCoachTaskSuccess } from "../lib/coachTaskValidation.ts";
 
 const reportedRoutine = [
   { name: "Ingredient A + Ingredient B", kind: "supplement" },
@@ -109,4 +112,45 @@ assert.equal(context.importedHealthRecords?.updatedAt, "2026-09-03");
 assert(context.contextFreshness.staleSections.includes("importedHealthRecords"));
 assert.equal(context.healthProfile.status, "missing", "Archive must not fabricate a current intake");
 assert.equal(context.recentCheckIns.status, "missing", "Archive must not fabricate check-ins");
+const lookupQuestion = "What dated lab and sleep records do you have for me, and what do you still not know about how I feel today? Please keep historical records separate from my current state.";
+const lookupRoute = classifyCoachRequest(lookupQuestion);
+assert.equal(lookupRoute.intent, "GENERAL_EDUCATION", "For me must not turn a source lookup into supplement recommendations");
+assert(isImportedHealthRecordLookup("Show my saved lab results"));
+assert(!isImportedHealthRecordLookup("What supplements should I try for my sleep based on my lab results?"));
+assert.equal(classifyCoachRequest("Show my lab records; I have chest pain").intent, "POTENTIAL_MEDICAL_RED_FLAG");
+assert.equal(classifyCoachRequest("Show my lab records and change my medication dose").intent, "REQUEST_TO_CHANGE_RECORD");
+const lookup = deterministicCoachTask(lookupRoute, context, lookupQuestion)!;
+assert.equal(lookup.responseSource, "deterministic");
+assert.match(lookup.answer, /2026-09-01: Example flagged marker: 2 units/);
+assert.match(lookup.answer, /source flag: Source alert; reference interval: 1–3; fasting: No/);
+assert.match(lookup.answer, /2026-08-01–2026-08-30/);
+assert.match(lookup.answer, /2026-09-02–2026-09-03/);
+assert.match(lookup.answer, /Synthetic laboratory handling caveat/);
+assert.match(lookup.answer, /not the measurement date/);
+assert.match(lookup.answer, /No usable recent check-in/);
+assert(!/glycine|magnesium|melatonin|options worth comparing/i.test(lookup.answer));
+const validation = (answerText: string, usedSourceIds = lookup.sourceIds, memberContext = context) => validateCoachTaskSuccess({
+  route: lookupRoute, question: lookupQuestion, answerText, memberContext, usedSourceIds, safetyChecked: true,
+});
+assert(validation(lookup.answer).passed);
+assert(!validation("Glycine is already in your Routine. Options worth comparing: Magnesium, Glycine and Melatonin. Next step: review supplements.").passed);
+assert(!validation(lookup.answer, []).passed, "Source lookup must identify its actual archive source");
+const withoutArchive = structuredClone(context);
+withoutArchive.importedHealthRecords = undefined;
+const missingLookup = deterministicCoachTask(lookupRoute, withoutArchive, lookupQuestion)!;
+assert.match(missingLookup.answer, /No usable lab or sleep archive/);
+assert(!missingLookup.sourceIds.includes("imported_health_records"));
+assert(validation(missingLookup.answer, missingLookup.sourceIds, withoutArchive).passed);
+const withCheckIn = structuredClone(context);
+withCheckIn.recentCheckIns.value = [{ date: "2026-10-04", sleep: 2, energy: 4, weight: null, memberReportedContext: "Example reflection", provenance: { source: "logs", recordId: "synthetic", updatedAt: now.toISOString() } }];
+const currentLookup = deterministicCoachTask(lookupRoute, withCheckIn, lookupQuestion)!;
+assert.match(currentLookup.answer, /latest available check-in is dated 2026-10-04; it contains sleep quality, energy, your own reflection/);
+assert(!currentLookup.answer.includes("No usable recent check-in"));
+assert(validation(currentLookup.answer, currentLookup.sourceIds, withCheckIn).passed);
+const excludedCheckIns = structuredClone(context);
+excludedCheckIns.recentCheckIns.value = [];
+assert.match(deterministicCoachTask(lookupRoute, excludedCheckIns, lookupQuestion)!.answer, /unavailable or excluded/);
+const longNotes = { ...bounded, sourceNotes: Array.from({ length: 12 }, (_, index) => `Synthetic caveat ${index}: ${"x".repeat(320)}`) };
+assert(formatImportedHealthRecordSummary(longNotes).length < 4600);
+assert.match(formatImportedHealthRecordSummary(longNotes), /additional source notes are not shown/);
 console.log("Imported health context: synthetic archive, bounds, dates, missingness, source caveats and canonical context assertions passed.");
