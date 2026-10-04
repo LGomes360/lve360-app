@@ -7,6 +7,8 @@ import type { ImportedHealthSummary } from "../lib/importedHealthContext.ts";
 import { healthItemIdentityKey } from "../lib/healthItemIdentity.ts";
 import { classifyBlueprintRecommendation, recommendationOverlapNames, reconcileBlueprintRecommendationBody } from "../lib/recommendationDecision.ts";
 import { extractReportRecommendationProposals } from "../lib/reportRecommendationProposals.ts";
+import { blueprintSafetyCandidates } from "../lib/blueprintSafetyReview.ts";
+import { evaluateSafetyCandidates, applySafetyEvaluationToMarkdown } from "../lib/safetyEngine.ts";
 
 // Synthetic examples only; never copy member records into fixtures.
 const day = "2026-10-04";
@@ -137,5 +139,31 @@ assert.equal(proposals.length, 1, "Exact aliases, family overlaps, medication en
 assert.equal(healthItemIdentityKey(proposals[0].name), "creatine-monohydrate");
 assert.equal(extractReportRecommendationProposals(reconciled, routine.map((item) => item.name)).length, 1);
 assert.equal(classifyBlueprintRecommendation("Omega-3", []).status, "New - consider", "An absent/stopped routine item is not automatically current.");
+
+const reviewReport = `## Your Blueprint Recommendations
+| Rank | Supplement | Status | Why it Matters |
+| --- | --- | --- | --- |
+| 1 | Omega-3 | Current - optimize | Recorded |
+| 2 | Collagen peptides | Clinician review | Review required |
+| 3 | Magnesium Glycinate | Clinician review | Form overlap |
+| 4 | Metformin | Clinician review | Not a supplement |
+
+## Contraindications & Med Interactions
+- Review Collagen peptides before use.
+`;
+const safetyCandidates = blueprintSafetyCandidates(reviewReport, [
+  { name: "Omega-3 fish oil", dose: "Synthetic recorded amount", is_current: true, instruction_authority: "prescriber" },
+  { name: "Magnesium L-threonate", is_current: true },
+]);
+assert.equal(safetyCandidates.length, 4, "Recheck proposals, including review-only and form-overlap ideas, alongside current items.");
+assert.equal(safetyCandidates.filter((item) => healthItemIdentityKey(item.name) === "omega-3").length, 1);
+assert.equal(safetyCandidates[0].dose, "Synthetic recorded amount", "A report alias must not overwrite recorded instructions.");
+assert.equal(safetyCandidates[0].instruction_authority, "prescriber");
+assert(!safetyCandidates.some((item) => item.name === "Metformin"));
+assert.equal(safetyCandidates.find((item) => item.name === "Collagen peptides")?.is_current, false);
+const checked = evaluateSafetyCandidates({ medications: ["Synthetic unknown medication"] }, safetyCandidates, {
+  interactions: [{ ingredient: "Collagen peptides" }, { ingredient: "Omega-3" }], rules: [],
+});
+assert.match(applySafetyEvaluationToMarkdown(reviewReport, checked), /Clinician review: Collagen peptides/, "Current-only safety rechecks must not omit report proposals.");
 
 console.log("Blueprint five-area overview and routine reconciliation assertions passed.");

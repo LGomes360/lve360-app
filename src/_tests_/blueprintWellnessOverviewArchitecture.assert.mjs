@@ -17,6 +17,7 @@ const routineClient = read("app/(app)/routine/RoutineClient.tsx");
 
 assert.match(page, /\.eq\("user_id", user\.id\)/);
 assert.match(page, /getMemberIntelligenceContext\(user\.id\)/);
+assert.match(page, /blueprintSafetyCandidates\(storedMarkdown, \[/, "Live safety must include saved report proposals, not only the current routine.");
 assert.match(page, /loadConnectedHealthSummary\(admin, user\.id\)/);
 assert.match(page, /loadLatestHealthContextHandoff\(admin, user\.id\)/);
 assert.match(connectedLoader, /\.eq\("user_id", userId\)/);
@@ -36,9 +37,12 @@ assert(client.indexOf("<BlueprintWellnessOverviewCard") < client.indexOf("<Recom
 assert.match(client, /Read the original saved recommendations/);
 assert.match(client, /The saved report and PDF are unchanged/);
 assert.match(client, /item\.decision\.overlap_snapshot\.length\) \{[\s\S]*?Nothing was added[\s\S]*?return;/);
+assert.match(client, /recommendationNeedsClinicianReview\(item\.proposal\.notes\)/);
+assert.match(client, /clinicianReview \? "Add after review" : "Add to Routine"/);
 assert.match(client, /item\.decision\.overlap_snapshot\.length \? \([\s\S]*?Review overlap in Routine[\s\S]*?\) : \([\s\S]*?Add to Routine/);
 assert.match(decisions, /currentItems\.filter\(\(item\) => item\.active !== false\)/);
 assert.match(decisions, /seenProposalNames/);
+assert.match(decisions, /reportNotes\.get\(healthItemIdentityKey\(item\.name\)\)/, "Live report restrictions must reach the decision controls without dropping saved notes.");
 assert.doesNotMatch(decisions, /\.delete\(/, "Filtering duplicate ideas must preserve stored history.");
 const adoption = regimen.slice(regimen.indexOf("export async function adoptStackRecommendation"), regimen.indexOf("export async function upsertManualRegimenItem"));
 assert.match(adoption, /classifyBlueprintRecommendation\(item\.name, await getCurrentRegimen\(userId\)\)/);
@@ -54,6 +58,7 @@ assert.doesNotMatch(intro, /first additions|newBlueprint/);
 const dosing = generator.slice(generator.indexOf("function consistentDosingBody"), generator.indexOf("function assembleCanonicalReport"));
 assert(dosing.indexOf('classification.status === "Clinician review"') < dosing.indexOf("formatStartingGuidance(name)"));
 assert.match(dosing, /no starting dose or new schedule is supplied/);
+assert.match(dosing, /healthItemIdentityKey\(item\.name\) === healthItemIdentityKey\(name\)/, "Never copy a blend's dose onto an overlapping standalone ingredient.");
 assert.doesNotMatch(generator, /Math\.max\(4, minRows/);
 assert.match(read("src/lib/blueprintWorkspace.ts"), /BLUEPRINT_ENGINE_VERSION = "2026-10-04\.1"/);
 assert.match(release, /qa:blueprint-overview/, "Keep this regression check in the permanent release gate.");

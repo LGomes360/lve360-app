@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireTier } from "@/app/_auth/requireTier";
 import { buildBlueprintDelta } from "@/lib/blueprintDelta";
 import { parseBlueprintReport } from "@/lib/blueprintReport";
+import { blueprintSafetyCandidates } from "@/lib/blueprintSafetyReview";
 import {
   blueprintMarkdownFromStack,
   deriveBlueprintSafetyStatus,
@@ -84,7 +85,7 @@ export default async function BlueprintPage({ params }: PageProps) {
         procedures: profile?.procedures ?? [],
         pregnant: profile?.pregnant ?? null,
       },
-      [
+      blueprintSafetyCandidates(storedMarkdown, [
         ...memberContext.regimen.supplements.value,
         ...memberContext.regimen.endocrineActiveSupplements.value,
       ].map((item) => ({
@@ -92,7 +93,7 @@ export default async function BlueprintPage({ params }: PageProps) {
         dose: item.dose,
         is_current: true,
         instruction_authority: item.instruction_authority,
-      })),
+      }))),
     );
     markdown = applySafetyEvaluationToMarkdown(storedMarkdown, liveSafety);
   }

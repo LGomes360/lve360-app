@@ -9,6 +9,7 @@ import {
   type RecommendationProposalInput,
 } from "@/lib/recommendationDecision";
 import { healthItemIdentityKey } from "@/lib/healthItemIdentity";
+import { parseMarkdownToItems } from "@/lib/parseMarkdownToItems";
 import { isEligibleSupplementName, isMedicationOrHormoneName } from "@/lib/supplementEligibility";
 import { extractReportRecommendationProposals } from "@/lib/reportRecommendationProposals";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
@@ -124,6 +125,8 @@ export async function getStackRecommendationDecisions(
   }
 
   const currentNames = new Set(activeItems.map((item) => healthItemIdentityKey(item.name)));
+  const reportNotes = new Map(parseMarkdownToItems(reportMarkdown)
+    .map((item) => [healthItemIdentityKey(item.name), item.notes] as const));
   const seenProposalNames = new Set<string>();
   const proposals = (data ?? [])
     .filter((item) => {
@@ -147,7 +150,9 @@ export async function getStackRecommendationDecisions(
       dose: item.dose,
       timing: item.timing,
       timing_text: item.timing_text,
-      notes: item.notes,
+      // Preserve saved restrictions and add any live report restriction without
+      // rewriting the proposal or the member's decision.
+      notes: [...new Set([item.notes, reportNotes.get(healthItemIdentityKey(item.name))].filter(Boolean))].join("\n") || null,
       rationale: item.rationale,
       link_amazon: item.link_amazon,
       link_fullscript: item.link_fullscript,

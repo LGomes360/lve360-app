@@ -32,6 +32,7 @@ import type {
   MemberRecommendationDecision,
   RecommendationDecisionRecord,
 } from "@/lib/recommendationDecision";
+import { recommendationNeedsClinicianReview } from "@/lib/recommendationDecision";
 
 import BlueprintDeltaPanel from "./BlueprintDeltaPanel";
 import BlueprintWellnessOverviewCard from "@/components/BlueprintWellnessOverviewCard";
@@ -60,6 +61,7 @@ type RecommendationSummary = {
     dose: string | null;
     timing: string | null;
     timing_text: string | null;
+    notes: string | null;
     link_amazon: string | null;
     link_fullscript: string | null;
   };
@@ -288,7 +290,7 @@ export default function BlueprintWorkspaceClient({
       setError("Review the overlapping items in Routine before considering another source. Nothing was added.");
       return;
     }
-    if (item.decision.status === "clinician_review") {
+    if (item.decision.status === "clinician_review" || recommendationNeedsClinicianReview(item.proposal.notes)) {
       const confirmed = window.confirm(
         "This recommendation has an overlap or clinician-review note. Only add it after you have checked that it belongs in your routine."
       );
@@ -632,6 +634,7 @@ function RecommendationDecisionPanel({
         {ordered.map((item) => {
           const busy = busyId === item.proposal.id;
           const active = item.decision.status === "review" || item.decision.status === "clinician_review";
+          const clinicianReview = item.decision.status === "clinician_review" || recommendationNeedsClinicianReview(item.proposal.notes);
           const link = item.proposal.link_fullscript || item.proposal.link_amazon;
           return (
             <li key={item.proposal.id} className={`rounded-2xl border p-4 sm:p-5 ${active ? "border-[#BCE3DA] bg-white" : "border-slate-200 bg-slate-50"}`}>
@@ -649,6 +652,7 @@ function RecommendationDecisionPanel({
                   <strong>Possible overlap — review existing sources:</strong> Your recorded routine includes {item.decision.overlap_snapshot.join(", ")}. This is not a new addition to make. Check ingredients and forms with your clinician before considering another source.
                 </p>
               ) : null}
+              {clinicianReview ? <p className="mt-3 rounded-xl bg-amber-100 p-3 text-sm font-semibold text-amber-900">Clinician or healthcare provider review is recommended before adding this. Review the report's safety notes first.</p> : null}
               {!item.decision.overlap_snapshot.length && [item.proposal.dose, item.proposal.timing_text || item.proposal.timing].some(Boolean) ? (
                 <p className="mt-3 text-sm text-slate-600">
                   <strong>Report starting guidance:</strong> {[item.proposal.dose, item.proposal.timing_text || item.proposal.timing].filter(Boolean).join(" · ")}
@@ -661,7 +665,7 @@ function RecommendationDecisionPanel({
                   ) : (
                     <button type="button" disabled={busy} onClick={() => void onAdopt(item)} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#087F72] px-4 py-3 text-sm font-bold text-white hover:bg-[#06695F] disabled:opacity-60">
                       {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" />}
-                      {item.decision.status === "clinician_review" ? "Add after review" : "Add to Routine"}
+                      {clinicianReview ? "Add after review" : "Add to Routine"}
                     </button>
                   )}
                   <button type="button" disabled={busy} onClick={() => onDecision(item.proposal.id, "clinician_review")} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-bold text-amber-900 hover:bg-amber-50 disabled:opacity-60">

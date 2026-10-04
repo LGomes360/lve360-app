@@ -561,7 +561,7 @@ function consistentDosingBody(
     .filter((entry): entry is readonly [string, string] => Boolean(entry[0])));
   const blueprintLines = blueprint.map((name) => {
     const current = ledger.find((item) => item.kind === "supplement" &&
-      normalizeSupplementName(item.name).toLowerCase() === normalizeSupplementName(name).toLowerCase());
+      healthItemIdentityKey(item.name) === healthItemIdentityKey(name));
     const reported = [current?.dose, current?.timing].filter(Boolean).join(", ");
     if (current && reported) return `- **${name}** -- Your reported routine: ${reported}.`;
     const classification = classifyBlueprintRecommendation(name, ledger);
