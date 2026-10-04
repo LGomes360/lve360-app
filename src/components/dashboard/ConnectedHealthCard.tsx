@@ -82,6 +82,19 @@ export default function ConnectedHealthCard({
               </table>
             </div>
           ) : null}
+          {importedRecords.sleep ? (
+            <div className="mt-4 text-xs leading-5 text-slate-600">
+              <h3 className="font-bold text-[#041B2D]">Archived sleep-device reports</h3>
+              {importedRecords.sleep.pap ? <p className="mt-2">PAP report window: {importedRecords.sleep.pap.startDate}–{importedRecords.sleep.pap.endDate}. Source-reported average AHI: {importedRecords.sleep.pap.averageAhi ?? "not supplied"} events/hour. This aggregate does not establish exact-night device use or treatment efficacy.</p> : null}
+              <ul className="mt-2 space-y-2">
+                {importedRecords.sleep.oxygen.map((recording, index) => (
+                  <li key={`${recording.startDate}-${index}`}>
+                    Oxygen recording {recording.startDate}–{recording.endDate}: mean SpO₂ {recording.meanSpo2 == null ? "not supplied" : `${recording.meanSpo2}%`}; minimum {recording.minimumSpo2 == null ? "not supplied" : `${recording.minimumSpo2}%`}; recorded time below 90% {recording.timeBelow90 ?? "not supplied"} (hours:minutes:seconds).
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {importedRecords.donationDates.length ? <p className="mt-3 text-xs leading-5 text-slate-600">Source-recorded donation dates: {importedRecords.donationDates.join(", ")}. A later donation is not evidence of a changed lab result.</p> : null}
           <ul className="mt-3 list-disc space-y-2 pl-5 text-xs leading-5 text-slate-600">
             {[...importedRecords.evidenceLimits, ...importedRecords.sourceNotes].map((note, index) => <li key={index}>{note}</li>)}
