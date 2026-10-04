@@ -78,7 +78,7 @@ export default function PremiumActivationChecklist({
               Connect this Blueprint
             </button>
           ) : progress.blueprint.status === "missing" ? (
-            <Link href={progress.blueprint.intakeSubmissionId ? `/results?submission_id=${encodeURIComponent(progress.blueprint.intakeSubmissionId)}` : "/quiz"} className="inline-flex min-h-11 items-center rounded-xl bg-[#087F72] px-4 py-2 font-bold text-white hover:bg-[#06695F]">
+            <Link href={progress.blueprint.intakeSubmissionId ? `/results/premium?submission_id=${encodeURIComponent(progress.blueprint.intakeSubmissionId)}&from_saved_profile=1` : "/quiz"} className="inline-flex min-h-11 items-center rounded-xl bg-[#087F72] px-4 py-2 font-bold text-white hover:bg-[#06695F]">
               {progress.blueprint.intakeSubmissionId ? "Create Blueprint from my saved profile" : "Complete my health intake"}
             </Link>
           ) : progress.blueprint.stackId ? (

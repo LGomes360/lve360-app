@@ -16,7 +16,7 @@ Make member-authorized historical records useful on Today and in Ask LVE360/Blue
 
 ## Activation
 
-Members with an owner-linked saved intake but no Blueprint get a link to the existing Results generation flow, not another intake. Step 1 remains incomplete until a Blueprint actually exists. No weekly practice or action completion is fabricated.
+Members with an owner-linked saved intake but no Blueprint get an owner-bound link to the Premium Results flow, not another intake. The explicit saved-profile entry offers **Create my Blueprint** before issuing the generation POST; it never claims an intake webhook is already generating a report. Existing reports still take precedence. Step 1 remains incomplete until a Blueprint actually exists. No weekly practice or action completion is fabricated.
 
 ## Verification
 
