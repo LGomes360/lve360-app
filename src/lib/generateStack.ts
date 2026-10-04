@@ -34,6 +34,7 @@ import {
   isPreferenceFieldOrValue,
   preferenceValuesFound,
   RECOMMENDABLE_SUPPLEMENT_CANDIDATES,
+  buildEvidenceEligibleSupplementCandidates,
 } from "@/lib/supplementEligibility";
 import { blueprintInputSnapshotHash } from "@/lib/blueprintWorkspace";
 import { ensureCurrentRegimen } from "@/lib/currentRegimen";
@@ -1767,12 +1768,14 @@ const inputSnapshotHash = options?.inputSnapshotHash ?? blueprintInputSnapshotHa
 const berberineRequiresReview = /\b(?:metformin|zepbound|tirzepatide|mounjaro|diabet(?:es|ic)?|blood sugar|glucose|a1c)\b/i.test(
   JSON.stringify({ currentStackLedger, conditions: conditionsRaw })
 );
-const recommendableSupplementLedger = Array.from(new Set([
-  ...RECOMMENDABLE_SUPPLEMENT_CANDIDATES,
-  ...currentStackLedger
-    .filter((item) => item.kind === "supplement" && isEligibleSupplementName(item.name))
-    .map((item) => item.name),
-])).map((name) => ({ name }));
+// Keep every reported item in the source ledger and safety evaluation. Only
+// evidence-backed names may enter recommendation selection; an uncited blend
+// must not abort the entire report or borrow one ingredient's citation.
+const recommendableSupplementLedger = buildEvidenceEligibleSupplementCandidates(
+  currentStackLedger,
+  (name) => asArray(attachEvidence({ name }).citations)
+    .some((url) => CURATED_CITE_RE.test(String(url)) || MODEL_CITE_RE.test(String(url))),
+);
 const missingRepeatedTallyItems = findMissingRepeatedTallyItems(sub, currentStackLedger);
 if (missingRepeatedTallyItems.length) {
   console.warn("[gen.intake] repeated Tally fields missing from ledger", missingRepeatedTallyItems);

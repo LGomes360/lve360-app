@@ -13,6 +13,7 @@ Make member-authorized historical records useful on Today and in Ask LVE360/Blue
 - Browser props and AI prompts receive only the bounded projection. Raw archives and raw intake payloads are removed from every Blueprint prompt pass.
 - Source age, not import age, determines canonical-context staleness. Historical data never creates a check-in, current weight, emotional state, routine dose confirmation, or safety acknowledgement.
 - Missing archives remain normal for other members. They neither enable a connector nor prove a medical result.
+- A reported supplement or blend without aligned evidence remains in the source ledger and safety review, but cannot enter recommendation selection. Evidence checks remain fail-closed; an unsupported routine item does not block unrelated, evidence-backed recommendations or borrow another ingredient's citation.
 
 ## Activation
 

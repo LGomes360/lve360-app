@@ -82,3 +82,21 @@ export function isEligibleSupplementName(value: unknown): boolean {
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(text)
   );
 }
+
+/** A reported routine is a record, not evidence for a recommendation. */
+export function buildEvidenceEligibleSupplementCandidates(
+  reportedItems: ReadonlyArray<{ name: string; kind: string }>,
+  hasAlignedEvidence: (name: string) => boolean,
+): Array<{ name: string }> {
+  const names = [
+    ...RECOMMENDABLE_SUPPLEMENT_CANDIDATES,
+    ...reportedItems.filter((item) => item.kind === "supplement").map((item) => item.name),
+  ];
+  const seen = new Set<string>();
+  return names.flatMap((name) => {
+    const key = normalize(name);
+    if (seen.has(key) || !isEligibleSupplementName(name) || !hasAlignedEvidence(name)) return [];
+    seen.add(key);
+    return [{ name }];
+  });
+}

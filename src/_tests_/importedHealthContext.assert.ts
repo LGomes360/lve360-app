@@ -2,6 +2,22 @@ import assert from "node:assert/strict";
 import { summarizeImportedHealthArchive, withoutSubmissionSourcePayloads, IMPORTED_HEALTH_PROMPT_RULES } from "../lib/importedHealthContext.ts";
 import { buildHealthPicture } from "../lib/healthPicture.ts";
 import { buildMemberIntelligenceContext } from "../lib/memberContext.ts";
+import { buildEvidenceEligibleSupplementCandidates } from "../lib/supplementEligibility.ts";
+
+const reportedRoutine = [
+  { name: "Ingredient A + Ingredient B", kind: "supplement" },
+  { name: "Synthetic supported supplement", kind: "supplement" },
+  { name: "Synthetic prescription", kind: "medication" },
+  { name: "Synthetic hormone", kind: "hormone" },
+];
+const preservedRoutine = structuredClone(reportedRoutine);
+const backedNames = new Set(["Omega-3", "Synthetic supported supplement", "Synthetic prescription", "Synthetic hormone"]);
+assert.deepEqual(buildEvidenceEligibleSupplementCandidates(reportedRoutine, (name) => backedNames.has(name)), [
+  { name: "Omega-3" }, { name: "Synthetic supported supplement" },
+]);
+assert.deepEqual(reportedRoutine, preservedRoutine, "Evidence eligibility must not alter the member's reported routine");
+assert.deepEqual(buildEvidenceEligibleSupplementCandidates(reportedRoutine, () => false), [], "Never manufacture an evidence-backed candidate");
+assert.equal(buildEvidenceEligibleSupplementCandidates([{ name: "Omega-3", kind: "supplement" }], () => true).filter((item) => item.name === "Omega-3").length, 1);
 
 // Entirely synthetic records. Never copy member health data into repository fixtures.
 const now = new Date("2026-10-04T12:00:00Z");
