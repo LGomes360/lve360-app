@@ -28,7 +28,9 @@ function percentLabel(value: number | null): string {
   return value === null ? "Not enough data" : `${Math.round(value * 100)}%`;
 }
 
-function moneyLabel(value: number): string {
+function moneyLabel(value: number | null): string {
+  if (value === null) return "Unavailable";
+  if (value > 0 && value < 0.01) return "<$0.01";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(value);
 }
 
@@ -40,7 +42,7 @@ export default async function FounderDashboardPage() {
 
   const dashboard = await loadFounderDashboard();
   const reminderNeedsAttention = Boolean(dashboard.reminders && (dashboard.reminders.failed > 0 || dashboard.reminders.bounced > 0));
-  const aiNeedsAttention = Boolean(dashboard.ai && dashboard.ai.failed > 0);
+  const aiNeedsAttention = Boolean(dashboard.ai && (dashboard.ai.failed > 0 || dashboard.ai.unknownCostGenerations > 0 || dashboard.ai.truncated));
   const accessNeedsAttention = Boolean((dashboard.access.pendingRequests ?? 0) > 0 || (dashboard.access.expiredInvitations ?? 0) > 0);
   const needsAttention = reminderNeedsAttention || aiNeedsAttention || accessNeedsAttention || dashboard.issues.length > 0;
   const selectedScorecard = dashboard.scorecard.filter((metric) => [
@@ -108,7 +110,7 @@ export default async function FounderDashboardPage() {
         </div>
         <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            <MetricCard icon={Users} label="Active members" value={numberLabel(dashboard.engagement.activeMembersLast7Days)} detail="Distinct members with activity in 7 days" />
+            <MetricCard icon={Users} label="Accounts with activity" value={numberLabel(dashboard.engagement.activeMembersLast7Days)} detail="Any recorded event in 7 days, including page views" />
             <MetricCard icon={Activity} label="Active weekly practices" value={numberLabel(dashboard.engagement.activeWeeklyPractices)} detail="Practices currently in progress" />
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -165,19 +167,21 @@ export default async function FounderDashboardPage() {
             </div>
             {dashboard.ai ? (
               <>
-                <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
                   <SmallMetric label="Generations" value={String(dashboard.ai.generations)} />
-                  <SmallMetric label="Estimated cost" value={moneyLabel(dashboard.ai.estimatedCostUsd)} />
+                  <SmallMetric label="Known estimated cost" value={moneyLabel(dashboard.ai.estimatedCostUsd)} />
+                  <SmallMetric label="Unknown-cost generations" value={String(dashboard.ai.unknownCostGenerations)} attention={dashboard.ai.unknownCostGenerations > 0} />
                   <SmallMetric label="Failures" value={String(dashboard.ai.failed)} attention={dashboard.ai.failed > 0} />
                   <SmallMetric label="Fallbacks" value={String(dashboard.ai.fallbackUsed)} attention={dashboard.ai.fallbackUsed > 0} />
                   <SmallMetric label="Avg latency" value={dashboard.ai.averageLatencyMs === null ? "No data" : `${(dashboard.ai.averageLatencyMs / 1_000).toFixed(1)}s`} />
                 </div>
+                <p className="mt-3 text-xs text-slate-500">Known estimates exclude generations with unknown cost and have not been reconciled with provider billing.</p>
                 {dashboard.ai.topTasks.length > 0 ? (
                   <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200">
                     <table className="min-w-[32rem] w-full text-left text-sm">
-                      <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">AI task</th><th className="px-4 py-3 text-right">Uses</th><th className="px-4 py-3 text-right">Cost</th></tr></thead>
+                      <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">AI task</th><th className="px-4 py-3 text-right">Uses</th><th className="px-4 py-3 text-right">Known cost</th></tr></thead>
                       <tbody className="divide-y divide-slate-100">
-                        {dashboard.ai.topTasks.map((task) => <tr key={task.task}><td className="px-4 py-3 font-semibold text-[#041B2D]">{task.task}</td><td className="px-4 py-3 text-right text-slate-600">{task.generations}</td><td className="px-4 py-3 text-right text-slate-600">{moneyLabel(task.estimatedCostUsd)}</td></tr>)}
+                        {dashboard.ai.topTasks.map((task) => <tr key={task.task}><td className="px-4 py-3 font-semibold text-[#041B2D]">{task.task}</td><td className="px-4 py-3 text-right text-slate-600">{task.generations}</td><td className="px-4 py-3 text-right text-slate-600">{moneyLabel(task.estimatedCostUsd)}{task.unknownCostGenerations > 0 ? <span className="mt-1 block text-xs text-amber-700">{task.unknownCostGenerations} unknown</span> : null}</td></tr>)}
                       </tbody>
                     </table>
                   </div>
