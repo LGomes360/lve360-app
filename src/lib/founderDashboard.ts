@@ -2,6 +2,7 @@ import "server-only";
 
 import { getProductMode } from "./productMode";
 import { getSupabaseAdmin } from "./supabaseAdmin";
+import { summarizeFounderAiCosts, type FounderAiCosts } from "./founderAiCosts";
 
 const ROW_LIMIT = 5_000;
 
@@ -38,9 +39,10 @@ export type FounderDashboardData = {
     generations: number;
     failed: number;
     fallbackUsed: number;
-    estimatedCostUsd: number;
+    estimatedCostUsd: number | null;
+    unknownCostGenerations: number;
     averageLatencyMs: number | null;
-    topTasks: Array<{ task: string; generations: number; estimatedCostUsd: number }>;
+    topTasks: FounderAiCosts["topTasks"];
     truncated: boolean;
   } | null;
   scorecard: Array<{
@@ -170,36 +172,28 @@ export async function loadFounderDashboard(): Promise<FounderDashboardData> {
     issues.push(`AI operational health is unavailable: ${aiResult.error.message}`);
   } else {
     const rows = (aiResult.data ?? []) as AiLedgerRow[];
-    const taskTotals = new Map<string, { generations: number; estimatedCostUsd: number }>();
-    let estimatedCostUsd = 0;
+    const costs = summarizeFounderAiCosts(rows);
     let totalLatencyMs = 0;
     let failed = 0;
     let fallbackUsed = 0;
     for (const row of rows) {
-      const cost = numberValue(row.estimated_cost_usd);
-      estimatedCostUsd += cost;
       totalLatencyMs += numberValue(row.latency_ms);
       if (row.status === "failed") failed += 1;
       if (row.fallback_used) fallbackUsed += 1;
-      const current = taskTotals.get(row.task) ?? { generations: 0, estimatedCostUsd: 0 };
-      current.generations += 1;
-      current.estimatedCostUsd += cost;
-      taskTotals.set(row.task, current);
     }
     ai = {
       generations: rows.length,
       failed,
       fallbackUsed,
-      estimatedCostUsd,
+      ...costs,
       averageLatencyMs: rows.length > 0 ? Math.round(totalLatencyMs / rows.length) : null,
-      topTasks: [...taskTotals.entries()]
-        .map(([task, values]) => ({ task, ...values }))
-        .sort((left, right) => right.estimatedCostUsd - left.estimatedCostUsd || right.generations - left.generations)
-        .slice(0, 5),
       truncated: rows.length === ROW_LIMIT,
     };
     if (ai.truncated) {
       issues.push("AI operations reporting reached the row limit; the 30-day totals may be understated.");
+    }
+    if (ai.unknownCostGenerations > 0) {
+      issues.push(`AI cost reporting is incomplete: ${ai.unknownCostGenerations} generation(s) have unknown cost. The known subtotal excludes them.`);
     }
   }
 

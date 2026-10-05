@@ -32,6 +32,9 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Check founder AI cost completeness
+        run: npm run qa:founder-costs
+
       - name: Check env secrets presence (debug)
         run: |
           set -e
